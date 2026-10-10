@@ -54,7 +54,7 @@ export default function DocumentsPage() {
   const [extracting, setExtracting] = useState({});
   const [extractErr, setExtractErr] = useState({});
 
-  async function extract(id) {
+  async function extract(id, force = false) {
     setExtracting((m) => ({ ...m, [id]: true }));
     setExtractErr((m) => ({ ...m, [id]: null }));
     try {
@@ -62,10 +62,10 @@ export default function DocumentsPage() {
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token || ''}` },
-        body: JSON.stringify({ documentId: id }),
+        body: JSON.stringify({ documentId: id, force }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Extraction failed (${res.status})`);
+      if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
     } catch (err) {
       setExtractErr((m) => ({ ...m, [id]: err.message }));
@@ -220,7 +220,7 @@ export default function DocumentsPage() {
                   <>
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
                     {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
-                    <button onClick={() => extract(d.id)} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
+                    <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
                       {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
                     </button>
                   </>
