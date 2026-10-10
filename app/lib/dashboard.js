@@ -17,17 +17,23 @@ const PAGE = 1000;
 const MAX_ROWS = 10000;
 
 // Fetch all rows for a query factory, 1000 at a time (capped).
+// make(selectOpts) must pass selectOpts as the 2nd argument of .select(); the first page asks for
+// { count: 'exact' } so we can tell if we got fewer rows than exist (cap or server max-rows).
 export async function fetchPaged(make) {
   const out = [];
+  let total = null;
   // Keep fetching until a page comes back short or empty; stop at the safety cap.
   while (out.length < MAX_ROWS) {
-    const { data, error } = await make().range(out.length, out.length + PAGE - 1);
+    const first = out.length === 0;
+    const { data, error, count } = await make(first ? { count: 'exact' } : undefined).range(out.length, out.length + PAGE - 1);
     if (error) throw error;
+    if (first && typeof count === 'number') total = count;
     const page = data || [];
     out.push(...page);
-    if (page.length < PAGE) return { rows: out, truncated: false };
+    if (page.length < PAGE) break;
   }
-  return { rows: out, truncated: true };
+  const truncated = out.length >= MAX_ROWS || (total !== null && out.length < total);
+  return { rows: out, truncated, total };
 }
 
 const pad = (n) => String(n).padStart(2, '0');

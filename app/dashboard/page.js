@@ -109,10 +109,10 @@ export default function DashboardPage() {
 
       // Candidate loads: any stop appointment in range, or created in range. Week assignment happens client-side.
       const [stopsRes, createdRes, milesRes, expRes] = await Promise.all([
-        fetchPaged(() => supabase.from('stops').select('load_id').gte('appointment_start', fromTs).lt('appointment_start', toTs).order('id')),
-        fetchPaged(() => supabase.from('loads').select(loadCols).gte('created_at', fromTs).lt('created_at', toTs).order('id')),
-        fetchPaged(() => supabase.from('mileage_entries').select('id, miles, source, entry_date').gte('entry_date', fromISO).lt('entry_date', toISO).order('id')),
-        fetchPaged(() => supabase.from('expenses').select('id, amount, category, expense_date').gte('expense_date', fromISO).lt('expense_date', toISO).order('id')),
+        fetchPaged((o) => supabase.from('stops').select('load_id', o).gte('appointment_start', fromTs).lt('appointment_start', toTs).order('id')),
+        fetchPaged((o) => supabase.from('loads').select(loadCols, o).gte('created_at', fromTs).lt('created_at', toTs).order('id')),
+        fetchPaged((o) => supabase.from('mileage_entries').select('id, miles, source, entry_date', o).gte('entry_date', fromISO).lt('entry_date', toISO).order('id')),
+        fetchPaged((o) => supabase.from('expenses').select('id, amount, category, expense_date', o).gte('expense_date', fromISO).lt('expense_date', toISO).order('id')),
       ]);
       const byId = new Map(createdRes.rows.map((l) => [l.id, l]));
       const missing = [...new Set(stopsRes.rows.map((r) => r.load_id))].filter((id) => id && !byId.has(id));
@@ -170,7 +170,7 @@ export default function DashboardPage() {
           <>
             {error && <p style={s.error}>{error}</p>}
             {busy && <p style={s.muted}>Loading…</p>}
-            {truncated && <p style={{ ...s.muted, fontSize: '0.8rem' }}>Showing the first 10,000 rows of some data; totals may be incomplete.</p>}
+            {truncated && <p style={{ ...s.muted, fontSize: '0.8rem' }}>Some data could not be fully loaded (row limit reached); totals may be incomplete.</p>}
             {rows && total && (
               <>
                 <div style={s.card}>
