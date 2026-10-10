@@ -62,10 +62,12 @@ function ExpensesInner() {
         .order('expense_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('loads').select('id, broker_name, broker_load_number, rate, created_at').order('created_at', { ascending: false }),
     ]);
-    if (ee) { console.error('[expenses] fetch expenses', ee); setStatus({ type: 'error', text: 'Could not load expenses. Please refresh.' }); }
+    const problems = [];
+    if (ee) { console.error('[expenses] fetch expenses', ee); problems.push('Could not load expenses. Please refresh.'); }
     else setExpenses(e || []);
-    if (le) { console.error('[expenses] fetch loads', le); setStatus({ type: 'error', text: 'Could not load your loads; load links may be missing. Please refresh.' }); }
+    if (le) { console.error('[expenses] fetch loads', le); problems.push('Could not load your loads; load links may be missing. Please refresh.'); }
     else setLoads(l || []);
+    return problems;
   }
 
   useEffect(() => {
@@ -74,7 +76,7 @@ function ExpensesInner() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => fetchAll(), 0);
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(async () => { const p = await fetchAll(); if (p.length) setStatus({ type: 'error', text: p.join(' ') }); }, 0);
       if (event === 'SIGNED_OUT') { setExpenses([]); setLoads([]); }
     });
     return () => sub.subscription.unsubscribe();
@@ -161,12 +163,16 @@ function ExpensesInner() {
           warnings.push(err.user ? err.message : "the receipt couldn't be uploaded");
         }
       }
-      setStatus(warnings.length
-        ? { type: 'error', text: `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.` }
-        : { type: 'ok', text: editing ? 'Expense updated.' : 'Expense added.' });
+      const saveMsg = warnings.length
+        ? `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.`
+        : (editing ? 'Expense updated.' : 'Expense added.');
       setForm(emptyForm(editing ? presetLoad : form.load_id));
       setFile(null); setFileKey((k) => k + 1);
-      await fetchAll();
+      // Refresh, but never let a refresh error hide the save result: show both.
+      const problems = await fetchAll();
+      setStatus(warnings.length || problems.length
+        ? { type: 'error', text: [saveMsg, ...problems].join(' ') }
+        : { type: 'ok', text: saveMsg });
     } catch (err) {
       failMsg('Something went wrong. Please try again.', err);
     } finally {
@@ -185,7 +191,8 @@ function ExpensesInner() {
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
     if (form.id === x.id) setForm(emptyForm(presetLoad));
-    fetchAll();
+    const problems = await fetchAll();
+    if (problems.length) setStatus({ type: 'error', text: problems.join(' ') });
   }
 
   async function viewReceipt(doc) {
