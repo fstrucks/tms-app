@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -49,6 +50,37 @@ export default function DocumentsPage() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [converting, setConverting] = useState(false);
+  const router = useRouter();
+  const [creating, setCreating] = useState({});
+
+  const LOAD_ERRORS = {
+    already_linked: 'This document is already linked to a load.',
+    no_extracted_data: 'Run extraction first. This document has no extracted data.',
+    document_not_found: 'Document not found.',
+  };
+
+  // Server-side, single transaction: creates load + stops and links the document.
+  async function createLoad(doc) {
+    if (doc.load_id || creating[doc.id]) return;
+    setCreating((m) => ({ ...m, [doc.id]: true }));
+    setStatus(null);
+    try {
+      const { data: loadId, error } = await supabase.rpc('create_load_from_document', { p_document: doc.id });
+      if (error) {
+        const code = Object.keys(LOAD_ERRORS).find((k) => (error.message || '').includes(k));
+        console.error('create_load_from_document', error);
+        if (code === 'already_linked') loadDocs();
+        throw new Error(LOAD_ERRORS[code] || 'Could not create the load, please try again.');
+      }
+      setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
+      router.push(`/loads/${loadId}`);
+    } catch (err) {
+      setStatus({ type: 'error', text: err.message });
+    } finally {
+      setCreating((m) => ({ ...m, [doc.id]: false }));
+    }
+  }
+
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
   const [extracting, setExtracting] = useState({});
@@ -78,7 +110,7 @@ export default function DocumentsPage() {
   async function loadDocs() {
     const { data, error } = await supabase
       .from('documents')
-      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data')
+      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
       .order('created_at', { ascending: false });
     if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
     setDocs(data || []);
@@ -171,7 +203,7 @@ export default function DocumentsPage() {
 
   return (
     <main style={s.main}>
-      <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
+      <p style={{ display: 'flex', gap: '1rem' }}><Link href="/" style={{ color: '#2563eb' }}>← Home</Link><Link href="/loads" style={{ color: '#2563eb' }}>Loads</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
 
       {supabaseConfigError ? (
@@ -222,6 +254,13 @@ export default function DocumentsPage() {
                     <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
                       {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
                     </button>
+                    {d.load_id ? (
+                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: '#059669', marginTop: '0.25rem' }}>View load</Link>
+                    ) : d.ai_extracted_data ? (
+                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: '#059669', opacity: creating[d.id] ? 0.6 : 1 }}>
+                        {creating[d.id] ? 'Creating load…' : 'Create load'}
+                      </button>
+                    ) : null}
                   </>
                 )}
               </div>
