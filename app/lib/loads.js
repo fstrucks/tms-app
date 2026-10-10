@@ -43,34 +43,3 @@ export function stopSummary(stop) {
   const date = fmtDate(stop.scheduled_date);
   return date ? `${place} · ${date}` : place;
 }
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Build load + stop rows from documents.ai_extracted_data.
-export function loadFromExtraction(x) {
-  const rate = typeof x?.rate === 'number' ? x.rate : null;
-  const load = {
-    status: 'booked',
-    broker_name: x?.broker_name || null,
-    load_number: x?.load_number || null,
-    reference_numbers: Array.isArray(x?.reference_numbers) && x.reference_numbers.length ? x.reference_numbers : null,
-    rate,
-    notes: x?.notes || null,
-  };
-  const stop = (type, seq, party, when) => {
-    const date = when?.date && ISO_DATE.test(when.date) ? when.date : null;
-    const timeBits = [when?.time, when?.date && !date ? when.date : null].filter(Boolean);
-    return {
-      sequence: seq,
-      stop_type: type,
-      name: party?.name || null,
-      address: when?.address || party?.address || null,
-      scheduled_date: date,
-      scheduled_time: timeBits.length ? timeBits.join(' ') : null,
-    };
-  };
-  return {
-    load,
-    stops: [stop('pickup', 1, x?.shipper, x?.pickup), stop('delivery', 2, x?.receiver, x?.delivery)],
-  };
-}

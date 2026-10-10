@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { loadFromExtraction } from '../lib/loads';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -54,34 +53,34 @@ export default function DocumentsPage() {
   const router = useRouter();
   const [creating, setCreating] = useState({});
 
-  // Create a load + pickup/delivery stops from extracted data, then link the document.
+  const LOAD_ERRORS = {
+    already_linked: 'This document is already linked to a load.',
+    no_extracted_data: 'Run extraction first. This document has no extracted data.',
+    document_not_found: 'Document not found.',
+  };
+
+  // Server-side, single transaction: creates load + stops and links the document.
   async function createLoad(doc) {
     if (doc.load_id || creating[doc.id]) return;
     setCreating((m) => ({ ...m, [doc.id]: true }));
     setStatus(null);
-    let loadId = null;
     try {
-      const { load, stops } = loadFromExtraction(doc.ai_extracted_data);
-      const { data: created, error: le } = await supabase.from('loads').insert({ ...load, user_id: user.id }).select('id').single();
-      if (le) throw new Error('Could not create load: ' + le.message);
-      loadId = created.id;
-      const { error: se } = await supabase.from('stops').insert(stops.map((st) => ({ ...st, load_id: loadId })));
-      if (se) throw new Error('Could not create stops: ' + se.message);
-      // Only link if the document is still unlinked (guards against double-create).
-      const { data: linked, error: de } = await supabase.from('documents')
-        .update({ load_id: loadId }).eq('id', doc.id).is('load_id', null).select('id');
-      if (de) throw new Error('Could not link document: ' + de.message);
-      if (!linked?.length) throw new Error('This document is already linked to a load.');
+      const { data: loadId, error } = await supabase.rpc('create_load_from_document', { p_document: doc.id });
+      if (error) {
+        const code = Object.keys(LOAD_ERRORS).find((k) => (error.message || '').includes(k));
+        console.error('create_load_from_document', error);
+        if (code === 'already_linked') loadDocs();
+        throw new Error(LOAD_ERRORS[code] || 'Could not create the load, please try again.');
+      }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
       router.push(`/loads/${loadId}`);
     } catch (err) {
-      if (loadId) await supabase.from('loads').delete().eq('id', loadId); // stops cascade
       setStatus({ type: 'error', text: err.message });
-      loadDocs();
     } finally {
       setCreating((m) => ({ ...m, [doc.id]: false }));
     }
   }
+
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
   const [extracting, setExtracting] = useState({});

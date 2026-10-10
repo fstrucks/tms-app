@@ -1,3 +1,4 @@
+-- PENDING SCHEMA VERIFICATION: columns below are assumed (live loads/stops schema not yet confirmed).
 -- Run LAST (after 0050, 0000, 0100, 0200, 0250, 0300).
 --
 -- ASSUMPTION: the live loads/stops schema could not be read (no migrations/types in the repo and no
