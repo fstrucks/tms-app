@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from './lib/supabase';
+import { getSupabase, supabaseConfigError } from './lib/supabase';
 
 export default function Home() {
   const [message, setMessage] = useState('Connecting to database...');
 
   useEffect(() => {
     async function testConnection() {
-      const { data, error } = await supabase.from('profiles').select('id').limit(1);
+      const supabase = getSupabase();
+      if (!supabase) return setMessage(supabaseConfigError);
+      const { error } = await supabase.from('profiles').select('id').limit(1);
       if (error) {
         setMessage('Database connection error: ' + error.message);
       } else {
