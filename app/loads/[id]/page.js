@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
+import LoadExpenses from '../../components/LoadExpenses';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
@@ -149,6 +150,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 <LoadMileage load={load} userId={user.id} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
+                <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Documents</h2>
                   {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (
