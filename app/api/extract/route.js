@@ -73,9 +73,11 @@ export async function POST(req) {
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);
 
   const { data: doc, error: docErr } = await userDb
-    .from('documents').select('id, user_id, file_path, original_filename, ai_extracted_data').eq('id', documentId).maybeSingle();
+    .from('documents').select('id, user_id, doc_type, file_path, original_filename, ai_extracted_data').eq('id', documentId).maybeSingle();
   if (docErr) return fail(500, GENERIC, 'doc load', docErr.message);
   if (!doc || doc.user_id !== user.id) return fail(404, 'Document not found.');
+  // Only rate confirmations are extracted (e.g. expense receipts are not).
+  if (doc.doc_type !== 'rate_confirmation') return fail(400, 'Only rate confirmations can be extracted.', 'doc_type', doc.doc_type, doc.id);
 
   // The file must live in the user's own folder; never touch storage outside it.
   if (typeof doc.file_path !== 'string' || !doc.file_path.startsWith(`${user.id}/`)) {

@@ -62,9 +62,10 @@ function ExpensesInner() {
         .order('expense_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('loads').select('id, broker_name, broker_load_number, rate, created_at').order('created_at', { ascending: false }),
     ]);
-    if (ee) setStatus({ type: 'error', text: 'Could not load expenses: ' + ee.message });
+    if (ee) { console.error('[expenses] fetch expenses', ee); setStatus({ type: 'error', text: 'Could not load expenses. Please refresh.' }); }
     else setExpenses(e || []);
-    if (!le) setLoads(l || []);
+    if (le) { console.error('[expenses] fetch loads', le); setStatus({ type: 'error', text: 'Could not load your loads; load links may be missing. Please refresh.' }); }
+    else setLoads(l || []);
   }
 
   useEffect(() => {
@@ -81,25 +82,32 @@ function ExpensesInner() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // Upload receipt to documents/{uid}/..., insert documents row (doc_type 'receipt'), return its id.
+  // Generic message for users; details go to the console.
+  function failMsg(text, detail) {
+    if (detail) console.error('[expenses]', text, detail);
+    setStatus({ type: 'error', text });
+  }
+
+  // Upload receipt to documents/{uid}/..., insert documents row (doc_type 'receipt'). Returns { id } or throws.
   async function uploadReceipt(loadId) {
     let up = file;
     let contentType = resolveType(up);
-    if (!ALLOWED_TYPES.includes(contentType)) throw new Error('Receipt must be a PDF, JPEG, PNG, WebP or HEIC file.');
+    if (!ALLOWED_TYPES.includes(contentType)) throw Object.assign(new Error('Receipt must be a PDF, JPEG, PNG, WebP or HEIC file.'), { user: true });
     if (isHeic(up, contentType)) {
       try { up = await convertHeicToJpeg(up); contentType = 'image/jpeg'; }
-      catch { throw new Error('Could not convert this iPhone photo (HEIC). Try a JPEG or screenshot.'); }
+      catch (err) { throw Object.assign(new Error('Could not convert this iPhone photo (HEIC). Try a JPEG or screenshot.'), { user: true, detail: err }); }
     }
-    if (up.size > MAX_BYTES) throw new Error('Receipt is too large. Maximum is 10 MB.');
+    if (up.size > MAX_BYTES) throw Object.assign(new Error('Receipt is too large. Maximum is 10 MB.'), { user: true });
     const path = `${user.id}/${Date.now()}-${up.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, up, { contentType });
-    if (upErr) throw new Error('Receipt upload failed: ' + upErr.message);
+    if (upErr) throw Object.assign(new Error('Receipt upload failed.'), { detail: upErr });
     const { data, error } = await supabase.from('documents').insert({
       user_id: user.id, load_id: loadId, truck_id: null, doc_type: 'receipt', file_path: path, original_filename: up.name,
     }).select('id').single();
     if (error) {
+      // No row was created, so removing the file leaves nothing orphaned.
       await supabase.storage.from(BUCKET).remove([path]);
-      throw new Error('Saving receipt failed: ' + error.message);
+      throw Object.assign(new Error('Saving receipt failed.'), { detail: error });
     }
     return { id: data.id, path };
   }
@@ -110,34 +118,57 @@ function ExpensesInner() {
     const amount = Number(form.amount);
     if (!form.amount || !isFinite(amount) || amount < 0) return setStatus({ type: 'error', text: 'Enter a valid amount.' });
     if (!form.expense_date) return setStatus({ type: 'error', text: 'Pick a date.' });
+    if (!EXPENSE_CATEGORIES.includes(form.category)) return setStatus({ type: 'error', text: 'Pick a category.' });
     setSaving(true);
-    let receipt = null;
+    const editing = !!form.id;
     try {
       const loadId = form.load_id || null;
-      if (file) receipt = await uploadReceipt(loadId);
       const row = {
         category: form.category,
         amount: Math.round(amount * 100) / 100,
         expense_date: form.expense_date,
         description: form.description.trim() || null,
         load_id: loadId,
-        document_id: receipt ? receipt.id : form.document_id,
       };
-      const { error } = form.id
-        ? await supabase.from('expenses').update(row).eq('id', form.id)
-        : await supabase.from('expenses').insert({ ...row, user_id: user.id });
-      if (error) throw new Error('Saving expense failed: ' + error.message);
-      setStatus({ type: 'ok', text: form.id ? 'Expense updated.' : 'Expense added.' });
-      setForm(emptyForm(form.id ? presetLoad : form.load_id));
+      // 1. Save the expense first, so a failure here never leaves a receipt behind.
+      const { data: saved, error } = editing
+        ? await supabase.from('expenses').update(row).eq('id', form.id).select('id').single()
+        : await supabase.from('expenses').insert({ ...row, user_id: user.id }).select('id').single();
+      if (error || !saved) return failMsg('Could not save the expense. Please try again.', error);
+
+      const warnings = [];
+      // 2. Keep the existing receipt's load link in sync when the load changes.
+      const prevLoad = editing ? (expenses.find((x) => x.id === form.id)?.load_id || null) : null;
+      if (editing && form.document_id && !file && prevLoad !== loadId) {
+        const { data: upd, error: ue } = await supabase.from('documents').update({ load_id: loadId }).eq('id', form.document_id).select('id');
+        if (ue || !upd?.length) { console.error('[expenses] receipt load sync', ue || 'no row updated'); warnings.push("the receipt's load link wasn't updated"); }
+      }
+      // 3. Attach a new receipt: upload + documents row, then link it.
+      if (file) {
+        try {
+          const receipt = await uploadReceipt(loadId);
+          const { data: linked, error: le } = await supabase.from('expenses').update({ document_id: receipt.id }).eq('id', saved.id).select('id');
+          if (le || !linked?.length) {
+            console.error('[expenses] link receipt', le || 'no row updated');
+            // Only remove the file if the documents row was really deleted (RLS may silently block it).
+            const { data: del } = await supabase.from('documents').delete().eq('id', receipt.id).select('id');
+            if (del?.length) await supabase.storage.from(BUCKET).remove([receipt.path]);
+            else console.error('[expenses] unlinked receipt document left in place', receipt.id);
+            warnings.push("the receipt couldn't be attached");
+          }
+        } catch (err) {
+          if (err.detail || !err.user) console.error('[expenses]', err.message, err.detail || err);
+          warnings.push(err.user ? err.message : "the receipt couldn't be uploaded");
+        }
+      }
+      setStatus(warnings.length
+        ? { type: 'error', text: `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.` }
+        : { type: 'ok', text: editing ? 'Expense updated.' : 'Expense added.' });
+      setForm(emptyForm(editing ? presetLoad : form.load_id));
       setFile(null); setFileKey((k) => k + 1);
       await fetchAll();
     } catch (err) {
-      // Expense save failed after a receipt was stored: roll the receipt back.
-      if (receipt && /Saving expense/.test(err.message)) {
-        await supabase.from('documents').delete().eq('id', receipt.id);
-        await supabase.storage.from(BUCKET).remove([receipt.path]);
-      }
-      setStatus({ type: 'error', text: err.message });
+      failMsg('Something went wrong. Please try again.', err);
     } finally {
       setSaving(false);
     }
@@ -152,14 +183,14 @@ function ExpensesInner() {
   async function remove(x) {
     if (!window.confirm('Delete this expense?')) return;
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
-    if (error) return setStatus({ type: 'error', text: 'Delete failed: ' + error.message });
+    if (error) return failMsg('Could not delete the expense. Please try again.', error);
     if (form.id === x.id) setForm(emptyForm(presetLoad));
     fetchAll();
   }
 
   async function viewReceipt(doc) {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
-    if (error) return setStatus({ type: 'error', text: 'Could not open receipt: ' + error.message });
+    if (error) return failMsg('Could not open the receipt. Please try again.', error);
     window.open(data.signedUrl, '_blank', 'noopener');
   }
 

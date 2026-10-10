@@ -14,10 +14,13 @@ export default function LoadExpenses({ loadId, rate }) {
 
   useEffect(() => {
     if (!supabase || !loadId) return;
+    let cancelled = false;
     supabase.from('expenses').select('id, amount').eq('load_id', loadId).then(({ data, error }) => {
-      if (error) setError('Could not load expenses: ' + error.message);
+      if (cancelled) return;
+      if (error) { console.error('[LoadExpenses]', error); setError('Could not load expenses.'); }
       else setRows(data || []);
     });
+    return () => { cancelled = true; };
   }, [loadId]);
 
   const total = sumAmounts(rows);

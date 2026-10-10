@@ -1,5 +1,18 @@
--- expenses already exists (schema from Marc). NO column changes: RLS + grants only.
+-- expenses already exists (schema from Marc). NO column changes: RLS, grants and NOT VALID check constraints only.
 alter table public.expenses enable row level security;
+
+-- Drop every existing expenses policy that isn't one of ours, so nothing more permissive survives.
+do $$
+declare p record;
+begin
+  for p in
+    select policyname from pg_policies
+     where schemaname = 'public' and tablename = 'expenses'
+       and policyname not in ('expenses_select_own', 'expenses_insert_own', 'expenses_update_own', 'expenses_delete_own')
+  loop
+    execute format('drop policy %I on public.expenses', p.policyname);
+  end loop;
+end $$;
 
 drop policy if exists "expenses_select_own" on public.expenses;
 create policy "expenses_select_own" on public.expenses for select to authenticated using (user_id = auth.uid());
@@ -26,3 +39,19 @@ drop policy if exists "expenses_delete_own" on public.expenses;
 create policy "expenses_delete_own" on public.expenses for delete to authenticated using (user_id = auth.uid());
 
 grant select, insert, update, delete on public.expenses to authenticated;
+
+-- Check constraints: added NOT VALID so existing rows are not checked (new and updated rows are).
+-- Run "alter table public.expenses validate constraint <name>" after cleaning legacy data.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.expenses'::regclass and conname = 'expenses_amount_nonneg') then
+    alter table public.expenses add constraint expenses_amount_nonneg check (amount >= 0) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.expenses'::regclass and conname = 'expenses_category_allowed') then
+    alter table public.expenses add constraint expenses_category_allowed
+      check (category in ('fuel', 'tolls', 'maintenance', 'food', 'lodging', 'other')) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.expenses'::regclass and conname = 'expenses_date_present') then
+    alter table public.expenses add constraint expenses_date_present check (expense_date is not null) not valid;
+  end if;
+end $$;

@@ -115,6 +115,7 @@ export default function DocumentsPage() {
     const { data, error } = await supabase
       .from('documents')
       .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
+      .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
       .order('created_at', { ascending: false });
     if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
     setDocs(data || []);
