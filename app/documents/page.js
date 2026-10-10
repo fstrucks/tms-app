@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { loadFromExtraction } from '../lib/loads';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -49,6 +51,37 @@ export default function DocumentsPage() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [converting, setConverting] = useState(false);
+  const router = useRouter();
+  const [creating, setCreating] = useState({});
+
+  // Create a load + pickup/delivery stops from extracted data, then link the document.
+  async function createLoad(doc) {
+    if (doc.load_id || creating[doc.id]) return;
+    setCreating((m) => ({ ...m, [doc.id]: true }));
+    setStatus(null);
+    let loadId = null;
+    try {
+      const { load, stops } = loadFromExtraction(doc.ai_extracted_data);
+      const { data: created, error: le } = await supabase.from('loads').insert({ ...load, user_id: user.id }).select('id').single();
+      if (le) throw new Error('Could not create load: ' + le.message);
+      loadId = created.id;
+      const { error: se } = await supabase.from('stops').insert(stops.map((st) => ({ ...st, load_id: loadId })));
+      if (se) throw new Error('Could not create stops: ' + se.message);
+      // Only link if the document is still unlinked (guards against double-create).
+      const { data: linked, error: de } = await supabase.from('documents')
+        .update({ load_id: loadId }).eq('id', doc.id).is('load_id', null).select('id');
+      if (de) throw new Error('Could not link document: ' + de.message);
+      if (!linked?.length) throw new Error('This document is already linked to a load.');
+      setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
+      router.push(`/loads/${loadId}`);
+    } catch (err) {
+      if (loadId) await supabase.from('loads').delete().eq('id', loadId); // stops cascade
+      setStatus({ type: 'error', text: err.message });
+      loadDocs();
+    } finally {
+      setCreating((m) => ({ ...m, [doc.id]: false }));
+    }
+  }
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
   const [extracting, setExtracting] = useState({});
@@ -78,7 +111,7 @@ export default function DocumentsPage() {
   async function loadDocs() {
     const { data, error } = await supabase
       .from('documents')
-      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data')
+      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
       .order('created_at', { ascending: false });
     if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
     setDocs(data || []);
@@ -171,7 +204,7 @@ export default function DocumentsPage() {
 
   return (
     <main style={s.main}>
-      <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
+      <p style={{ display: 'flex', gap: '1rem' }}><Link href="/" style={{ color: '#2563eb' }}>← Home</Link><Link href="/loads" style={{ color: '#2563eb' }}>Loads</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
 
       {supabaseConfigError ? (
@@ -222,6 +255,13 @@ export default function DocumentsPage() {
                     <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
                       {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
                     </button>
+                    {d.load_id ? (
+                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: '#059669', marginTop: '0.25rem' }}>View load</Link>
+                    ) : d.ai_extracted_data ? (
+                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: '#059669', opacity: creating[d.id] ? 0.6 : 1 }}>
+                        {creating[d.id] ? 'Creating load…' : 'Create load'}
+                      </button>
+                    ) : null}
                   </>
                 )}
               </div>

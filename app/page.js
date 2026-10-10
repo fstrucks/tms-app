@@ -26,6 +26,7 @@ export default function Home() {
       <h1>TMS App</h1>
       <p>{message}</p>
       <p><Link href="/documents" style={{ color: '#2563eb' }}>Upload rate confirmations →</Link></p>
+      <p><Link href="/loads" style={{ color: '#2563eb' }}>Loads →</Link></p>
       <p><Link href="/login" style={{ color: '#2563eb' }}>Sign in →</Link></p>
     </main>
   );

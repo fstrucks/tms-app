@@ -1,0 +1,148 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { getSupabase, supabaseConfigError } from '../../lib/supabase';
+import { STATUSES, StatusBadge, fmtMoney, fmtDate } from '../../lib/loads';
+
+const s = {
+  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
+  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' },
+  muted: { color: '#6b7280', fontSize: '0.85rem' },
+  error: { color: '#b91c1c' },
+  link: { color: '#2563eb' },
+  btn: { padding: '0.5rem 0.9rem', fontSize: '0.9rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
+  dl: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.35rem 0.75rem', margin: 0, fontSize: '0.9rem' },
+};
+
+export default function LoadDetailPage() {
+  const { id } = useParams();
+  const supabase = getSupabase();
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(true);
+  const [load, setLoad] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  async function fetchAll() {
+    const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
+      supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
+      supabase.from('documents').select('id, doc_type, file_path, original_filename, created_at').eq('load_id', id).order('created_at', { ascending: false }),
+    ]);
+    if (le) return setError('Could not load this load: ' + le.message);
+    if (!l) return setError('Load not found.');
+    l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+    setLoad(l);
+    if (de) setError('Could not load documents: ' + de.message);
+    else setDocs(d || []);
+  }
+
+  useEffect(() => {
+    if (!supabase) return setChecking(false);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      const u = session?.user || null;
+      setUser(u);
+      if (event === 'INITIAL_SESSION') setChecking(false);
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => fetchAll(), 0);
+      if (event === 'SIGNED_OUT') { setLoad(null); setDocs([]); }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [id]);
+
+  async function changeStatus(status) {
+    const prev = load.status;
+    setLoad({ ...load, status });
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('loads').update({ status }).eq('id', id);
+      if (error) { setLoad((l) => ({ ...l, status: prev })); setError('Could not update status: ' + error.message); }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function view(doc) {
+    const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.file_path, 300);
+    if (error) return setError('Could not open file: ' + error.message);
+    window.open(data.signedUrl, '_blank', 'noopener');
+  }
+
+  const hasStatus = load && Object.prototype.hasOwnProperty.call(load, 'status');
+
+  return (
+    <main style={s.main}>
+      <p style={{ display: 'flex', gap: '1rem' }}>
+        <Link href="/loads" style={s.link}>← Loads</Link>
+        <Link href="/documents" style={s.link}>Documents</Link>
+      </p>
+      {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
+        : checking ? <p style={s.muted}>Checking sign-in…</p>
+        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to view this load.</p>
+        : (
+          <>
+            {error && <p style={s.error}>{error}</p>}
+            {!load ? (!error && <p style={s.muted}>Loading…</p>) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                  <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.load_number ? `Load #${load.load_number}` : 'Load'}</h1>
+                  {hasStatus && <StatusBadge status={load.status} />}
+                </div>
+
+                <div style={s.card}>
+                  <dl style={s.dl}>
+                    <dt style={s.muted}>Broker</dt><dd style={{ margin: 0 }}>{load.broker_name || '—'}</dd>
+                    <dt style={s.muted}>Rate</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmtMoney(load.rate)}</dd>
+                    {load.reference_numbers?.length > 0 && (<><dt style={s.muted}>Refs</dt><dd style={{ margin: 0 }}>{load.reference_numbers.join(', ')}</dd></>)}
+                    {load.notes && (<><dt style={s.muted}>Notes</dt><dd style={{ margin: 0, wordBreak: 'break-word' }}>{load.notes}</dd></>)}
+                    <dt style={s.muted}>Created</dt><dd style={{ margin: 0 }}>{new Date(load.created_at).toLocaleString()}</dd>
+                  </dl>
+                  {hasStatus && (
+                    <label style={{ display: 'block', marginTop: '0.75rem' }}>
+                      <span style={s.muted}>Status </span>
+                      <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
+                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #d1d5db' }}>
+                        {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
+                        {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+
+                <div style={s.card}>
+                  <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
+                  {load.stops.length === 0 ? <p style={s.muted}>No stops.</p> : load.stops.map((st, i) => (
+                    <div key={st.id} style={{ ...s.row, alignItems: 'flex-start', borderBottom: i === load.stops.length - 1 ? 'none' : s.row.borderBottom }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
+                        {st.name && <div>{st.name}</div>}
+                        {st.address && <div style={s.muted}>{st.address}</div>}
+                      </div>
+                      <div style={{ ...s.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {fmtDate(st.scheduled_date)}{st.scheduled_time ? <><br />{st.scheduled_time}</> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={s.card}>
+                  <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Documents</h2>
+                  {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (
+                    <div key={d.id} style={s.row}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
+                        <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                      </div>
+                      <button onClick={() => view(d)} style={s.btn}>View</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+    </main>
+  );
+}
