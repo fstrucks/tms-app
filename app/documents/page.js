@@ -135,7 +135,7 @@ export default function DocumentsPage() {
       user_id: user.id,
       doc_type: 'rate_confirmation',
       file_path: path,
-      original_filename: file.name,
+      original_filename: uploadFile.name, // converted HEIC is saved as .jpg
       load_id: null,
       truck_id: null,
     }).select('id').single();
