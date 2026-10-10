@@ -29,6 +29,10 @@ export async function POST(req) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return json({ error: 'AI extraction is not configured (OPENAI_API_KEY missing).' }, 501);
 
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return json({ error: 'Supabase is not configured on the server (missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY).' }, 500);
+  }
+
   const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   if (!token) return json({ error: 'Unauthorized: missing access token.' }, 401);
 

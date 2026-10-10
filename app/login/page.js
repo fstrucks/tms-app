@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '../lib/supabase';
+import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -19,21 +19,29 @@ export default function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    const supabase = getSupabase();
+    if (!supabase) return setError(supabaseConfigError);
     setSending(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin + '/documents' },
-    });
-    setSending(false);
-    if (error) setError(error.message);
-    else setSent(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.origin + '/documents' },
+      });
+      if (error) setError(error.message);
+      else setSent(true);
+    } catch (err) {
+      setError(err.message || 'Could not send the sign-in link.');
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <main style={s.main}>
       <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Sign in</h1>
+      {supabaseConfigError && <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>}
       <div style={s.card}>
         {sent ? (
           <>

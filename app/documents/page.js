@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '../lib/supabase';
+import { getSupabase, supabaseConfigError } from '../lib/supabase';
+
+const MAX_BYTES = 10 * 1024 * 1024;
+const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 const BUCKET = 'documents';
 
@@ -18,6 +21,8 @@ const s = {
 };
 
 export default function DocumentsPage() {
+  const supabase = getSupabase();
+  const [signingOut, setSigningOut] = useState(false);
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
@@ -47,6 +52,7 @@ export default function DocumentsPage() {
     }
   }
 
+
   async function loadDocs() {
     const { data, error } = await supabase
       .from('documents')
@@ -57,17 +63,14 @@ export default function DocumentsPage() {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const u = data?.session?.user || null;
-      setUser(u);
-      setChecking(false);
-      if (u) loadDocs();
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+    if (!supabase) return setChecking(false);
+    // INITIAL_SESSION fires once on subscribe, so no separate getSession() call is needed.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null;
       setUser(u);
-      if (u) loadDocs();
-      else setDocs([]);
+      if (event === 'INITIAL_SESSION') setChecking(false);
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) loadDocs();
+      if (event === 'SIGNED_OUT') setDocs([]);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -75,6 +78,12 @@ export default function DocumentsPage() {
   async function handleUpload(e) {
     e.preventDefault();
     if (!file || !user) return;
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return setStatus({ type: 'error', text: `Unsupported file type (${file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC.` });
+    }
+    if (file.size > MAX_BYTES) {
+      return setStatus({ type: 'error', text: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.` });
+    }
     setUploading(true);
     setStatus(null);
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -105,6 +114,18 @@ export default function DocumentsPage() {
     if (inserted?.id) extract(inserted.id);
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) setStatus({ type: 'error', text: 'Sign out failed: ' + error.message });
+    } catch (err) {
+      setStatus({ type: 'error', text: 'Sign out failed: ' + err.message });
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   async function view(doc) {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
     if (error) return setStatus({ type: 'error', text: 'Could not open file: ' + error.message });
@@ -116,7 +137,9 @@ export default function DocumentsPage() {
       <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
 
-      {checking ? (
+      {supabaseConfigError ? (
+        <p style={s.error}>{supabaseConfigError}</p>
+      ) : checking ? (
         <p style={s.muted}>Checking sign-in…</p>
       ) : !user ? (
         <div style={s.card}>
@@ -127,13 +150,13 @@ export default function DocumentsPage() {
         <>
           <div style={{ ...s.item, borderBottom: 'none' }}>
             <span style={{ ...s.muted, overflow: 'hidden', textOverflow: 'ellipsis' }}>Signed in as {user.email}</span>
-            <button onClick={() => supabase.auth.signOut()} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem', background: '#6b7280' }}>Sign out</button>
+            <button onClick={handleSignOut} disabled={signingOut} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem', background: '#6b7280', opacity: signingOut ? 0.6 : 1 }}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
           </div>
           <form onSubmit={handleUpload} style={s.card}>
             <label htmlFor="file" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
               Upload rate confirmation (PDF or image)
             </label>
-            <input id="file" type="file" accept="application/pdf,image/*" style={s.input}
+            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" style={s.input}
               onChange={(e) => setFile(e.target.files?.[0] || null)} />
             <button type="submit" disabled={!file || uploading} style={{ ...s.btn, opacity: !file || uploading ? 0.6 : 1 }}>
               {uploading ? 'Uploading…' : 'Upload'}
@@ -149,7 +172,7 @@ export default function DocumentsPage() {
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                    <div style={s.muted}>{d.doc_type.replace('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
                   <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem' }}>View</button>
                 </div>
