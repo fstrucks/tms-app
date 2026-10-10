@@ -57,9 +57,11 @@ export async function POST(req) {
 
   const buf = Buffer.from(await blob.arrayBuffer());
   const name = doc.original_filename || 'document';
+  const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' };
+  const ext = (name.split('.').pop() || '').toLowerCase();
   const mime = blob.type && blob.type !== 'application/octet-stream'
     ? blob.type
-    : /\.pdf$/i.test(name) ? 'application/pdf' : 'image/jpeg';
+    : EXT_TYPES[ext] || 'image/jpeg';
   const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
   const filePart = mime === 'application/pdf'
     ? { type: 'input_file', filename: name, file_data: dataUrl }
