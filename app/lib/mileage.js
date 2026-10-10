@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getSupabase } from './supabase';
 
 // Convention only; the DB column is free text.
 export const SOURCES = ['loaded', 'deadhead', 'personal', 'other'];
@@ -18,11 +19,62 @@ export function sumBy(entries, pred = () => true) {
   return entries.filter(pred).reduce((t, e) => t + (Number(e.miles) || 0), 0);
 }
 
-export function mileageError(error) {
-  const m = error?.message || '';
-  if (/end_odometer/.test(m)) return 'End odometer must be greater than or equal to start.';
-  if (/miles must be/.test(m)) return 'Miles must be greater than 0.';
+// Generic user-facing message; details go to console.error at the call site.
+export function mileageError() {
   return 'Could not save, please try again.';
+}
+
+const PAGE = 20;
+const loadLabel = (x) => [x.broker_load_number && `#${x.broker_load_number}`, x.broker_name].filter(Boolean).join(' · ')
+  || `Load ${new Date(x.created_at).toLocaleDateString()}`;
+
+// Searchable load picker: ilike on broker_load_number / broker_name, newest first, with "load more".
+export function LoadPicker({ value, onChange, style }) {
+  const supabase = getSupabase();
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState([]);
+  const [limit, setLimit] = useState(PAGE);
+  const [hasMore, setHasMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => { setLimit(PAGE); }, [q]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setBusy(true);
+      let query = supabase.from('loads').select('id, broker_load_number, broker_name, created_at')
+        .order('created_at', { ascending: false }).range(0, limit); // one extra row to detect "more"
+      const term = q.trim().replace(/[%_,()*\\]/g, ' ').trim();
+      if (term) query = query.or(`broker_load_number.ilike.%${term}%,broker_name.ilike.%${term}%`);
+      const { data, error } = await query;
+      if (cancelled) return;
+      setBusy(false);
+      if (error) { console.error('load search', error); setFailed(true); return; }
+      setFailed(false);
+      setHasMore((data || []).length > limit);
+      setRows((data || []).slice(0, limit));
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q, limit]);
+
+  return (
+    <div>
+      <input type="search" placeholder="Search load # or broker" value={q} onChange={(e) => setQ(e.target.value)}
+        style={{ ...style, marginBottom: '0.4rem' }} />
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={style}>
+        <option value="">No load</option>
+        {rows.map((l) => <option key={l.id} value={l.id}>{loadLabel(l)}</option>)}
+      </select>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
+        <span>{failed ? 'Could not load loads.' : busy ? 'Searching…' : `${rows.length} shown`}</span>
+        {hasMore && <button type="button" onClick={() => setLimit((n) => n + PAGE)}
+          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', padding: 0 }}>Load more</button>}
+      </div>
+    </div>
+  );
 }
 
 const st = {
@@ -34,7 +86,7 @@ const st = {
 };
 
 // onSubmit(row) must return { error } like supabase-js.
-export function MileageForm({ onSubmit, loads }) {
+export function MileageForm({ onSubmit, pickLoad = false }) {
   const [mode, setMode] = useState('odometer');
   const [date, setDate] = useState(todayISO());
   const [start, setStart] = useState('');
@@ -53,7 +105,7 @@ export function MileageForm({ onSubmit, loads }) {
     e.preventDefault();
     setErr(null);
     const row = { entry_date: date, source, notes: notes.trim() || null };
-    if (loads) row.load_id = loadId || null;
+    if (pickLoad) row.load_id = loadId || null;
     if (mode === 'odometer') {
       const s = int(start), en = int(end);
       if (!Number.isInteger(s) || !Number.isInteger(en) || s < 0) return setErr('Enter whole-number start and end odometer readings.');
@@ -99,12 +151,9 @@ export function MileageForm({ onSubmit, loads }) {
           <label style={{ gridColumn: '1 / -1' }}><span style={st.label}>Miles</span>
             <input inputMode="numeric" pattern="[0-9]*" value={miles} onChange={(e) => setMiles(e.target.value.replace(/\D/g, ''))} style={st.input} /></label>
         )}
-        {loads && (
-          <label style={{ gridColumn: '1 / -1' }}><span style={st.label}>Load (optional)</span>
-            <select value={loadId} onChange={(e) => setLoadId(e.target.value)} style={st.input}>
-              <option value="">No load</option>
-              {loads.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select></label>
+        {pickLoad && (
+          <div style={{ gridColumn: '1 / -1' }}><span style={st.label}>Load (optional)</span>
+            <LoadPicker value={loadId} onChange={setLoadId} style={st.input} /></div>
         )}
         <label style={{ gridColumn: '1 / -1' }}><span style={st.label}>Notes</span>
           <input value={notes} onChange={(e) => setNotes(e.target.value)} style={st.input} /></label>

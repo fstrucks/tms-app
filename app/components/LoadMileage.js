@@ -26,7 +26,7 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
         .eq('load_id', load.id).order('entry_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('loads').select('total_miles, rate_per_mile').eq('id', load.id).maybeSingle(),
     ]);
-    if (error) return setError('Could not load miles: ' + error.message);
+    if (error) { console.error('mileage load', error); return setError('Could not load miles, please try again.'); }
     setEntries(data || []);
     if (l) { onLoadChange?.(l); setManual(l.total_miles ?? ''); }
   }

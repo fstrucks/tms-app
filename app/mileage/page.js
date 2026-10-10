@@ -27,19 +27,15 @@ export default function MileagePage() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [entries, setEntries] = useState([]);
-  const [loads, setLoads] = useState([]);
   const [error, setError] = useState(null);
 
   async function fetchAll() {
-    const [{ data: e, error: ee }, { data: l }] = await Promise.all([
-      supabase.from('mileage_entries')
-        .select('id, load_id, start_odometer, end_odometer, miles, entry_date, source, notes, created_at, loads(id, broker_load_number, broker_name)')
-        .order('entry_date', { ascending: false }).order('created_at', { ascending: false }),
-      supabase.from('loads').select('id, broker_load_number, broker_name, created_at').order('created_at', { ascending: false }).limit(50),
-    ]);
-    if (ee) return setError('Could not load mileage: ' + ee.message);
+    const { data: e, error: ee } = await supabase.from('mileage_entries')
+      .select('id, load_id, start_odometer, end_odometer, miles, entry_date, source, notes, created_at, loads(id, broker_load_number, broker_name)')
+      .order('entry_date', { ascending: false }).order('created_at', { ascending: false });
+    if (ee) { console.error('mileage load', ee); return setError('Could not load mileage, please try again.'); }
+    setError(null);
     setEntries(e || []);
-    setLoads((l || []).map((x) => ({ id: x.id, label: [x.broker_load_number && `#${x.broker_load_number}`, x.broker_name].filter(Boolean).join(' · ') || `Load ${new Date(x.created_at).toLocaleDateString()}` })));
   }
 
   useEffect(() => {
@@ -49,7 +45,7 @@ export default function MileagePage() {
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => fetchAll(), 0);
-      if (event === 'SIGNED_OUT') { setEntries([]); setLoads([]); }
+      if (event === 'SIGNED_OUT') setEntries([]);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -66,12 +62,15 @@ export default function MileagePage() {
     fetchAll();
   }
 
+  // Totals only count entries dated today or earlier (future-dated entries are excluded).
+  const today = todayISO();
   const week = weekStartISO();
   const month = monthStartISO();
-  const weekMiles = sumBy(entries, (e) => e.entry_date >= week);
-  const monthMiles = sumBy(entries, (e) => e.entry_date >= month);
-  const weekLoaded = sumBy(entries, (e) => e.entry_date >= week && e.source === 'loaded');
-  const monthLoaded = sumBy(entries, (e) => e.entry_date >= month && e.source === 'loaded');
+  const inRange = (from) => (e) => e.entry_date >= from && e.entry_date <= today && Number(e.miles) > 0;
+  const weekMiles = sumBy(entries, inRange(week));
+  const monthMiles = sumBy(entries, inRange(month));
+  const weekLoaded = sumBy(entries, (e) => inRange(week)(e) && e.source === 'loaded');
+  const monthLoaded = sumBy(entries, (e) => inRange(month)(e) && e.source === 'loaded');
 
   return (
     <main style={s.main}>
@@ -92,7 +91,7 @@ export default function MileagePage() {
             </div>
             <div style={s.card}>
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Add miles</h2>
-              <MileageForm onSubmit={add} loads={loads} />
+              <MileageForm onSubmit={add} pickLoad />
             </div>
             <div style={s.card}>
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Entries</h2>
