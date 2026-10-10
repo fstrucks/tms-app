@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
+import LoadMileage from '../../components/LoadMileage';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
@@ -77,6 +78,7 @@ export default function LoadDetailPage() {
       <p style={{ display: 'flex', gap: '1rem' }}>
         <Link href="/loads" style={s.link}>← Loads</Link>
         <Link href="/documents" style={s.link}>Documents</Link>
+        <Link href="/mileage" style={s.link}>Mileage</Link>
       </p>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
@@ -146,6 +148,7 @@ export default function LoadDetailPage() {
                   ))}
                 </div>
 
+                <LoadMileage load={load} userId={user.id} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Documents</h2>
                   {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (

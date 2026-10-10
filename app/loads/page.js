@@ -24,7 +24,7 @@ export default function LoadsPage() {
   async function loadLoads() {
     const { data, error } = await supabase
       .from('loads')
-      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
+      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
       .order('created_at', { ascending: false });
     if (error) return setError('Could not load loads: ' + error.message);
     setLoads(data || []);
@@ -72,7 +72,7 @@ export default function LoadsPage() {
                     {stopSummary(stops[0])} <span style={s.muted}>→</span> {stopSummary(stops[stops.length - 1])}
                   </div>
                   <div style={s.row}>
-                    <span><strong>{fmtMoney(l.rate)}</strong>{l.rate_per_mile != null && <span style={s.muted}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
+                    <span><strong>{fmtMoney(l.rate)}</strong>{l.total_miles > 0 && <span style={s.muted}> · {Number(l.total_miles).toLocaleString('en-US')} mi</span>}{l.rate_per_mile != null && <span style={{ ...s.muted, fontWeight: 600, color: '#065f46' }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
                     <span style={s.muted}>{new Date(l.created_at).toLocaleDateString()}</span>
                   </div>
                 </Link>
