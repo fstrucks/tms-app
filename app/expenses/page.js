@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
@@ -31,6 +31,7 @@ const s = {
   label: { display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem', color: '#374151' },
   input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid #d1d5db', marginTop: '0.2rem', background: '#fff' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
+  pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   small: { padding: '0.4rem 0.75rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
@@ -52,6 +53,17 @@ function ExpensesInner() {
   const [form, setForm] = useState(emptyForm(presetLoad));
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
+  const [preview, setPreview] = useState(null);
+  const cameraRef = useRef(null);
+  const uploadRef = useRef(null);
+
+  // Cheap thumbnail for browser-renderable images (HEIC is converted at save time, so no preview).
+  useEffect(() => {
+    if (!file || !/^image\/(jpeg|png|webp|gif)$/.test(file.type)) { setPreview(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(null);
   const [filterLoad, setFilterLoad] = useState(presetLoad);
@@ -243,9 +255,22 @@ function ExpensesInner() {
                   {loads.map((l) => <option key={l.id} value={l.id}>{loadLabel(l)} · {new Date(l.created_at).toLocaleDateString()}</option>)}
                 </select>
               </label>
-              <label style={s.label}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}
-                <input key={fileKey} type="file" accept="application/pdf,image/*,.heic,.heif" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...s.input, border: 'none', padding: '0.3rem 0' }} />
-              </label>
+              <div style={s.label}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}
+                {/* Both hidden inputs feed the same file state and receipt flow (HEIC conversion, 10 MB limit). */}
+                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
+                  <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={s.pick}>📷 Take photo</button>
+                  <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={s.pick}>📎 Upload file</button>
+                </div>
+                {file && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
+                    {preview && <img src={preview} alt="Receipt preview" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>{file.name}</span>
+                    <button type="button" onClick={() => { setFile(null); setFileKey((k) => k + 1); }} style={s.small} aria-label="Remove selected receipt">✕</button>
+                  </div>
+                )}
+              </div>
               <button type="submit" disabled={saving} style={{ ...s.btn, opacity: saving ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
