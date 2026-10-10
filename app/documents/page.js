@@ -6,6 +6,14 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' };
+
+// Browsers often report an empty type for HEIC, so fall back to the extension.
+function resolveType(file) {
+  if (file.type) return file.type;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return EXT_TYPES[ext] || '';
+}
 
 const BUCKET = 'documents';
 
@@ -46,7 +54,7 @@ export default function DocumentsPage() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) loadDocs();
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => loadDocs(), 0); // defer: avoid Supabase auth-lock deadlock
       if (event === 'SIGNED_OUT') setDocs([]);
     });
     return () => sub.subscription.unsubscribe();
@@ -55,8 +63,9 @@ export default function DocumentsPage() {
   async function handleUpload(e) {
     e.preventDefault();
     if (!file || !user) return;
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      return setStatus({ type: 'error', text: `Unsupported file type (${file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC.` });
+    const contentType = resolveType(file);
+    if (!ALLOWED_TYPES.includes(contentType)) {
+      return setStatus({ type: 'error', text: `Unsupported file type (${contentType || file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC.` });
     }
     if (file.size > MAX_BYTES) {
       return setStatus({ type: 'error', text: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.` });
@@ -65,7 +74,7 @@ export default function DocumentsPage() {
     setStatus(null);
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `${user.id}/${Date.now()}-${safeName}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type });
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType });
     if (upErr) {
       setUploading(false);
       return setStatus({ type: 'error', text: 'Upload failed: ' + upErr.message });
@@ -132,7 +141,7 @@ export default function DocumentsPage() {
             <label htmlFor="file" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
               Upload rate confirmation (PDF or image)
             </label>
-            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" style={s.input}
+            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,.pdf,.jpg,.jpeg,.png,.webp,.heic" style={s.input}
               onChange={(e) => setFile(e.target.files?.[0] || null)} />
             <button type="submit" disabled={!file || uploading} style={{ ...s.btn, opacity: !file || uploading ? 0.6 : 1 }}>
               {uploading ? 'Uploading…' : 'Upload'}

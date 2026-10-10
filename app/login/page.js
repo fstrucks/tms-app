@@ -46,7 +46,7 @@ export default function LoginPage() {
         {sent ? (
           <>
             <p style={{ color: '#15803d', fontWeight: 600 }}>Check your email</p>
-            <p>We sent a sign-in link to <strong>{email}</strong>. Open it on this device to continue.</p>
+            <p>We sent a sign-in link to <strong>{email}</strong>. Open the link on this device (in this browser) to finish signing in.</p>
             <button style={{ ...s.btn, background: '#6b7280' }} onClick={() => setSent(false)}>Use a different email</button>
           </>
         ) : (
