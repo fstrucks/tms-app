@@ -3,7 +3,7 @@ alter table public.documents enable row level security;
 drop policy if exists "documents_insert_own" on public.documents;
 create policy "documents_insert_own" on public.documents
   for insert to authenticated
-  with check (user_id = auth.uid());
+  with check (user_id = auth.uid() and split_part(file_path, '/', 1) = auth.uid()::text);
 
 drop policy if exists "documents_select_own" on public.documents;
 create policy "documents_select_own" on public.documents
