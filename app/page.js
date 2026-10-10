@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 export default function Home() {
-  const [message, setMessage] = useState('Connecting to database...');
+  const [message, setMessage] = useState('Connecting to database..now.');
 
   useEffect(() => {
     async function testConnection() {
