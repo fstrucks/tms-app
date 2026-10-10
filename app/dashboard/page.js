@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fmtMoney } from '../lib/loads';
-import { fetchPaged, buildWeeks, localISO, aggregate, summarize } from '../lib/dashboard';
+import { fetchPaged, buildWeeks, localISO, aggregate, summarize, REVENUE_RULE } from '../lib/dashboard';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 960, margin: '0 auto' },
@@ -18,7 +18,7 @@ const s = {
 };
 
 const mi = (n) => `${Math.round(n).toLocaleString('en-US')} mi`;
-const rpm = (n) => (n == null || !isFinite(n) ? '—' : `$${n.toFixed(2)}/mi`);
+const rpm = (n) => (n == null || !isFinite(n) ? '—' : `$${Number(n).toFixed(2)}/mi`);
 const range = (w) => {
   const last = new Date(w.end); last.setDate(last.getDate() - 1);
   const f = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -66,13 +66,17 @@ function Stats({ w, cats }) {
   return (
     <>
       <div style={s.row}><span style={s.muted}>Revenue ({w.loads} load{w.loads === 1 ? '' : 's'})</span><strong>{fmtMoney(w.revenue)}</strong></div>
-      <div style={s.row}><span style={s.muted}>Loaded / deadhead</span><span>{mi(w.miles.loaded)} / {mi(w.miles.deadhead)}</span></div>
-      <div style={s.row}><span style={s.muted}>Total miles</span><span>{mi(w.totalMiles)}</span></div>
+      {w.missingRate > 0 && (
+        <div style={{ ...s.row, fontSize: '0.8rem', color: '#b45309' }}><span>{w.missingRate} load{w.missingRate === 1 ? '' : 's'} missing rate</span><span>not in revenue</span></div>
+      )}
+      <div style={s.row}><span style={s.muted}>Load miles (loads.total_miles)</span><span>{mi(w.rpmMiles)}</span></div>
+      <div style={s.row}><span style={s.muted}>Logged loaded / deadhead</span><span>{mi(w.miles.loaded)} / {mi(w.miles.deadhead)}</span></div>
+      <div style={s.row}><span style={s.muted}>Logged total miles</span><span>{mi(w.totalMiles)}</span></div>
       {(w.miles.personal > 0 || w.miles.other > 0) && (
         <div style={{ ...s.row, fontSize: '0.8rem' }}><span style={s.muted}>Personal / other (not in RPM)</span><span>{mi(w.miles.personal)} / {mi(w.miles.other)}</span></div>
       )}
-      <div style={s.row}><span style={s.muted}>Loaded RPM</span><strong>{rpm(w.loadedRpm)}</strong></div>
-      <div style={s.row}><span style={s.muted}>All-in RPM</span><strong>{rpm(w.allInRpm)}</strong></div>
+      <div style={s.row}><span style={s.muted}>Loaded RPM (rate ÷ load miles)</span><strong>{rpm(w.loadedRpm)}</strong></div>
+      <div style={s.row}><span style={s.muted}>All-in RPM (revenue ÷ logged loaded + deadhead)</span><strong>{rpm(w.allInRpm)}</strong></div>
       <div style={{ borderTop: '1px solid #f1f5f9', margin: '0.35rem 0' }} />
       {cats.filter((c) => w.expenses[c] > 0).map((c) => (
         <div key={c} style={{ ...s.row, fontSize: '0.82rem' }}><span style={{ ...s.muted, textTransform: 'capitalize' }}>{c}</span><span>{fmtMoney(w.expenses[c])}</span></div>
@@ -88,6 +92,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [n, setN] = useState(8);
+  const weeksRef = useRef(8);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -100,7 +105,7 @@ export default function DashboardPage() {
       const from = weeks[0].start, to = weeks[weeks.length - 1].end;
       const fromISO = localISO(from), toISO = localISO(to);
       const fromTs = from.toISOString(), toTs = to.toISOString();
-      const loadCols = 'id, status, rate, created_at, stops(sequence, appointment_start)';
+      const loadCols = 'id, status, rate, total_miles, created_at, stops(sequence, appointment_start)';
 
       // Candidate loads: any stop appointment in range, or created in range. Week assignment happens client-side.
       const [stopsRes, createdRes, milesRes, expRes] = await Promise.all([
@@ -132,13 +137,13 @@ export default function DashboardPage() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => load(n), 0);
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => load(weeksRef.current), 0);
       if (event === 'SIGNED_OUT') setRows(null);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  function pick(k) { setN(k); if (user) load(k); }
+  function pick(k) { weeksRef.current = k; setN(k); if (user) load(k); }
 
   const total = rows ? summarize(rows) : null;
   const cats = total ? Object.keys(total.expenses) : [];
@@ -179,6 +184,9 @@ export default function DashboardPage() {
                     <span><span style={{ color: '#f87171' }}>■</span> Expenses</span>
                     <span><span style={{ color: '#059669' }}>—</span> Net</span>
                   </div>
+                  <p style={{ ...s.muted, fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
+                    Revenue counts {REVENUE_RULE === 'completed_only' ? 'delivered / invoiced / paid loads only' : 'all loads except cancelled / TONU / void'}.
+                  </p>
                   <Stats w={total} cats={cats} />
                 </div>
                 <div style={s.grid}>
