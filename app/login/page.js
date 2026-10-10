@@ -26,9 +26,18 @@ export default function LoginPage() {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: window.location.origin + '/documents' },
+        options: {
+          emailRedirectTo: window.location.origin + '/documents',
+          shouldCreateUser: false, // invite-only: no public signups
+        },
       });
-      if (error) setError(error.message);
+      if (error) {
+        const notInvited = error.code === 'otp_disabled' || error.code === 'signup_disabled'
+          || /signups? not allowed|user not found/i.test(error.message || '');
+        setError(notInvited
+          ? "This email isn't invited yet. Ask the account owner to send you an invite."
+          : error.message);
+      }
       else setSent(true);
     } catch (err) {
       setError(err.message || 'Could not send the sign-in link.');
