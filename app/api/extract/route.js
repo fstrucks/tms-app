@@ -77,28 +77,18 @@ export async function POST(req) {
   if (docErr) return fail(500, GENERIC, 'doc load', docErr.message);
   if (!doc || doc.user_id !== user.id) return fail(404, 'Document not found.');
 
+  // The file must live in the user's own folder; never touch storage outside it.
+  if (typeof doc.file_path !== 'string' || !doc.file_path.startsWith(`${user.id}/`)) {
+    return fail(403, 'Not allowed.', 'file_path outside user folder', doc.id);
+  }
+
   if (doc.ai_extracted_data && force !== true) {
     return json({ error: 'Already extracted. Re-run to overwrite.', data: doc.ai_extracted_data }, 409);
   }
 
-  // Service client: only after ownership is verified. Used for extraction_runs + ai_extracted_data.
-  const admin = createClient(url, serviceKey, opts);
-
-  const now = Date.now();
-  const hourAgo = new Date(now - 3600_000).toISOString();
-  const dayAgo = new Date(now - 86_400_000).toISOString();
-  const [h, d] = await Promise.all([
-    admin.from('extraction_runs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', hourAgo),
-    admin.from('extraction_runs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', dayAgo),
-  ]);
-  if (h.error || d.error) return fail(500, GENERIC, 'rate limit query', h.error?.message || d.error?.message);
-  if (h.count >= LIMIT_PER_HOUR || d.count >= LIMIT_PER_DAY) {
-    return fail(429, `Extraction limit reached (${LIMIT_PER_HOUR}/hour, ${LIMIT_PER_DAY}/day). Try again later.`);
-  }
-
   const name = doc.original_filename || doc.file_path;
   const slash = doc.file_path.lastIndexOf('/');
-  const { data: objs } = await admin.storage.from('documents').list(doc.file_path.slice(0, slash), {
+  const { data: objs } = await userDb.storage.from('documents').list(doc.file_path.slice(0, slash), {
     search: doc.file_path.slice(slash + 1), limit: 1,
   });
   const meta = objs?.[0]?.metadata;
@@ -110,10 +100,13 @@ export async function POST(req) {
   }
   if (preMime && !SUPPORTED.includes(preMime)) return fail(415, 'Unsupported file type. Use PDF, JPEG, PNG or WebP.');
 
-  const { data: run, error: runErr } = await admin.from('extraction_runs')
-    .insert({ user_id: user.id, document_id: doc.id, status: 'started' }).select('id').single();
-  if (runErr) return fail(500, GENERIC, 'run insert', runErr.message);
-  const finish = (status) => admin.from('extraction_runs').update({ status }).eq('id', run.id);
+  // Service client: only after identity, ownership and path are verified.
+  // Used for the atomic rate-limit claim, run status and ai_extracted_data.
+  const admin = createClient(url, serviceKey, opts);
+  const { data: runId, error: claimErr } = await admin.rpc('claim_extraction_slot', { p_user: user.id, p_document: doc.id });
+  if (claimErr) return fail(500, GENERIC, 'claim slot', claimErr.message);
+  if (!runId) return fail(429, `Extraction limit reached (${LIMIT_PER_HOUR}/hour, ${LIMIT_PER_DAY}/day). Try again later.`);
+  const finish = (status) => admin.from('extraction_runs').update({ status }).eq('id', runId);
 
   const { data: blob, error: dlErr } = await userDb.storage.from('documents').download(doc.file_path);
   if (dlErr || !blob) { await finish('error'); return fail(500, GENERIC, 'download', dlErr?.message); }

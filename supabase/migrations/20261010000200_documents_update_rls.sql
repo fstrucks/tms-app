@@ -5,6 +5,10 @@
 revoke update on public.documents from authenticated;
 grant update (load_id, truck_id, doc_type) on public.documents to authenticated;
 
+-- Inserts: only client-safe columns (ai_extracted_data stays server-only).
+revoke insert on public.documents from authenticated;
+grant insert (user_id, load_id, truck_id, doc_type, file_path, original_filename) on public.documents to authenticated;
+
 drop policy if exists "documents_update_own" on public.documents;
 create policy "documents_update_own" on public.documents
   for update to authenticated
