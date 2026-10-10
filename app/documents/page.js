@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 
 const MAX_BYTES = 10 * 1024 * 1024;
-const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic'];
-const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' };
+const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
 
 // Browsers often report an empty type for HEIC, so fall back to the extension.
 function resolveType(file) {
@@ -16,6 +16,19 @@ function resolveType(file) {
 }
 
 const BUCKET = 'documents';
+
+function isHeic(file, type) {
+  return type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
+}
+
+// Convert HEIC/HEIF to JPEG in the browser. heic2any is loaded only when needed (client only).
+async function convertHeicToJpeg(file) {
+  const { default: heic2any } = await import('heic2any');
+  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+  const blob = Array.isArray(out) ? out[0] : out;
+  const name = file.name.replace(/\.(heic|heif)$/i, '') + '.jpg';
+  return new File([blob], name, { type: 'image/jpeg' });
+}
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 640, margin: '0 auto' },
@@ -35,6 +48,7 @@ export default function DocumentsPage() {
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
   const [extracting, setExtracting] = useState({});
@@ -86,18 +100,33 @@ export default function DocumentsPage() {
   async function handleUpload(e) {
     e.preventDefault();
     if (!file || !user) return;
-    const contentType = resolveType(file);
+    let contentType = resolveType(file);
     if (!ALLOWED_TYPES.includes(contentType)) {
-      return setStatus({ type: 'error', text: `Unsupported file type (${contentType || file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC.` });
+      return setStatus({ type: 'error', text: `Unsupported file type (${contentType || file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC/HEIF.` });
     }
     if (file.size > MAX_BYTES) {
       return setStatus({ type: 'error', text: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.` });
     }
-    setUploading(true);
     setStatus(null);
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    let uploadFile = file;
+    if (isHeic(file, contentType)) {
+      setConverting(true);
+      try {
+        uploadFile = await convertHeicToJpeg(file);
+        contentType = 'image/jpeg';
+      } catch (err) {
+        return setStatus({ type: 'error', text: 'Could not convert this iPhone photo (HEIC) to JPEG. Try exporting it as JPEG, or take a screenshot and upload that.' });
+      } finally {
+        setConverting(false);
+      }
+      if (uploadFile.size > MAX_BYTES) {
+        return setStatus({ type: 'error', text: `Converted photo is too large (${(uploadFile.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.` });
+      }
+    }
+    setUploading(true);
+    const safeName = uploadFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `${user.id}/${Date.now()}-${safeName}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType });
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, uploadFile, { contentType });
     if (upErr) {
       setUploading(false);
       return setStatus({ type: 'error', text: 'Upload failed: ' + upErr.message });
@@ -165,10 +194,10 @@ export default function DocumentsPage() {
             <label htmlFor="file" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
               Upload rate confirmation (PDF or image)
             </label>
-            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,.pdf,.jpg,.jpeg,.png,.webp,.heic" style={s.input}
+            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif" style={s.input}
               onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            <button type="submit" disabled={!file || uploading} style={{ ...s.btn, opacity: !file || uploading ? 0.6 : 1 }}>
-              {uploading ? 'Uploading…' : 'Upload'}
+            <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, opacity: !file || uploading || converting ? 0.6 : 1 }}>
+              {converting ? 'Converting photo…' : uploading ? 'Uploading…' : 'Upload'}
             </button>
           </form>
 

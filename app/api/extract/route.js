@@ -57,11 +57,14 @@ export async function POST(req) {
 
   const buf = Buffer.from(await blob.arrayBuffer());
   const name = doc.original_filename || 'document';
-  const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' };
+  const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
   const ext = (name.split('.').pop() || '').toLowerCase();
   const mime = blob.type && blob.type !== 'application/octet-stream'
     ? blob.type
     : EXT_TYPES[ext] || 'image/jpeg';
+  if (mime === 'image/heic' || mime === 'image/heif' || /\.(heic|heif)$/i.test(doc.file_path)) {
+    return json({ error: 'This file is a HEIC/HEIF photo, which AI extraction does not support. Re-upload it from the app (it converts to JPEG automatically) or upload a JPEG/PNG/PDF.' }, 415);
+  }
   const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
   const filePart = mime === 'application/pdf'
     ? { type: 'input_file', filename: name, file_data: dataUrl }
