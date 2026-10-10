@@ -1,4 +1,3 @@
--- PENDING SCHEMA VERIFICATION: uses only the loads/stops columns assumed in 20261010000400_loads.sql.
 -- Run after 20261010000400_loads.sql.
 --
 -- Creates a load + pickup/delivery stops from a document's ai_extracted_data and links the document,
@@ -15,7 +14,20 @@ declare
   v_doc record;
   v_x jsonb;
   v_load uuid;
-  v_refs text[];
+  v_notes text;
+  v_s record;
+  v_party jsonb;
+  v_when jsonb;
+  v_addr text;
+  v_m text[];
+  v_line1 text;
+  v_city text;
+  v_state text;
+  v_zip text;
+  v_date text;
+  v_time text;
+  v_appt timestamptz;
+  v_stop_notes text;
 begin
   select id, user_id, load_id, ai_extracted_data
     into v_doc
@@ -34,36 +46,69 @@ begin
     raise exception 'no_extracted_data' using errcode = 'P0001';
   end if;
 
-  if jsonb_typeof(v_x->'reference_numbers') = 'array' then
-    select array_agg(r) into v_refs from jsonb_array_elements_text(v_x->'reference_numbers') r;
-  end if;
+  -- No reference column on loads: fold reference numbers into notes.
+  v_notes := nullif(concat_ws(E'\n',
+    nullif(v_x->>'notes', ''),
+    case when jsonb_typeof(v_x->'reference_numbers') = 'array'
+              and jsonb_array_length(v_x->'reference_numbers') > 0
+         then 'Refs: ' || (select string_agg(r, ', ') from jsonb_array_elements_text(v_x->'reference_numbers') r)
+    end
+  ), '');
 
-  insert into public.loads (user_id, status, broker_name, load_number, reference_numbers, rate, notes)
+  insert into public.loads (user_id, status, broker_name, broker_load_number, rate, notes)
   values (
     auth.uid(),
     'booked',
     nullif(v_x->>'broker_name', ''),
     nullif(v_x->>'load_number', ''),
-    v_refs,
     case when jsonb_typeof(v_x->'rate') = 'number' then (v_x->>'rate')::numeric end,
-    nullif(v_x->>'notes', '')
+    v_notes
   )
   returning id into v_load;
 
-  -- Pickup (1) and delivery (2). Dates cast only when YYYY-MM-DD; otherwise the raw text goes into scheduled_time.
-  insert into public.stops (load_id, sequence, stop_type, name, address, scheduled_date, scheduled_time)
-  select
-    v_load,
-    s.seq,
-    s.kind,
-    nullif(v_x->s.party->>'name', ''),
-    coalesce(nullif(v_x->s.stop->>'address', ''), nullif(v_x->s.party->>'address', '')),
-    case when v_x->s.stop->>'date' ~ '^\d{4}-\d{2}-\d{2}$' then (v_x->s.stop->>'date')::date end,
-    nullif(concat_ws(' ',
-      nullif(v_x->s.stop->>'time', ''),
-      case when v_x->s.stop->>'date' !~ '^\d{4}-\d{2}-\d{2}$' then nullif(v_x->s.stop->>'date', '') end
-    ), '')
-  from (values (1, 'pickup', 'shipper', 'pickup'), (2, 'delivery', 'receiver', 'delivery')) as s(seq, kind, party, stop);
+  for v_s in
+    select * from (values (1, 'pickup', 'shipper', 'pickup'), (2, 'delivery', 'receiver', 'delivery')) as t(seq, kind, party, stop)
+  loop
+    v_party := case when jsonb_typeof(v_x->v_s.party) = 'object' then v_x->v_s.party else '{}'::jsonb end;
+    v_when  := case when jsonb_typeof(v_x->v_s.stop)  = 'object' then v_x->v_s.stop  else '{}'::jsonb end;
+    v_addr  := coalesce(nullif(trim(v_when->>'address'), ''), nullif(trim(v_party->>'address'), ''));
+    v_line1 := v_addr; v_city := null; v_state := null; v_zip := null;
+
+    -- Best effort: "<street>, <City>, ST 12345" or "<street>, <City>, ST".
+    v_m := regexp_match(v_addr, '^(.*?),\s*([^,]+?),\s*([A-Za-z]{2})\.?\s+(\d{5}(?:-\d{4})?)\s*(?:,\s*USA?)?$');
+    if v_m is not null then
+      v_line1 := nullif(trim(v_m[1]), ''); v_city := trim(v_m[2]); v_state := upper(v_m[3]); v_zip := v_m[4];
+    else
+      v_m := regexp_match(v_addr, '^(.*?),\s*([^,]+?),\s*([A-Za-z]{2})\.?\s*$');
+      if v_m is not null then
+        v_line1 := nullif(trim(v_m[1]), ''); v_city := trim(v_m[2]); v_state := upper(v_m[3]);
+      end if;
+    end if;
+
+    -- Appointment: date + time when both parse; else date only; else null. Raw values kept in notes.
+    v_date := nullif(trim(v_when->>'date'), '');
+    v_time := nullif(trim(v_when->>'time'), '');
+    v_appt := null;
+    v_stop_notes := null;
+    if v_date is not null then
+      begin
+        v_appt := (v_date || ' ' || coalesce(v_time, '00:00'))::timestamptz;
+      exception when others then
+        begin
+          v_appt := v_date::date::timestamptz;
+          if v_time is not null then v_stop_notes := 'Time: ' || v_time; end if;
+        exception when others then
+          v_appt := null;
+          v_stop_notes := concat_ws(' ', 'Appointment:', v_date, v_time);
+        end;
+      end;
+    elsif v_time is not null then
+      v_stop_notes := 'Time: ' || v_time;
+    end if;
+
+    insert into public.stops (load_id, stop_type, sequence, company_name, address_line1, city, state, zip, appointment_start, notes)
+    values (v_load, v_s.kind, v_s.seq, nullif(v_party->>'name', ''), v_line1, v_city, v_state, v_zip, v_appt, v_stop_notes);
+  end loop;
 
   update public.documents set load_id = v_load where id = p_document;
 

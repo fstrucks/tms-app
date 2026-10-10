@@ -24,7 +24,7 @@ export default function LoadsPage() {
   async function loadLoads() {
     const { data, error } = await supabase
       .from('loads')
-      .select('id, status, broker_name, load_number, rate, created_at, stops(sequence, stop_type, name, address, scheduled_date)')
+      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
       .order('created_at', { ascending: false });
     if (error) return setError('Could not load loads: ' + error.message);
     setLoads(data || []);
@@ -64,7 +64,7 @@ export default function LoadsPage() {
                 <Link key={l.id} href={`/loads/${l.id}`} style={s.card}>
                   <div style={s.row}>
                     <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {l.load_number ? `#${l.load_number}` : 'Load'}{l.broker_name ? ` · ${l.broker_name}` : ''}
+                      {l.broker_load_number ? `#${l.broker_load_number}` : 'Load'}{l.broker_name ? ` · ${l.broker_name}` : ''}
                     </strong>
                     <StatusBadge status={l.status} />
                   </div>
@@ -72,7 +72,7 @@ export default function LoadsPage() {
                     {stopSummary(stops[0])} <span style={s.muted}>→</span> {stopSummary(stops[stops.length - 1])}
                   </div>
                   <div style={s.row}>
-                    <span style={{ fontWeight: 600 }}>{fmtMoney(l.rate)}</span>
+                    <span><strong>{fmtMoney(l.rate)}</strong>{l.rate_per_mile != null && <span style={s.muted}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
                     <span style={s.muted}>{new Date(l.created_at).toLocaleDateString()}</span>
                   </div>
                 </Link>

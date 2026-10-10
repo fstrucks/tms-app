@@ -19,27 +19,42 @@ export function StatusBadge({ status }) {
   );
 }
 
-export const fmtMoney = (n) => (n === null || n === undefined || n === '' ? '—'
-  : Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+const has = (v) => v !== null && v !== undefined && v !== '';
 
-export function fmtDate(d) {
-  if (!d) return '';
-  const dt = new Date(`${d}T00:00:00`);
-  return isNaN(dt) ? d : dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+export const fmtMoney = (n) => (has(n)
+  ? Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+  : '—');
+
+export const fmtNumber = (n, unit = '') => (has(n) ? `${Number(n).toLocaleString('en-US')}${unit}` : '—');
+
+export function fmtApptDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// Best-effort "City, ST" from a free-form US address.
-export function cityFromAddress(addr) {
-  if (!addr) return '';
-  const parts = addr.split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 3) return `${parts[parts.length - 2]}, ${parts[parts.length - 1].split(' ')[0]}`;
-  if (parts.length === 2) return `${parts[0]}, ${parts[1].split(' ')[0]}`;
-  return parts[0] || '';
+export function fmtApptWindow(start, end) {
+  if (!start) return '';
+  const s = new Date(start);
+  if (isNaN(s)) return '';
+  const date = s.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const t = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const e = end ? new Date(end) : null;
+  if (!e || isNaN(e)) return `${date} ${t(s)}`;
+  return s.toDateString() === e.toDateString() ? `${date} ${t(s)}–${t(e)}` : `${date} ${t(s)} – ${e.toLocaleDateString()} ${t(e)}`;
+}
+
+export const cityState = (stop) => [stop?.city, stop?.state].filter(Boolean).join(', ');
+
+export function fullAddress(stop) {
+  if (!stop) return '';
+  const line3 = [cityState(stop), stop.zip].filter(Boolean).join(' ');
+  return [stop.address_line1, stop.address_line2, line3].filter(Boolean).join(', ');
 }
 
 export function stopSummary(stop) {
   if (!stop) return '—';
-  const place = cityFromAddress(stop.address) || stop.name || '—';
-  const date = fmtDate(stop.scheduled_date);
+  const place = cityState(stop) || stop.company_name || '—';
+  const date = fmtApptDate(stop.appointment_start);
   return date ? `${place} · ${date}` : place;
 }

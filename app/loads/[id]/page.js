@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
-import { STATUSES, StatusBadge, fmtMoney, fmtDate } from '../../lib/loads';
+import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
@@ -87,17 +87,29 @@ export default function LoadDetailPage() {
             {!load ? (!error && <p style={s.muted}>Loading…</p>) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-                  <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.load_number ? `Load #${load.load_number}` : 'Load'}</h1>
+                  <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}</h1>
                   {hasStatus && <StatusBadge status={load.status} />}
                 </div>
 
                 <div style={s.card}>
                   <dl style={s.dl}>
-                    <dt style={s.muted}>Broker</dt><dd style={{ margin: 0 }}>{load.broker_name || '—'}</dd>
-                    <dt style={s.muted}>Rate</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmtMoney(load.rate)}</dd>
-                    {load.reference_numbers?.length > 0 && (<><dt style={s.muted}>Refs</dt><dd style={{ margin: 0 }}>{load.reference_numbers.join(', ')}</dd></>)}
-                    {load.notes && (<><dt style={s.muted}>Notes</dt><dd style={{ margin: 0, wordBreak: 'break-word' }}>{load.notes}</dd></>)}
-                    <dt style={s.muted}>Created</dt><dd style={{ margin: 0 }}>{new Date(load.created_at).toLocaleString()}</dd>
+                    {[
+                      ['Broker', load.broker_name || '—'],
+                      ['Rate', fmtMoney(load.rate)],
+                      ['Rate/mile', load.rate_per_mile != null ? fmtMoney(load.rate_per_mile) : null],
+                      ['Miles', load.total_miles != null ? fmtNumber(load.total_miles) : null],
+                      ['Commodity', load.commodity],
+                      ['Weight', load.weight != null ? fmtNumber(load.weight, ' lb') : null],
+                      ['Equipment', load.equipment_type],
+                      ['Instructions', load.special_instructions],
+                      ['Notes', load.notes],
+                      ['Created', new Date(load.created_at).toLocaleString()],
+                    ].filter(([, v]) => v).map(([k, v]) => (
+                      <div key={k} style={{ display: 'contents' }}>
+                        <dt style={s.muted}>{k}</dt>
+                        <dd style={{ margin: 0, wordBreak: 'break-word', whiteSpace: 'pre-line', fontWeight: k === 'Rate' ? 600 : 400 }}>{v}</dd>
+                      </div>
+                    ))}
                   </dl>
                   {hasStatus && (
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
@@ -117,11 +129,18 @@ export default function LoadDetailPage() {
                     <div key={st.id} style={{ ...s.row, alignItems: 'flex-start', borderBottom: i === load.stops.length - 1 ? 'none' : s.row.borderBottom }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
-                        {st.name && <div>{st.name}</div>}
-                        {st.address && <div style={s.muted}>{st.address}</div>}
+                        {st.company_name && <div>{st.company_name}</div>}
+                        {fullAddress(st) && <div style={s.muted}>{fullAddress(st)}</div>}
+                        {(st.contact_name || st.contact_phone) && (
+                          <div style={s.muted}>
+                            {st.contact_name}{st.contact_name && st.contact_phone ? ' · ' : ''}
+                            {st.contact_phone && <a href={`tel:${st.contact_phone}`} style={s.link}>{st.contact_phone}</a>}
+                          </div>
+                        )}
+                        {st.notes && <div style={{ ...s.muted, whiteSpace: 'pre-line' }}>{st.notes}</div>}
                       </div>
-                      <div style={{ ...s.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {fmtDate(st.scheduled_date)}{st.scheduled_time ? <><br />{st.scheduled_time}</> : null}
+                      <div style={{ ...s.muted, textAlign: 'right', maxWidth: '45%' }}>
+                        {fmtApptWindow(st.appointment_start, st.appointment_end)}
                       </div>
                     </div>
                   ))}
