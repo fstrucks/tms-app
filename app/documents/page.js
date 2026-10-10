@@ -37,11 +37,34 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [extracting, setExtracting] = useState({});
+  const [extractErr, setExtractErr] = useState({});
+
+  async function extract(id, force = false) {
+    setExtracting((m) => ({ ...m, [id]: true }));
+    setExtractErr((m) => ({ ...m, [id]: null }));
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token || ''}` },
+        body: JSON.stringify({ documentId: id, force }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
+      setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
+    } catch (err) {
+      setExtractErr((m) => ({ ...m, [id]: err.message }));
+    } finally {
+      setExtracting((m) => ({ ...m, [id]: false }));
+    }
+  }
+
 
   async function loadDocs() {
     const { data, error } = await supabase
       .from('documents')
-      .select('id, doc_type, file_path, original_filename, created_at')
+      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data')
       .order('created_at', { ascending: false });
     if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
     setDocs(data || []);
@@ -79,15 +102,14 @@ export default function DocumentsPage() {
       setUploading(false);
       return setStatus({ type: 'error', text: 'Upload failed: ' + upErr.message });
     }
-    const { error: dbErr } = await supabase.from('documents').insert({
+    const { data: inserted, error: dbErr } = await supabase.from('documents').insert({
       user_id: user.id,
       doc_type: 'rate_confirmation',
       file_path: path,
       original_filename: file.name,
       load_id: null,
       truck_id: null,
-      ai_extracted_data: null,
-    });
+    }).select('id').single();
     setUploading(false);
     if (dbErr) {
       await supabase.storage.from(BUCKET).remove([path]);
@@ -96,7 +118,8 @@ export default function DocumentsPage() {
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null);
     e.target.reset();
-    loadDocs();
+    await loadDocs();
+    if (inserted?.id) extract(inserted.id);
   }
 
   async function handleSignOut() {
@@ -153,17 +176,66 @@ export default function DocumentsPage() {
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
             {docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
-              <div key={d.id} style={s.item}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                  <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+              <div key={d.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
+                    <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                  </div>
+                  <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem' }}>View</button>
                 </div>
-                <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem' }}>View</button>
+                {extracting[d.id] ? (
+                  <p style={s.muted}>Extracting…</p>
+                ) : (
+                  <>
+                    {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
+                    {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
+                    <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
+                      {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
+                    </button>
+                  </>
+                )}
               </div>
             ))}
           </div>
         </>
       )}
     </main>
+  );
+}
+
+function fmtStop(st) {
+  if (!st) return null;
+  const when = [st.date, st.time].filter(Boolean).join(' ');
+  return [when, st.address].filter(Boolean).join(' — ') || null;
+}
+
+function fmtParty(p) {
+  if (!p) return null;
+  return [p.name, p.address].filter(Boolean).join(', ') || null;
+}
+
+function Summary({ x }) {
+  const rows = [
+    ['Broker', x.broker_name],
+    ['Load #', x.load_number],
+    ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
+    ['Rate', typeof x.rate === 'number' ? x.rate.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : null],
+    ['Shipper', fmtParty(x.shipper)],
+    ['Pickup', fmtStop(x.pickup)],
+    ['Receiver', fmtParty(x.receiver)],
+    ['Delivery', fmtStop(x.delivery)],
+    ['Notes', x.notes],
+  ].filter(([, v]) => v);
+  if (!rows.length) return <p style={{ color: '#6b7280', fontSize: '0.85rem' }}>No fields extracted.</p>;
+  return (
+    <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.75rem', margin: '0.5rem 0 0', fontSize: '0.85rem', background: '#f8fafc', borderRadius: 8, padding: '0.6rem' }}>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'contents' }}>
+          <dt style={{ color: '#6b7280' }}>{k}</dt>
+          <dd style={{ margin: 0, wordBreak: 'break-word' }}>{v}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
