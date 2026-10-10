@@ -109,7 +109,6 @@ export default function DocumentsPage() {
       original_filename: file.name,
       load_id: null,
       truck_id: null,
-      ai_extracted_data: null,
     }).select('id').single();
     setUploading(false);
     if (dbErr) {
