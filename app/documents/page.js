@@ -41,7 +41,12 @@ export default function DocumentsPage() {
       setChecking(false);
       if (u) loadDocs();
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      const u = session?.user || null;
+      setUser(u);
+      if (u) loadDocs();
+      else setDocs([]);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -93,10 +98,14 @@ export default function DocumentsPage() {
       ) : !user ? (
         <div style={s.card}>
           <p style={s.error}>You need to be signed in to upload and view documents.</p>
-          <p style={s.muted}>No login page exists yet in this app; sign-in will be added in a later step.</p>
+          <Link href="/login" style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Sign in</Link>
         </div>
       ) : (
         <>
+          <div style={{ ...s.item, borderBottom: 'none' }}>
+            <span style={{ ...s.muted, overflow: 'hidden', textOverflow: 'ellipsis' }}>Signed in as {user.email}</span>
+            <button onClick={() => supabase.auth.signOut()} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem', background: '#6b7280' }}>Sign out</button>
+          </div>
           <form onSubmit={handleUpload} style={s.card}>
             <label htmlFor="file" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
               Upload rate confirmation (PDF or image)
