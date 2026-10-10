@@ -106,7 +106,7 @@ export async function POST(req) {
 
   const preMime = resolveMime(meta?.mimetype, doc.file_path) || resolveMime(null, name);
   if (preMime === 'image/heic' || preMime === 'image/heif') {
-    return fail(415, 'HEIC/HEIF photos can't be extracted directly. Re-upload it here (photos are converted to JPEG automatically) or upload a JPEG, PNG, WebP or PDF.');
+    return fail(415, 'HEIC/HEIF photos cannot be extracted directly. Re-upload it here (photos are converted to JPEG automatically) or upload a JPEG, PNG, WebP or PDF.');
   }
   if (preMime && !SUPPORTED.includes(preMime)) return fail(415, 'Unsupported file type. Use PDF, JPEG, PNG or WebP.');
 
@@ -122,7 +122,7 @@ export async function POST(req) {
   const mime = resolveMime(blob.type, doc.file_path) || preMime;
   if (mime === 'image/heic' || mime === 'image/heif') {
     await finish('rejected');
-    return fail(415, 'HEIC/HEIF photos can't be extracted directly. Re-upload it here (photos are converted to JPEG automatically) or upload a JPEG, PNG, WebP or PDF.');
+    return fail(415, 'HEIC/HEIF photos cannot be extracted directly. Re-upload it here (photos are converted to JPEG automatically) or upload a JPEG, PNG, WebP or PDF.');
   }
   if (!SUPPORTED.includes(mime)) { await finish('rejected'); return fail(415, 'Unsupported file type. Use PDF, JPEG, PNG or WebP.'); }
 
