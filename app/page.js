@@ -6,4 +6,4 @@ export default function Home() {
       <p>Rate confirmation AI upload coming next.</p>
     </main>
   );
-}
+} 
