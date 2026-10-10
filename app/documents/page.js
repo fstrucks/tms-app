@@ -65,7 +65,11 @@ export default function DocumentsPage() {
     setCreating((m) => ({ ...m, [doc.id]: true }));
     setStatus(null);
     try {
-      const { data: loadId, error } = await supabase.rpc('create_load_from_document', { p_document: doc.id });
+      const { data: loadId, error } = await supabase.rpc('create_load_from_document', {
+        p_document: doc.id,
+        // Extracted appointment times are local wall time; interpret them in this browser's timezone.
+        p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles',
+      });
       if (error) {
         const code = Object.keys(LOAD_ERRORS).find((k) => (error.message || '').includes(k));
         console.error('create_load_from_document', error);

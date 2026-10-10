@@ -38,10 +38,13 @@ export function fmtApptWindow(start, end) {
   const s = new Date(start);
   if (isNaN(s)) return '';
   const date = s.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  // Shown in the browser's local time.
   const t = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const tz = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(s).find((p) => p.type === 'timeZoneName')?.value;
+  const suffix = tz ? ` ${tz}` : '';
   const e = end ? new Date(end) : null;
-  if (!e || isNaN(e)) return `${date} ${t(s)}`;
-  return s.toDateString() === e.toDateString() ? `${date} ${t(s)}–${t(e)}` : `${date} ${t(s)} – ${e.toLocaleDateString()} ${t(e)}`;
+  if (!e || isNaN(e)) return `${date} ${t(s)}${suffix}`;
+  return s.toDateString() === e.toDateString() ? `${date} ${t(s)}–${t(e)}${suffix}` : `${date} ${t(s)} – ${e.toLocaleDateString()} ${t(e)}${suffix}`;
 }
 
 export const cityState = (stop) => [stop?.city, stop?.state].filter(Boolean).join(', ');
