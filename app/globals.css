@@ -1,0 +1,31 @@
+/* Minimal global rules that inline styles can't express (media queries, env(), pseudo-elements).
+   Everything else stays inline in components. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; overflow-x: hidden; overflow-wrap: anywhere; }
+img, video { max-width: 100%; }
+
+/* 16px+ form text so iOS Safari doesn't zoom on focus (beats small inline sizes). */
+input, select, textarea { font-size: max(16px, 1em) !important; max-width: 100%; }
+
+/* Thumb-sized tap targets. Compact controls (segmented tabs, inline "Load more") opt out with
+   data-compact and get 36px instead. */
+button:not([data-compact]), select,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]) { min-height: 44px; }
+button[data-compact] { min-height: 36px; }
+button { touch-action: manipulation; }
+
+/* Shared nav: header on desktop, bottom tab bar on phones. --nav-h lets sticky actions sit above the bar. */
+:root { --nav-h: 0px; }
+.appnav-bottom { display: none; }
+@media (max-width: 640px) {
+  :root { --nav-h: 60px; }
+  .appnav-top { display: none !important; }
+  .appnav-bottom { display: flex !important; }
+  body.has-appnav { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+}
+/* While typing on a phone, hide the tab bar so the keyboard + sticky Save have the room. */
+@media (max-width: 640px) {
+  body.kbd-open { --nav-h: 0px; }
+  body.kbd-open .appnav-bottom { display: none !important; }
+}

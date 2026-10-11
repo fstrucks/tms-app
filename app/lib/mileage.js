@@ -70,8 +70,8 @@ export function LoadPicker({ value, onChange, style }) {
       </select>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
         <span>{failed ? 'Could not load loads.' : busy ? 'Searching…' : `${rows.length} shown`}</span>
-        {hasMore && <button type="button" onClick={() => setLimit((n) => n + PAGE)}
-          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', padding: 0 }}>Load more</button>}
+        {hasMore && <button type="button" data-compact onClick={() => setLimit((n) => n + PAGE)}
+          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.85rem', minHeight: 36, padding: '0 0.75rem' }}>Load more</button>}
       </div>
     </div>
   );
@@ -164,7 +164,9 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
         </p>
       )}
       {err && <p style={{ color: '#b91c1c', margin: '0.5rem 0 0' }}>{err}</p>}
-      <button type="submit" disabled={saving} style={{ ...st.btn, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add miles'}</button>
+      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem' }}>
+        <button type="submit" disabled={saving} style={{ ...st.btn, width: '100%', minHeight: 48, marginTop: 0, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add miles'}</button>
+      </div>
     </form>
   );
 }

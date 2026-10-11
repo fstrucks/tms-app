@@ -77,42 +77,38 @@ async function downscaleImage(file) {
   }
 }
 
-// Re-encode to JPEG at a given long edge / quality. Returns a File or null on failure.
-async function reencodeJpeg(file, maxEdge, quality) {
+// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
+// The saved receipt is unaffected: only the copy sent for reading is recompressed.
+// Decodes the image ONCE, then tries progressively smaller JPEG encodes.
+const AI_MAX_BYTES = 4 * 1024 * 1024;
+async function fitForAi(file) {
+  if (file.size <= AI_MAX_BYTES) return file;
   let decoded;
   try {
     decoded = await decodeImage(file);
     const { w, h } = decoded;
     if (!w || !h) return null;
-    const scale = Math.min(1, maxEdge / Math.max(w, h));
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(w * scale);
-    canvas.height = Math.round(h * scale);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null;
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
+      const scale = Math.min(1, edge / Math.max(w, h));
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
+      if (blob && blob.size <= AI_MAX_BYTES) return new File([blob], name, { type: 'image/jpeg' });
+    }
+    return null;
   } catch (err) {
     console.warn('[expenses] re-encode failed', err);
     return null;
   } finally {
     decoded?.close();
   }
-}
-
-// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
-// The saved receipt is unaffected: only the copy sent for reading is recompressed.
-const AI_MAX_BYTES = 4 * 1024 * 1024;
-async function fitForAi(file) {
-  if (file.size <= AI_MAX_BYTES) return file;
-  for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
-    const out = await reencodeJpeg(file, edge, q);
-    if (out && out.size <= AI_MAX_BYTES) return out;
-  }
-  return null;
 }
 
 const sameFile = (a, b) => !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
@@ -144,7 +140,8 @@ const s = {
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
   pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
-  small: { padding: '0.4rem 0.75rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
+  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
+  small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
   ok: { color: '#15803d' },
@@ -417,7 +414,7 @@ function ExpensesInner() {
       const saveMsg = warnings.length
         ? `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.`
         : (editing ? 'Expense updated.' : 'Expense added.');
-      setForm(emptyForm(editing ? presetLoad : form.load_id));
+      setForm(emptyForm(presetLoad)); // Load resets too, except a ?load=<id> preselection
       setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
       const problems = await fetchAll();
@@ -458,10 +455,6 @@ function ExpensesInner() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}>
-        <Link href="/" style={s.link}>← Home</Link>
-        <Link href="/loads" style={s.link}>Loads</Link>
-      </p>
       <h1 style={{ fontSize: '1.5rem' }}>Expenses</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
@@ -524,11 +517,13 @@ function ExpensesInner() {
                   )}
                 </div>
               </fieldset>
+              <div style={s.sticky}>
               <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
                 style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
               {ai.state === 'reading' && <p id="save-hint" style={{ ...s.muted, margin: '0.35rem 0 0', textAlign: 'center' }}>Save is available once the receipt has been read (or remove it with ✕).</p>}
+              </div>
               {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
