@@ -3,6 +3,7 @@
 Notable changes to PowerHaul TMS, newest first. Dates are merge dates (UTC) from GitHub.
 
 ## 2026-10-11
+- [#21](https://github.com/fstrucks/tms-app/pull/21) PowerHaul TMS branding: tab title, nav brand, home/login headings, README, favicon
 - Named the app PowerHaul TMS (Marc)
 - [#15](https://github.com/fstrucks/tms-app/pull/15) docs: progression log (README, CHANGELOG, 2026-10-11 current state)
 - [#18](https://github.com/fstrucks/tms-app/pull/18) Store stop timezone and show appointments in each stop's zone (migration 0680), merge 7de008b; `/loads` labels City, ST; home drops duplicate links

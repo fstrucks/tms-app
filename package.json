@@ -1,5 +1,6 @@
 {
   "name": "tms-app",
+  "description": "PowerHaul TMS for owner-operators",
   "version": "0.1.0",
   "private": true,
   "scripts": {
