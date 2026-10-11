@@ -6,11 +6,13 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Reads an expense receipt image and returns suggested form fields. Writes nothing except the
-// shared extraction_runs rate-limit log (same claim_extraction_slot as /api/extract).
-const MAX_BYTES = 10 * 1024 * 1024;
+// extraction_runs rate-limit log (claim_extraction_slot, kind 'receipt': its own quota).
+// Vercel caps request bodies at 4.5 MB, so the whole multipart body is limited to that.
+const MAX_BYTES = 4.5 * 1024 * 1024;
+const TOO_LARGE = 'Image is too large to read automatically (max 4.5 MB). Please enter the details manually.';
 const SUPPORTED = ['image/jpeg', 'image/png', 'image/webp'];
-const LIMIT_PER_HOUR = 20;
-const LIMIT_PER_DAY = 100;
+const LIMIT_PER_HOUR = 30; // must match claim_extraction_slot for kind 'receipt'
+const LIMIT_PER_DAY = 150;
 const GENERIC = "Couldn't read this receipt. Please enter the details manually.";
 
 const json = (body, status = 200) => Response.json(body, { status });
@@ -28,6 +30,27 @@ function sniffMime(buf) {
   return null;
 }
 
+const TOO_BIG = Symbol('too big');
+async function readCapped(req, max) {
+  if (!req.body) return null;
+  const reader = req.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) { reader.cancel().catch(() => {}); return TOO_BIG; }
+      chunks.push(value);
+    }
+  } catch (err) {
+    console.error('[extract-receipt] read body', err?.message);
+    return null;
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c)));
+}
+
 export async function POST(req) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -41,9 +64,10 @@ export async function POST(req) {
   const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   if (!token) return fail(401, 'Please sign in again.');
 
-  // Cheap size guard before reading the body.
-  const declared = Number(req.headers.get('content-length') || 0);
-  if (declared > MAX_BYTES + 64 * 1024) return fail(413, 'Image is too large (max 10 MB).');
+  // Size guard before reading anything: require a declared length within the limit.
+  const lenHeader = req.headers.get('content-length');
+  if (!lenHeader || !/^\d+$/.test(lenHeader)) return fail(411, 'Content-Length is required.');
+  if (Number(lenHeader) > MAX_BYTES) return fail(413, TOO_LARGE);
 
   const opts = { auth: { persistSession: false, autoRefreshToken: false } };
   const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` } } });
@@ -51,16 +75,21 @@ export async function POST(req) {
   const user = userData?.user;
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);
 
+  // Read the body with a hard cap (don't trust Content-Length alone).
+  const body = await readCapped(req, MAX_BYTES);
+  if (body === TOO_BIG) return fail(413, TOO_LARGE);
+  if (!body) return fail(400, 'Could not read the upload.');
+
   let file, today;
   try {
-    const form = await req.formData();
+    const form = await new Response(body, { headers: { 'content-type': req.headers.get('content-type') || '' } }).formData();
     file = form.get('file');
     today = form.get('today');
   } catch (err) {
     return fail(400, 'Send the receipt image as multipart form field "file".', 'formData', err?.message);
   }
   if (!file || typeof file.arrayBuffer !== 'function') return fail(400, 'Send the receipt image as multipart form field "file".');
-  if (file.size > MAX_BYTES) return fail(413, 'Image is too large (max 10 MB).');
+  if (file.size > MAX_BYTES) return fail(413, TOO_LARGE);
   if (file.size === 0) return fail(400, 'The image is empty.');
 
   const buf = Buffer.from(await file.arrayBuffer());
@@ -68,9 +97,9 @@ export async function POST(req) {
   if (mime === 'application/pdf') return fail(400, 'PDF receipts can’t be read automatically yet. Please enter the details manually.');
   if (!SUPPORTED.includes(mime)) return fail(415, 'Unsupported image type. Use JPEG, PNG or WebP.', 'sniffed', mime, file.type);
 
-  // Shared per-user limit with /api/extract (20/hour, 100/day).
+  // Per-user receipt quota, separate from rate-confirmation extraction.
   const admin = createClient(url, serviceKey, opts);
-  const { data: runId, error: claimErr } = await admin.rpc('claim_extraction_slot', { p_user: user.id, p_document: null });
+  const { data: runId, error: claimErr } = await admin.rpc('claim_extraction_slot', { p_user: user.id, p_document: null, p_kind: 'receipt' });
   if (claimErr) return fail(500, GENERIC, 'claim slot', claimErr.message);
   if (!runId) return fail(429, `Receipt reading limit reached (${LIMIT_PER_HOUR}/hour, ${LIMIT_PER_DAY}/day). Please enter the details manually.`);
   const finish = (status) => admin.from('extraction_runs').update({ status }).eq('id', runId);

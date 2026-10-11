@@ -77,6 +77,46 @@ async function downscaleImage(file) {
   }
 }
 
+// Re-encode to JPEG at a given long edge / quality. Returns a File or null on failure.
+async function reencodeJpeg(file, maxEdge, quality) {
+  let decoded;
+  try {
+    decoded = await decodeImage(file);
+    const { w, h } = decoded;
+    if (!w || !h) return null;
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null;
+  } catch (err) {
+    console.warn('[expenses] re-encode failed', err);
+    return null;
+  } finally {
+    decoded?.close();
+  }
+}
+
+// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
+// The saved receipt is unaffected: only the copy sent for reading is recompressed.
+const AI_MAX_BYTES = 4 * 1024 * 1024;
+async function fitForAi(file) {
+  if (file.size <= AI_MAX_BYTES) return file;
+  for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
+    const out = await reencodeJpeg(file, edge, q);
+    if (out && out.size <= AI_MAX_BYTES) return out;
+  }
+  return null;
+}
+
+const sameFile = (a, b) => !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
 const userErr = (msg, detail) => Object.assign(new Error(msg), { user: true, detail });
 
 // Validate + convert + downscale. Runs BEFORE the expense is saved. Returns a File ready to upload.
@@ -197,6 +237,8 @@ function ExpensesInner() {
   }
 
   function pickFile(f) {
+    // Re-picking the same file (name, size, lastModified) keeps the current file and auto-fill result.
+    if (f && sameFile(f, file)) return;
     aiReqRef.current += 1;
     preparedRef.current = null;
     setAi({ state: 'idle', text: '' });
@@ -223,14 +265,18 @@ function ExpensesInner() {
     if (stale()) return;
     preparedRef.current = { src: f, out: prepared };
     if (!/^image\/(jpeg|png|webp)$/.test(prepared.type)) return setAi({ state: 'error', text: "This image type can't be read automatically. Please enter the details." });
+    const forAi = await fitForAi(prepared);
+    if (stale()) return;
+    if (!forAi) return setAi({ state: 'error', text: 'This photo is too large to read automatically. Please enter the details manually.' });
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 60_000);
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess?.session?.access_token;
+      if (stale()) return;
       if (!token) return setAi({ state: 'error', text: 'Sign in again to auto-fill from receipts. You can still enter the details manually.' });
       const body = new FormData();
-      body.append('file', prepared, prepared.name);
+      body.append('file', forAi, forAi.name);
       body.append('today', todayISO());
       const res = await fetch('/api/extract-receipt', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body, signal: ac.signal });
       const out = await res.json().catch(() => ({}));
@@ -300,6 +346,7 @@ function ExpensesInner() {
 
   async function submit(e) {
     e.preventDefault();
+    if (ai.state === 'reading') return; // Save is disabled while reading; guard Enter-key submits too.
     setStatus(null);
     const amount = Number(form.amount);
     if (!form.amount || !isFinite(amount) || amount < 0) return setStatus({ type: 'error', text: 'Enter a valid amount.' });
@@ -467,9 +514,11 @@ function ExpensesInner() {
                   )}
                 </div>
               </fieldset>
-              <button type="submit" disabled={saving} style={{ ...s.btn, opacity: saving ? 0.6 : 1 }}>
-                {saving ? 'Saving…' : form.id ? 'Save changes' : 'Add expense'}
+              <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
+                style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
+                {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
+              {ai.state === 'reading' && <p id="save-hint" style={{ ...s.muted, margin: '0.35rem 0 0', textAlign: 'center' }}>Save is available once the receipt has been read (or remove it with ✕).</p>}
               {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
