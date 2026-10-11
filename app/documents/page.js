@@ -91,6 +91,7 @@ export default function DocumentsPage() {
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const docsReqRef = useRef(0);
+  const [refreshErr, setRefreshErr] = useState(null);
   const docsReadyRef = useRef(false);
   docsReadyRef.current = listState === 'ready';
   const [extracting, setExtracting] = useState({});
@@ -120,7 +121,7 @@ export default function DocumentsPage() {
   async function loadDocs() {
     const req = ++docsReqRef.current;
     if (!docsReadyRef.current) setListState('loading');
-    if (!(await hasSession(supabase))) { if (req === docsReqRef.current) setListState((st) => (st === 'ready' ? 'ready' : 'error')); return; }
+    if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
     const { data, error } = await supabase
       .from('documents')
       .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
@@ -130,8 +131,10 @@ export default function DocumentsPage() {
     if (error) {
       console.error('[documents] fetch', error);
       // Keep an already-shown list; otherwise show the error + Retry instead of an empty state.
+      if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
       return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
     }
+    setRefreshErr(null);
     setDocs(data || []);
     setListState('ready');
   }
@@ -258,6 +261,7 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
+            {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
               : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (

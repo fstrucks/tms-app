@@ -18,14 +18,16 @@ export function Loading({ label = 'Loading…' }) {
   );
 }
 
-export function LoadError({ message = "Couldn't load this. Check your connection and try again.", onRetry }) {
+// subtle: non-blocking banner shown above data that's still on screen (a refresh failed).
+export function LoadError({ message = "Couldn't load this. Check your connection and try again.", onRetry, subtle = false }) {
+  const c = subtle ? { border: '#fde68a', bg: '#fffbeb', fg: '#92400e' } : { border: '#fecaca', bg: '#fef2f2', fg: '#b91c1c' };
   return (
-    <div role="alert" style={{ border: '1px solid #fecaca', background: '#fef2f2', borderRadius: 12, padding: '0.75rem', marginBottom: '0.75rem',
+    <div role={subtle ? 'status' : 'alert'} style={{ border: `1px solid ${c.border}`, background: c.bg, borderRadius: 12, padding: '0.75rem', marginBottom: '0.75rem',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-      <span style={{ color: '#b91c1c' }}>{message}</span>
+      <span style={{ color: c.fg }}>{message}</span>
       {onRetry && (
         <button type="button" onClick={onRetry}
-          style={{ minHeight: 44, padding: '0 1rem', borderRadius: 8, border: '1px solid #b91c1c', background: '#fff', color: '#b91c1c', fontSize: '1rem' }}>
+          style={{ minHeight: 44, padding: '0 1rem', borderRadius: 8, border: `1px solid ${c.fg}`, background: '#fff', color: c.fg, fontSize: '1rem' }}>
           Retry
         </button>
       )}

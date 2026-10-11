@@ -37,14 +37,14 @@ export default function MileagePage() {
   async function fetchAll() {
     const req = ++reqRef.current;
     if (!readyRef.current) setListState('loading');
-    if (!(await hasSession(supabase))) { if (req === reqRef.current && !readyRef.current) setListState('error'); return; }
+    if (!(await hasSession(supabase))) { if (req === reqRef.current) { if (readyRef.current) setError("Your session has expired or is still loading. Tap Retry, or sign in again."); else setListState('error'); } return; }
     const { data: e, error: ee } = await supabase.from('mileage_entries')
       .select('id, load_id, start_odometer, end_odometer, miles, entry_date, source, notes, created_at, loads(id, broker_load_number, broker_name)')
       .order('entry_date', { ascending: false }).order('created_at', { ascending: false });
     if (req !== reqRef.current) return;
     if (ee) {
       console.error('mileage load', ee);
-      if (readyRef.current) return setError('Could not refresh mileage, please try again.');
+      if (readyRef.current) return setError("Couldn't refresh. Showing the last loaded mileage.");
       return setListState('error');
     }
     setError(null);
@@ -94,7 +94,8 @@ export default function MileagePage() {
         : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to track mileage.</p>
         : (
           <>
-            {error && <p style={s.error}>{error}</p>}
+            {error && listState === 'ready' && <LoadError subtle message={error} onRetry={() => { setError(null); fetchAll(); }} />}
+            {error && listState !== 'ready' && <p style={s.error}>{error}</p>}
             {listState === 'error' && <LoadError message="Couldn't load your mileage." onRetry={fetchAll} />}
             {listState === 'ready' && (
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>

@@ -28,14 +28,16 @@ export default function LoadsPage() {
 
   async function loadLoads() {
     const req = ++reqRef.current;
-    setError(null);
-    if (!(await hasSession(supabase))) { if (req === reqRef.current) setError("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
+    // After data has loaded, failures keep the list and show a non-blocking banner (like /documents, /mileage).
+    const fail = (msg) => setError(loadedRef.current ? { subtle: true, text: `Couldn't refresh. Showing the last loaded loads. ${msg}` } : { subtle: false, text: msg });
+    if (!(await hasSession(supabase))) { if (req === reqRef.current) fail("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
     const { data, error } = await supabase
       .from('loads')
       .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
       .order('created_at', { ascending: false });
     if (req !== reqRef.current) return; // a newer fetch (e.g. after sign-in) superseded this one
-    if (error) { console.error('[loads] fetch', error); return setError("Couldn't load your loads."); }
+    if (error) { console.error('[loads] fetch', error); return fail("Couldn't load your loads."); }
+    setError(null);
     setLoads(data || []);
     setLoaded(true);
   }
@@ -61,7 +63,7 @@ export default function LoadsPage() {
         : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>
         : (
           <>
-            {error && <LoadError message={error} onRetry={loadLoads} />}
+            {error && <LoadError message={error.text} subtle={error.subtle} onRetry={loadLoads} />}
             {!loaded && !error && <Loading label="Loading loads…" />}
             {loaded && loads.length === 0 && !error && (
               <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>

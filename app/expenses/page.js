@@ -162,6 +162,8 @@ function ExpensesInner() {
   const [loads, setLoads] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const fetchReqRef = useRef(0);
+  const [listErr, setListErr] = useState(null);   // expenses / session problem (one message, with Retry)
+  const [loadsErr, setLoadsErr] = useState(false); // loads query failed (load links may be missing)
   const listReadyRef = useRef(false);
   listReadyRef.current = listState === 'ready';
   const [form, setForm] = useState(emptyForm(presetLoad));
@@ -197,8 +199,11 @@ function ExpensesInner() {
     const req = ++fetchReqRef.current;
     if (!listReadyRef.current) setListState('loading');
     if (!(await hasSession(supabase))) {
-      if (req === fetchReqRef.current) setListState((st) => (st === 'ready' ? 'ready' : 'error'));
-      return ['Your session has expired. Please sign in again.'];
+      if (req === fetchReqRef.current) {
+        setListErr('Your session has expired or is still loading. Tap Retry, or sign in again.');
+        setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+      }
+      return ['__list'];
     }
     const [{ data: e, error: ee }, { data: l, error: le }] = await Promise.all([
       supabase.from('expenses').select('id, load_id, category, amount, description, expense_date, document_id, created_at, documents(id, file_path, original_filename)')
@@ -207,12 +212,21 @@ function ExpensesInner() {
     ]);
     if (req !== fetchReqRef.current) return []; // superseded by a newer fetch
     const problems = [];
-    if (ee) { console.error('[expenses] fetch expenses', ee); problems.push('Could not load expenses. Please refresh.'); setListState((st) => (st === 'ready' ? 'ready' : 'error')); }
-    else { setExpenses(e || []); setListState('ready'); }
-    if (le) { console.error('[expenses] fetch loads', le); problems.push('Could not load your loads; load links may be missing. Please refresh.'); }
-    else setLoads(l || []);
+    // Problems are shown once, in the banners above the list (with Retry). The return value only tells
+    // callers (e.g. the post-save refresh) that something failed.
+    if (ee) {
+      console.error('[expenses] fetch expenses', ee);
+      problems.push('__list');
+      setListErr(listReadyRef.current ? "Couldn't refresh. Showing the last loaded expenses." : "Couldn't load your expenses.");
+      setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+    } else { setListErr(null); setExpenses(e || []); setListState('ready'); }
+    if (le) { console.error('[expenses] fetch loads', le); problems.push('__loads'); setLoadsErr(true); }
+    else { setLoadsErr(false); setLoads(l || []); }
     return problems;
   }
+
+  // Retry clears both the expenses/session and the loads errors, then re-runs fetchAll.
+  function retryFetch() { setListErr(null); setLoadsErr(false); fetchAll(); }
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
@@ -222,14 +236,9 @@ function ExpensesInner() {
       if (event === 'INITIAL_SESSION') setChecking(false);
       // Fetch only once a session exists; re-fetch when it changes (or after a refresh if nothing loaded yet).
       if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !listReadyRef.current)) && u) {
-        setTimeout(async () => {
-          const p = await fetchAll();
-          // The expenses list shows its own error + Retry; only the loads problem goes to the status line.
-          const other = p.filter((m) => !m.startsWith('Could not load expenses'));
-          if (other.length) setStatus({ type: 'error', text: other.join(' ') });
-        }, 0);
+        setTimeout(() => fetchAll(), 0);
       }
-      if (event === 'SIGNED_OUT') { fetchReqRef.current++; setExpenses([]); setLoads([]); setListState('loading'); }
+      if (event === 'SIGNED_OUT') { fetchReqRef.current++; setExpenses([]); setLoads([]); setListState('loading'); setListErr(null); setLoadsErr(false); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -437,10 +446,9 @@ function ExpensesInner() {
       setForm(emptyForm(presetLoad)); // Load resets too, except a ?load=<id> preselection
       setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
-      const problems = await fetchAll();
-      setStatus(warnings.length || problems.length
-        ? { type: 'error', text: [saveMsg, ...problems].join(' ') }
-        : { type: 'ok', text: saveMsg });
+      // A refresh failure shows in its own banner above the list (with Retry), so the save result stays visible too.
+      await fetchAll();
+      setStatus({ type: warnings.length ? 'error' : 'ok', text: saveMsg });
     } catch (err) {
       failMsg('Something went wrong. Please try again.', err);
     } finally {
@@ -459,8 +467,7 @@ function ExpensesInner() {
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
     if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
-    const problems = await fetchAll();
-    if (problems.length) setStatus({ type: 'error', text: problems.join(' ') });
+    await fetchAll(); // refresh problems show in the banner above the list
   }
 
   async function viewReceipt(doc) {
@@ -548,7 +555,8 @@ function ExpensesInner() {
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
 
-            {listState === 'error' && <LoadError message="Couldn't load your expenses." onRetry={() => { fetchAll(); }} />}
+            {listErr && <LoadError message={listErr} subtle={listState === 'ready'} onRetry={retryFetch} />}
+            {loadsErr && !listErr && <LoadError subtle message="Couldn't load your loads; load links may be missing." onRetry={retryFetch} />}
             {listState === 'loading' && <Loading label="Loading expenses…" />}
             {listState === 'ready' && (<>
             <div style={{ ...s.row, marginBottom: '0.5rem' }}>
