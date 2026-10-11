@@ -25,17 +25,18 @@ Snapshot of production (main at 8bf3771).
 - **Manual miles:** if a load's last mileage entry is deleted, total_miles becomes empty, wiping any value entered by hand before.
 - **Schema drift:** some tables (loads, stops, expenses, mileage_entries, profiles) were created in the dashboard, not by migrations, so a fresh environment can't be rebuilt from the repo alone.
 - **Receipt auto-fill:** PDFs can't be read. Each new photo uses one read from the quota.
-- Android device testing partly done: file picker verified; orientation, auto-fill and layout checks pending.
+- Android device testing partly done: Camera/Photos pickers verified; orientation, auto-fill and layout checks pending.
 
 ## Known issues found in smoke test
 - Atlanta, GA stop showing America/Chicago: fixed by [#17](https://github.com/fstrucks/tms-app/pull/17) for new loads (TEST-1002 verified America/New_York). Stops created earlier keep their old zone.
 - Appointment times are shown in the viewer's zone instead of the stop's zone: fix pending in [#18](https://github.com/fstrucks/tms-app/pull/18).
 - Home page showing "Sign in" while signed in: fixed by [#17](https://github.com/fstrucks/tms-app/pull/17).
 - The expense form keeps the Load selection after saving.
+- Android (Chrome): Rate Confirmations Choose File offers only the camera, with no Files/PDF option, so PDF rate cons cannot be picked (follow-up).
 
 ## Device testing
 - iPhone (Safari), tested by Marc on 2026-10-11: all checks passed: magic-link sign-in, receipt camera (rear camera, portrait/landscape orientation, library pick), receipt save/view, receipt auto-fill, rate con upload + extraction + create load, load stop times, mileage totals/RPM, mobile layout.
-- Android (Chrome), tested by Marc on 2026-10-11: native file picker (Camera / Photos & videos) opens correctly from Rate Confirmations Choose File and Expenses Take photo / Upload file. Remaining Android checks (orientation, auto-fill, layout) pending.
+- Android (Chrome), tested by Marc on 2026-10-11: Camera / Photos & videos open correctly from Rate Confirmations Choose File and Expenses Take photo / Upload file. Bug (follow-up): on Rate Confirmations, Choose File offers only the camera, with no Files/PDF option. Remaining Android checks (orientation, auto-fill, layout) pending.
 
 ## Screenshots
 Desktop, 1280px, signed out (no test data visible).
