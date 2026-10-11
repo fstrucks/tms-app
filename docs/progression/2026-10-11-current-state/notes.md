@@ -29,7 +29,7 @@ Snapshot of production (main at 8bf3771).
 
 ## Device testing
 - iPhone (Safari), tested by Marc on 2026-10-11: all checks passed: magic-link sign-in, receipt camera (rear camera, portrait/landscape orientation, library pick), receipt save/view, receipt auto-fill, rate con upload + extraction + create load, load stop times, mileage totals/RPM, mobile layout.
-- Android: not yet tested.
+- Android: Marc plans to test on 2026-10-12 (pending).
 
 ## Screenshots
 Desktop, 1280px, signed out (no test data visible).
