@@ -28,5 +28,21 @@ Snapshot of production (main at 8bf3771).
 - **Device testing:** camera capture, photo orientation on iOS 15–16 and low-memory phones are only partly verified.
 
 ## Screenshots
-TODO: add desktop (1280px) and mobile (375px) PNGs using test data only:
-- login, /documents, /loads, load detail, /mileage, /expenses (form + list), receipt auto-fill result.
+Desktop, 1280px, signed out (no test data visible).
+
+- [01-home.png](01-home.png): home page with links to each feature.
+- [02-login.png](02-login.png): magic-link sign-in.
+- [03-documents-unauth.png](03-documents-unauth.png): /documents signed out, showing the in-page sign-in prompt (no redirect).
+- [04-loads-unauth.png](04-loads-unauth.png): /loads signed out, showing the in-page sign-in prompt (no redirect).
+- [05-expenses-unauth.png](05-expenses-unauth.png): /expenses signed out, showing the in-page sign-in prompt (no redirect).
+- [06-mileage-unauth.png](06-mileage-unauth.png): /mileage signed out, showing the in-page sign-in prompt (no redirect).
+- [07-dashboard-unauth.png](07-dashboard-unauth.png): /dashboard returns 404, because #11 isn't merged.
+
+### Pending screenshots (need test login)
+- /documents: upload + AI extraction result
+- /loads list
+- Load detail (stops, miles, expenses, net)
+- /mileage
+- /expenses: camera capture and receipt auto-fill
+- /dashboard via the PR #11 preview deployment
+- 375px mobile versions of the above
