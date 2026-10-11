@@ -49,7 +49,7 @@ export default function LoginPage() {
   return (
     <main style={s.main}>
       <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
-      <h1 style={{ fontSize: '1.5rem' }}>Sign in</h1>
+      <h1 style={{ fontSize: '1.5rem' }}>Sign in to PowerHaul TMS</h1>
       {supabaseConfigError && <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>}
       <div style={s.card}>
         {sent ? (
