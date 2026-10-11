@@ -13,9 +13,13 @@ const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg
 const ALLOWED_TYPES = Object.values(EXT_TYPES);
 
 function resolveType(file) {
-  const ext = EXT_TYPES[(file.name.split('.').pop() || '').toLowerCase()];
-  if (file.type && file.type !== 'application/octet-stream') return file.type;
-  return ext || file.type || ''; // empty or generic type (HEIC, some Android picks): use the extension
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  // Never accept SVG (scriptable), whatever the extension or declared type says.
+  if (ext === 'svg' || type.includes('svg')) return 'image/svg+xml';
+  if (Object.values(EXT_TYPES).includes(type)) return type;
+  // Declared type missing or not allowed (e.g. HEIC as octet-stream on Android): fall back to the extension.
+  return EXT_TYPES[ext] || type;
 }
 const isHeic = (file, type) => type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
 async function convertHeicToJpeg(file) {

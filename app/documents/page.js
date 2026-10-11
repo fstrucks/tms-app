@@ -12,9 +12,12 @@ const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg
 // Browsers often report an empty (or generic) type for HEIC and some Android picks, so fall back to the extension.
 function resolveType(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
-  if (file.type && ALLOWED_TYPES.includes(file.type)) return file.type;
-  if (EXT_TYPES[ext] && (!file.type || file.type === 'application/octet-stream')) return EXT_TYPES[ext];
-  return file.type || EXT_TYPES[ext] || '';
+  const type = (file.type || '').toLowerCase();
+  // Never accept SVG (scriptable), whatever the extension or declared type says.
+  if (ext === 'svg' || type.includes('svg')) return 'image/svg+xml';
+  if (ALLOWED_TYPES.includes(type)) return type;
+  // Declared type missing or not allowed (e.g. HEIC as octet-stream on Android): fall back to the extension.
+  return EXT_TYPES[ext] || type;
 }
 
 const BUCKET = 'documents';
