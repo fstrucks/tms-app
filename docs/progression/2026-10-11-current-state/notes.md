@@ -16,7 +16,7 @@ Snapshot of production (main at 8bf3771).
 - **Security:** row-level security limits every table and storage path to the owner.
 
 ## Pending
-- [#11](https://github.com/fstrucks/tms-app/pull/11) Weekly dashboard: open, not merged.
+- [#11](https://github.com/fstrucks/tms-app/pull/11) Weekly dashboard: merged 2026-10-11.
 - [#13](https://github.com/fstrucks/tms-app/pull/13) Receipt auto-fill date/category fix: open. Until it merges, auto-fill can set the date to today or pick the wrong category (e.g. parking → fuel).
 
 ## Known gaps
@@ -28,8 +28,9 @@ Snapshot of production (main at 8bf3771).
 - Android device testing pending.
 
 ## Known issues found in smoke test
-- The Atlanta, GA delivery stop is shown with TZ America/Chicago; it should be America/New_York.
-- The home page still shows "Sign in" when the user is signed in.
+- Atlanta, GA stop showing America/Chicago: fixed by [#17](https://github.com/fstrucks/tms-app/pull/17) for new loads (TEST-1002 verified America/New_York). Stops created earlier keep their old zone.
+- Appointment times are shown in the viewer's zone instead of the stop's zone: fix pending in [#18](https://github.com/fstrucks/tms-app/pull/18).
+- Home page showing "Sign in" while signed in: fixed by [#17](https://github.com/fstrucks/tms-app/pull/17).
 - The expense form keeps the Load selection after saving.
 
 ## Device testing
@@ -39,7 +40,7 @@ Snapshot of production (main at 8bf3771).
 ## Screenshots
 Desktop, 1280px, signed out (no test data visible).
 
-- [01-home.png](01-home.png): home page with links to each feature.
+- [01-home.png](01-home.png): signed-out home page, re-taken after #17/#14: shared top nav plus "Sign in".
 - [02-login.png](02-login.png): magic-link sign-in.
 - [03-documents-unauth.png](03-documents-unauth.png): /documents signed out, showing the in-page sign-in prompt (no redirect).
 - [04-loads-unauth.png](04-loads-unauth.png): /loads signed out, showing the in-page sign-in prompt (no redirect).
@@ -59,6 +60,10 @@ Desktop, 1280px, signed out (no test data visible).
 - [18-home-signed-in.png](18-home-signed-in.png): home page, signed in.
 - [19-mobile-documents.png](19-mobile-documents.png): mobile (~388px) /documents.
 - [20-mobile-expenses.png](20-mobile-expenses.png): mobile (~388px) /expenses.
+
+### Retest after #17 (test account, fake data)
+- [21-home-signed-in.png](21-home-signed-in.png): home page signed in (signed-in state, sign out).
+- [22-load-detail-ga.png](22-load-detail-ga.png): load detail TEST-1002 with the Atlanta, GA stop on America/New_York.
 
 ### Pending screenshots
 - /dashboard via the PR #11 preview deployment
