@@ -25,7 +25,11 @@ Snapshot of production (main at 8bf3771).
 - **Manual miles:** if a load's last mileage entry is deleted, total_miles becomes empty, wiping any value entered by hand before.
 - **Schema drift:** some tables (loads, stops, expenses, mileage_entries, profiles) were created in the dashboard, not by migrations, so a fresh environment can't be rebuilt from the repo alone.
 - **Receipt auto-fill:** PDFs can't be read. Each new photo uses one read from the quota.
-- **Device testing:** camera capture, photo orientation on iOS 15–16 and low-memory phones are only partly verified.
+- Android device testing pending.
+
+## Device testing
+- iPhone (Safari), tested by Marc on 2026-10-11: all checks passed: magic-link sign-in, receipt camera (rear camera, portrait/landscape orientation, library pick), receipt save/view, receipt auto-fill, rate con upload + extraction + create load, load stop times, mileage totals/RPM, mobile layout.
+- Android: not yet tested.
 
 ## Screenshots
 Desktop, 1280px, signed out (no test data visible).
