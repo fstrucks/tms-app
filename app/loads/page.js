@@ -44,10 +44,6 @@ export default function LoadsPage() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}>
-        <Link href="/" style={s.link}>← Home</Link>
-        <Link href="/documents" style={s.link}>Documents</Link>
-      </p>
       <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>

@@ -144,7 +144,8 @@ const s = {
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
   pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
-  small: { padding: '0.4rem 0.75rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
+  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
+  small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
   ok: { color: '#15803d' },
@@ -448,10 +449,6 @@ function ExpensesInner() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}>
-        <Link href="/" style={s.link}>← Home</Link>
-        <Link href="/loads" style={s.link}>Loads</Link>
-      </p>
       <h1 style={{ fontSize: '1.5rem' }}>Expenses</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
@@ -514,11 +511,13 @@ function ExpensesInner() {
                   )}
                 </div>
               </fieldset>
+              <div style={s.sticky}>
               <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
                 style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
               {ai.state === 'reading' && <p id="save-hint" style={{ ...s.muted, margin: '0.35rem 0 0', textAlign: 'center' }}>Save is available once the receipt has been read (or remove it with ✕).</p>}
+              </div>
               {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>

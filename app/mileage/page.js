@@ -74,10 +74,6 @@ export default function MileagePage() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}>
-        <Link href="/" style={s.link}>← Home</Link>
-        <Link href="/loads" style={s.link}>Loads</Link>
-      </p>
       <h1 style={{ fontSize: '1.5rem' }}>Mileage</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
