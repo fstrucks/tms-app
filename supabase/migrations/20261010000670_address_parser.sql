@@ -21,6 +21,8 @@ declare
   v_pos int;
   v_prefix text;
   v_segs text[];
+  v_cpos int;
+  v_ok boolean;
 begin
   if p_addr is null or btrim(p_addr) = '' then
     return;
@@ -34,10 +36,19 @@ begin
   v_norm := btrim(v_norm, ' ,');
   line1 := nullif(v_norm, '');
 
-  -- State = LAST valid US state token (optionally followed by ZIP), preferring one followed by a ZIP.
+  -- State candidate = valid US state code AND (written in UPPERCASE, or right after a comma,
+  -- or right before a ZIP). So lowercase words like 'in', 'or', 'me' don't match mid-sentence.
+  -- Prefer a candidate followed by a ZIP; otherwise the LAST valid one.
   for v_m in select regexp_matches(v_norm, v_pat, 'g') loop
     v_n := v_n + 1;
     if public.us_state_tz(v_m[1]) is null then
+      continue;
+    end if;
+    v_cpos := regexp_instr(v_norm, v_pat, 1, v_n);
+    v_ok := v_m[1] = upper(v_m[1])                                -- (a) uppercase as written
+         or substr(v_norm, 1, v_cpos - 1) ~ ',\s*$'               -- (b) preceded by a comma
+         or v_m[2] is not null;                                   -- (c) followed by a ZIP
+    if not v_ok then
       continue;
     end if;
     if v_m[2] is not null then
@@ -183,6 +194,12 @@ begin
   return v_load;
 end;
 $$;
+
+-- Helpers: the security-invoker RPC runs them as the caller, so authenticated needs execute.
+revoke execute on function public.parse_us_address(text) from public, anon;
+grant execute on function public.parse_us_address(text) to authenticated;
+revoke execute on function public.us_state_tz(text) from public, anon;
+grant execute on function public.us_state_tz(text) to authenticated;
 
 revoke execute on function public.create_load_from_document(uuid, text) from public, anon;
 grant execute on function public.create_load_from_document(uuid, text) to authenticated;
