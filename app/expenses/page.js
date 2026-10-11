@@ -77,42 +77,38 @@ async function downscaleImage(file) {
   }
 }
 
-// Re-encode to JPEG at a given long edge / quality. Returns a File or null on failure.
-async function reencodeJpeg(file, maxEdge, quality) {
+// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
+// The saved receipt is unaffected: only the copy sent for reading is recompressed.
+// Decodes the image ONCE, then tries progressively smaller JPEG encodes.
+const AI_MAX_BYTES = 4 * 1024 * 1024;
+async function fitForAi(file) {
+  if (file.size <= AI_MAX_BYTES) return file;
   let decoded;
   try {
     decoded = await decodeImage(file);
     const { w, h } = decoded;
     if (!w || !h) return null;
-    const scale = Math.min(1, maxEdge / Math.max(w, h));
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(w * scale);
-    canvas.height = Math.round(h * scale);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null;
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
+      const scale = Math.min(1, edge / Math.max(w, h));
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
+      if (blob && blob.size <= AI_MAX_BYTES) return new File([blob], name, { type: 'image/jpeg' });
+    }
+    return null;
   } catch (err) {
     console.warn('[expenses] re-encode failed', err);
     return null;
   } finally {
     decoded?.close();
   }
-}
-
-// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
-// The saved receipt is unaffected: only the copy sent for reading is recompressed.
-const AI_MAX_BYTES = 4 * 1024 * 1024;
-async function fitForAi(file) {
-  if (file.size <= AI_MAX_BYTES) return file;
-  for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
-    const out = await reencodeJpeg(file, edge, q);
-    if (out && out.size <= AI_MAX_BYTES) return out;
-  }
-  return null;
 }
 
 const sameFile = (a, b) => !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
