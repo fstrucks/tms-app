@@ -109,12 +109,15 @@ export async function POST(req) {
   const result = await runExtraction('receipt', {
     apiKey,
     dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
-    normalizeOpts: todayOk ? { today: todayOk } : undefined,
+    normalizeOpts: todayOk ? { today: todayOk, todaySlackDays: 0 } : { todaySlackDays: 1 },
   });
   if (result.error) {
     await finish(result.error.timeout ? 'timeout' : 'error');
     return fail(result.error.status || 502, result.error.timeout ? 'Reading the receipt timed out. Please enter the details manually.' : GENERIC, ...(result.error.log || []));
   }
   await finish('success');
-  return json({ data: result.data });
+  const { _debug, ...data } = result.data;
+  // Debug log for date/category issues (no amounts or vendor text).
+  console.info('[extract-receipt] read', JSON.stringify({ user: user.id, today: todayOk || null, ..._debug, expense_date: data.expense_date, category: data.category, confidence: data.confidence }));
+  return json({ data });
 }
