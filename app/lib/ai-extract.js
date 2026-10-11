@@ -46,8 +46,8 @@ function resolveCandidate({ y, m, d }, latest) {
 
 // Deterministically parse a printed receipt date (US month-first). Returns YYYY-MM-DD or null.
 // Collects EVERY date-like candidate in the text (9/26, 09/26/26, 9-26-2026, 09.26.26, 2026-09-26,
-// "Sep 26, 2026", "Sept 26", "26 September 2026"), in order of appearance, and returns the first
-// that is a real, non-future date. Year missing -> most recent past occurrence (<= latest).
+// "Sep 26, 2026", "Sept 26", "26 September 2026"), skips ones right after card-expiry words, ranks
+// dates with a year before yearless ones (then order of appearance), and returns the first real, non-future date. Year missing -> most recent past occurrence (<= latest).
 // Never substitutes today.
 export function parseReceiptDate(raw, latest) {
   if (typeof raw !== 'string') return null;
@@ -60,11 +60,18 @@ export function parseReceiptDate(raw, latest) {
   const taken = []; // spans of ISO matches, so "2026-09-26" isn't re-read as "09-26"
   for (const x of s.matchAll(ymd)) { cands.push({ i: x.index, y: +x[1], m: +x[2], d: +x[3] }); taken.push([x.index, x.index + x[0].length]); }
   const inTaken = (i) => taken.some(([a, b]) => i >= a && i < b);
-  for (const x of s.matchAll(mdy)) if (!inTaken(x.index)) cands.push({ i: x.index, y: yearOf(x[3]), m: +x[1], d: +x[2] });
+  const numSpans = [...taken];
+  for (const x of s.matchAll(mdy)) if (!inTaken(x.index)) { cands.push({ i: x.index, y: yearOf(x[3]), m: +x[1], d: +x[2] }); numSpans.push([x.index, x.index + x[0].length]); }
+  // Word-month matches must not start inside a numeric date ("01/29 Sep 26" is not "29 Sep 26").
+  const inNum = (i) => numSpans.some(([a0, b0]) => i >= a0 && i < b0);
   for (const x of s.matchAll(mon)) { const m = monthOf(x[1]); if (m) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[2] }); }
-  for (const x of s.matchAll(dmon)) { const m = monthOf(x[2]); if (m) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[1] }); }
-  cands.sort((a, b) => a.i - b.i);
-  for (const c of cands) {
+  for (const x of s.matchAll(dmon)) { const m = monthOf(x[2]); if (m && !inNum(x.index)) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[1] }); }
+  // Skip candidates just after card-expiry words ("Exp 12/30", "Expires: 12/28", "Valid thru 01/29").
+  const EXPIRY = /(?:\bexp(?:iry|ires|iration)?(?:\s*date)?|\bvalid\s*(?:thru|through))\W{0,4}$/;
+  const usable = cands.filter((c) => !EXPIRY.test(s.slice(Math.max(0, c.i - 24), c.i)));
+  // Full dates (with a year) rank before yearless ones; within each group, order of appearance.
+  usable.sort((a, b) => (a.y == null) - (b.y == null) || a.i - b.i);
+  for (const c of usable) {
     const iso = resolveCandidate(c, latest);
     if (iso) return iso;
   }
