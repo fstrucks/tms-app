@@ -103,6 +103,7 @@ const s = {
   input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid #d1d5db', marginTop: '0.2rem', background: '#fff' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
   pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
+  auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
   small: { padding: '0.4rem 0.75rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
@@ -136,6 +137,15 @@ function ExpensesInner() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
   const [saving, setSaving] = useState(false);
+  // AI auto-fill state. pristine = default-valued fields the user hasn't touched (category, date);
+  // amount/description count as empty when ''. Auto-fill never overwrites anything else.
+  const [ai, setAi] = useState({ state: 'idle', text: '' });
+  const [autoFilled, setAutoFilled] = useState(() => new Set());
+  const pristineRef = useRef(new Set(['category', 'expense_date']));
+  const preparedRef = useRef(null); // { src: File, out: File } so save reuses the converted/downscaled image
+  const aiReqRef = useRef(0);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [status, setStatus] = useState(null);
   const [filterLoad, setFilterLoad] = useState(presetLoad);
 
@@ -165,7 +175,105 @@ function ExpensesInner() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k) => (e) => {
+    pristineRef.current.delete(k);
+    setAutoFilled((s0) => { if (!s0.has(k)) return s0; const n = new Set(s0); n.delete(k); return n; });
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+  };
+
+  function resetAi(pristine = ['category', 'expense_date']) {
+    aiReqRef.current += 1; // cancels any in-flight read
+    preparedRef.current = null;
+    pristineRef.current = new Set(pristine);
+    setAutoFilled(new Set());
+    setAi({ state: 'idle', text: '' });
+  }
+
+  function clearReceipt() {
+    aiReqRef.current += 1;
+    preparedRef.current = null;
+    setAi({ state: 'idle', text: '' });
+    setFile(null); setFileKey((k) => k + 1);
+  }
+
+  function pickFile(f) {
+    aiReqRef.current += 1;
+    preparedRef.current = null;
+    setAi({ state: 'idle', text: '' });
+    setFile(f);
+    if (f) autoFill(f);
+  }
+
+  // After pick: convert/downscale (same as save), send to /api/extract-receipt, prefill empty fields only.
+  async function autoFill(f) {
+    const req = aiReqRef.current;
+    const stale = () => req !== aiReqRef.current;
+    const type = resolveType(f);
+    if (type === 'application/pdf') return setAi({ state: 'error', text: 'PDF receipts can’t be read automatically yet. Please enter the details.' });
+    if (!type.startsWith('image/')) return; // prepare/save will report the type error
+    setAi({ state: 'reading', text: 'Reading receipt…' });
+    let prepared;
+    try {
+      prepared = await prepareReceipt(f);
+    } catch (err) {
+      if (stale()) return;
+      if (!err.user || err.detail) console.error('[expenses] auto-fill prepare', err.detail || err);
+      return setAi({ state: 'error', text: err.user ? err.message : "Couldn't read this receipt. Please enter the details manually." });
+    }
+    if (stale()) return;
+    preparedRef.current = { src: f, out: prepared };
+    if (!/^image\/(jpeg|png|webp)$/.test(prepared.type)) return setAi({ state: 'error', text: "This image type can't be read automatically. Please enter the details." });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 60_000);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (!token) return setAi({ state: 'error', text: 'Sign in again to auto-fill from receipts. You can still enter the details manually.' });
+      const body = new FormData();
+      body.append('file', prepared, prepared.name);
+      body.append('today', todayISO());
+      const res = await fetch('/api/extract-receipt', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body, signal: ac.signal });
+      const out = await res.json().catch(() => ({}));
+      if (stale()) return;
+      if (!res.ok || !out.data) {
+        console.error('[expenses] auto-fill', res.status, out?.error);
+        const msg = res.status === 401 ? 'Sign in again to auto-fill from receipts.'
+          : [400, 413, 415, 429, 501].includes(res.status) && out?.error ? out.error
+          : "Couldn't read this receipt.";
+        return setAi({ state: 'error', text: /manually\.?$/.test(msg) ? msg : `${msg} You can enter the details manually.` });
+      }
+      applyAutoFill(out.data);
+    } catch (err) {
+      if (stale()) return;
+      console.error('[expenses] auto-fill request', err);
+      setAi({ state: 'error', text: err.name === 'AbortError' ? 'Reading the receipt took too long. Please enter the details manually.' : "Couldn't reach the receipt reader. Please enter the details manually." });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function applyAutoFill(d) {
+    if (!d.is_receipt) return setAi({ state: 'error', text: "This doesn't look like a readable receipt. Please enter the details manually." });
+    const desc = [d.vendor, d.description].filter(Boolean).join(' — ').slice(0, 200);
+    const proposal = {
+      amount: d.amount != null ? String(d.amount) : null,
+      expense_date: d.expense_date,
+      category: EXPENSE_CATEGORIES.includes(d.category) ? d.category : null,
+      description: desc || null,
+    };
+    const isOpen = (f, k) => (k === 'amount' || k === 'description' ? f[k] === '' : pristineRef.current.has(k));
+    const cur = formRef.current;
+    const patch = {};
+    for (const [k, v] of Object.entries(proposal)) if (v != null && isOpen(cur, k) && cur[k] !== v) patch[k] = v;
+    const keys = Object.keys(patch);
+    if (!keys.length) return setAi({ state: 'done', text: 'Receipt read, but nothing new to fill. Your entries were kept.' });
+    // Re-check inside the updater so a keystroke between read and apply is never overwritten.
+    setForm((f) => { const n = { ...f }; for (const k of keys) if (isOpen(f, k)) n[k] = patch[k]; return n; });
+    for (const k of keys) pristineRef.current.delete(k);
+    setAutoFilled(new Set(keys));
+    const low = d.confidence != null && d.confidence < 0.6;
+    setAi({ state: 'done', text: `Auto-filled ${keys.map((k) => ({ amount: 'amount', expense_date: 'date', category: 'category', description: 'vendor/description' }[k])).join(', ')}. Please check${low ? ' carefully, the receipt was hard to read' : ''}.` });
+  }
 
   // Generic message for users; details go to the console.
   function failMsg(text, detail) {
@@ -201,7 +309,7 @@ function ExpensesInner() {
     // Validate/convert/downscale the receipt first: a bad or oversized file stops the save entirely.
     let prepared = null;
     if (file) {
-      try { prepared = await prepareReceipt(file); }
+      try { prepared = preparedRef.current?.src === file ? preparedRef.current.out : await prepareReceipt(file); }
       catch (err) {
         setSaving(false);
         if (!err.user || err.detail) console.error('[expenses] prepare receipt', err.detail || err);
@@ -253,7 +361,7 @@ function ExpensesInner() {
         ? `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.`
         : (editing ? 'Expense updated.' : 'Expense added.');
       setForm(emptyForm(editing ? presetLoad : form.load_id));
-      setFile(null); setFileKey((k) => k + 1);
+      setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
       const problems = await fetchAll();
       setStatus(warnings.length || problems.length
@@ -268,7 +376,7 @@ function ExpensesInner() {
 
   function edit(x) {
     setForm({ id: x.id, category: x.category || 'other', amount: String(x.amount ?? ''), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
-    setFile(null); setFileKey((k) => k + 1); setStatus(null);
+    setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi([]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -276,7 +384,7 @@ function ExpensesInner() {
     if (!window.confirm('Delete this expense?')) return;
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
-    if (form.id === x.id) setForm(emptyForm(presetLoad));
+    if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
     const problems = await fetchAll();
     if (problems.length) setStatus({ type: 'error', text: problems.join(' ') });
   }
@@ -307,20 +415,20 @@ function ExpensesInner() {
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>{form.id ? 'Edit expense' : 'Add expense'}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 0.6rem' }}>
                 <label style={s.label}>Category
-                  <select value={form.category} onChange={set('category')} style={s.input}>
+                  <select value={form.category} onChange={set('category')} style={{ ...s.input, ...(autoFilled.has('category') ? s.auto : null) }}>
                     {!EXPENSE_CATEGORIES.includes(form.category) && <option value={form.category}>{form.category}</option>}
                     {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c[0].toUpperCase() + c.slice(1)}</option>)}
                   </select>
                 </label>
                 <label style={s.label}>Amount ($)
-                  <input type="number" inputMode="decimal" step="0.01" min="0" value={form.amount} onChange={set('amount')} style={s.input} required />
+                  <input type="number" inputMode="decimal" step="0.01" min="0" value={form.amount} onChange={set('amount')} style={{ ...s.input, ...(autoFilled.has('amount') ? s.auto : null) }} required />
                 </label>
               </div>
               <label style={s.label}>Date
-                <input type="date" value={form.expense_date} onChange={set('expense_date')} style={s.input} required />
+                <input type="date" value={form.expense_date} onChange={set('expense_date')} style={{ ...s.input, ...(autoFilled.has('expense_date') ? s.auto : null) }} required />
               </label>
               <label style={s.label}>Vendor / description
-                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={s.input} />
+                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
               </label>
               <label style={s.label}>Load (optional)
                 <select value={form.load_id} onChange={set('load_id')} style={s.input}>
@@ -332,8 +440,8 @@ function ExpensesInner() {
               <fieldset style={{ border: 'none', padding: 0, margin: '0 0 0.6rem', minWidth: 0 }} disabled={saving}>
                 <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
                 {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
-                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" tabIndex={-1} aria-hidden="true" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
                   <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
                   <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
@@ -345,15 +453,24 @@ function ExpensesInner() {
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>
                         <span style={{ position: 'absolute', width: 1, height: 1, margin: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Selected receipt: </span>{file.name}
                       </span>
-                      <button type="button" disabled={saving} onClick={() => { setFile(null); setFileKey((k) => k + 1); }} style={{ ...s.small, minWidth: 44, minHeight: 44, opacity: saving ? 0.6 : 1 }} aria-label="Remove selected receipt">✕</button>
+                      <button type="button" disabled={saving} onClick={clearReceipt} style={{ ...s.small, minWidth: 44, minHeight: 44, opacity: saving ? 0.6 : 1 }} aria-label="Remove selected receipt">✕</button>
                     </div>
+                  )}
+                </div>
+                <div role="status" aria-live="polite" aria-atomic="true">
+                  {ai.state !== 'idle' && (
+                    <p style={{ margin: '0.5rem 0 0', padding: '0.5rem 0.6rem', borderRadius: 8, fontSize: '0.9rem',
+                      background: ai.state === 'done' ? '#fefce8' : ai.state === 'error' ? '#f9fafb' : '#eff6ff',
+                      color: ai.state === 'done' ? '#854d0e' : ai.state === 'error' ? '#374151' : '#1d4ed8' }}>
+                      {ai.state === 'reading' && <span aria-hidden="true">⏳ </span>}{ai.text}
+                    </p>
                   )}
                 </div>
               </fieldset>
               <button type="submit" disabled={saving} style={{ ...s.btn, opacity: saving ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
-              {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); setFile(null); setFileKey((k) => k + 1); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
+              {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
 
