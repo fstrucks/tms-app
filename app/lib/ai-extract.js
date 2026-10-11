@@ -15,42 +15,65 @@ function isoToday() {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
-const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
-const monthOf = (w) => MONTHS[w.slice(0, 4)] || MONTHS[w.slice(0, 3)] || null;
+// Whole month names and standard abbreviations only (no substrings like "mayo" or "decal").
+const MONTHS = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6,
+  jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10,
+  nov: 11, november: 11, dec: 12, december: 12,
+};
+const monthOf = (w) => (typeof w === 'string' && Object.prototype.hasOwnProperty.call(MONTHS, w) ? MONTHS[w] : null);
 const pad = (n) => String(n).padStart(2, '0');
 const isRealDate = (y, m, d) => {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 };
+const yearOf = (yy) => (yy == null ? null : yy.length === 2 ? 2000 + +yy : +yy);
 
-// Deterministically parse a printed receipt date (US month-first). Returns YYYY-MM-DD or null.
-// Handles 9/26, 09/26/26, 9-26-2026, 09.26.26, 2026-09-26, "Sep 26, 2026", "Sep 26", "26 Sep 2026",
-// with an optional trailing time. Year missing -> most recent past occurrence (<= latest).
-// Explicit year in the future -> null (never substituted with today).
-export function parseReceiptDate(raw, latest) {
-  if (typeof raw !== 'string') return null;
-  const s = raw.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
-  let y = null, m = null, d = null, m1;
-  if ((m1 = s.match(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/))) { y = +m1[1]; m = +m1[2]; d = +m1[3]; }
-  else if ((m1 = s.match(/\b(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{2}|\d{4}))?\b/))) {
-    m = +m1[1]; d = +m1[2]; if (m1[3]) y = m1[3].length === 2 ? 2000 + +m1[3] : +m1[3];
-  } else if ((m1 = s.match(/\b([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}|\d{2}))?\b/)) && monthOf(m1[1])) {
-    m = monthOf(m1[1]); d = +m1[2]; if (m1[3]) y = m1[3].length === 2 ? 2000 + +m1[3] : +m1[3];
-  } else if ((m1 = s.match(/\b(\d{1,2}) ([a-z]{3,9})\.?(?: (\d{4}|\d{2}))?\b/)) && monthOf(m1[2])) {
-    d = +m1[1]; m = monthOf(m1[2]); if (m1[3]) y = m1[3].length === 2 ? 2000 + +m1[3] : +m1[3];
-  } else return null;
+// Resolve one {y?, m, d} candidate to YYYY-MM-DD <= latest, or null.
+function resolveCandidate({ y, m, d }, latest) {
   if (!m || !d || m > 12 || d > 31) return null;
   if (y == null) {
     const ly = +latest.slice(0, 4);
     for (const cand of [ly, ly - 1]) {
-      if (isRealDate(cand, m, d) && `${cand}-${pad(m)}-${pad(d)}` <= latest) { y = cand; break; }
+      if (isRealDate(cand, m, d) && `${cand}-${pad(m)}-${pad(d)}` <= latest) return `${cand}-${pad(m)}-${pad(d)}`;
     }
-    if (y == null) return null;
+    return null;
   }
   if (y < 2000 || !isRealDate(y, m, d)) return null;
   const iso = `${y}-${pad(m)}-${pad(d)}`;
   return iso <= latest ? iso : null;
 }
+
+// Deterministically parse a printed receipt date (US month-first). Returns YYYY-MM-DD or null.
+// Collects EVERY date-like candidate in the text (9/26, 09/26/26, 9-26-2026, 09.26.26, 2026-09-26,
+// "Sep 26, 2026", "Sept 26", "26 September 2026"), in order of appearance, and returns the first
+// that is a real, non-future date. Year missing -> most recent past occurrence (<= latest).
+// Never substitutes today.
+export function parseReceiptDate(raw, latest) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
+  const cands = [];
+  const ymd = /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/g;
+  const mdy = /\b(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{4}|\d{2}))?\b/g;
+  const mon = /\b([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}|\d{2}))?\b/g;
+  const dmon = /\b(\d{1,2}) ([a-z]{3,9})\.?(?: (\d{4}|\d{2}))?\b/g;
+  const taken = []; // spans of ISO matches, so "2026-09-26" isn't re-read as "09-26"
+  for (const x of s.matchAll(ymd)) { cands.push({ i: x.index, y: +x[1], m: +x[2], d: +x[3] }); taken.push([x.index, x.index + x[0].length]); }
+  const inTaken = (i) => taken.some(([a, b]) => i >= a && i < b);
+  for (const x of s.matchAll(mdy)) if (!inTaken(x.index)) cands.push({ i: x.index, y: yearOf(x[3]), m: +x[1], d: +x[2] });
+  for (const x of s.matchAll(mon)) { const m = monthOf(x[1]); if (m) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[2] }); }
+  for (const x of s.matchAll(dmon)) { const m = monthOf(x[2]); if (m) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[1] }); }
+  cands.sort((a, b) => a.i - b.i);
+  for (const c of cands) {
+    const iso = resolveCandidate(c, latest);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+// Receipt auto-fill rate limits: the single JS definition (used for user-facing messages).
+// Enforcement lives in claim_extraction_slot (migration 20261010000730, already applied); keep these in sync.
+export const RECEIPT_RATE_LIMIT = { perHour: 30, perDay: 150 };
 
 // today: the client's local YYYY-MM-DD (preferred) or the server date.
 // todaySlackDays: 0 when the client's date is known; 1 for the server fallback (timezones).

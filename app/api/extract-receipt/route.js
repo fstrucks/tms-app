@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { runExtraction } from '../../lib/ai-extract';
+import { runExtraction, RECEIPT_RATE_LIMIT } from '../../lib/ai-extract';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,6 @@ export const maxDuration = 60;
 const MAX_BYTES = 4.5 * 1024 * 1024;
 const TOO_LARGE = 'Image is too large to read automatically (max 4.5 MB). Please enter the details manually.';
 const SUPPORTED = ['image/jpeg', 'image/png', 'image/webp'];
-const LIMIT_PER_HOUR = 30; // must match claim_extraction_slot for kind 'receipt'
-const LIMIT_PER_DAY = 150;
 const GENERIC = "Couldn't read this receipt. Please enter the details manually.";
 
 const json = (body, status = 200) => Response.json(body, { status });
@@ -101,7 +99,7 @@ export async function POST(req) {
   const admin = createClient(url, serviceKey, opts);
   const { data: runId, error: claimErr } = await admin.rpc('claim_extraction_slot', { p_user: user.id, p_document: null, p_kind: 'receipt' });
   if (claimErr) return fail(500, GENERIC, 'claim slot', claimErr.message);
-  if (!runId) return fail(429, `Receipt reading limit reached (${LIMIT_PER_HOUR}/hour, ${LIMIT_PER_DAY}/day). Please enter the details manually.`);
+  if (!runId) return fail(429, `Receipt reading limit reached (${RECEIPT_RATE_LIMIT.perHour}/hour, ${RECEIPT_RATE_LIMIT.perDay}/day). Please enter the details manually.`);
   const finish = (status) => admin.from('extraction_runs').update({ status }).eq('id', runId);
 
   // The client's local date (YYYY-MM-DD) bounds "not in the future"; fall back to server date.
@@ -118,6 +116,6 @@ export async function POST(req) {
   await finish('success');
   const { _debug, ...data } = result.data;
   // Debug log for date/category issues (no amounts or vendor text).
-  console.info('[extract-receipt] read', JSON.stringify({ user: user.id, today: todayOk || null, ..._debug, expense_date: data.expense_date, category: data.category, confidence: data.confidence }));
+  console.info('[extract-receipt] read', JSON.stringify({ today: todayOk || null, ..._debug, expense_date: data.expense_date, category: data.category, confidence: data.confidence }));
   return json({ data });
 }
