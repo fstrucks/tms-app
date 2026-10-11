@@ -208,7 +208,6 @@ export default function DocumentsPage() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}><Link href="/" style={{ color: '#2563eb' }}>← Home</Link><Link href="/loads" style={{ color: '#2563eb' }}>Loads</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
 
       {supabaseConfigError ? (
@@ -232,9 +231,11 @@ export default function DocumentsPage() {
             </label>
             <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif" style={s.input}
               onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, opacity: !file || uploading || converting ? 0.6 : 1 }}>
+            <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
+            <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, marginTop: 0, opacity: !file || uploading || converting ? 0.6 : 1 }}>
               {converting ? 'Converting photo…' : uploading ? 'Uploading…' : 'Upload'}
             </button>
+            </div>
           </form>
 
           {status && <p style={status.type === 'ok' ? s.ok : s.error}>{status.text}</p>}

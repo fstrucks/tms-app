@@ -15,7 +15,7 @@ const s = {
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
   link: { color: '#2563eb' },
-  btn: { padding: '0.5rem 0.9rem', fontSize: '0.9rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
+  btn: { minHeight: 44, minWidth: 64, padding: '0.5rem 0.9rem', fontSize: '0.9rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
   dl: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.35rem 0.75rem', margin: 0, fontSize: '0.9rem' },
 };
 
@@ -76,10 +76,8 @@ export default function LoadDetailPage() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem' }}>
-        <Link href="/loads" style={s.link}>← Loads</Link>
-        <Link href="/documents" style={s.link}>Documents</Link>
-        <Link href="/mileage" style={s.link}>Mileage</Link>
+      <p style={{ margin: '0 0 0.25rem' }}>
+        <Link href="/loads" style={{ ...s.link, display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Loads</Link>
       </p>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
