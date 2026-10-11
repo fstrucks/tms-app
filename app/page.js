@@ -44,7 +44,7 @@ export default function Home() {
 
   return (
     <main style={s.main}>
-      <h1 style={{ fontSize: '1.6rem' }}>TMS App</h1>
+      <h1 style={{ fontSize: '1.6rem' }}>PowerHaul TMS</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : user ? (
