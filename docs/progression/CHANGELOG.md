@@ -3,6 +3,9 @@
 Notable changes to PowerHaul TMS, newest first. Dates are merge dates (UTC) from GitHub.
 
 ## 2026-10-11
+- [#20](https://github.com/fstrucks/tms-app/pull/20) docs: name the app PowerHaul TMS
+- [#19](https://github.com/fstrucks/tms-app/pull/19) Loading/error states (no false empty lists) + 2-decimal money
+- [#22](https://github.com/fstrucks/tms-app/pull/22) Fix Android file picker on /documents: separate Take photo and Choose file
 - [#21](https://github.com/fstrucks/tms-app/pull/21) PowerHaul TMS branding: tab title, nav brand, home/login headings, README, favicon
 - Named the app PowerHaul TMS (Marc)
 - [#15](https://github.com/fstrucks/tms-app/pull/15) docs: progression log (README, CHANGELOG, 2026-10-11 current state)
@@ -26,6 +29,3 @@ Notable changes to PowerHaul TMS, newest first. Dates are merge dates (UTC) from
 - [#2](https://github.com/fstrucks/tms-app/pull/2) AI rate confirmation extraction
 - [#1](https://github.com/fstrucks/tms-app/pull/1) Magic-link login + documents table RLS
 - Commit 2a047f6 (direct to main, no PR): Add rate confirmation upload page (/documents) with Supabase Storage + documents bucket migration
-
-## Open (not merged)
-- [#19](https://github.com/fstrucks/tms-app/pull/19) Loading/error states (no false empty lists) + 2-decimal money
