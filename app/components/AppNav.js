@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
+  { href: '/dashboard', label: 'Dashboard', short: 'Stats', icon: '📊', match: (p) => p.startsWith('/dashboard') },
   { href: '/loads', label: 'Loads', icon: '🚚', match: (p) => p.startsWith('/loads') },
   { href: '/documents', label: 'Docs', icon: '📄', match: (p) => p.startsWith('/documents') },
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
@@ -64,11 +65,11 @@ export default function AppNav() {
         {TABS.map((t) => {
           const active = t.match(pathname);
           return (
-            <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined}
+            <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined} aria-label={t.short ? t.label : undefined}
               style={{ flex: 1, minWidth: 0, height: 'var(--nav-h)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: 2, textDecoration: 'none', fontSize: '0.72rem', color: active ? blue : '#4b5563', fontWeight: active ? 600 : 400 }}>
+                gap: 2, textDecoration: 'none', fontSize: '0.68rem', letterSpacing: '-0.01em', color: active ? blue : '#4b5563', fontWeight: active ? 600 : 400 }}>
               <span aria-hidden="true" style={{ fontSize: '1.25rem', lineHeight: 1 }}>{t.icon}</span>
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.label}</span>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.short || t.label}</span>
             </Link>
           );
         })}
