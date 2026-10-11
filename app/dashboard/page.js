@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { fmtMoney } from '../lib/loads';
+import { fmtMoney, fmtPerMile } from '../lib/money';
 import { fetchPaged, buildWeeks, localISO, aggregate, summarize, REVENUE_RULE } from '../lib/dashboard';
 
 const s = {
@@ -18,7 +18,7 @@ const s = {
 };
 
 const mi = (n) => `${Math.round(n).toLocaleString('en-US')} mi`;
-const rpm = (n) => (n == null || !isFinite(n) ? '—' : `$${Number(n).toFixed(2)}/mi`);
+const rpm = (n) => fmtPerMile(n);
 const range = (w) => {
   const last = new Date(w.end); last.setDate(last.getDate() - 1);
   const f = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });

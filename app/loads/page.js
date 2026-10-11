@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { getSupabase, supabaseConfigError } from '../lib/supabase';
+import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
+import { Loading, LoadError } from '../components/DataState';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
@@ -20,14 +21,23 @@ export default function LoadsPage() {
   const [checking, setChecking] = useState(true);
   const [loads, setLoads] = useState([]);
   const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false); // true once a fetch finished without error
+  const reqRef = useRef(0);
+  const loadedRef = useRef(false);
+  loadedRef.current = loaded;
 
   async function loadLoads() {
+    const req = ++reqRef.current;
+    setError(null);
+    if (!(await hasSession(supabase))) { if (req === reqRef.current) setError("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
     const { data, error } = await supabase
       .from('loads')
       .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
       .order('created_at', { ascending: false });
-    if (error) return setError('Could not load loads: ' + error.message);
+    if (req !== reqRef.current) return; // a newer fetch (e.g. after sign-in) superseded this one
+    if (error) { console.error('[loads] fetch', error); return setError("Couldn't load your loads."); }
     setLoads(data || []);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -36,8 +46,9 @@ export default function LoadsPage() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => loadLoads(), 0);
-      if (event === 'SIGNED_OUT') setLoads([]);
+      // Fetch only once a session exists; re-fetch whenever the session changes.
+      if (['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event) && u && (event !== 'TOKEN_REFRESHED' || !loadedRef.current)) setTimeout(() => loadLoads(), 0);
+      if (event === 'SIGNED_OUT') { reqRef.current++; setLoads([]); setLoaded(false); setError(null); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -50,8 +61,9 @@ export default function LoadsPage() {
         : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>
         : (
           <>
-            {error && <p style={s.error}>{error}</p>}
-            {loads.length === 0 && !error && (
+            {error && <LoadError message={error} onRetry={loadLoads} />}
+            {!loaded && !error && <Loading label="Loading loads…" />}
+            {loaded && loads.length === 0 && !error && (
               <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
             )}
             {loads.map((l) => {

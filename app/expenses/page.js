@@ -3,8 +3,9 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { fmtMoney } from '../lib/loads';
+import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
+import { fmtMoney, moneyInput } from '../lib/money';
+import { Loading, LoadError } from '../components/DataState';
 import { EXPENSE_CATEGORIES, sumAmounts, todayISO, fmtDate } from '../lib/expenses';
 
 const BUCKET = 'documents';
@@ -159,6 +160,10 @@ function ExpensesInner() {
   const [checking, setChecking] = useState(true);
   const [expenses, setExpenses] = useState([]);
   const [loads, setLoads] = useState([]);
+  const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
+  const fetchReqRef = useRef(0);
+  const listReadyRef = useRef(false);
+  listReadyRef.current = listState === 'ready';
   const [form, setForm] = useState(emptyForm(presetLoad));
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
@@ -189,14 +194,21 @@ function ExpensesInner() {
   const [filterLoad, setFilterLoad] = useState(presetLoad);
 
   async function fetchAll() {
+    const req = ++fetchReqRef.current;
+    if (!listReadyRef.current) setListState('loading');
+    if (!(await hasSession(supabase))) {
+      if (req === fetchReqRef.current) setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+      return ['Your session has expired. Please sign in again.'];
+    }
     const [{ data: e, error: ee }, { data: l, error: le }] = await Promise.all([
       supabase.from('expenses').select('id, load_id, category, amount, description, expense_date, document_id, created_at, documents(id, file_path, original_filename)')
         .order('expense_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('loads').select('id, broker_name, broker_load_number, rate, created_at').order('created_at', { ascending: false }),
     ]);
+    if (req !== fetchReqRef.current) return []; // superseded by a newer fetch
     const problems = [];
-    if (ee) { console.error('[expenses] fetch expenses', ee); problems.push('Could not load expenses. Please refresh.'); }
-    else setExpenses(e || []);
+    if (ee) { console.error('[expenses] fetch expenses', ee); problems.push('Could not load expenses. Please refresh.'); setListState((st) => (st === 'ready' ? 'ready' : 'error')); }
+    else { setExpenses(e || []); setListState('ready'); }
     if (le) { console.error('[expenses] fetch loads', le); problems.push('Could not load your loads; load links may be missing. Please refresh.'); }
     else setLoads(l || []);
     return problems;
@@ -208,8 +220,16 @@ function ExpensesInner() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(async () => { const p = await fetchAll(); if (p.length) setStatus({ type: 'error', text: p.join(' ') }); }, 0);
-      if (event === 'SIGNED_OUT') { setExpenses([]); setLoads([]); }
+      // Fetch only once a session exists; re-fetch when it changes (or after a refresh if nothing loaded yet).
+      if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !listReadyRef.current)) && u) {
+        setTimeout(async () => {
+          const p = await fetchAll();
+          // The expenses list shows its own error + Retry; only the loads problem goes to the status line.
+          const other = p.filter((m) => !m.startsWith('Could not load expenses'));
+          if (other.length) setStatus({ type: 'error', text: other.join(' ') });
+        }, 0);
+      }
+      if (event === 'SIGNED_OUT') { fetchReqRef.current++; setExpenses([]); setLoads([]); setListState('loading'); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -303,7 +323,7 @@ function ExpensesInner() {
     if (!d.is_receipt) return setAi({ state: 'error', text: "This doesn't look like a readable receipt. Please enter the details manually." });
     const desc = [d.vendor, d.description].filter(Boolean).join(' — ').slice(0, 200);
     const proposal = {
-      amount: d.amount != null ? String(d.amount) : null,
+      amount: d.amount != null ? moneyInput(d.amount) : null,
       expense_date: d.expense_date,
       category: EXPENSE_CATEGORIES.includes(d.category) ? d.category : null,
       description: desc || null,
@@ -429,7 +449,7 @@ function ExpensesInner() {
   }
 
   function edit(x) {
-    setForm({ id: x.id, category: x.category || 'other', amount: String(x.amount ?? ''), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
+    setForm({ id: x.id, category: x.category || 'other', amount: moneyInput(x.amount), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
     setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi(['category', 'expense_date']); // editing: keep saved category/date; blanks may fill
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -528,6 +548,9 @@ function ExpensesInner() {
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
 
+            {listState === 'error' && <LoadError message="Couldn't load your expenses." onRetry={() => { fetchAll(); }} />}
+            {listState === 'loading' && <Loading label="Loading expenses…" />}
+            {listState === 'ready' && (<>
             <div style={{ ...s.row, marginBottom: '0.5rem' }}>
               <select value={filterLoad} onChange={(e) => setFilterLoad(e.target.value)} style={{ ...s.input, marginTop: 0, maxWidth: '60%' }}>
                 <option value="">All expenses</option>
@@ -557,6 +580,7 @@ function ExpensesInner() {
                 </div>
               </div>
             ))}
+            </>)}
           </>
         )}
     </main>

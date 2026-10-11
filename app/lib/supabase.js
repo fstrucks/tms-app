@@ -21,3 +21,16 @@ export function getSupabase() {
   if (!client) client = createClient(supabaseUrl, supabaseAnonKey);
   return client;
 }
+
+// True only when there is a signed-in session with an access token. Without one, supabase-js
+// silently sends the anon key, and RLS (user_id = auth.uid()) returns [] with no error, which
+// looks exactly like "no data". Check this before list fetches so we never show a false empty state.
+export async function hasSession(supabase) {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data?.session?.access_token;
+  } catch (err) {
+    console.error('[auth] getSession', err);
+    return false;
+  }
+}

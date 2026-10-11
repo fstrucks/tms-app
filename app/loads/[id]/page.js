@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { getSupabase, supabaseConfigError } from '../../lib/supabase';
+import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
 import LoadExpenses from '../../components/LoadExpenses';
+import { Loading, LoadError } from '../../components/DataState';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
@@ -30,15 +31,17 @@ export default function LoadDetailPage() {
   const [saving, setSaving] = useState(false);
 
   async function fetchAll() {
+    setError(null);
+    if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
       supabase.from('documents').select('id, doc_type, file_path, original_filename, created_at').eq('load_id', id).order('created_at', { ascending: false }),
     ]);
-    if (le) return setError('Could not load this load: ' + le.message);
-    if (!l) return setError('Load not found.');
+    if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
+    if (!l) return setError({ retry: false, text: 'Load not found.' });
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
     setLoad(l);
-    if (de) setError('Could not load documents: ' + de.message);
+    if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
     else setDocs(d || []);
   }
 
@@ -60,7 +63,7 @@ export default function LoadDetailPage() {
     setSaving(true);
     try {
       const { error } = await supabase.from('loads').update({ status }).eq('id', id);
-      if (error) { setLoad((l) => ({ ...l, status: prev })); setError('Could not update status: ' + error.message); }
+      if (error) { setLoad((l) => ({ ...l, status: prev })); console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
     } finally {
       setSaving(false);
     }
@@ -68,7 +71,7 @@ export default function LoadDetailPage() {
 
   async function view(doc) {
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.file_path, 300);
-    if (error) return setError('Could not open file: ' + error.message);
+    if (error) { console.error('[load] open file', error); return setError({ retry: false, text: "Couldn't open the file. Please try again." }); }
     window.open(data.signedUrl, '_blank', 'noopener');
   }
 
@@ -84,8 +87,8 @@ export default function LoadDetailPage() {
         : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to view this load.</p>
         : (
           <>
-            {error && <p style={s.error}>{error}</p>}
-            {!load ? (!error && <p style={s.muted}>Loading…</p>) : (
+            {error && (error.retry ? <LoadError message={error.text} onRetry={fetchAll} /> : <p style={s.error}>{error.text}</p>)}
+            {!load ? (!error && <Loading label="Loading load…" />) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
                   <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}</h1>
