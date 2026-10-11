@@ -70,8 +70,8 @@ export function LoadPicker({ value, onChange, style }) {
       </select>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
         <span>{failed ? 'Could not load loads.' : busy ? 'Searching…' : `${rows.length} shown`}</span>
-        {hasMore && <button type="button" onClick={() => setLimit((n) => n + PAGE)}
-          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', padding: 0 }}>Load more</button>}
+        {hasMore && <button type="button" data-compact onClick={() => setLimit((n) => n + PAGE)}
+          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.85rem', minHeight: 36, padding: '0 0.75rem' }}>Load more</button>}
       </div>
     </div>
   );

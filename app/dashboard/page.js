@@ -14,7 +14,7 @@ const s = {
   muted: { color: '#6b7280' },
   error: { color: '#b91c1c' },
   link: { color: '#2563eb' },
-  tab: (on) => ({ padding: '0.4rem 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111', fontSize: '0.9rem' }),
+  tab: (on) => ({ minHeight: 36, minWidth: 72, padding: '0.4rem 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111', fontSize: '0.9rem' }),
 };
 
 const mi = (n) => `${Math.round(n).toLocaleString('en-US')} mi`;
@@ -151,16 +151,10 @@ export default function DashboardPage() {
 
   return (
     <main style={s.main}>
-      <p style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-        <Link href="/" style={s.link}>← Home</Link>
-        <Link href="/loads" style={s.link}>Loads</Link>
-        <Link href="/mileage" style={s.link}>Mileage</Link>
-        <Link href="/expenses" style={s.link}>Expenses</Link>
-      </p>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.5rem', margin: '0.25rem 0' }}>Weekly dashboard</h1>
         <div style={{ display: 'flex', gap: '0.4rem' }}>
-          {[4, 8].map((k) => <button key={k} onClick={() => pick(k)} disabled={busy} style={s.tab(n === k)}>{k} weeks</button>)}
+          {[4, 8].map((k) => <button key={k} type="button" data-compact onClick={() => pick(k)} disabled={busy} style={s.tab(n === k)}>{k} weeks</button>)}
         </div>
       </div>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>

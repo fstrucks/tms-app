@@ -418,7 +418,7 @@ function ExpensesInner() {
       const saveMsg = warnings.length
         ? `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.`
         : (editing ? 'Expense updated.' : 'Expense added.');
-      setForm(emptyForm(editing ? presetLoad : form.load_id));
+      setForm(emptyForm(presetLoad)); // Load resets too, except a ?load=<id> preselection
       setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
       const problems = await fetchAll();
