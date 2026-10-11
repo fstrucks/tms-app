@@ -1,6 +1,6 @@
-# Progression log
+# PowerHaul TMS — Progression log
 
-A visual record of how the TMS app evolves, one milestone at a time.
+A visual record of how PowerHaul TMS evolves, one milestone at a time.
 
 ## Layout
 
