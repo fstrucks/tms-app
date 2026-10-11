@@ -177,11 +177,13 @@ function ExpensesInner() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
   const [saving, setSaving] = useState(false);
-  // AI auto-fill state. pristine = default-valued fields the user hasn't touched (category, date);
-  // amount/description count as empty when ''. Auto-fill never overwrites anything else.
+  // AI auto-fill state. touched = fields the user deliberately changed since the form opened; those are
+  // never overwritten. On a new expense, category/date (defaults) can be filled unless touched; amount/
+  // description when empty or still holding a previous auto-fill. Editing an existing expense marks all touched.
   const [ai, setAi] = useState({ state: 'idle', text: '' });
   const [autoFilled, setAutoFilled] = useState(() => new Set());
-  const pristineRef = useRef(new Set(['category', 'expense_date']));
+  const touchedRef = useRef(new Set());
+  const autoFilledRef = useRef(new Set());
   const preparedRef = useRef(null); // { src: File, out: File } so save reuses the converted/downscaled image
   const aiReqRef = useRef(0);
   const formRef = useRef(form);
@@ -216,15 +218,17 @@ function ExpensesInner() {
   }, []);
 
   const set = (k) => (e) => {
-    pristineRef.current.delete(k);
+    touchedRef.current.add(k);
+    autoFilledRef.current.delete(k);
     setAutoFilled((s0) => { if (!s0.has(k)) return s0; const n = new Set(s0); n.delete(k); return n; });
     setForm((f) => ({ ...f, [k]: e.target.value }));
   };
 
-  function resetAi(pristine = ['category', 'expense_date']) {
+  function resetAi(touched = []) {
     aiReqRef.current += 1; // cancels any in-flight read
     preparedRef.current = null;
-    pristineRef.current = new Set(pristine);
+    touchedRef.current = new Set(touched);
+    autoFilledRef.current = new Set();
     setAutoFilled(new Set());
     setAi({ state: 'idle', text: '' });
   }
@@ -307,16 +311,22 @@ function ExpensesInner() {
       category: EXPENSE_CATEGORIES.includes(d.category) ? d.category : null,
       description: desc || null,
     };
-    const isOpen = (f, k) => (k === 'amount' || k === 'description' ? f[k] === '' : pristineRef.current.has(k));
+    const isOpen = (f, k) => {
+      if (touchedRef.current.has(k)) return false;
+      if (k === 'amount' || k === 'description') return f[k] === '' || autoFilledRef.current.has(k);
+      return true; // category / date on a new expense: defaults until the user changes them
+    };
     const cur = formRef.current;
     const patch = {};
     for (const [k, v] of Object.entries(proposal)) if (v != null && isOpen(cur, k) && cur[k] !== v) patch[k] = v;
     const keys = Object.keys(patch);
+    console.info('[expenses] auto-fill', { proposal: { expense_date: proposal.expense_date, category: proposal.category }, filled: keys, touched: [...touchedRef.current] });
     if (!keys.length) return setAi({ state: 'done', text: 'Receipt read, but nothing new to fill. Your entries were kept.' });
     // Re-check inside the updater so a keystroke between read and apply is never overwritten.
     setForm((f) => { const n = { ...f }; for (const k of keys) if (isOpen(f, k)) n[k] = patch[k]; return n; });
-    for (const k of keys) pristineRef.current.delete(k);
-    setAutoFilled(new Set(keys));
+    // Only fields whose value actually came from this receipt are marked.
+    for (const k of keys) autoFilledRef.current.add(k);
+    setAutoFilled(new Set(autoFilledRef.current));
     const low = d.confidence != null && d.confidence < 0.6;
     setAi({ state: 'done', text: `Auto-filled ${keys.map((k) => ({ amount: 'amount', expense_date: 'date', category: 'category', description: 'vendor/description' }[k])).join(', ')}. Please check${low ? ' carefully, the receipt was hard to read' : ''}.` });
   }
@@ -423,7 +433,7 @@ function ExpensesInner() {
 
   function edit(x) {
     setForm({ id: x.id, category: x.category || 'other', amount: String(x.amount ?? ''), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
-    setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi([]);
+    setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi(['category', 'expense_date']); // editing: keep saved category/date; blanks may fill
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
