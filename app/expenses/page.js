@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
@@ -24,6 +24,117 @@ async function convertHeicToJpeg(file) {
   return new File([blob], file.name.replace(/\.(heic|heif)$/i, '') + '.jpg', { type: 'image/jpeg' });
 }
 
+const MAX_EDGE = 2000;
+const JPEG_QUALITY = 0.8;
+
+async function decodeImage(file) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { src: bmp, w: bmp.width, h: bmp.height, close: () => bmp.close?.() };
+    } catch (err) { console.warn('[expenses] createImageBitmap failed, falling back to <img>', err); }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('image decode failed'));
+      i.src = url;
+    });
+    return { src: img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Downscale images to ~2000px on the long edge as JPEG 0.8. PDFs pass through.
+// Keeps the original if it's already small enough, if the result isn't smaller, or on any failure.
+async function downscaleImage(file) {
+  if (!file.type.startsWith('image/')) return file;
+  let decoded;
+  try {
+    decoded = await decodeImage(file);
+    const { w, h } = decoded;
+    if (!w || !h || Math.max(w, h) <= MAX_EDGE) return file;
+    const scale = MAX_EDGE / Math.max(w, h);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.fillStyle = '#fff'; // flatten transparency for JPEG
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch (err) {
+    console.warn('[expenses] downscale failed, keeping original', err);
+    return file;
+  } finally {
+    decoded?.close();
+  }
+}
+
+// Re-encode to JPEG at a given long edge / quality. Returns a File or null on failure.
+async function reencodeJpeg(file, maxEdge, quality) {
+  let decoded;
+  try {
+    decoded = await decodeImage(file);
+    const { w, h } = decoded;
+    if (!w || !h) return null;
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(decoded.src, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null;
+  } catch (err) {
+    console.warn('[expenses] re-encode failed', err);
+    return null;
+  } finally {
+    decoded?.close();
+  }
+}
+
+// The AI route accepts at most 4.5 MB (Vercel body limit); aim for 4 MB to leave multipart headroom.
+// The saved receipt is unaffected: only the copy sent for reading is recompressed.
+const AI_MAX_BYTES = 4 * 1024 * 1024;
+async function fitForAi(file) {
+  if (file.size <= AI_MAX_BYTES) return file;
+  for (const [edge, q] of [[2000, 0.7], [1600, 0.6], [1280, 0.5]]) {
+    const out = await reencodeJpeg(file, edge, q);
+    if (out && out.size <= AI_MAX_BYTES) return out;
+  }
+  return null;
+}
+
+const sameFile = (a, b) => !!a && !!b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
+const userErr = (msg, detail) => Object.assign(new Error(msg), { user: true, detail });
+
+// Validate + convert + downscale. Runs BEFORE the expense is saved. Returns a File ready to upload.
+async function prepareReceipt(file) {
+  let up = file;
+  const type = resolveType(up);
+  if (!ALLOWED_TYPES.includes(type)) throw userErr('Receipt must be a PDF, JPEG, PNG, WebP or HEIC file.');
+  if (isHeic(up, type)) {
+    try { up = await convertHeicToJpeg(up); }
+    catch (err) { throw userErr('Could not convert this iPhone photo (HEIC). Try a JPEG or screenshot.', err); }
+  } else if (!up.type) {
+    up = new File([up], up.name, { type }); // extension-resolved type, so downscale/upload see it
+  }
+  up = await downscaleImage(up);
+  if (up.size > MAX_BYTES) throw userErr(`Receipt is too large (${(up.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.`);
+  return up;
+}
+
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
@@ -31,6 +142,8 @@ const s = {
   label: { display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem', color: '#374151' },
   input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid #d1d5db', marginTop: '0.2rem', background: '#fff' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
+  pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
+  auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
   small: { padding: '0.4rem 0.75rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
@@ -52,7 +165,29 @@ function ExpensesInner() {
   const [form, setForm] = useState(emptyForm(presetLoad));
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
+  const [preview, setPreview] = useState(null);
+  const cameraRef = useRef(null);
+  const uploadRef = useRef(null);
+
+  // Cheap thumbnail for browser-renderable images (HEIC is converted at save time, so no preview).
+  useEffect(() => {
+    if (!file || !/^image\/(jpeg|png|webp|gif)$/.test(file.type)) { setPreview(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const [saving, setSaving] = useState(false);
+  // AI auto-fill state. touched = fields the user deliberately changed since the form opened; those are
+  // never overwritten. On a new expense, category/date (defaults) can be filled unless touched; amount/
+  // description when empty or still holding a previous auto-fill. Editing an existing expense marks all touched.
+  const [ai, setAi] = useState({ state: 'idle', text: '' });
+  const [autoFilled, setAutoFilled] = useState(() => new Set());
+  const touchedRef = useRef(new Set());
+  const autoFilledRef = useRef(new Set());
+  const preparedRef = useRef(null); // { src: File, out: File } so save reuses the converted/downscaled image
+  const aiReqRef = useRef(0);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [status, setStatus] = useState(null);
   const [filterLoad, setFilterLoad] = useState(presetLoad);
 
@@ -82,7 +217,119 @@ function ExpensesInner() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k) => (e) => {
+    touchedRef.current.add(k);
+    autoFilledRef.current.delete(k);
+    setAutoFilled((s0) => { if (!s0.has(k)) return s0; const n = new Set(s0); n.delete(k); return n; });
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+  };
+
+  function resetAi(touched = []) {
+    aiReqRef.current += 1; // cancels any in-flight read
+    preparedRef.current = null;
+    touchedRef.current = new Set(touched);
+    autoFilledRef.current = new Set();
+    setAutoFilled(new Set());
+    setAi({ state: 'idle', text: '' });
+  }
+
+  function clearReceipt() {
+    aiReqRef.current += 1;
+    preparedRef.current = null;
+    setAi({ state: 'idle', text: '' });
+    setFile(null); setFileKey((k) => k + 1);
+  }
+
+  function pickFile(f) {
+    // Re-picking the same file (name, size, lastModified) keeps the current file and auto-fill result.
+    if (f && sameFile(f, file)) return;
+    aiReqRef.current += 1;
+    preparedRef.current = null;
+    setAi({ state: 'idle', text: '' });
+    setFile(f);
+    if (f) autoFill(f);
+  }
+
+  // After pick: convert/downscale (same as save), send to /api/extract-receipt, prefill empty fields only.
+  async function autoFill(f) {
+    const req = aiReqRef.current;
+    const stale = () => req !== aiReqRef.current;
+    const type = resolveType(f);
+    if (type === 'application/pdf') return setAi({ state: 'error', text: 'PDF receipts can’t be read automatically yet. Please enter the details.' });
+    if (!type.startsWith('image/')) return; // prepare/save will report the type error
+    setAi({ state: 'reading', text: 'Reading receipt…' });
+    let prepared;
+    try {
+      prepared = await prepareReceipt(f);
+    } catch (err) {
+      if (stale()) return;
+      if (!err.user || err.detail) console.error('[expenses] auto-fill prepare', err.detail || err);
+      return setAi({ state: 'error', text: err.user ? err.message : "Couldn't read this receipt. Please enter the details manually." });
+    }
+    if (stale()) return;
+    preparedRef.current = { src: f, out: prepared };
+    if (!/^image\/(jpeg|png|webp)$/.test(prepared.type)) return setAi({ state: 'error', text: "This image type can't be read automatically. Please enter the details." });
+    const forAi = await fitForAi(prepared);
+    if (stale()) return;
+    if (!forAi) return setAi({ state: 'error', text: 'This photo is too large to read automatically. Please enter the details manually.' });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 60_000);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (stale()) return;
+      if (!token) return setAi({ state: 'error', text: 'Sign in again to auto-fill from receipts. You can still enter the details manually.' });
+      const body = new FormData();
+      body.append('file', forAi, forAi.name);
+      body.append('today', todayISO());
+      const res = await fetch('/api/extract-receipt', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body, signal: ac.signal });
+      const out = await res.json().catch(() => ({}));
+      if (stale()) return;
+      if (!res.ok || !out.data) {
+        console.error('[expenses] auto-fill', res.status, out?.error);
+        const msg = res.status === 401 ? 'Sign in again to auto-fill from receipts.'
+          : [400, 413, 415, 429, 501].includes(res.status) && out?.error ? out.error
+          : "Couldn't read this receipt.";
+        return setAi({ state: 'error', text: /manually\.?$/.test(msg) ? msg : `${msg} You can enter the details manually.` });
+      }
+      applyAutoFill(out.data);
+    } catch (err) {
+      if (stale()) return;
+      console.error('[expenses] auto-fill request', err);
+      setAi({ state: 'error', text: err.name === 'AbortError' ? 'Reading the receipt took too long. Please enter the details manually.' : "Couldn't reach the receipt reader. Please enter the details manually." });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function applyAutoFill(d) {
+    if (!d.is_receipt) return setAi({ state: 'error', text: "This doesn't look like a readable receipt. Please enter the details manually." });
+    const desc = [d.vendor, d.description].filter(Boolean).join(' — ').slice(0, 200);
+    const proposal = {
+      amount: d.amount != null ? String(d.amount) : null,
+      expense_date: d.expense_date,
+      category: EXPENSE_CATEGORIES.includes(d.category) ? d.category : null,
+      description: desc || null,
+    };
+    const isOpen = (f, k) => {
+      if (touchedRef.current.has(k)) return false;
+      if (k === 'amount' || k === 'description') return f[k] === '' || autoFilledRef.current.has(k);
+      return true; // category / date on a new expense: defaults until the user changes them
+    };
+    const cur = formRef.current;
+    const patch = {};
+    for (const [k, v] of Object.entries(proposal)) if (v != null && isOpen(cur, k) && cur[k] !== v) patch[k] = v;
+    const keys = Object.keys(patch);
+    console.info('[expenses] auto-fill', { proposal: { expense_date: proposal.expense_date, category: proposal.category }, filled: keys, touched: [...touchedRef.current] });
+    if (!keys.length) return setAi({ state: 'done', text: 'Receipt read, but nothing new to fill. Your entries were kept.' });
+    // Re-check inside the updater so a keystroke between read and apply is never overwritten.
+    setForm((f) => { const n = { ...f }; for (const k of keys) if (isOpen(f, k)) n[k] = patch[k]; return n; });
+    // Only fields whose value actually came from this receipt are marked.
+    for (const k of keys) autoFilledRef.current.add(k);
+    setAutoFilled(new Set(autoFilledRef.current));
+    const low = d.confidence != null && d.confidence < 0.6;
+    setAi({ state: 'done', text: `Auto-filled ${keys.map((k) => ({ amount: 'amount', expense_date: 'date', category: 'category', description: 'vendor/description' }[k])).join(', ')}. Please check${low ? ' carefully, the receipt was hard to read' : ''}.` });
+  }
 
   // Generic message for users; details go to the console.
   function failMsg(text, detail) {
@@ -91,15 +338,8 @@ function ExpensesInner() {
   }
 
   // Upload receipt to documents/{uid}/..., insert documents row (doc_type 'receipt'). Returns { id } or throws.
-  async function uploadReceipt(loadId) {
-    let up = file;
-    let contentType = resolveType(up);
-    if (!ALLOWED_TYPES.includes(contentType)) throw Object.assign(new Error('Receipt must be a PDF, JPEG, PNG, WebP or HEIC file.'), { user: true });
-    if (isHeic(up, contentType)) {
-      try { up = await convertHeicToJpeg(up); contentType = 'image/jpeg'; }
-      catch (err) { throw Object.assign(new Error('Could not convert this iPhone photo (HEIC). Try a JPEG or screenshot.'), { user: true, detail: err }); }
-    }
-    if (up.size > MAX_BYTES) throw Object.assign(new Error('Receipt is too large. Maximum is 10 MB.'), { user: true });
+  async function uploadReceipt(up, loadId) {
+    const contentType = up.type || resolveType(up);
     const path = `${user.id}/${Date.now()}-${up.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, up, { contentType });
     if (upErr) throw Object.assign(new Error('Receipt upload failed.'), { detail: upErr });
@@ -116,12 +356,23 @@ function ExpensesInner() {
 
   async function submit(e) {
     e.preventDefault();
+    if (ai.state === 'reading') return; // Save is disabled while reading; guard Enter-key submits too.
     setStatus(null);
     const amount = Number(form.amount);
     if (!form.amount || !isFinite(amount) || amount < 0) return setStatus({ type: 'error', text: 'Enter a valid amount.' });
     if (!form.expense_date) return setStatus({ type: 'error', text: 'Pick a date.' });
     if (!EXPENSE_CATEGORIES.includes(form.category)) return setStatus({ type: 'error', text: 'Pick a category.' });
     setSaving(true);
+    // Validate/convert/downscale the receipt first: a bad or oversized file stops the save entirely.
+    let prepared = null;
+    if (file) {
+      try { prepared = preparedRef.current?.src === file ? preparedRef.current.out : await prepareReceipt(file); }
+      catch (err) {
+        setSaving(false);
+        if (!err.user || err.detail) console.error('[expenses] prepare receipt', err.detail || err);
+        return setStatus({ type: 'error', text: err.user ? err.message : "Couldn't process the receipt. Please try another file." });
+      }
+    }
     const editing = !!form.id;
     try {
       const loadId = form.load_id || null;
@@ -146,9 +397,9 @@ function ExpensesInner() {
         if (ue || !upd?.length) { console.error('[expenses] receipt load sync', ue || 'no row updated'); warnings.push("the receipt's load link wasn't updated"); }
       }
       // 3. Attach a new receipt: upload + documents row, then link it.
-      if (file) {
+      if (prepared) {
         try {
-          const receipt = await uploadReceipt(loadId);
+          const receipt = await uploadReceipt(prepared, loadId);
           const { data: linked, error: le } = await supabase.from('expenses').update({ document_id: receipt.id }).eq('id', saved.id).select('id');
           if (le || !linked?.length) {
             console.error('[expenses] link receipt', le || 'no row updated');
@@ -167,7 +418,7 @@ function ExpensesInner() {
         ? `Expense saved, but ${warnings.join(' and ')}. You can edit it to try again.`
         : (editing ? 'Expense updated.' : 'Expense added.');
       setForm(emptyForm(editing ? presetLoad : form.load_id));
-      setFile(null); setFileKey((k) => k + 1);
+      setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
       const problems = await fetchAll();
       setStatus(warnings.length || problems.length
@@ -182,7 +433,7 @@ function ExpensesInner() {
 
   function edit(x) {
     setForm({ id: x.id, category: x.category || 'other', amount: String(x.amount ?? ''), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
-    setFile(null); setFileKey((k) => k + 1); setStatus(null);
+    setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi(['category', 'expense_date']); // editing: keep saved category/date; blanks may fill
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -190,7 +441,7 @@ function ExpensesInner() {
     if (!window.confirm('Delete this expense?')) return;
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
-    if (form.id === x.id) setForm(emptyForm(presetLoad));
+    if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
     const problems = await fetchAll();
     if (problems.length) setStatus({ type: 'error', text: problems.join(' ') });
   }
@@ -221,20 +472,20 @@ function ExpensesInner() {
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>{form.id ? 'Edit expense' : 'Add expense'}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 0.6rem' }}>
                 <label style={s.label}>Category
-                  <select value={form.category} onChange={set('category')} style={s.input}>
+                  <select value={form.category} onChange={set('category')} style={{ ...s.input, ...(autoFilled.has('category') ? s.auto : null) }}>
                     {!EXPENSE_CATEGORIES.includes(form.category) && <option value={form.category}>{form.category}</option>}
                     {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c[0].toUpperCase() + c.slice(1)}</option>)}
                   </select>
                 </label>
                 <label style={s.label}>Amount ($)
-                  <input type="number" inputMode="decimal" step="0.01" min="0" value={form.amount} onChange={set('amount')} style={s.input} required />
+                  <input type="number" inputMode="decimal" step="0.01" min="0" value={form.amount} onChange={set('amount')} style={{ ...s.input, ...(autoFilled.has('amount') ? s.auto : null) }} required />
                 </label>
               </div>
               <label style={s.label}>Date
-                <input type="date" value={form.expense_date} onChange={set('expense_date')} style={s.input} required />
+                <input type="date" value={form.expense_date} onChange={set('expense_date')} style={{ ...s.input, ...(autoFilled.has('expense_date') ? s.auto : null) }} required />
               </label>
               <label style={s.label}>Vendor / description
-                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={s.input} />
+                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
               </label>
               <label style={s.label}>Load (optional)
                 <select value={form.load_id} onChange={set('load_id')} style={s.input}>
@@ -243,13 +494,42 @@ function ExpensesInner() {
                   {loads.map((l) => <option key={l.id} value={l.id}>{loadLabel(l)} · {new Date(l.created_at).toLocaleDateString()}</option>)}
                 </select>
               </label>
-              <label style={s.label}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}
-                <input key={fileKey} type="file" accept="application/pdf,image/*,.heic,.heif" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...s.input, border: 'none', padding: '0.3rem 0' }} />
-              </label>
-              <button type="submit" disabled={saving} style={{ ...s.btn, opacity: saving ? 0.6 : 1 }}>
-                {saving ? 'Saving…' : form.id ? 'Save changes' : 'Add expense'}
+              <fieldset style={{ border: 'none', padding: 0, margin: '0 0 0.6rem', minWidth: 0 }} disabled={saving}>
+                <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
+                {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
+                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
+                  <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
+                  <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
+                </div>
+                <div aria-live="polite" aria-atomic="true">
+                  {file && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
+                      {preview && <img src={preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>
+                        <span style={{ position: 'absolute', width: 1, height: 1, margin: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Selected receipt: </span>{file.name}
+                      </span>
+                      <button type="button" disabled={saving} onClick={clearReceipt} style={{ ...s.small, minWidth: 44, minHeight: 44, opacity: saving ? 0.6 : 1 }} aria-label="Remove selected receipt">✕</button>
+                    </div>
+                  )}
+                </div>
+                <div role="status" aria-live="polite" aria-atomic="true">
+                  {ai.state !== 'idle' && (
+                    <p style={{ margin: '0.5rem 0 0', padding: '0.5rem 0.6rem', borderRadius: 8, fontSize: '0.9rem',
+                      background: ai.state === 'done' ? '#fefce8' : ai.state === 'error' ? '#f9fafb' : '#eff6ff',
+                      color: ai.state === 'done' ? '#854d0e' : ai.state === 'error' ? '#374151' : '#1d4ed8' }}>
+                      {ai.state === 'reading' && <span aria-hidden="true">⏳ </span>}{ai.text}
+                    </p>
+                  )}
+                </div>
+              </fieldset>
+              <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
+                style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
+                {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
               </button>
-              {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); setFile(null); setFileKey((k) => k + 1); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
+              {ai.state === 'reading' && <p id="save-hint" style={{ ...s.muted, margin: '0.35rem 0 0', textAlign: 'center' }}>Save is available once the receipt has been read (or remove it with ✕).</p>}
+              {form.id && <button type="button" onClick={() => { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }} style={{ ...s.small, width: '100%', marginTop: '0.5rem' }}>Cancel edit</button>}
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
 
