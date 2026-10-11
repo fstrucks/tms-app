@@ -27,6 +27,11 @@ Snapshot of production (main at 8bf3771).
 - **Receipt auto-fill:** PDFs can't be read. Each new photo uses one read from the quota.
 - Android device testing pending.
 
+## Known issues found in smoke test
+- The Atlanta, GA delivery stop is shown with TZ America/Chicago; it should be America/New_York.
+- The home page still shows "Sign in" when the user is signed in.
+- The expense form keeps the Load selection after saving.
+
 ## Device testing
 - iPhone (Safari), tested by Marc on 2026-10-11: all checks passed: magic-link sign-in, receipt camera (rear camera, portrait/landscape orientation, library pick), receipt save/view, receipt auto-fill, rate con upload + extraction + create load, load stop times, mileage totals/RPM, mobile layout.
 - Android: Marc plans to test on 2026-10-12 (pending).
@@ -42,11 +47,18 @@ Desktop, 1280px, signed out (no test data visible).
 - [06-mileage-unauth.png](06-mileage-unauth.png): /mileage signed out, showing the in-page sign-in prompt (no redirect).
 - [07-dashboard-unauth.png](07-dashboard-unauth.png): /dashboard returns 404, because #11 isn't merged.
 
-### Pending screenshots (need test login)
-- /documents: upload + AI extraction result
-- /loads list
-- Load detail (stops, miles, expenses, net)
-- /mileage
-- /expenses: camera capture and receipt auto-fill
+### Signed in (test account, fake data)
+- [10-documents-uploaded.png](10-documents-uploaded.png): /documents right after upload, extraction running.
+- [11-documents-extracted.png](11-documents-extracted.png): fields extracted from the rate con.
+- [12-load-detail.png](12-load-detail.png): load detail for TEST-1001 (stops, miles, expenses, documents).
+- [13-loads-list.png](13-loads-list.png): loads list.
+- [14-load-mileage-rpm.png](14-load-mileage-rpm.png): load mileage and RPM ($2.56/mi on 780 mi).
+- [15-mileage.png](15-mileage.png): mileage page with weekly/monthly totals.
+- [16-expense-autofill.png](16-expense-autofill.png): expense receipt auto-fill.
+- [17-expenses-list.png](17-expenses-list.png): expenses list.
+- [18-home-signed-in.png](18-home-signed-in.png): home page, signed in.
+- [19-mobile-documents.png](19-mobile-documents.png): mobile (~388px) /documents.
+- [20-mobile-expenses.png](20-mobile-expenses.png): mobile (~388px) /expenses.
+
+### Pending screenshots
 - /dashboard via the PR #11 preview deployment
-- 375px mobile versions of the above
