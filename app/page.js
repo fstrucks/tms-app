@@ -25,6 +25,7 @@ export default function Home() {
     <main style={{ padding: '2rem', fontFamily: 'system-ui' }}>
       <h1>TMS App</h1>
       <p>{message}</p>
+      <p><Link href="/dashboard" style={{ color: '#2563eb' }}>Weekly dashboard →</Link></p>
       <p><Link href="/documents" style={{ color: '#2563eb' }}>Upload rate confirmations →</Link></p>
       <p><Link href="/loads" style={{ color: '#2563eb' }}>Loads →</Link></p>
       <p><Link href="/mileage" style={{ color: '#2563eb' }}>Mileage →</Link></p>
