@@ -21,9 +21,7 @@ export function StatusBadge({ status }) {
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 
-export const fmtMoney = (n) => (has(n)
-  ? Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-  : '—');
+export { fmtMoney } from './money'; // shared formatter (always 2 decimals)
 
 export const fmtNumber = (n, unit = '') => (has(n) ? `${Number(n).toLocaleString('en-US')}${unit}` : '—');
 

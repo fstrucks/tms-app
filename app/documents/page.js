@@ -1,19 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSupabase, supabaseConfigError } from '../lib/supabase';
+import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
+import { fmtMoney } from '../lib/money';
+import { Loading, LoadError } from '../components/DataState';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
 
-// Browsers often report an empty type for HEIC, so fall back to the extension.
+// Browsers often report an empty (or generic) type for HEIC and some Android picks, so fall back to the extension.
 function resolveType(file) {
-  if (file.type) return file.type;
   const ext = (file.name.split('.').pop() || '').toLowerCase();
-  return EXT_TYPES[ext] || '';
+  const type = (file.type || '').toLowerCase();
+  // Never accept SVG (scriptable), whatever the extension or declared type says.
+  if (ext === 'svg' || type.includes('svg')) return 'image/svg+xml';
+  if (ALLOWED_TYPES.includes(type)) return type;
+  // Declared type missing or not allowed (e.g. HEIC as octet-stream on Android): fall back to the extension.
+  return EXT_TYPES[ext] || type;
 }
 
 const BUCKET = 'documents';
@@ -36,6 +42,7 @@ const s = {
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
   input: { width: '100%', fontSize: '1rem' },
+  pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   item: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
@@ -48,6 +55,20 @@ export default function DocumentsPage() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
+  const [fileKey, setFileKey] = useState(0); // remounts the hidden inputs to clear them
+
+  // Both pickers feed the same state. Validate the real type/extension right away (the simple
+  // accept list no longer filters, so unsupported files are caught here).
+  function pickFile(f) {
+    if (!f) return;
+    const type = resolveType(f);
+    if (!ALLOWED_TYPES.includes(type)) {
+      setFile(null); setFileKey((k) => k + 1);
+      return setStatus({ type: 'error', text: 'Unsupported file type. Use PDF, JPEG, PNG, WebP or HEIC/HEIF.' });
+    }
+    setStatus(null);
+    setFile(f);
+  }
   const [uploading, setUploading] = useState(false);
   const [converting, setConverting] = useState(false);
   const router = useRouter();
@@ -87,6 +108,11 @@ export default function DocumentsPage() {
 
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
+  const docsReqRef = useRef(0);
+  const [refreshErr, setRefreshErr] = useState(null);
+  const docsReadyRef = useRef(false);
+  docsReadyRef.current = listState === 'ready';
   const [extracting, setExtracting] = useState({});
   const [extractErr, setExtractErr] = useState({});
 
@@ -112,13 +138,24 @@ export default function DocumentsPage() {
 
 
   async function loadDocs() {
+    const req = ++docsReqRef.current;
+    if (!docsReadyRef.current) setListState('loading');
+    if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
     const { data, error } = await supabase
       .from('documents')
       .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
       .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
       .order('created_at', { ascending: false });
-    if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
+    if (req !== docsReqRef.current) return;
+    if (error) {
+      console.error('[documents] fetch', error);
+      // Keep an already-shown list; otherwise show the error + Retry instead of an empty state.
+      if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
+      return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+    }
+    setRefreshErr(null);
     setDocs(data || []);
+    setListState('ready');
   }
 
   useEffect(() => {
@@ -128,8 +165,9 @@ export default function DocumentsPage() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => loadDocs(), 0); // defer: avoid Supabase auth-lock deadlock
-      if (event === 'SIGNED_OUT') setDocs([]);
+      // defer: avoid Supabase auth-lock deadlock. Fetch only with a session; re-fetch when it changes.
+      if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !docsReadyRef.current)) && u) setTimeout(() => loadDocs(), 0);
+      if (event === 'SIGNED_OUT') { docsReqRef.current++; setDocs([]); setListState('loading'); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -182,7 +220,7 @@ export default function DocumentsPage() {
       return setStatus({ type: 'error', text: 'Saving record failed: ' + dbErr.message });
     }
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
-    setFile(null);
+    setFile(null); setFileKey((k) => k + 1);
     e.target.reset();
     await loadDocs();
     if (inserted?.id) extract(inserted.id);
@@ -226,11 +264,30 @@ export default function DocumentsPage() {
             <button onClick={handleSignOut} disabled={signingOut} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem', background: '#6b7280', opacity: signingOut ? 0.6 : 1 }}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
           </div>
           <form onSubmit={handleUpload} style={s.card}>
-            <label htmlFor="file" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-              Upload rate confirmation (PDF or image)
-            </label>
-            <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif" style={s.input}
-              onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
+              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>
+              {/* Two pickers: camera-only, and a plain file picker with a SIMPLE accept and NO capture
+                  (a long MIME+extension accept list made some Android Chrome versions open only the camera). */}
+              <input key={`cam-${fileKey}`} id="rc-camera" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true"
+                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+              <input key={`file-${fileKey}`} id="rc-file" type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true"
+                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <button type="button" onClick={() => document.getElementById('rc-camera')?.click()} style={s.pick}><span aria-hidden="true">📷 </span>Take photo</button>
+                <button type="button" onClick={() => document.getElementById('rc-file')?.click()} style={s.pick}><span aria-hidden="true">📎 </span>Choose file</button>
+              </div>
+              <div aria-live="polite" aria-atomic="true">
+                {file && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>
+                      <span style={{ position: 'absolute', width: 1, height: 1, margin: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Selected file: </span>{file.name}
+                    </span>
+                    <button type="button" onClick={() => { setFile(null); setFileKey((k) => k + 1); }} aria-label="Remove selected file"
+                      style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' }}>✕</button>
+                  </div>
+                )}
+              </div>
+            </fieldset>
             <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
             <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, marginTop: 0, opacity: !file || uploading || converting ? 0.6 : 1 }}>
               {converting ? 'Converting photo…' : uploading ? 'Uploading…' : 'Upload'}
@@ -242,7 +299,10 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
-            {docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
+            {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
+            {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
+              : listState === 'loading' ? <Loading label="Loading documents…" />
+              : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
               <div key={d.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
@@ -294,7 +354,7 @@ function Summary({ x }) {
     ['Broker', x.broker_name],
     ['Load #', x.load_number],
     ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
-    ['Rate', typeof x.rate === 'number' ? x.rate.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : null],
+    ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],

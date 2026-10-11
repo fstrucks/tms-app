@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSupabase } from '../lib/supabase';
+import { getSupabase, hasSession } from '../lib/supabase';
+import { LoadError } from './DataState';
 import { fmtMoney } from '../lib/loads';
 import { MileageForm, EntryRow, sumBy, fmtMiles, fmtRpm } from '../lib/mileage';
 
@@ -20,6 +21,9 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
   const [savingManual, setSavingManual] = useState(false);
 
   async function refresh() {
+    setError(null);
+    // No session -> the query would silently return [] (RLS) and show 0 mi; show an error with Retry instead.
+    if (!(await hasSession(supabase))) return setError('Your session has expired or is still loading. Tap Retry, or sign in again.');
     const [{ data, error }, { data: l }] = await Promise.all([
       supabase.from('mileage_entries')
         .select('id, load_id, start_odometer, end_odometer, miles, entry_date, source, notes, created_at')
@@ -76,8 +80,9 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
           {showForm ? 'Cancel' : '+ Add miles'}
         </button>
       </div>
-      {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
-      {entries === null ? <p style={{ ...muted, fontSize: '0.85rem' }}>Loading…</p> : (
+      {error && entries !== null && <p style={{ color: '#b91c1c' }}>{error}</p>}
+      {entries === null ? (error ? <div style={{ marginTop: '0.5rem' }}><LoadError message={error} onRetry={refresh} /></div>
+        : <p role="status" style={{ ...muted, fontSize: '0.85rem' }}>Loading…</p>) : (
         <>
           {list.length > 0 ? (
             <div style={{ margin: '0.5rem 0' }}>

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { getSupabase } from '../lib/supabase';
+import { getSupabase, hasSession } from '../lib/supabase';
+import { LoadError } from './DataState';
 import { fmtMoney } from '../lib/loads';
 import { sumAmounts } from '../lib/expenses';
 
@@ -11,16 +12,24 @@ export default function LoadExpenses({ loadId, rate }) {
   const supabase = getSupabase();
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
+  const reqRef = useRef(0);
+
+  // Never show $0.00 before the fetch resolves: rows stays null (Loading…) until it succeeds.
+  async function fetchRows() {
+    if (!supabase || !loadId) return;
+    const req = ++reqRef.current;
+    setError(null);
+    if (!(await hasSession(supabase))) { if (req === reqRef.current) setError("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
+    const { data, error } = await supabase.from('expenses').select('id, amount').eq('load_id', loadId);
+    if (req !== reqRef.current) return;
+    if (error) { console.error('[LoadExpenses]', error); return setError("Couldn't load expenses for this load."); }
+    setRows(data || []);
+  }
 
   useEffect(() => {
-    if (!supabase || !loadId) return;
-    let cancelled = false;
-    supabase.from('expenses').select('id, amount').eq('load_id', loadId).then(({ data, error }) => {
-      if (cancelled) return;
-      if (error) { console.error('[LoadExpenses]', error); setError('Could not load expenses.'); }
-      else setRows(data || []);
-    });
-    return () => { cancelled = true; };
+    setRows(null);
+    fetchRows();
+    return () => { reqRef.current++; }; // ignore responses after unmount / load change
   }, [loadId]);
 
   const total = sumAmounts(rows);
@@ -35,7 +44,8 @@ export default function LoadExpenses({ loadId, rate }) {
         <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Expenses</h2>
         <Link href={`/expenses?load=${loadId}`} style={{ color: '#2563eb', fontSize: '0.9rem' }}>Add / view</Link>
       </div>
-      {error ? <p style={{ color: '#b91c1c' }}>{error}</p> : rows === null ? <p style={{ color: '#6b7280', fontSize: '0.85rem' }}>Loading…</p> : (
+      {error && <div style={{ marginTop: '0.5rem' }}><LoadError message={error} subtle={rows !== null} onRetry={fetchRows} /></div>}
+      {rows === null ? (!error && <p role="status" style={{ color: '#6b7280', fontSize: '0.85rem' }}>Loading…</p>) : (
         <>
           <div style={row}><span style={{ color: '#6b7280' }}>Expenses ({rows.length})</span><span>{fmtMoney(total)}</span></div>
           <div style={{ ...row, fontWeight: 600, borderTop: '1px solid #f1f5f9' }}>

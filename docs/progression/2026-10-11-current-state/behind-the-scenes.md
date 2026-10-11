@@ -12,6 +12,7 @@
 - **Parallel work split by area:** Alex on mileage, Casey on expenses, to avoid file conflicts.
 - **No column changes on guessed schemas:** real columns were pulled from Marc's SQL Editor before writing migrations.
 - **Dashboard revenue defaults to booked** (all non-cancelled loads), with a one-line switch (`REVENUE_RULE`) to completed only (#11).
+- **Product name:** PowerHaul TMS, chosen by Marc on 2026-10-11; UI rebrand follows in Alex's rebrand PR.
 
 ## How it was built
 Team: Sam (PM), Alex and Casey (developers), Taylor (review/QA).

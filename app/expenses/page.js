@@ -3,8 +3,9 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { fmtMoney } from '../lib/loads';
+import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
+import { fmtMoney, moneyInput } from '../lib/money';
+import { Loading, LoadError } from '../components/DataState';
 import { EXPENSE_CATEGORIES, sumAmounts, todayISO, fmtDate } from '../lib/expenses';
 
 const BUCKET = 'documents';
@@ -13,8 +14,13 @@ const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg
 const ALLOWED_TYPES = Object.values(EXT_TYPES);
 
 function resolveType(file) {
-  if (file.type) return file.type;
-  return EXT_TYPES[(file.name.split('.').pop() || '').toLowerCase()] || '';
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  // Never accept SVG (scriptable), whatever the extension or declared type says.
+  if (ext === 'svg' || type.includes('svg')) return 'image/svg+xml';
+  if (Object.values(EXT_TYPES).includes(type)) return type;
+  // Declared type missing or not allowed (e.g. HEIC as octet-stream on Android): fall back to the extension.
+  return EXT_TYPES[ext] || type;
 }
 const isHeic = (file, type) => type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
 async function convertHeicToJpeg(file) {
@@ -159,6 +165,12 @@ function ExpensesInner() {
   const [checking, setChecking] = useState(true);
   const [expenses, setExpenses] = useState([]);
   const [loads, setLoads] = useState([]);
+  const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
+  const fetchReqRef = useRef(0);
+  const [listErr, setListErr] = useState(null);   // expenses / session problem (one message, with Retry)
+  const [loadsErr, setLoadsErr] = useState(false); // loads query failed (load links may be missing)
+  const listReadyRef = useRef(false);
+  listReadyRef.current = listState === 'ready';
   const [form, setForm] = useState(emptyForm(presetLoad));
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
@@ -189,18 +201,37 @@ function ExpensesInner() {
   const [filterLoad, setFilterLoad] = useState(presetLoad);
 
   async function fetchAll() {
+    const req = ++fetchReqRef.current;
+    if (!listReadyRef.current) setListState('loading');
+    if (!(await hasSession(supabase))) {
+      if (req === fetchReqRef.current) {
+        setListErr('Your session has expired or is still loading. Tap Retry, or sign in again.');
+        setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+      }
+      return ['__list'];
+    }
     const [{ data: e, error: ee }, { data: l, error: le }] = await Promise.all([
       supabase.from('expenses').select('id, load_id, category, amount, description, expense_date, document_id, created_at, documents(id, file_path, original_filename)')
         .order('expense_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('loads').select('id, broker_name, broker_load_number, rate, created_at').order('created_at', { ascending: false }),
     ]);
+    if (req !== fetchReqRef.current) return []; // superseded by a newer fetch
     const problems = [];
-    if (ee) { console.error('[expenses] fetch expenses', ee); problems.push('Could not load expenses. Please refresh.'); }
-    else setExpenses(e || []);
-    if (le) { console.error('[expenses] fetch loads', le); problems.push('Could not load your loads; load links may be missing. Please refresh.'); }
-    else setLoads(l || []);
+    // Problems are shown once, in the banners above the list (with Retry). The return value only tells
+    // callers (e.g. the post-save refresh) that something failed.
+    if (ee) {
+      console.error('[expenses] fetch expenses', ee);
+      problems.push('__list');
+      setListErr(listReadyRef.current ? "Couldn't refresh. Showing the last loaded expenses." : "Couldn't load your expenses.");
+      setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+    } else { setListErr(null); setExpenses(e || []); setListState('ready'); }
+    if (le) { console.error('[expenses] fetch loads', le); problems.push('__loads'); setLoadsErr(true); }
+    else { setLoadsErr(false); setLoads(l || []); }
     return problems;
   }
+
+  // Retry clears both the expenses/session and the loads errors, then re-runs fetchAll.
+  function retryFetch() { setListErr(null); setLoadsErr(false); fetchAll(); }
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
@@ -208,8 +239,11 @@ function ExpensesInner() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(async () => { const p = await fetchAll(); if (p.length) setStatus({ type: 'error', text: p.join(' ') }); }, 0);
-      if (event === 'SIGNED_OUT') { setExpenses([]); setLoads([]); }
+      // Fetch only once a session exists; re-fetch when it changes (or after a refresh if nothing loaded yet).
+      if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !listReadyRef.current)) && u) {
+        setTimeout(() => fetchAll(), 0);
+      }
+      if (event === 'SIGNED_OUT') { fetchReqRef.current++; setExpenses([]); setLoads([]); setListState('loading'); setListErr(null); setLoadsErr(false); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -303,7 +337,7 @@ function ExpensesInner() {
     if (!d.is_receipt) return setAi({ state: 'error', text: "This doesn't look like a readable receipt. Please enter the details manually." });
     const desc = [d.vendor, d.description].filter(Boolean).join(' — ').slice(0, 200);
     const proposal = {
-      amount: d.amount != null ? String(d.amount) : null,
+      amount: d.amount != null ? moneyInput(d.amount) : null,
       expense_date: d.expense_date,
       category: EXPENSE_CATEGORIES.includes(d.category) ? d.category : null,
       description: desc || null,
@@ -417,10 +451,9 @@ function ExpensesInner() {
       setForm(emptyForm(presetLoad)); // Load resets too, except a ?load=<id> preselection
       setFile(null); setFileKey((k) => k + 1); resetAi();
       // Refresh, but never let a refresh error hide the save result: show both.
-      const problems = await fetchAll();
-      setStatus(warnings.length || problems.length
-        ? { type: 'error', text: [saveMsg, ...problems].join(' ') }
-        : { type: 'ok', text: saveMsg });
+      // A refresh failure shows in its own banner above the list (with Retry), so the save result stays visible too.
+      await fetchAll();
+      setStatus({ type: warnings.length ? 'error' : 'ok', text: saveMsg });
     } catch (err) {
       failMsg('Something went wrong. Please try again.', err);
     } finally {
@@ -429,7 +462,7 @@ function ExpensesInner() {
   }
 
   function edit(x) {
-    setForm({ id: x.id, category: x.category || 'other', amount: String(x.amount ?? ''), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
+    setForm({ id: x.id, category: x.category || 'other', amount: moneyInput(x.amount), expense_date: x.expense_date || todayISO(), description: x.description || '', load_id: x.load_id || '', document_id: x.document_id });
     setFile(null); setFileKey((k) => k + 1); setStatus(null); resetAi(['category', 'expense_date']); // editing: keep saved category/date; blanks may fill
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -439,8 +472,7 @@ function ExpensesInner() {
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
     if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
-    const problems = await fetchAll();
-    if (problems.length) setStatus({ type: 'error', text: problems.join(' ') });
+    await fetchAll(); // refresh problems show in the banner above the list
   }
 
   async function viewReceipt(doc) {
@@ -491,7 +523,7 @@ function ExpensesInner() {
                 <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
                 {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
                 <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
                   <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
                   <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
@@ -528,6 +560,10 @@ function ExpensesInner() {
               {status && <p style={status.type === 'error' ? s.error : s.ok}>{status.text}</p>}
             </form>
 
+            {listErr && <LoadError message={listErr} subtle={listState === 'ready'} onRetry={retryFetch} />}
+            {loadsErr && !listErr && <LoadError subtle message="Couldn't load your loads; load links may be missing." onRetry={retryFetch} />}
+            {listState === 'loading' && <Loading label="Loading expenses…" />}
+            {listState === 'ready' && (<>
             <div style={{ ...s.row, marginBottom: '0.5rem' }}>
               <select value={filterLoad} onChange={(e) => setFilterLoad(e.target.value)} style={{ ...s.input, marginTop: 0, maxWidth: '60%' }}>
                 <option value="">All expenses</option>
@@ -557,6 +593,7 @@ function ExpensesInner() {
                 </div>
               </div>
             ))}
+            </>)}
           </>
         )}
     </main>

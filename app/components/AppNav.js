@@ -45,7 +45,7 @@ export default function AppNav() {
     <>
       <header className="appnav-top" style={{ borderBottom: '1px solid #e5e7eb', background: '#fff', position: 'sticky', top: 0, zIndex: 40 }}>
         <nav aria-label="Main" style={{ maxWidth: 960, margin: '0 auto', padding: '0 1rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontFamily: 'system-ui' }}>
-          <Link href="/" style={{ fontWeight: 700, color: '#111827', textDecoration: 'none', marginRight: '1rem', padding: '0.75rem 0' }}>PowerHaul TMS</Link>
+          <Link href="/" style={{ fontWeight: 700, color: '#111827', textDecoration: 'none', marginRight: '1rem', padding: '0.75rem 0', whiteSpace: 'nowrap', flexShrink: 0 }}>PowerHaul TMS</Link>
           {TABS.slice(1).map((t) => {
             const active = t.match(pathname);
             return (
