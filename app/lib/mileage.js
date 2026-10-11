@@ -12,7 +12,7 @@ export const todayISO = () => {
 };
 
 export const fmtMiles = (n) => `${Number(n || 0).toLocaleString('en-US')} mi`;
-export const fmtRpm = (n) => (n === null || n === undefined || !isFinite(n) ? '—' : `$${n.toFixed(2)}/mi`);
+export { fmtPerMile as fmtRpm } from './money';
 export const fmtEntryDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 export function sumBy(entries, pred = () => true) {

@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSupabase, supabaseConfigError } from '../lib/supabase';
+import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
+import { fmtMoney } from '../lib/money';
+import { Loading, LoadError } from '../components/DataState';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -106,6 +108,11 @@ export default function DocumentsPage() {
 
   const [status, setStatus] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
+  const docsReqRef = useRef(0);
+  const [refreshErr, setRefreshErr] = useState(null);
+  const docsReadyRef = useRef(false);
+  docsReadyRef.current = listState === 'ready';
   const [extracting, setExtracting] = useState({});
   const [extractErr, setExtractErr] = useState({});
 
@@ -131,13 +138,24 @@ export default function DocumentsPage() {
 
 
   async function loadDocs() {
+    const req = ++docsReqRef.current;
+    if (!docsReadyRef.current) setListState('loading');
+    if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
     const { data, error } = await supabase
       .from('documents')
       .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
       .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
       .order('created_at', { ascending: false });
-    if (error) return setStatus({ type: 'error', text: 'Could not load documents: ' + error.message });
+    if (req !== docsReqRef.current) return;
+    if (error) {
+      console.error('[documents] fetch', error);
+      // Keep an already-shown list; otherwise show the error + Retry instead of an empty state.
+      if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
+      return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
+    }
+    setRefreshErr(null);
     setDocs(data || []);
+    setListState('ready');
   }
 
   useEffect(() => {
@@ -147,8 +165,9 @@ export default function DocumentsPage() {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => loadDocs(), 0); // defer: avoid Supabase auth-lock deadlock
-      if (event === 'SIGNED_OUT') setDocs([]);
+      // defer: avoid Supabase auth-lock deadlock. Fetch only with a session; re-fetch when it changes.
+      if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !docsReadyRef.current)) && u) setTimeout(() => loadDocs(), 0);
+      if (event === 'SIGNED_OUT') { docsReqRef.current++; setDocs([]); setListState('loading'); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -280,7 +299,10 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
-            {docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
+            {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
+            {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
+              : listState === 'loading' ? <Loading label="Loading documents…" />
+              : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
               <div key={d.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
@@ -332,7 +354,7 @@ function Summary({ x }) {
     ['Broker', x.broker_name],
     ['Load #', x.load_number],
     ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
-    ['Rate', typeof x.rate === 'number' ? x.rate.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : null],
+    ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],
