@@ -13,8 +13,13 @@ const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg
 const ALLOWED_TYPES = Object.values(EXT_TYPES);
 
 function resolveType(file) {
-  if (file.type) return file.type;
-  return EXT_TYPES[(file.name.split('.').pop() || '').toLowerCase()] || '';
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  // Never accept SVG (scriptable), whatever the extension or declared type says.
+  if (ext === 'svg' || type.includes('svg')) return 'image/svg+xml';
+  if (Object.values(EXT_TYPES).includes(type)) return type;
+  // Declared type missing or not allowed (e.g. HEIC as octet-stream on Android): fall back to the extension.
+  return EXT_TYPES[ext] || type;
 }
 const isHeic = (file, type) => type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
 async function convertHeicToJpeg(file) {
@@ -491,7 +496,7 @@ function ExpensesInner() {
                 <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
                 {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
                 <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*,.heic,.heif" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
                   <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
                   <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
