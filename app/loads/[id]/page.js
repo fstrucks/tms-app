@@ -141,7 +141,7 @@ export default function LoadDetailPage() {
                         {st.notes && <div style={{ ...s.muted, whiteSpace: 'pre-line' }}>{st.notes}</div>}
                       </div>
                       <div style={{ ...s.muted, textAlign: 'right', maxWidth: '45%' }}>
-                        {fmtApptWindow(st.appointment_start, st.appointment_end)}
+                        {fmtApptWindow(st.appointment_start, st.appointment_end, st.timezone)}
                       </div>
                     </div>
                   ))}

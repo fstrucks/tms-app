@@ -4,14 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from './lib/supabase';
 
-const LINKS = [
-  ['/documents', 'Documents'],
-  ['/loads', 'Loads'],
-  ['/mileage', 'Mileage'],
-  ['/expenses', 'Expenses'],
-  ['/dashboard', 'Dashboard'],
-];
-
 const s = {
   main: { padding: '1.25rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
   link: { display: 'block', padding: '0.85rem 1rem', border: '1px solid #e5e7eb', borderRadius: 12, marginBottom: '0.6rem', color: '#2563eb', textDecoration: 'none', fontSize: '1.05rem' },
@@ -64,9 +56,7 @@ export default function Home() {
               </button>
             </div>
             {error && <p style={s.error}>{error}</p>}
-            <nav>
-              {LINKS.map(([href, label]) => <Link key={href} href={href} style={s.link}>{label} →</Link>)}
-            </nav>
+            <p style={{ lineHeight: 1.5 }}>Welcome back. Use the menu to manage documents, loads, mileage, expenses and your weekly dashboard.</p>
           </>
         ) : (
           <Link href="/login" style={s.link}>Sign in →</Link>

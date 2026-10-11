@@ -24,7 +24,7 @@ export default function LoadsPage() {
   async function loadLoads() {
     const { data, error } = await supabase
       .from('loads')
-      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
+      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start, timezone)')
       .order('created_at', { ascending: false });
     if (error) return setError('Could not load loads: ' + error.message);
     setLoads(data || []);

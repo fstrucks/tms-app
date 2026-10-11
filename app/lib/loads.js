@@ -27,24 +27,38 @@ export const fmtMoney = (n) => (has(n)
 
 export const fmtNumber = (n, unit = '') => (has(n) ? `${Number(n).toLocaleString('en-US')}${unit}` : '—');
 
-export function fmtApptDate(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// Intl formatter in the stop's own IANA zone; falls back to the browser zone if the zone is null/invalid.
+function fmt(tz, opts) {
+  if (tz) {
+    try { return new Intl.DateTimeFormat(undefined, { ...opts, timeZone: tz }); } catch { /* invalid zone */ }
+  }
+  return new Intl.DateTimeFormat(undefined, opts);
 }
 
-export function fmtApptWindow(start, end) {
+const part = (f, d, type) => f.formatToParts(d).find((p) => p.type === type)?.value || '';
+
+export function fmtApptDate(ts, tz) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return isNaN(d) ? '' : fmt(tz, { month: 'short', day: 'numeric' }).format(d);
+}
+
+// Appointment window in the stop's zone, e.g. "Tue, Oct 13 2:00 PM–4:00 PM EDT".
+export function fmtApptWindow(start, end, tz) {
   if (!start) return '';
   const s = new Date(start);
   if (isNaN(s)) return '';
-  const date = s.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  // Shown in the browser's local time.
-  const t = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const tz = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(s).find((p) => p.type === 'timeZoneName')?.value;
-  const suffix = tz ? ` ${tz}` : '';
+  const dateF = fmt(tz, { weekday: 'short', month: 'short', day: 'numeric' });
+  const timeF = fmt(tz, { hour: 'numeric', minute: '2-digit' });
+  const zoneF = fmt(tz, { timeZoneName: 'short' });
+  const dayKey = fmt(tz, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const zone = part(zoneF, s, 'timeZoneName');
+  const suffix = zone ? ` ${zone}` : '';
   const e = end ? new Date(end) : null;
-  if (!e || isNaN(e)) return `${date} ${t(s)}${suffix}`;
-  return s.toDateString() === e.toDateString() ? `${date} ${t(s)}–${t(e)}${suffix}` : `${date} ${t(s)} – ${e.toLocaleDateString()} ${t(e)}${suffix}`;
+  if (!e || isNaN(e)) return `${dateF.format(s)} ${timeF.format(s)}${suffix}`;
+  return dayKey.format(s) === dayKey.format(e)
+    ? `${dateF.format(s)} ${timeF.format(s)}–${timeF.format(e)}${suffix}`
+    : `${dateF.format(s)} ${timeF.format(s)} – ${dateF.format(e)} ${timeF.format(e)}${suffix}`;
 }
 
 export const cityState = (stop) => [stop?.city, stop?.state].filter(Boolean).join(', ');
@@ -55,9 +69,11 @@ export function fullAddress(stop) {
   return [stop.address_line1, stop.address_line2, line3].filter(Boolean).join(', ');
 }
 
+// List label for a stop: "City, ST", else company name, else "—".
+export const stopPlace = (stop) => (stop && (cityState(stop) || stop.company_name)) || '—';
+
 export function stopSummary(stop) {
   if (!stop) return '—';
-  const place = cityState(stop) || stop.company_name || '—';
-  const date = fmtApptDate(stop.appointment_start);
-  return date ? `${place} · ${date}` : place;
+  const date = fmtApptDate(stop.appointment_start, stop.timezone);
+  return date ? `${stopPlace(stop)} · ${date}` : stopPlace(stop);
 }
