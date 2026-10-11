@@ -33,7 +33,7 @@ export default function LoadsPage() {
     if (!(await hasSession(supabase))) { if (req === reqRef.current) fail("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
     const { data, error } = await supabase
       .from('loads')
-      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start)')
+      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start, timezone)')
       .order('created_at', { ascending: false });
     if (req !== reqRef.current) return; // a newer fetch (e.g. after sign-in) superseded this one
     if (error) { console.error('[loads] fetch', error); return fail("Couldn't load your loads."); }
