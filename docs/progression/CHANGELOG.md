@@ -3,6 +3,7 @@
 Notable changes to PowerHaul TMS, newest first. Dates are merge dates (UTC) from GitHub.
 
 ## 2026-10-11
+- Unified Upload menu (Take photo / Photo library / Files-PDF) on /documents and /expenses receipts (PR pending)
 - [#20](https://github.com/fstrucks/tms-app/pull/20) docs: name the app PowerHaul TMS
 - [#19](https://github.com/fstrucks/tms-app/pull/19) Loading/error states (no false empty lists) + 2-decimal money
 - [#22](https://github.com/fstrucks/tms-app/pull/22) Fix Android file picker on /documents: separate Take photo and Choose file
