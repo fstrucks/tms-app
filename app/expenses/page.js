@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney, moneyInput } from '../lib/money';
 import { Loading, LoadError } from '../components/DataState';
+import UploadSheet from '../components/UploadSheet';
 import { EXPENSE_CATEGORIES, sumAmounts, todayISO, fmtDate } from '../lib/expenses';
 
 const BUCKET = 'documents';
@@ -175,8 +176,6 @@ function ExpensesInner() {
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
   const [preview, setPreview] = useState(null);
-  const cameraRef = useRef(null);
-  const uploadRef = useRef(null);
 
   // Cheap thumbnail for browser-renderable images (HEIC is converted at save time, so no preview).
   useEffect(() => {
@@ -521,13 +520,9 @@ function ExpensesInner() {
               </label>
               <fieldset style={{ border: 'none', padding: 0, margin: '0 0 0.6rem', minWidth: 0 }} disabled={saving}>
                 <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
-                {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
-                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
-                  <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
-                  <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
-                </div>
+                {/* Every sheet option feeds the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
+                <UploadSheet label="Add receipt" title="Add receipt" onPick={pickFile} resetKey={fileKey}
+                  disabled={saving} triggerStyle={{ ...s.pick, marginTop: '0.3rem' }} />
                 <div aria-live="polite" aria-atomic="true">
                   {file && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>

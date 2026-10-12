@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney } from '../lib/money';
 import { Loading, LoadError } from '../components/DataState';
+import UploadSheet from '../components/UploadSheet';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -266,16 +267,8 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>
-              {/* Two pickers: camera-only, and a plain file picker with a SIMPLE accept and NO capture
-                  (a long MIME+extension accept list made some Android Chrome versions open only the camera). */}
-              <input key={`cam-${fileKey}`} id="rc-camera" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true"
-                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-              <input key={`file-${fileKey}`} id="rc-file" type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true"
-                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <button type="button" onClick={() => document.getElementById('rc-camera')?.click()} style={s.pick}><span aria-hidden="true">📷 </span>Take photo</button>
-                <button type="button" onClick={() => document.getElementById('rc-file')?.click()} style={s.pick}><span aria-hidden="true">📎 </span>Choose file</button>
-              </div>
+              <UploadSheet label="Upload rate con" title="Add rate confirmation" onPick={pickFile}
+                resetKey={fileKey} disabled={uploading || converting} triggerStyle={s.pick} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
