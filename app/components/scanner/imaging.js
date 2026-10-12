@@ -2,7 +2,7 @@
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
 // Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
 // Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
-import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
+import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, decodeGuarded, TOO_LARGE, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
 const DETECT_MAX = 400; // edge detection runs on a small copy
 
@@ -40,17 +40,14 @@ export async function probeSize(blob) {
 // images with long edge <= 3000 are decoded as-is. If the size is unknown, decode width-first,
 // then redo by height if the result shows a portrait.
 export async function decodeBitmap(blob, size) {
-  const base = { imageOrientation: 'from-image' };
-  if (size) {
-    const opts = decodeResize(size.width, size.height);
-    return createImageBitmap(blob, opts ? { ...base, ...opts } : base);
-  }
-  let bmp = await createImageBitmap(blob, { ...base, resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
-  if (bmp.height > SAVE_SOURCE_MAX) {
-    release(bmp);
-    bmp = await createImageBitmap(blob, { ...base, resizeHeight: SAVE_SOURCE_MAX, resizeQuality: 'high' });
-  }
-  return bmp;
+  return decodeGuarded(blob, size, {
+    cib: (bl, o) => createImageBitmap(bl, o),
+    close: (bm) => release(bm),
+    drawDown: async (bmp, w, h) => { // target canvas is <= 3000x3000 (9 MP)
+      const c = canvas(w, h);
+      try { c.getContext('2d').drawImage(bmp, 0, 0, w, h); return await createImageBitmap(c); } finally { release(c); }
+    },
+  });
 }
 
 // Native decode first (Safari reads HEIC itself); heic2any only if that fails. Returns
@@ -59,6 +56,7 @@ async function openPhoto(file) {
   const size = await probeSize(file);
   try { const bmp = await decodeBitmap(file, size); return { src: file, size: size || { width: bmp.width, height: bmp.height }, bmp }; }
   catch (e) {
+    if (e && e.message === TOO_LARGE) throw e; // never fall back to a full-size decode
     if (!isHeic(file)) {
       const img = await decodeFile(file); // old browsers without resize options
       try { const bmp = await createImageBitmap(img); return { src: file, size: { width: bmp.width, height: bmp.height }, bmp }; } finally { img.src = ''; }

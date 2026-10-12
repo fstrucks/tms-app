@@ -207,3 +207,57 @@ test('nextSizeStep: picks the first step estimated to fit, else the last, -1 whe
   assert.equal(nextSizeStep(5000, 0, { maxBytes: 1000 }), 3);
   assert.equal(nextSizeStep(5000, 3, { maxBytes: 1000 }), -1);
 });
+
+// ---- guarded decode (mock createImageBitmap) ----
+import { decodeGuarded, TOO_LARGE } from '../../app/lib/scan.js';
+// raw = stored pixel size; rotated = EXIF 90°. order: 'rotate-then-resize' (spec) or 'resize-then-rotate' (ignores rotation for resize).
+function mockCib(raw, { rotated = false, order = 'rotate-then-resize', noResize = false } = {}) {
+  const calls = [], closed = [];
+  const cib = async (_b, o = {}) => {
+    calls.push(o);
+    let [w, h] = order === 'rotate-then-resize' && rotated ? [raw.h, raw.w] : [raw.w, raw.h];
+    if (!noResize) {
+      if (o.resizeWidth) { h = Math.round(h * o.resizeWidth / w); w = o.resizeWidth; }
+      else if (o.resizeHeight) { w = Math.round(w * o.resizeHeight / h); h = o.resizeHeight; }
+    }
+    if (order === 'resize-then-rotate' && rotated) [w, h] = [h, w];
+    return { width: w, height: h, close() { closed.push(this); } };
+  };
+  return { cib, calls, closed };
+}
+const drawDown = async (b, width, height) => ({ width, height, drawn: true, close() {} });
+
+test('decodeGuarded: spec order, portrait 48 MP -> 2250x3000 in one decode', async () => {
+  const m = mockCib({ w: 8000, h: 6000 }, { rotated: true });
+  const b = await decodeGuarded(null, { width: 6000, height: 8000 }, { cib: m.cib, drawDown });
+  assert.deepEqual([b.width, b.height], [2250, 3000]); assert.equal(m.calls.length, 1); assert.equal(m.calls[0].resizeHeight, 3000);
+});
+test('decodeGuarded: resize-before-rotate (Safari?) -> retries other axis, long edge <= 3000', async () => {
+  const m = mockCib({ w: 8000, h: 6000 }, { rotated: true, order: 'resize-then-rotate' });
+  const b = await decodeGuarded(null, { width: 6000, height: 8000 }, { cib: m.cib, drawDown });
+  assert.equal(m.calls.length, 2); assert.equal(m.calls[1].resizeWidth, 3000); assert.equal(m.closed.length, 1);
+  assert.deepEqual([b.width, b.height], [2250, 3000]);
+});
+test('decodeGuarded: 12 MP portrait JPEG, rotation ignored for resize', async () => {
+  const m = mockCib({ w: 4032, h: 3024 }, { rotated: true, order: 'resize-then-rotate' });
+  const b = await decodeGuarded(null, { width: 3024, height: 4032 }, { cib: m.cib, drawDown });
+  assert.ok(Math.max(b.width, b.height) <= 3000); assert.ok(b.height > b.width);
+});
+test('decodeGuarded: resize ignored entirely -> drawn down when under 16.7 MP', async () => {
+  const m = mockCib({ w: 4032, h: 3024 }, { noResize: true });
+  const b = await decodeGuarded(null, { width: 4032, height: 3024 }, { cib: m.cib, drawDown });
+  assert.equal(b.drawn, true); assert.deepEqual([b.width, b.height], [3000, 2250]); assert.equal(m.calls.length, 2);
+});
+test("decodeGuarded: resize ignored and over 16.7 MP -> TOO_LARGE (Couldn't read)", async () => {
+  const m = mockCib({ w: 8064, h: 6048 }, { noResize: true });
+  await assert.rejects(() => decodeGuarded(null, { width: 8064, height: 6048 }, { cib: m.cib, drawDown }), { message: TOO_LARGE });
+  assert.equal(m.closed.length, 2);
+});
+test('decodeGuarded: <= 3000 decoded as-is; unknown size portrait redoes by height', async () => {
+  const a = mockCib({ w: 2000, h: 1500 });
+  const b1 = await decodeGuarded(null, { width: 2000, height: 1500 }, { cib: a.cib, drawDown });
+  assert.deepEqual([b1.width, b1.height], [2000, 1500]); assert.equal(a.calls[0].resizeWidth, undefined);
+  const u = mockCib({ w: 6000, h: 8000 });
+  const b2 = await decodeGuarded(null, null, { cib: u.cib, drawDown });
+  assert.deepEqual([b2.width, b2.height], [2250, 3000]); assert.equal(u.calls.length, 2);
+});

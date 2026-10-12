@@ -262,6 +262,38 @@ export function decodeResize(w, h, max = SAVE_SOURCE_MAX) {
   return h > w ? { resizeHeight: max, resizeQuality: 'high' } : { resizeWidth: max, resizeQuality: 'high' };
 }
 
+// Guarded decode. Safari's order of EXIF rotation vs. resize is unconfirmed, so every decode is checked:
+// if the long edge is over max (+tol) or the orientation is swapped from the header size, the bitmap is
+// closed and decoded again with the other resize axis. If it is still too big, it is drawn down to max
+// on a canvas (drawDown) only when the bitmap is under the ~16.7 MP canvas limit; otherwise this throws
+// TOO_LARGE ("Couldn't read"). cib = createImageBitmap (injected for tests).
+export const CANVAS_MAX_PIXELS = 16777216;
+export const TOO_LARGE = 'image-too-large';
+const flipAxis = (o) => (o.resizeWidth ? { resizeHeight: o.resizeWidth, resizeQuality: 'high' } : { resizeWidth: o.resizeHeight, resizeQuality: 'high' });
+export async function decodeGuarded(blob, size, { cib, drawDown, close = (b) => b && b.close && b.close(), max = SAVE_SOURCE_MAX, tol = 2, canvasMax = CANVAS_MAX_PIXELS } = {}) {
+  const base = { imageOrientation: 'from-image' };
+  const tooBig = (b) => Math.max(b.width, b.height) > max + tol;
+  const swapped = (b) => size && size.width !== size.height && b.width !== b.height && (b.width > b.height) !== (size.width > size.height);
+  const bad = (b) => tooBig(b) || swapped(b);
+  let opts = size ? decodeResize(size.width, size.height, max) : { resizeWidth: max, resizeQuality: 'high' };
+  let bmp = await cib(blob, opts ? { ...base, ...opts } : base);
+  if (!size && bmp.height > max + tol) { // unknown size and portrait: redo by height
+    close(bmp); opts = { resizeHeight: max, resizeQuality: 'high' };
+    bmp = await cib(blob, { ...base, ...opts });
+  }
+  if (bad(bmp) && opts) {
+    close(bmp); opts = flipAxis(opts);
+    bmp = await cib(blob, { ...base, ...opts });
+  }
+  if (!tooBig(bmp)) return bmp;
+  if (bmp.width * bmp.height <= canvasMax && drawDown) {
+    const t = fitLongSide(bmp.width, bmp.height, max);
+    try { return await drawDown(bmp, t.width, t.height); } finally { close(bmp); }
+  }
+  close(bmp);
+  throw new Error(TOO_LARGE);
+}
+
 // Cheap header probe: JPEG (SOFn + EXIF orientation), PNG (IHDR), HEIC/HEIF (largest ispe + irot).
 // bytes: Uint8Array of the start of the file (256 KB is plenty). Returns oriented { width, height } or null.
 export function probeImageSize(b) {
