@@ -183,7 +183,7 @@ export function EntryRow({ e, onDelete, loadLink }) {
         {loadLink}
         {e.notes && <div style={{ color: '#6b7280', fontSize: '0.8rem', wordBreak: 'break-word' }}>{e.notes}</div>}
       </div>
-      <ConfirmButton label="Delete" prompt="Delete this entry?" onConfirm={() => onDelete(e)} />
+      <ConfirmButton label="Delete" ariaLabel="Delete this entry?" onConfirm={() => onDelete(e)} />
     </div>
   );
 }

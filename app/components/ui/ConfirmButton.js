@@ -19,7 +19,7 @@ function nextRowTarget(el) {
   return null;
 }
 
-export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confirm', prompt, onConfirm, onDone, danger = true, disabled = false }) {
+export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confirm', prompt, ariaLabel, onConfirm, onDone, danger = true, disabled = false }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); // double-click guard independent of render timing
@@ -64,7 +64,7 @@ export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confir
     return <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setAsking(true)} style={{ ...base, ...(danger ? red : { border: '1px solid #d1d5db', background: '#fff' }) }}>{label}</button>;
   }
   return (
-    <span ref={groupRef} role="group" className="confirm-group" aria-label={prompt || `${label}?`} style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, maxWidth: '100%' }}
+    <span ref={groupRef} role="group" className="confirm-group" aria-label={ariaLabel || prompt || `${label}?`} style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, maxWidth: '100%' }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } }}>
       {prompt && <span className="confirm-prompt" aria-hidden="true" style={{ fontSize: '0.9rem', color: '#374151' }}>{prompt}</span>}
       <button type="button" disabled={busy} onClick={confirm}

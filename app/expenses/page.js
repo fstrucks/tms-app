@@ -468,7 +468,7 @@ function ExpensesInner() {
 
   async function remove(x) {
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
-    if (error) return failMsg('Could not delete the expense. Please try again.', error);
+    if (error) { failMsg('Could not delete the expense. Please try again.', error); return false; }
     if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
     await fetchAll(); // refresh problems show in the banner above the list
   }
@@ -579,7 +579,7 @@ function ExpensesInner() {
                   {fmtDate(x.expense_date)}
                   {x.load_id && <> · <Link href={`/loads/${x.load_id}`} style={s.link}>{loadLabel(loadById[x.load_id]) || 'Load'}</Link></>}
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem', minWidth: 0 }}>
                   <button onClick={() => edit(x)} style={s.small}>Edit</button>
                   {x.documents?.file_path && <button onClick={() => viewReceipt(x.documents)} style={s.small}>Receipt</button>}
                   <ConfirmButton label="Delete" prompt="Delete this expense?" onConfirm={() => remove(x)} />

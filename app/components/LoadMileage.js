@@ -45,7 +45,7 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
 
   async function remove(e) {
     const { error } = await supabase.from('mileage_entries').delete().eq('id', e.id);
-    if (error) { console.error('mileage delete', error); return setError('Could not delete, please try again.'); }
+    if (error) { console.error('mileage delete', error); setError('Could not delete, please try again.'); return false; }
     refresh();
   }
 
