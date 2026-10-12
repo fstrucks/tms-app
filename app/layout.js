@@ -6,6 +6,7 @@ export const metadata = {
   description: 'PowerHaul TMS: rate confirmations, loads, mileage, expenses and weekly numbers for owner-operators.',
   applicationName: 'PowerHaul TMS',
   appleWebApp: { title: 'PowerHaul TMS' },
+  other: { 'mobile-web-app-capable': 'yes' },
 };
 
 export const viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover' };
