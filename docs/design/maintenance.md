@@ -143,6 +143,7 @@ create table public.service_records (
   user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
   truck_id uuid references public.trucks(id) on delete restrict,
   trailer_id uuid references public.trailers(id) on delete restrict,
+  load_id uuid references public.loads(id) on delete set null,  -- optional; most records have none
   service_date date not null,
   odometer int check (odometer >= 0),
   engine_hours numeric(10,1) check (engine_hours >= 0),
@@ -184,14 +185,18 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 **Decision: the `expenses` row is the money record, and `service_records.expense_id` (unique) links to it.** The dashboard (`app/lib/dashboard.js` `aggregate()`) and per-load totals (`app/components/LoadExpenses.js`) keep summing **only `expenses`**. Nothing ever sums `service_records.total` into those numbers, so nothing can be counted twice.
 
-- Each service record owns **exactly one** expense: category `maintenance`, amount = `total`, `expense_date` = `service_date`, description `"{Truck|Trailer} {unit} · {service type} · {vendor}"`, `document_id` = the service record's document, and `load_id` null by default. The optional "charge to a load" picker sets it.
+- **Decision (Marc, Oct 11): every service record ALWAYS creates an expense line**, for any maintenance on a truck or trailer, **including $0** (warranty or goodwill work), so it all shows up in reports. There is **no "don't add to expenses" option**.
+- Each service record owns **exactly one** expense: category `maintenance`, amount = `total` (may be `0.00`), `expense_date` = `service_date`, description `"{Truck|Trailer} {unit} · {service type} · {vendor}"`, `document_id` = the service record's document, and `load_id` = the record's `load_id`.
+- **Optional load (Marc, Oct 11: yes, optional).** `service_records.load_id` is nullable and defaults to none; most records won't have one. When set, it's copied to the synced expense's `load_id`, so the cost counts in that load's net (`LoadExpenses`). Clearing it clears the expense's `load_id` too.
+- **$0 is allowed everywhere:** `service_records.total >= 0`, the existing `expenses_amount_nonneg` check from `0700` (`amount >= 0`), the RPC (rejects only null/negative/non-numeric totals) and the form (`min="0"`; the current Expenses validation `amount < 0` already accepts `0`). **`0700` does not block $0, so no migration change is needed.**
+- **How $0 lines show in reports:** they are listed like any other line, shown as `$0.00` with a small "No charge" tag (and "Warranty" when the service note or type says so). They add nothing to totals but do count in the record and expense counts, and they appear in the vehicle's history and the Expenses list, so the work is still tracked.
 - **No new columns on `expenses`.** We can tell an expense came from a service record with `exists (select 1 from service_records where expense_id = e.id)`. The expenses list shows a "From service record" tag and links to the record using that join (`expenses.select('..., service_records(id)')`).
 - **Linking an existing expense:** if Marc already logged the shop bill as an expense, he can pick it as the record's expense instead of creating a new one. The `unique` on `expense_id` guarantees one-to-one.
 - **Transactional writes through RPCs.** `security invoker`, so RLS applies, like `create_load_from_document` in `0450`:
-  - `save_service_record(p jsonb) returns uuid` takes **either** `truck_id` or `trailer_id` (exactly one, else it raises `22023`), checks the caller owns that vehicle, inserts or updates the record, upserts its expense (amount, date, description, document, load), and syncs the document's `truck_id`/`trailer_id`, all in one transaction. Moving a record to another unit (truck to trailer or vice versa) clears the old FK. The optional "bump reading" / "set DOT due" confirmations are applied to whichever table the vehicle is in.
+  - `save_service_record(p jsonb) returns uuid` takes **either** `truck_id` or `trailer_id` (exactly one, else it raises `22023`), checks the caller owns that vehicle, inserts or updates the record, upserts its expense (amount, including `0`, date, description, document, load), checks the optional `load_id` is a load the caller owns (`exists` on `loads` with `user_id = auth.uid()`, else it raises `42501`), and syncs the document's `truck_id`/`trailer_id`, all in one transaction. Moving a record to another unit (truck to trailer or vice versa) clears the old FK. The optional "bump reading" / "set DOT due" confirmations are applied to whichever table the vehicle is in.
   - `delete_service_record(p_id uuid, p_keep_expense boolean default false)` deletes the record and, unless kept, its expense, in one transaction. It works the same for truck and trailer records. The vehicle row is never touched. A linked pre-existing expense defaults to kept, and the UI asks which the user wants.
 - **Guard against drift:** a trigger on `expenses` rejects `update`/`delete` of a linked expense unless `current_setting('app.service_record_sync', true) = 'on'`. The RPCs set that flag with `set_config(..., true)`, which is transaction-local. The Expenses page shows linked rows read-only with "Edit in Maintenance". The `on delete restrict` on `expense_id` is a second guard.
-- **Existing constraints** in `0700` (`amount >= 0`, category list including `maintenance`, date present) are already satisfied.
+- **Existing constraints** in `0700` (`expenses_amount_nonneg`: `amount >= 0`, category list including `maintenance`, date present) are already satisfied, including for $0 records.
 
 ## 4. RLS (today's `user_id = auth.uid()` pattern)
 
@@ -199,7 +204,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 |---|---|---|---|
 | trucks | `user_id = (select auth.uid())` | same, with check | same |
 | trailers | **already set by Marc** (own rows only); verified, not replaced | — | — |
-| service_records | own | own **and** the referenced truck *or* trailer (whichever is set), document and expense all have `user_id = auth.uid()` (`exists` checks, like `0700`/`0710`) and `documents.doc_type` is a maintenance type | own |
+| service_records | own | own **and** the referenced truck *or* trailer (whichever is set), the optional load, document and expense all have `user_id = auth.uid()` (`exists` checks, like `0700`/`0710`) and `documents.doc_type` is a maintenance type | own |
 
 - If Marc's existing `trucks` policies differ from the pattern, the migration **drops all non-ours and recreates them** (the `0600`/`0700` pattern), once he has reviewed the §1 output.
 - `documents.truck_id` / `documents.trailer_id`: update `documents_insert_own` and `documents_update_own` to also require that each is null or owned by the user (`exists` against `trucks` / `trailers`), mirroring the `load_id` rule in `0710`.
@@ -215,7 +220,8 @@ Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{ts}-{safeName}` (for 
 ## 6. Per-vehicle UI
 
 - **`/maintenance`:** one vehicle list with a **Trucks / Trailers** segmented filter (default All). Each row shows a type icon, unit, trailer type (for trailers), status, current odometer and engine hours, and the worst due badge. "Add vehicle" asks Truck or Trailer first. Trailer add/edit writes to Marc's `trailers` table, using his column names.
-- **Unit picker** in the service record form: a single searchable list grouped **Trucks** then **Trailers** (`T-101 · 2019 Freightliner`, `TR-12 · Reefer 53 ft`). Selecting a unit sets `truck_id` or `trailer_id`. Engine hours show for trucks and reefer trailers. The `irp` service and due field are hidden for trailers.
+- **Unit picker** in the service record form: a single searchable list grouped **Trucks** then **Trailers** (`T-101 · 2019 Freightliner`, `TR-12 · Reefer 53 ft`). Selecting a unit sets `truck_id` or `trailer_id`.
+- **Load (optional)** picker in the same form, defaulting to **"No load"**, listing the user's loads (most recent first). Amount accepts `0.00` with the hint "Use $0 for warranty / no-charge work". Engine hours show for trucks and reefer trailers. The `irp` service and due field are hidden for trailers.
 - **`/maintenance/trucks/[id]` and `/maintenance/trailers/[id]`:** vehicle details plus a **history timeline** of service records (newest first; date, type, vendor, total, odometer/hours, document link) and the due-date list.
 - **Due badges:** a pure function in `app/lib/maintenance.js` returns `dueStatus(date, today)`: `overdue` if `date < today`, `due_soon` if within 30 days (open question), `ok` otherwise, or `none` if no date. v2 reminders reuse it. **No notifications in v1.**
 - Built mobile-first with the bottom tab bar, 44 px targets and the `DataState` loading/empty/error states. Amounts show two decimals.
@@ -255,7 +261,9 @@ Each file is idempotent, like the existing ones, with a commented rollback block
   - Edit the total to $450 and change the date. The expense follows and the dashboard reflects it.
   - Delete the record. The expense is gone. For a linked existing expense, unlink keeps it.
   - Editing or deleting a linked expense directly fails.
-  - A charged-to-load record shows once in that load's net (`LoadExpenses`).
+  - A charged-to-load record shows once in that load's net (`LoadExpenses`). Clearing the load removes it from that load.
+  - A $0 warranty record creates one $0.00 expense line, shows "No charge", and leaves totals unchanged.
+  - The RPC rejects a `load_id` owned by another user.
   - Force an error mid-RPC: no orphan record or expense.
 - **Due badges:** unit tests for `dueStatus` (past, today, today+30, today+31, null). The `dot_annual` record's +12 months suggestion, including Feb 29.
 - **Engine hours:** saved on records and vehicles. The "bump vehicle reading" suggestion appears only when the new value is higher.
@@ -264,12 +272,13 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Mobile:** forms at 360 px, 44 px targets, numeric keyboards for odometer, hours and amounts.
 - **Regression:** rate con upload and extraction, receipt auto-fill, expenses CRUD, mileage and `rate_per_mile`, dashboard totals unchanged for weeks without service records, and the loads list.
 
-## 11. Open questions for Marc
+## 10a. Later / ideas (not v1)
 
+- **Auto-suggest a load from the receipt date** (expenses and service records): when a receipt or service date is entered, suggest the load whose pickup–delivery dates cover that date. The user can remove the link or keep "No load". To be validated with testers before building.
+
+## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
-2. Should service costs **always** go into Expenses, or is there a per-record "don't add to expenses" option (for example, warranty work at $0)?
-3. Should maintenance ever be charged to a specific load (affecting that load's net), or always stay a general expense?
-4. Due-soon window: is 30 days right for DOT, registration, IRP and plates (trucks and trailers)?
-5. Is one scanned document per service record enough, or do you need several (invoice plus inspection report)?
-6. Should a sold or out-of-service vehicle's history stay visible?
-7. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
+2. Due-soon window: is 30 days right for DOT, registration, IRP and plates (trucks and trailers)?
+3. Is one scanned document per service record enough, or do you need several (invoice plus inspection report)?
+4. Should a sold or out-of-service vehicle's history stay visible?
+5. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
