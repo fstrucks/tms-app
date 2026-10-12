@@ -1,7 +1,7 @@
 import { EXPENSE_CATEGORIES } from './expenses';
 
 // Which loads count as revenue: 'non_cancelled' (default) or 'completed_only'.
-export const REVENUE_RULE = 'non_cancelled';
+export const REVENUE_RULE = 'completed_only';
 export const EXCLUDED_STATUSES = ['cancelled', 'canceled', 'tonu', 'void'];
 export const COMPLETED_STATUSES = ['delivered', 'invoiced', 'paid'];
 
