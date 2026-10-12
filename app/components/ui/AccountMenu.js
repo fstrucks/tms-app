@@ -2,12 +2,14 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getSupabase } from '../../lib/supabase';
 
 // Account button + menu (email, Sign out). Used in the slim mobile top bar and the desktop top nav.
 // Keyboard: Enter/Space opens, arrows/Home/End move, Esc closes and returns focus, closes on focus-out.
 export default function AccountMenu({ showEmail = false }) {
   const supabase = getSupabase();
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(false);
@@ -41,6 +43,7 @@ export default function AccountMenu({ showEmail = false }) {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) { console.error('[account] sign out', error); setErr('Sign out failed, please try again.'); }
+      else { setOpen(false); router.replace('/login'); }
     } catch (e) {
       console.error('[account] sign out', e); setErr('Sign out failed, please try again.');
     } finally { setBusy(false); }
