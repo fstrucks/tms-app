@@ -27,3 +27,15 @@ test('loginHref: encodes the current path, plain /login when not safe', () => {
   assert.equal(loginHref('/login'), '/login');
   assert.equal(loginHref('//evil.com'), '/login');
 });
+test('safeNext: backslash anywhere (raw, %5C, %5c, %255C) refused', () => {
+  for (const v of ['/loads\\123', '/loads/1?x=\\', '/a%5Cb', '/a%5cb', '/a%255Cb', '/a%255cb', '/%5C/evil.com', '/%255C%255Cevil.com'])
+    assert.equal(safeNext(v), DEFAULT_NEXT, v);
+});
+test('safeNext: control chars, tabs, newlines (raw and encoded) refused', () => {
+  for (const v of ['/%09/evil.com', '/%0A/evil.com', '/%0D/evil.com', '/%0a/evil.com', '/%0d%0a/x', '/\n/evil.com', '/\r/evil.com', '/\t/evil.com', '/a%00b', '/a%7Fb', '/a%2509b', '/loads/1?x=%0A'])
+    assert.equal(safeNext(v), DEFAULT_NEXT, JSON.stringify(v));
+});
+test('safeNext: malformed encoding (decode throws) refused', () => {
+  for (const v of ['/%', '/%E0%A4%A', '/a%ZZ', '/%25%'])
+    assert.equal(safeNext(v), DEFAULT_NEXT, v);
+});
