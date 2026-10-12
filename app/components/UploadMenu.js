@@ -11,6 +11,9 @@ const OPTIONS = [
   { id: 'library', icon: '🖼️', label: 'Photo library', accept: 'image/*' },
   { id: 'files', icon: '📄', label: 'Files / PDF', accept: 'application/pdf' },
 ];
+// Optional "Scan document" (only when the caller passes onScan): its own image-only camera input,
+// never merged with the PDF-only picker. Desktop browsers ignore capture and show an image picker.
+const SCAN = { id: 'scan', icon: '🧾', label: 'Scan document', accept: 'image/*', capture: 'environment', multiple: true };
 
 const st = {
   wrap: { position: 'relative' },
@@ -19,7 +22,8 @@ const st = {
   item: { display: 'block', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
-export default function UploadMenu({ onFile, disabled = false, label = 'Upload' }) {
+export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {
+  const options = onScan ? [SCAN, ...OPTIONS] : OPTIONS;
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const wrapRef = useRef(null);
@@ -43,7 +47,7 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
       if (b.height && b.top > r.bottom && b.top < limit) limit = b.top;
     });
     const below = limit - r.bottom;
-    const need = OPTIONS.length * 48 + 16;
+    const need = options.length * 48 + 16;
     setUp(below < need && r.top > below);
   };
 
@@ -103,10 +107,10 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
 
   return (
     <div ref={wrapRef} style={st.wrap} onBlur={onFocusOut}>
-      {OPTIONS.map((o) => (
+      {options.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
-          {...(o.capture ? { capture: o.capture } : {})} tabIndex={-1} aria-hidden="true" style={{ display: 'none' }}
-          onChange={(e) => { clearBack(); const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
+          {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} tabIndex={-1} aria-hidden="true" style={{ display: 'none' }}
+          onChange={(e) => { clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
         />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
@@ -115,7 +119,7 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
       </button>
       {open && (
         <ul id={menuId} role="menu" aria-label="Upload from" style={{ ...st.menu, ...(up ? { top: 'auto', bottom: 'calc(100% + 4px)' } : null) }} onKeyDown={onMenuKey}>
-          {OPTIONS.map((o, i) => (
+          {options.map((o, i) => (
             <li key={o.id} role="none">
               <button ref={(el) => { itemRefs.current[i] = el; }} type="button" role="menuitem" onClick={() => choose(o.id)} style={st.item}>
                 <span aria-hidden="true">{o.icon} </span>{o.label}

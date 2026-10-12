@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
+import dynamic from 'next/dynamic';
+
+// Scanner (and pdf-lib) load only when "Scan document" is used.
+const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
@@ -24,6 +28,9 @@ function resolveType(file) {
 }
 
 const BUCKET = 'documents';
+// Only rate confirmations are AI-extracted / turned into loads; scanned BOL/POD are stored as-is.
+const EXTRACTABLE = (t) => !t || t === 'rate_confirmation';
+const TYPE_LABEL = { rate_confirmation: 'Rate confirmation', bol: 'BOL', pod: 'POD' };
 
 function isHeic(file, type) {
   return type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
@@ -53,6 +60,8 @@ export default function DocumentsPage() {
   const supabase = getSupabase();
   const [signingOut, setSigningOut] = useState(false);
   const [user, setUser] = useState(null);
+  const [scanFiles, setScanFiles] = useState(null); // photos that opened the scanner
+  const [scanLoads, setScanLoads] = useState([]);
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0); // remounts the hidden inputs to clear them
@@ -226,6 +235,35 @@ export default function DocumentsPage() {
     if (inserted?.id) extract(inserted.id);
   }
 
+  async function openScanner(files) {
+    setScanFiles(files);
+    // Loads for the "link to load" picker (newest first). Failure just leaves "No load".
+    const { data, error } = await supabase.from('loads').select('id, broker_load_number, broker_name, created_at').order('created_at', { ascending: false }).limit(100);
+    if (error) console.error('[scan] loads', error);
+    setScanLoads((data || []).map((l) => ({ id: l.id, label: [l.broker_load_number ? `#${l.broker_load_number}` : 'Load', l.broker_name].filter(Boolean).join(' · ') + ` (${new Date(l.created_at).toLocaleDateString()})` })));
+  }
+
+  // Same bucket, path scheme and documents row as the normal upload. Returns an error message or null.
+  async function saveScan({ file: pdf, docType, loadId }) {
+    if (!user) return 'Please sign in again.';
+    if (pdf.size > MAX_BYTES) return 'The PDF is larger than 10 MB.';
+    const path = `${user.id}/${Date.now()}-${pdf.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, pdf, { contentType: 'application/pdf' });
+    if (upErr) { console.error('[scan] upload', upErr); return 'Upload failed: ' + upErr.message; }
+    const { error: dbErr } = await supabase.from('documents').insert({
+      user_id: user.id, doc_type: docType, file_path: path, original_filename: pdf.name, load_id: loadId, truck_id: null,
+    });
+    if (dbErr) {
+      await supabase.storage.from(BUCKET).remove([path]);
+      console.error('[scan] insert', dbErr);
+      return 'Saving record failed: ' + dbErr.message;
+    }
+    setScanFiles(null);
+    setStatus({ type: 'ok', text: `Saved ${pdf.name}${loadId ? ' to the load' : ''}.` });
+    await loadDocs();
+    return null;
+  }
+
   async function handleSignOut() {
     setSigningOut(true);
     try {
@@ -266,7 +304,7 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>
-              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} disabled={uploading || converting} />
+              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
@@ -298,11 +336,13 @@ export default function DocumentsPage() {
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                    <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    <div style={s.muted}>{TYPE_LABEL[d.doc_type] || (d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
                   <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem' }}>View</button>
                 </div>
-                {extracting[d.id] ? (
+                {!EXTRACTABLE(d.doc_type) ? (
+                  d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: '#2563eb' }}>View load</Link> : null
+                ) : extracting[d.id] ? (
                   <p style={s.muted}>Extracting…</p>
                 ) : (
                   <>
@@ -325,6 +365,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
+      {scanFiles && <Scanner initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }
