@@ -9,8 +9,8 @@ const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
   { href: '/dashboard', label: 'Dashboard', short: 'Stats', icon: '📊', match: (p) => p.startsWith('/dashboard') },
   { href: '/loads', label: 'Loads', icon: '🚚', match: (p) => p.startsWith('/loads') },
-  // TODO(pick 6, open): "Documents" on desktop vs "Docs" everywhere. Keeping "Docs" until Marc decides.
-  { href: '/documents', label: 'Docs', icon: '📄', match: (p) => p.startsWith('/documents') },
+  // Pick 6A (Marc): "Documents" in the desktop nav, "Docs" in the mobile bottom tabs.
+  { href: '/documents', label: 'Documents', short: 'Docs', icon: '📄', match: (p) => p.startsWith('/documents') },
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
   { href: '/mileage', label: 'Mileage', icon: '🛣️', match: (p) => p.startsWith('/mileage') },
 ];
