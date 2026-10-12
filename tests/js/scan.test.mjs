@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
 import { movePage, removePage, replacePage, fitWidth, fitLongSide, pdfPageSize, warpSize, orderCorners, homography, applyH,
-  detectQuad, levelsLut, buildPdf, scanFileName, PAGE_MAX_WIDTH } from '../../app/lib/scan.js';
+  detectQuad, plausibleQuad, capPages, MAX_PAGES, levelsLut, buildPdf, scanFileName, PAGE_MAX_WIDTH } from '../../app/lib/scan.js';
 
 const JPG = new Uint8Array(Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAAWABEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD2aiiigAooooAKKKKACiiigD//2Q==', 'base64')); // 17x22 white JPEG
 
@@ -73,4 +73,30 @@ test('buildPdf: one page per image, letter width, order kept', async () => {
 });
 test('scanFileName', () => {
   assert.equal(scanFileName('bol', new Date(2026, 9, 12, 8, 5)), 'BOL_2026-10-12_0805.pdf');
+});
+
+test('plausibleQuad rejects near-full-frame, edge-touching, odd angles, extreme aspect', () => {
+  const W = 1000, H = 1000;
+  const good = [{ x: 100, y: 80 }, { x: 850, y: 120 }, { x: 820, y: 900 }, { x: 120, y: 880 }];
+  assert.equal(plausibleQuad(good, W, H), true);
+  assert.equal(plausibleQuad([{ x: 20, y: 20 }, { x: 980, y: 20 }, { x: 980, y: 980 }, { x: 20, y: 980 }], W, H), false); // ~92%+
+  assert.equal(plausibleQuad([{ x: 0, y: 80 }, { x: 850, y: 120 }, { x: 820, y: 900 }, { x: 120, y: 880 }], W, H), false); // touches edge
+  assert.equal(plausibleQuad([{ x: 100, y: 100 }, { x: 900, y: 100 }, { x: 600, y: 500 }, { x: 400, y: 500 }], W, H), false); // odd angles
+  assert.equal(plausibleQuad([{ x: 100, y: 450 }, { x: 900, y: 450 }, { x: 900, y: 540 }, { x: 100, y: 540 }], W, H), false); // aspect ~9
+  assert.equal(plausibleQuad(null, W, H), false);
+});
+test('detectQuad: page that fills the frame or touches the border is "not detected"', () => {
+  const w = 200, h = 200, g = new Uint8Array(w * h).fill(40);
+  for (let y = 0; y < h; y++) for (let x = 0; x < 150; x++) g[y * w + x] = 230; // bright region runs off top/bottom/left
+  assert.equal(detectQuad(g, w, h), null);
+  const g2 = new Uint8Array(w * h).fill(40);
+  for (let y = 3; y < 197; y++) for (let x = 3; x < 197; x++) g2[y * w + x] = 230; // ~94% of frame
+  assert.equal(detectQuad(g2, w, h), null);
+});
+test('capPages: 20-page cap', () => {
+  assert.equal(MAX_PAGES, 20);
+  assert.deepEqual(capPages(18, ['a', 'b', 'c']), { accepted: ['a', 'b'], rejected: 1 });
+  assert.deepEqual(capPages(20, ['a']), { accepted: [], rejected: 1 });
+  assert.deepEqual(capPages(0, ['a', 'b']), { accepted: ['a', 'b'], rejected: 0 });
+  assert.deepEqual(capPages(25, []), { accepted: [], rejected: 0 });
 });

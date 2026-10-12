@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney } from '../lib/money';
+import { uploadScan } from '../lib/scanUpload';
 import { Loading, LoadError } from '../components/DataState';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -243,23 +244,11 @@ export default function DocumentsPage() {
     setScanLoads((data || []).map((l) => ({ id: l.id, label: [l.broker_load_number ? `#${l.broker_load_number}` : 'Load', l.broker_name].filter(Boolean).join(' · ') + ` (${new Date(l.created_at).toLocaleDateString()})` })));
   }
 
-  // Same bucket, path scheme and documents row as the normal upload. Returns an error message or null.
-  async function saveScan({ file: pdf, docType, loadId }) {
-    if (!user) return 'Please sign in again.';
-    if (pdf.size > MAX_BYTES) return 'The PDF is larger than 10 MB.';
-    const path = `${user.id}/${Date.now()}-${pdf.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, pdf, { contentType: 'application/pdf' });
-    if (upErr) { console.error('[scan] upload', upErr); return 'Upload failed: ' + upErr.message; }
-    const { error: dbErr } = await supabase.from('documents').insert({
-      user_id: user.id, doc_type: docType, file_path: path, original_filename: pdf.name, load_id: loadId, truck_id: null,
-    });
-    if (dbErr) {
-      await supabase.storage.from(BUCKET).remove([path]);
-      console.error('[scan] insert', dbErr);
-      return 'Saving record failed: ' + dbErr.message;
-    }
+  async function saveScan(scan) {
+    const err = await uploadScan(supabase, user?.id, scan);
+    if (err) return err;
     setScanFiles(null);
-    setStatus({ type: 'ok', text: `Saved ${pdf.name}${loadId ? ' to the load' : ''}.` });
+    setStatus({ type: 'ok', text: `Saved ${scan.file.name}${scan.loadId ? ' to the load' : ''}.` });
     await loadDocs();
     return null;
   }
@@ -303,7 +292,7 @@ export default function DocumentsPage() {
           </div>
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
-              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>
+              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a BOL/POD</legend>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (

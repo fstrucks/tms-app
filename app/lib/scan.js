@@ -3,6 +3,15 @@
 export const PAGE_MAX_WIDTH = 1700; // px per PDF page (~200 dpi on letter width)
 export const JPEG_QUALITY = 0.7;
 export const PDF_PAGE_WIDTH_PT = 612; // US letter width in points
+export const SOURCE_MAX = 1700;  // long side of the per-page source JPEG kept in memory
+export const THUMB_W = 300;      // thumbnails render from a copy this wide
+export const MAX_PAGES = 20;     // pages per scan
+
+// Split incoming photos into the ones that fit under the page cap and the ones that don't.
+export function capPages(currentCount, incoming, max = MAX_PAGES) {
+  const room = Math.max(0, max - currentCount);
+  return { accepted: incoming.slice(0, room), rejected: incoming.length - Math.min(room, incoming.length) };
+}
 
 // ---- page list ----
 export function movePage(pages, from, to) {
@@ -110,8 +119,6 @@ export function detectQuad(gray, w, h, { minAreaFrac = 0.15 } = {}) {
     if (size > best.size) best = { size, id };
   }
   if (best.size < n * minAreaFrac) return null;
-  // Region fills (nearly) the whole frame: no visible background, cropping wouldn't help.
-  if (best.size > n * 0.97) return null;
   let tl, tr, br, bl, mins = Infinity, maxs = -Infinity, mind = Infinity, maxd = -Infinity;
   for (let i = 0; i < n; i++) {
     if (label[i] !== best.id) continue;
@@ -122,8 +129,35 @@ export function detectQuad(gray, w, h, { minAreaFrac = 0.15 } = {}) {
     if (d > maxd) { maxd = d; bl = { x, y: y + 1 }; }
   }
   const q = [tl, tr, br, bl];
-  if (quadArea(q) < n * minAreaFrac) return null;
-  return q;
+  return plausibleQuad(q, w, h, { minAreaFrac }) ? q : null;
+}
+
+// Reject weak detections (caller then keeps the full photo and opens the corner editor):
+//  - area < minAreaFrac or > maxAreaFrac (~92%) of the frame (no real background),
+//  - any corner within edgeFrac of the image border (page runs off the photo / bright table),
+//  - any interior angle outside 60..120 degrees, or not convex,
+//  - aspect (long/short side) above maxAspect.
+export function plausibleQuad(q, w, h, { minAreaFrac = 0.15, maxAreaFrac = 0.92, edgeFrac = 0.01, minAngle = 60, maxAngle = 120, maxAspect = 4 } = {}) {
+  if (!q || q.length !== 4 || q.some((p) => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return false;
+  const area = quadArea(q), frame = w * h;
+  if (area < frame * minAreaFrac || area > frame * maxAreaFrac) return false;
+  const mx = Math.max(1, w * edgeFrac), my = Math.max(1, h * edgeFrac);
+  if (q.some((p) => p.x <= mx || p.y <= my || p.x >= w - mx || p.y >= h - my)) return false;
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[(i + 3) % 4], b = q[i], c = q[(i + 1) % 4];
+    const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
+    const l1 = Math.hypot(v1.x, v1.y), l2 = Math.hypot(v2.x, v2.y);
+    if (l1 < 1 || l2 < 1) return false;
+    const ang = Math.acos(Math.max(-1, Math.min(1, (v1.x * v2.x + v1.y * v2.y) / (l1 * l2)))) * 180 / Math.PI;
+    if (ang < minAngle || ang > maxAngle) return false;
+    const cross = Math.sign(v1.x * v2.y - v1.y * v2.x);
+    if (sign && cross && cross !== sign) return false; // not convex
+    sign = sign || cross;
+  }
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const wq = (d(q[0], q[1]) + d(q[3], q[2])) / 2, hq = (d(q[0], q[3]) + d(q[1], q[2])) / 2;
+  return Math.max(wq, hq) / Math.min(wq, hq) <= maxAspect;
 }
 export function otsu(gray) {
   const hist = new Float64Array(256);

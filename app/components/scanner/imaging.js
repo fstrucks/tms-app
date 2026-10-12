@@ -1,9 +1,10 @@
 'use client';
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
-import { fitLongSide, detectQuad, fullFrame, homography, applyH, warpSize, levelsLut, JPEG_QUALITY } from '../../lib/scan';
+// Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
+// Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
+import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
-const SOURCE_MAX = 2400; // cap camera photos (12MP+) before any processing, to save memory
-const DETECT_MAX = 400;  // edge detection runs on a small copy
+const DETECT_MAX = 400; // edge detection runs on a small copy
 
 function isHeic(file) {
   const t = (file.type || '').toLowerCase();
@@ -14,10 +15,22 @@ export function rejectReason(file) {
   const t = (file.type || '').toLowerCase();
   if (t.includes('svg') || /\.svg$/i.test(file.name || '')) return 'SVG images are not supported.';
   if (t && !t.startsWith('image/')) return 'Pick a photo (JPEG, PNG, WebP or HEIC).';
+  if (!file.size) return 'The photo is empty.';
   return null;
 }
 
-async function decode(file) {
+export function release(...items) {
+  for (const it of items) {
+    if (!it) continue;
+    if (typeof it.close === 'function') { try { it.close(); } catch {} } // ImageBitmap
+    else if ('width' in it && 'height' in it && it.getContext) { it.width = 0; it.height = 0; } // canvas
+  }
+}
+export function revoke(url) { if (url) URL.revokeObjectURL(url); }
+
+function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+async function decodeFile(file) {
   let blob = file;
   if (isHeic(file)) {
     const { default: heic2any } = await import('heic2any');
@@ -31,9 +44,11 @@ async function decode(file) {
     img.src = url;
     await img.decode(); // EXIF orientation is applied by the browser when drawing
     return img;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  } finally { revoke(url); }
+}
+
+export function toBlob(c, type = 'image/jpeg', q = JPEG_QUALITY) {
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), type, q));
 }
 
 function toGray(data, n) {
@@ -42,44 +57,69 @@ function toGray(data, n) {
   return g;
 }
 
-// File -> { source: canvas (<= 2400px), quad (source px), detected: boolean }
-export async function loadPhoto(file) {
-  const img = await decode(file);
-  const { width, height } = fitLongSide(img.naturalWidth, img.naturalHeight, SOURCE_MAX);
-  const source = document.createElement('canvas');
-  source.width = width; source.height = height;
-  source.getContext('2d').drawImage(img, 0, 0, width, height);
-  return { source, ...detect(source) };
-}
-
-export function detect(source) {
-  const { width: dw, height: dh } = fitLongSide(source.width, source.height, DETECT_MAX);
-  const c = document.createElement('canvas'); c.width = dw; c.height = dh;
+function detectOn(drawable, w, h) {
+  const { width: dw, height: dh } = fitLongSide(w, h, DETECT_MAX);
+  const c = canvas(dw, dh);
   const ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, dw, dh);
+  ctx.drawImage(drawable, 0, 0, dw, dh);
   let q = null;
   try { q = detectQuad(toGray(ctx.getImageData(0, 0, dw, dh).data, dw * dh), dw, dh); } catch { q = null; }
-  if (!q) return { quad: fullFrame(source.width, source.height), detected: false };
-  const kx = source.width / dw, ky = source.height / dh;
+  release(c);
+  if (!q) return { quad: fullFrame(w, h), detected: false };
+  const kx = w / dw, ky = h / dh;
   return { quad: q.map((p) => ({ x: p.x * kx, y: p.y * ky })), detected: true };
 }
 
-// Perspective crop + cleanup. mode 'bw' (grayscale, strong levels) or 'color' (auto levels).
-export function renderPage(source, quad, mode, maxW) {
+// File -> { blob (JPEG, long side <= SOURCE_MAX), w, h, quad, detected }
+export async function loadPhoto(file) {
+  const img = await decodeFile(file);
+  const { width: w, height: h } = fitLongSide(img.naturalWidth, img.naturalHeight, SOURCE_MAX);
+  const c = canvas(w, h);
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  img.src = '';
+  try {
+    const det = detectOn(c, w, h);
+    const blob = await toBlob(c, 'image/jpeg', 0.9);
+    return { blob, w, h, ...det };
+  } finally { release(c); }
+}
+
+export async function bitmapOf(blob, opts) { return createImageBitmap(blob, opts); }
+
+export async function redetect(page) {
+  const bmp = await bitmapOf(page.blob);
+  try { return detectOn(bmp, page.w, page.h); } finally { release(bmp); }
+}
+
+// Perspective crop (bilinear) + cleanup from a drawable of size (sw, sh). quad in that drawable's px.
+function warp(drawable, sw, sh, quad, mode, maxW) {
+  const sc = canvas(sw, sh);
+  const sctx = sc.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(drawable, 0, 0, sw, sh);
+  const src = sctx.getImageData(0, 0, sw, sh).data;
+  release(sc);
   const { width: W, height: H } = warpSize(quad, maxW);
-  const sctx = source.getContext('2d', { willReadFrequently: true });
-  const src = sctx.getImageData(0, 0, source.width, source.height).data;
-  const sw = source.width, sh = source.height;
-  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const out = canvas(W, H);
   const octx = out.getContext('2d');
   const img = octx.createImageData(W, H), d = img.data;
-  const Hm = homography(fullFrame(W, H), quad); // output px -> source px
+  const M = homography(fullFrame(W, H), quad); // output px -> source px
+  const maxX = sw - 1, maxY = sh - 1;
   for (let y = 0; y < H; y++) {
+    const yy = y + 0.5;
     for (let x = 0; x < W; x++) {
-      const p = applyH(Hm, x + 0.5, y + 0.5);
-      const sx = Math.min(sw - 1, Math.max(0, p.x | 0)), sy = Math.min(sh - 1, Math.max(0, p.y | 0));
-      const si = (sy * sw + sx) * 4, di = (y * W + x) * 4;
-      d[di] = src[si]; d[di + 1] = src[si + 1]; d[di + 2] = src[si + 2]; d[di + 3] = 255;
+      const xx = x + 0.5, wz = M[6] * xx + M[7] * yy + M[8];
+      let fx = (M[0] * xx + M[1] * yy + M[2]) / wz - 0.5, fy = (M[3] * xx + M[4] * yy + M[5]) / wz - 0.5;
+      fx = fx < 0 ? 0 : fx > maxX ? maxX : fx; fy = fy < 0 ? 0 : fy > maxY ? maxY : fy;
+      const x0 = fx | 0, y0 = fy | 0, x1 = x0 < maxX ? x0 + 1 : x0, y1 = y0 < maxY ? y0 + 1 : y0;
+      const ax = fx - x0, ay = fy - y0;
+      const i00 = (y0 * sw + x0) * 4, i10 = (y0 * sw + x1) * 4, i01 = (y1 * sw + x0) * 4, i11 = (y1 * sw + x1) * 4;
+      const di = (y * W + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const top = src[i00 + k] + (src[i10 + k] - src[i00 + k]) * ax;
+        const bot = src[i01 + k] + (src[i11 + k] - src[i01 + k]) * ax;
+        d[di + k] = top + (bot - top) * ay;
+      }
+      d[di + 3] = 255;
     }
   }
   const n = W * H, gray = toGray(d, n), lut = levelsLut(gray, mode);
@@ -92,6 +132,25 @@ export function renderPage(source, quad, mode, maxW) {
   return out;
 }
 
-export function canvasToJpeg(canvas, quality = JPEG_QUALITY) {
-  return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), 'image/jpeg', quality));
+// Full-size page -> { bytes (JPEG), width, height }. Releases everything it creates.
+export async function renderPageJpeg(page, mode, maxW) {
+  const bmp = await bitmapOf(page.blob);
+  let out;
+  try {
+    out = warp(bmp, page.w, page.h, page.quad, mode, maxW);
+    const blob = await toBlob(out, 'image/jpeg', JPEG_QUALITY);
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), width: out.width, height: out.height };
+  } finally { release(bmp, out); }
+}
+
+// Thumbnail from a ~300px-wide copy. Returns an object URL (caller revokes it).
+export async function renderThumbUrl(page, mode) {
+  const k = Math.min(1, THUMB_W / page.w);
+  const tw = Math.max(1, Math.round(page.w * k)), th = Math.max(1, Math.round(page.h * k));
+  const bmp = await bitmapOf(page.blob, { resizeWidth: tw, resizeHeight: th, resizeQuality: 'medium' });
+  let out;
+  try {
+    out = warp(bmp, tw, th, page.quad.map((p) => ({ x: p.x * k, y: p.y * k })), mode, THUMB_W);
+    return URL.createObjectURL(await toBlob(out, 'image/jpeg', 0.6));
+  } finally { release(bmp, out); }
 }
