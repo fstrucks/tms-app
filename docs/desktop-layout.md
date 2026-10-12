@@ -116,23 +116,25 @@ Cross-cutting rules for these pages (agreed now):
 - Styles stay inline objects (`const s = {...}` per file), same tokens as today: border `#e5e7eb`, input border `#d1d5db`, text `#111827`, labels `#374151`, muted `#6b7280`, primary `#2563eb`, danger `#b91c1c` / `#fecaca`, radius 8 (controls) and 12 (cards). Breakpoint-dependent rules (which inline styles can't express) go in `globals.css` as a few small classes (`.only-desktop`, `.only-mobile`, `.week-grid`), mobile-first with the section 2 breakpoints (640 / 1024).
 - Money is always `fmtMoney` from `app/lib/money.js` (2 decimals, `—` for empty); RPM is `fmtPerMile`. `LoadExpenses.js` keeps importing `fmtMoney` via the `lib/loads` re-export (same function); new code imports from `lib/money` directly. Number columns use `fontVariantNumeric: 'tabular-nums'` and right alignment.
 - Table vs cards: the `Table` component renders at ≥1024px only (section 2). Below 1024 the existing card/row lists stay (the mobile card list is unchanged under 640; 640–1023 uses the same cards inside the wider container). Both are rendered from the same sorted array, so sort order matches across sizes.
+- **Dates:** `expense_date` and `entry_date` are DATE columns (`YYYY-MM-DD`) and are shown exactly as stored, no time zone conversion. Parse as local parts: `const [y,m,d] = str.split('-').map(Number); new Date(y, m - 1, d)` (or format the parts directly); never `new Date(str)` (that's UTC midnight and shows the previous day in Pacific). Sorting compares the strings. `fmtEntryDate` already appends `T00:00:00` (local); the shared helper replaces that and the expenses list's date formatting.
 - No data, query or SQL changes. Sorting is client-side on the rows already fetched (both pages fetch the full list today).
 
 ### 4.1 Expenses desktop layout
-**Layout (≥1024):** two columns inside the 1120 container: the Add/Edit expense form on the left (`380px`, sticky at `top: 72px` = nav 56 + 16), the list on the right (`minmax(0, 1fr)`). 640–1023 and <640: single column as today (form, then list), with the form capped at 640px.
+**Layout (≥1024):** two columns inside the 1120 container: the Add/Edit expense form on the left, sticky at `top: 72px` (nav 56 + 16), the list on the right (`minmax(0, 1fr)`). Form width: **340px at 1024–1279px**, 380px at ≥1280px (`.split` class in `globals.css`). 640–1023 and <640: single column as today (form, then list), with the form capped at 640px.
 
 **Toolbar above the table:** Load filter (existing select) left; filtered total `fmtMoney(sumAmounts(shown))` right; the existing "Rate · Net" line stays under it when a load is selected.
 
 **Table columns** (`Table` props):
 | key | label | align | sortable | render |
 |-----|-------|-------|----------|--------|
-| expense_date | Date | left | yes | `Oct 12, 2026` (same format as `fmtEntryDate`) |
-| description | Vendor / description | left | yes (case-insensitive, empty last) | ellipsis at 1 line, full text in `title` |
-| category | Category | left | yes | capitalized |
+| expense_date | Date | left, **fixed 112px** | yes | `Oct 12, 2026`, shown exactly as stored (see Dates below) |
+| description | Vendor / description | left | yes (case-insensitive, empty last) | ellipsis at 1 line, full text in `title`; **below 1280px Category shows as a muted second line here** |
+| category | Category | left | yes | capitalized; column hidden below 1280px (Category sort stays available via a "Sort by" select in the toolbar below 1280px) |
 | load | Load | left | yes (by label, "—" last) | link to `/loads/[id]` (stops row click) |
-| amount | Amount | right | yes (numeric) | `fmtMoney(x.amount)`, tabular-nums |
-| actions | (sr-only "Actions") | right | no | Receipt icon button (if any) + ⋯ menu |
+| amount | Amount | right, **fixed 120px** | yes (numeric) | `fmtMoney(x.amount)`, tabular-nums |
+| actions | (sr-only "Actions") | right, **fixed 104px** (two 44px buttons + gap) | no | Receipt icon button (if any) + ⋯ menu |
 
+- **Width at 1024:** content ≈ 960 − 340 form − 16 gap ≈ 600px for the table: Date 112 + Amount 120 + actions 104 leaves ≈ 264px for Vendor (+Category line) and Load. Table uses `tableLayout: 'fixed'`. **Fallback:** the table sits in a wrapper `<div role="region" aria-label="Expenses table" tabIndex={0} style={{ overflowX: 'auto' }}>` so if it still doesn't fit (long load labels, 200% zoom) it scrolls sideways inside its own box, never the page, and keyboard users can focus it and scroll with arrow keys.
 - **Default sort:** `expense_date` desc, tie-break `created_at` desc. Sort state in the URL (`?sort=amount&dir=asc`), merged with the existing `?load=` param (not replacing it). Unknown keys fall back to the default.
 - **Keyboard / a11y:** sortable headers are `<th aria-sort="ascending|descending|none">` containing a real `<button>` (≥44px high) labelled e.g. "Amount, sort ascending"; Enter/Space toggles (first click: desc for date/amount, asc for text; second click flips). Only the active column has a non-`none` `aria-sort`; a ▲/▼ glyph is `aria-hidden`. A polite live region announces "Sorted by Amount, ascending". Row click = Edit (loads it into the left form and moves focus to the form heading); rows are not tab stops themselves, the Edit item in the ⋯ menu is the keyboard path, plus the Load link.
 - **Footer row:** "N expenses · Total {fmtMoney}" right-aligned under Amount.
@@ -141,7 +143,7 @@ Cross-cutting rules for these pages (agreed now):
 - Table: actions cell is Receipt + **⋯ menu** (44×44, `aria-label="More actions for {category} {amount} on {date}"`, `aria-haspopup="menu"`). Menu items: Edit, View receipt (if any), a divider, **Delete** in danger style (`color: '#b91c1c'`). Menu keyboard matches `UploadMenu` (Esc, arrows, Home/End, close on focus-out, focus returns to the ⋯ button).
 - Mobile/tablet cards: the row becomes `Edit` (primary) + `Receipt` on the left, and Delete is removed from the card row; it lives in the **edit form** only.
 - Edit form (all sizes): when editing, the bottom bar shows **Delete bottom-left** (danger outline: `border: '1px solid #fecaca', color: '#b91c1c', background: '#fff'`), Cancel edit and **Save bottom-right**. ≥24px between Delete and any other button.
-- Confirm: the existing confirm behaviour stays (today `window.confirm('Delete this expense?')`). It becomes `ConfirmButton` ("Delete" → "Delete expense? Yes, delete / Cancel") once the shell PR ships it; until then `window.confirm` stays. Focus goes to "Cancel" on the first click; after delete, focus moves to the next row (or the list heading) and the status line says "Expense deleted." The receipt-cleanup logic in `remove()` is unchanged.
+- Confirm: choosing **Delete** in the ⋯ menu closes the menu and turns that row's actions cell into an inline confirm: "Delete expense? **Cancel** / **Yes, delete**" (Yes in danger style), with **focus on Cancel**. Esc or Cancel restores the actions and returns focus to the row's ⋯ button. The same inline confirm is used for Delete in the edit form. This is the `ConfirmButton` pattern from section 2 and **replaces `window.confirm('Delete this expense?')`** (today's confirm); if the shell PR hasn't shipped `ConfirmButton` yet, the page builds the same two-step locally rather than keeping `window.confirm`. after delete, focus moves to the next row (or the list heading) and the status line says "Expense deleted." The receipt-cleanup logic in `remove()` is unchanged.
 
 **Acceptance criteria**
 - At 1280 and 1024: form left + table right, no horizontal page scroll; every column header sorts; URL reflects sort and survives refresh; `?load=` still filters.
@@ -155,27 +157,30 @@ Cross-cutting rules for these pages (agreed now):
 - [ ] Tablet (768, portrait iPad 820): single column, cards, Edit/Receipt on the card, Delete only inside the edit form.
 - [ ] Phone (375 and 390, Android Chrome + iOS Safari): unchanged card list; sticky Save still clears the bottom tab bar; Delete in edit form confirms and returns focus.
 - [ ] Keyboard only: Tab to headers, Enter/Space sorts, screen reader reads `aria-sort`; open ⋯ with Enter, arrow to Delete, Esc closes and returns focus; delete via keyboard and confirm.
-- [ ] Cancelling the confirm leaves the row and the receipt intact.
+- [ ] Cancelling the confirm leaves the row and the receipt intact; Delete from ⋯ → focus on Cancel; Esc returns focus to ⋯.
+- [ ] 1024 exactly: form is 340px, Category shows under Vendor, no page-level horizontal scroll; at 200% zoom the table region scrolls sideways and is reachable with Tab + arrows.
+- [ ] Dates (Pacific user, device TZ America/Los_Angeles): an expense dated 2026-10-12 shows "Oct 12, 2026" in the table, card and edit form (not Oct 11), also late evening PT; same for a mileage entry.
 
 ### 4.2 Mileage desktop layout
 UI only; queries, `SOURCES`, totals and RPM stay with Alex (section 4 handoff). The presentational pieces in `app/lib/mileage.js` (`EntryRow`, the `MileageForm` styles) are restyled, not re-wired.
 
-**Layout (≥1024):** stats strip on top (This week / This month as today, plus they sit 2-up at ≥640); below it, the Add miles form on the left (380px, sticky) and the Entries table on the right. <1024: single column as today.
+**Layout (≥1024):** stats strip on top (This week / This month as today, plus they sit 2-up at ≥640); below it, the Add miles form on the left (sticky; 340px at 1024–1279, 380px at ≥1280) and the Entries table on the right. <1024: single column as today.
 
 **Table columns:**
 | key | label | align | sortable | render |
 |-----|-------|-------|----------|--------|
-| entry_date | Date | left | yes | `fmtEntryDate` |
+| entry_date | Date | left, fixed 112px | yes | `fmtEntryDate`, as stored (see Dates) |
 | source | Type | left | yes | capitalized (Loaded / Deadhead / Personal / Other), with a small neutral text tag, not colour-only |
 | miles | Miles | right | yes | `fmtMiles`, tabular-nums |
 | odometer | Odometer | right | no | `start → end` or `—` |
 | load | Load | left | yes ("—" last) | `Load #123 · Broker` link |
 | notes | Notes | left | no | 1-line ellipsis + `title` |
-| actions | (sr-only) | right | no | ⋯ menu |
+| actions | (sr-only) | right, fixed 60px | no | ⋯ menu |
 
+- **Width at 1024:** Miles fixed 96px; below 1280px Odometer and Notes collapse into a muted second line under Load. Same scrollable `role="region"` `tabIndex={0}` wrapper ("Mileage table") as the fallback.
 - **Default sort:** `entry_date` desc, tie-break `created_at` desc; URL `?sort=&dir=`. Same header button / `aria-sort` / live-region rules as 4.1.
 - **Footer row:** "N entries · {fmtMiles(total)}" for the visible rows.
-- **Delete away from Edit:** mileage has no Edit today, and this doc adds none (no feature changes). Delete leaves the always-visible row: on desktop it's the only item in the ⋯ menu (danger style); on cards (<1024) `EntryRow` gets a ⋯ button at the far right (44×44) with Delete inside, replacing the bare red button. Existing `window.confirm('Delete this entry?')` stays until `ConfirmButton` exists. If an Edit is added later, it becomes the first menu item.
+- **Delete away from Edit:** mileage has no Edit today, and this doc adds none (no feature changes). Delete leaves the always-visible row: on desktop it's the only item in the ⋯ menu (danger style); on cards (<1024) `EntryRow` gets a ⋯ button at the far right (44×44) with Delete inside, replacing the bare red button. Choosing Delete closes the menu and turns the row's actions into "Delete entry? **Cancel** / **Yes, delete**" with focus on Cancel; Esc/Cancel restores and returns focus to ⋯; after delete focus moves to the next row. This replaces `window.confirm('Delete this entry?')`. If an Edit is added later, it becomes the first menu item.
 
 **Acceptance criteria**
 - Same as 4.1 for layout, sort, URL and confirm; stats and totals values identical to today (no logic change).
@@ -186,13 +191,15 @@ UI only; queries, `SOURCES`, totals and RPM stay with Alex (section 4 handoff). 
 - [ ] Tablet 768: cards, stats 2-up, ⋯ menu works with touch.
 - [ ] Phone 375/390: list unchanged except ⋯ replaces Delete; menu does not clip off-screen at the right edge; sticky "Add miles" clears the tab bar.
 - [ ] Keyboard: headers sort, ⋯ opens/closes with Enter/Esc, focus returns; delete confirm via keyboard.
+- [ ] Delete from ⋯ → "Delete entry? Cancel / Yes, delete" with focus on Cancel; Esc restores and returns focus to ⋯.
+- [ ] Pacific user: entry dated 2026-10-12 shows Oct 12 at 1024, 1280 and on the phone card.
 - [ ] Totals on /mileage and the dashboard unchanged before/after (spot-check one week).
 
 ### 4.3 Mileage dropdowns: look enabled
 Cause: the mileage `st.input` (lib/mileage.js) sets no `background` or `color`, so Android Chrome and some desktop themes draw the native gray "disabled-looking" fill on `<select>` (Type, Load). The expenses `s.input` already sets `background: '#fff'`.
 
 One shared style for every `<select>` on Expenses and Mileage (Type, LoadPicker select, Expenses category/load/filter):
-- `background: '#fff'`, `color: '#111827'`, `border: '1px solid #9ca3af'` (3:1 against white, meets WCAG 1.4.11 for control boundaries; `#d1d5db` doesn't), radius 8, `fontSize: '1rem'` (prevents iOS zoom), `minHeight: 44`, `padding: '0.55rem 2.25rem 0.55rem 0.6rem'`.
+- `background: '#fff'`, `color: '#111827'`, `border: '1px solid #6b7280'` (≈4.8:1 against white, meets WCAG 1.4.11's 3:1 for control boundaries; `#9ca3af` is only ≈2.5:1 and `#d1d5db` less), `colorScheme: 'light'` (so a dark phone/OS theme can't render the native gray/dark select), radius 8, `fontSize: '1rem'` (prevents iOS zoom), `minHeight: 44`, `padding: '0.55rem 2.25rem 0.55rem 0.6rem'`.
 - `appearance: 'none'` / `WebkitAppearance: 'none'` with a chevron as an inline SVG data-URI `backgroundImage` (`#374151`, 12px, `backgroundPosition: 'right 0.75rem center'`, `backgroundRepeat: 'no-repeat'`).
 - Placeholder option ("No load", "All loads") shows in `#374151`, not gray-on-gray.
 - Focus: `globals.css` rule `select:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` (inline styles can't do `:focus-visible`).
@@ -202,7 +209,7 @@ One shared style for every `<select>` on Expenses and Mileage (Type, LoadPicker 
 **Acceptance criteria:** enabled selects are white with a dark chevron on Android Chrome, iOS Safari, desktop Chrome/Safari/Firefox; text contrast ≥ 4.5:1, border ≥ 3:1; visible focus ring on keyboard focus only; disabled clearly differs.
 
 **Test checklist**
-- [ ] Phone (Marc's Android + iPhone): Type and Load selects white, chevron visible, native picker still opens.
+- [ ] Phone with dark theme on (Marc's Android + iPhone): Type and Load selects stay white (`color-scheme: light`), chevron visible, native picker still opens.
 - [ ] Desktop 1280/1024 Chrome, Safari, Firefox: same look; dark-mode OS setting doesn't turn them gray.
 - [ ] Tablet: same.
 - [ ] Keyboard: Tab shows the blue ring; arrow keys change value; Space/Alt+↓ opens.
@@ -230,10 +237,20 @@ Empty states never show `$0.00` as if it were data (per the LoadExpenses rule). 
 - [ ] Keyboard: Tab to the action, Enter moves focus to the form field.
 
 ### 4.5 Receipt upload on desktop
-- Keep the current flow (pick via `UploadMenu` → convert/downscale → `/api/extract-receipt` auto-fill → saved on Save). It already starts reading immediately after the pick, so there's no extra Upload click to remove.
-- Desktop only: the receipt fieldset becomes a drop zone (dashed `#9ca3af` border, "Drop a receipt here or choose a file"), feeding the same `pickFile()`. Paste (Ctrl/Cmd+V of an image) feeds the same path.
-- Reuse section 3's progress row only for the actual storage upload on Save if Alex's signed-URL XHR helper lands; until then the existing "Reading receipt…" / Saving states stay. No change to receipt storage paths or the orphan cleanup in `submit()`/`remove()`.
-- Test: drag a JPG, HEIC and PDF at 1280 (PDF: saved, no AI, per section 5); keyboard path still via `UploadMenu`; phone flow unchanged.
+- Keep the current flow (pick via `UploadMenu` → convert/downscale → `/api/extract-receipt` auto-fill → saved on Save). It already starts reading right after the pick, so there's no extra Upload click to remove.
+- **Drop zone (≥1024):** the receipt fieldset gets a dashed `2px dashed #6b7280` outline, the text "Drop a receipt here", and a **real "Choose file" button inside the zone** (the existing `UploadMenu`), so the zone is never the only path. Drag-over state: `#2563eb` outline + `#eff6ff` fill.
+- **Same checks as upload for drop and paste**, run through one `acceptReceipt(file)` before `pickFile()`: PDF, JPEG, PNG, WebP or HEIC/HEIF only (by MIME and extension); **SVG rejected**; **10 MB max**; HEIC converted to JPEG and downscaled exactly as the picker path does; **one file at a time** (a multi-file drop/paste is rejected with "Drop one receipt at a time"). PDF is saved with no AI (section 5).
+- **Paste:** listens only while the receipt form is in use (focus is inside the expense form or the zone); takes the clipboard *file* only if it passes `acceptReceipt`; if the clipboard has no file (plain text) the handler returns without `preventDefault`, so pasting text into Vendor/Amount always works.
+- **Drops outside the zone:** while /expenses is mounted, `window` `dragover` and `drop` listeners call `preventDefault()` so a missed drop never opens the file in the browser tab (removed on unmount).
+- **Announcements:** an `aria-live="polite"` region in the fieldset announces "Receipt added: name.jpg, reading…", the auto-fill result, or the error ("That file type isn't supported", "File is over 10 MB").
+- Reuse section 3's progress row only if Alex's signed-URL XHR helper lands; no change to receipt storage paths or the orphan cleanup in `submit()`/`remove()`.
+- **Acceptance:** drop and paste behave identically to the picker for allowed files and reject the rest with an announced message; text paste unaffected; stray drops never navigate.
+- **Test checklist:**
+  - [ ] Desktop 1280/1024: drop JPG, PNG, WebP, HEIC (converted), PDF (no AI); drop SVG, a 12 MB JPG, and two files → each rejected with the right message.
+  - [ ] Drop a file on the nav/table (outside the zone): page doesn't navigate.
+  - [ ] Paste a screenshot with focus in the form → added; paste text into Vendor → text pastes; paste with focus outside the form → nothing happens.
+  - [ ] Keyboard: Tab to "Choose file" inside the zone; screen reader hears the live-region messages.
+  - [ ] Tablet/phone: no drop zone styling change; picker flow unchanged.
 
 ### 4.6 Dashboard weekly card wrapping at ~590px
 Ownership: Alex owns the data and label wording (section 4). This is the layout spec Casey proposes for it.
