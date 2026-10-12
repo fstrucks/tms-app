@@ -9,7 +9,7 @@
 
 **v1 (this doc)**
 - Vehicles: **trucks and trailers from day one.** Extend the existing `trucks` table and the `trailers` table Marc created on Oct 11 (already live, RLS set). Both get odometer/engine hours (reefer unit hours on trailers) and due dates.
-- `service_records`: date, odometer, engine hours, service type, free-text vendor, costs, and a linked scanned document.
+- `service_records`: date, odometer, engine hours, service type, free-text vendor, costs, and **multiple scanned documents / pages** (up to 10).
 - Scanned maintenance docs go through Alex's scanner. v1 only stores and links them; there's **no OCR prefill**.
 - Service costs flow into Expenses **exactly once**.
 - Per-vehicle due dates (DOT annual, registration, IRP, plate) are shown with a staged countdown badge (§6.1: OK → Due soon → Due today → Overdue with 5-day grace → Due now). **v1 sends no alerts.**
@@ -157,7 +157,7 @@ create table public.service_records (
   total numeric(12,2) not null check (total >= 0),
   downtime_days numeric(5,1) check (downtime_days >= 0),
   notes text,
-  document_id uuid unique references public.documents(id) on delete set null,
+  -- documents link back via documents.service_record_id (many per record, §2.4)
   expense_id uuid unique references public.expenses(id) on delete restrict,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -169,7 +169,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 - **Total:** the user enters `total`. When parts, labor or tax are given, the UI suggests their sum but doesn't force it, because invoices carry shop fees.
 - **`service_type`** is text with a loose format check. The preset list lives in JS (`app/lib/maintenance.js`, `SERVICE_TYPES`) so it's easy to extend without a migration: `oil, fuel_filter, air_filter, def_dpf, coolant, trans_diff_fluid, grease, brakes, tires, alignment, battery, ac, dot_annual, pm_a, pm_b, reefer_service, repair, other`. The UI shows labels and allows "other" plus a description. A strict DB enum is rejected, because Drew wants the list editable.
-- **One document per record** in v1 (`document_id unique`). Multiple attachments would need a join table in v2. That's an open question.
+- **Many documents per record (Marc, Oct 11):** normal services are 1–3 pages, so a record can have several files and/or multi-page scans. See §2.4.
 - Saving a `dot_annual` record (truck **or** trailer) offers to set that vehicle's `dot_annual_due` to `service_date + 12 months`. The user confirms; nothing is silently overwritten.
 - Saving a record with a higher `odometer` or `engine_hours` than the vehicle's current value offers to bump the vehicle's reading.
 
@@ -177,8 +177,21 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 - New `doc_type` values: `'maintenance_invoice'` and `'dot_inspection'`. There's no doc_type check constraint in the repo today (query 6 in §1 confirms prod). If Marc's schema has one, the migration extends it.
 - **Add `documents.trailer_id uuid` (nullable, FK `not valid` to `trailers`, `on delete set null`)** to mirror `documents.truck_id`, plus `check (num_nonnulls(truck_id, trailer_id) <= 1)`. This lets the vault (Alex) and the vehicle page list a unit's docs (DOT reports, registrations) even without a service record. `trailer_id` is added to the client insert/update column grants, with the same ownership check as `truck_id` (§4).
-- `documents.truck_id` gets an FK `not valid` to `trucks`. `service_records.document_id` stays the canonical record-to-doc link, and the RPC sets the doc's `truck_id`/`trailer_id` to match the record's vehicle.
-- Upload goes through Alex's scanner component (shared upload menu, type/size checks, HEIC conversion). v1 only stores the file and links it.
+- `documents.truck_id` gets an FK `not valid` to `trucks`. The RPC sets each attached doc's `truck_id`/`trailer_id` to match the record's vehicle.
+- **Multiple documents per record: decision is `documents.service_record_id` (FK) + `documents.page_order`, not a join table.**
+  ```sql
+  -- ILLUSTRATIVE (migration 0830)
+  alter table public.documents
+    add column service_record_id uuid references public.service_records(id) on delete cascade,
+    add column page_order smallint check (page_order between 1 and 10);
+  create unique index on public.documents (service_record_id, page_order) where service_record_id is not null;
+  ```
+  - *Why:* a scanned invoice page belongs to exactly one service record, and nothing in v1 shares a page between records. So the relationship is one-to-many, and a join table would add a third table plus its own RLS for no benefit. With the FK, ownership is one more `exists` in the documents policies (the record's `user_id = auth.uid()`, same shape as `load_id` in `0710`), and `on delete cascade` handles cleanup.
+  - *Writes:* `service_record_id`/`page_order` are **not** in the client column grants. Only `save_service_record` sets them (security invoker, so RLS still applies), passing the ordered `document_ids`. The documents policies also require the record to be owned by the caller.
+  - **Cap:** at most **10 documents per record** (enforced in the RPC and the UI). Each file uses the existing documents limits: 10 MB per file and the same allowed types as receipts (PDF, JPEG, PNG, HEIC → JPEG). A multi-page PDF counts as one document.
+  - The synced expense's `document_id` points at the first page (`page_order = 1`), so the Expenses list still shows a thumbnail. The other pages are reached from the record.
+- Upload goes through Alex's scanner component (shared upload menu, type/size checks, HEIC conversion). v1 only stores the files and links them.
+- **Form attachments:** an "Add pages" button opens the shared menu. **Camera multi-capture** lets the user take page after page and tap Done, or the **file picker** allows multi-select (`multiple`). Pages show as a thumbnail strip with a page number, **drag/arrow reorder** and **remove (×)**, plus an "N/10" counter, and the add button disables at 10. Each file uploads immediately with its own progress and retry. Saving waits for pending uploads. Files removed or abandoned before saving are deleted from storage and `documents` by the client (best effort; a v2 sweep cleans orphans with no record that are older than 24 h).
 - The Documents page (`app/documents/page.js`) currently lists rate cons. It should filter maintenance doc types out, or tab them, so the rate con flow is unchanged.
 
 ## 3. Costs flowing into Expenses (one source of truth)
@@ -186,15 +199,15 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 **Decision: the `expenses` row is the money record, and `service_records.expense_id` (unique) links to it.** The dashboard (`app/lib/dashboard.js` `aggregate()`) and per-load totals (`app/components/LoadExpenses.js`) keep summing **only `expenses`**. Nothing ever sums `service_records.total` into those numbers, so nothing can be counted twice.
 
 - **Decision (Marc, Oct 11): every service record ALWAYS creates an expense line**, for any maintenance on a truck or trailer, **including $0** (warranty or goodwill work), so it all shows up in reports. There is **no "don't add to expenses" option**.
-- Each service record owns **exactly one** expense: category `maintenance`, amount = `total` (may be `0.00`), `expense_date` = `service_date`, description `"{Truck|Trailer} {unit} · {service type} · {vendor}"`, `document_id` = the service record's document, and `load_id` = the record's `load_id`.
+- Each service record owns **exactly one** expense: category `maintenance`, amount = `total` (may be `0.00`), `expense_date` = `service_date`, description `"{Truck|Trailer} {unit} · {service type} · {vendor}"`, `document_id` = the record's first page (`page_order = 1`, or null if no docs), and `load_id` = the record's `load_id`.
 - **Optional load (Marc, Oct 11: yes, optional).** `service_records.load_id` is nullable and defaults to none; most records won't have one. When set, it's copied to the synced expense's `load_id`, so the cost counts in that load's net (`LoadExpenses`). Clearing it clears the expense's `load_id` too.
 - **$0 is allowed everywhere:** `service_records.total >= 0`, the existing `expenses_amount_nonneg` check from `0700` (`amount >= 0`), the RPC (rejects only null/negative/non-numeric totals) and the form (`min="0"`; the current Expenses validation `amount < 0` already accepts `0`). **`0700` does not block $0, so no migration change is needed.**
 - **How $0 lines show in reports:** they are listed like any other line, shown as `$0.00` with a small "No charge" tag (and "Warranty" when the service note or type says so). They add nothing to totals but do count in the record and expense counts, and they appear in the vehicle's history and the Expenses list, so the work is still tracked.
 - **No new columns on `expenses`.** We can tell an expense came from a service record with `exists (select 1 from service_records where expense_id = e.id)`. The expenses list shows a "From service record" tag and links to the record using that join (`expenses.select('..., service_records(id)')`).
 - **Linking an existing expense:** if Marc already logged the shop bill as an expense, he can pick it as the record's expense instead of creating a new one. The `unique` on `expense_id` guarantees one-to-one.
 - **Transactional writes through RPCs.** `security invoker`, so RLS applies, like `create_load_from_document` in `0450`:
-  - `save_service_record(p jsonb) returns uuid` takes **either** `truck_id` or `trailer_id` (exactly one, else it raises `22023`), checks the caller owns that vehicle, inserts or updates the record, upserts its expense (amount, including `0`, date, description, document, load), checks the optional `load_id` is a load the caller owns (`exists` on `loads` with `user_id = auth.uid()`, else it raises `42501`), and syncs the document's `truck_id`/`trailer_id`, all in one transaction. Moving a record to another unit (truck to trailer or vice versa) clears the old FK. The optional "bump reading" / "set DOT due" confirmations are applied to whichever table the vehicle is in.
-  - `delete_service_record(p_id uuid, p_keep_expense boolean default false)` deletes the record and, unless kept, its expense, in one transaction. It works the same for truck and trailer records. The vehicle row is never touched. A linked pre-existing expense defaults to kept, and the UI asks which the user wants.
+  - `save_service_record(p jsonb) returns uuid` takes **either** `truck_id` or `trailer_id` (exactly one, else it raises `22023`), checks the caller owns that vehicle, inserts or updates the record, upserts its expense (amount, including `0`, date, description, document, load), takes an ordered `document_ids uuid[]` (0–10; each must be the caller's, maintenance `doc_type`, and not attached to another record), sets their `service_record_id`/`page_order` and unlinks any removed ones, checks the optional `load_id` is a load the caller owns (`exists` on `loads` with `user_id = auth.uid()`, else it raises `42501`), and syncs the document's `truck_id`/`trailer_id`, all in one transaction. Moving a record to another unit (truck to trailer or vice versa) clears the old FK. The optional "bump reading" / "set DOT due" confirmations are applied to whichever table the vehicle is in.
+  - `delete_service_record(p_id uuid, p_keep_expense boolean default false)` deletes the record and, unless kept, its expense, in one transaction. The attached `documents` rows go via cascade. The RPC returns their `file_path`s so the client can remove the storage objects, and the orphan sweep catches failures. It works the same for truck and trailer records. The vehicle row is never touched. A linked pre-existing expense defaults to kept, and the UI asks which the user wants.
 - **Guard against drift:** a trigger on `expenses` rejects `update`/`delete` of a linked expense unless `current_setting('app.service_record_sync', true) = 'on'`. The RPCs set that flag with `set_config(..., true)`, which is transaction-local. The Expenses page shows linked rows read-only with "Edit in Maintenance". The `on delete restrict` on `expense_id` is a second guard.
 - **Existing constraints** in `0700` (`expenses_amount_nonneg`: `amount >= 0`, category list including `maintenance`, date present) are already satisfied, including for $0 records.
 
@@ -213,7 +226,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 ## 5. Storage
 
-Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{ts}-{safeName}` (for example `{uid}/maintenance/trailer/9f2c…/1760300000-invoice.pdf`). The unit segment is only for browsing and cleanup; the DB FKs are authoritative. That already satisfies `documents_insert_own` (`split_part(file_path,'/',1) = uid`) and the bucket policies in `20261010000000_documents_bucket.sql`, so no storage policy changes are needed. Allowed types and the 10 MB limit are unchanged (`0000`, `0300`). After company accounts, these become `{company_id}/{uid}/maintenance/...`.
+Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{batch_id}/{nn}-{ts}-{safeName}`, where `batch_id` is a client UUID per form session (the record id isn't known before the first save) and `nn` is the capture order. For example: `{uid}/maintenance/trailer/9f2c…/b71e…/02-1760300000-page.jpg`. Display order comes from `page_order`, not the path. The unit segment is only for browsing and cleanup; the DB FKs are authoritative. That already satisfies `documents_insert_own` (`split_part(file_path,'/',1) = uid`) and the bucket policies in `20261010000000_documents_bucket.sql`, so no storage policy changes are needed. Allowed types and the 10 MB limit are unchanged (`0000`, `0300`). After company accounts, these become `{company_id}/{uid}/maintenance/...`.
 
 *Cost per mile (v2 note):* sum the vehicle's maintenance totals for the period and divide by its miles for that period. Odometer deltas from `service_records` or vehicle readings work for this, since `mileage_entries` has no `truck_id`. For trailers it's per hub mile if hub readings are entered, otherwise per load mile. There's nothing to build in v1.
 
@@ -249,6 +262,7 @@ Starting 30 days before the due date, a soft nudge shows a **live countdown** ("
 ## 7. Scanner and extraction
 
 - v1 uses Alex's scanner for capture and upload only. It does **not** call `/api/extract`, so there's no `extraction_runs` change in v1.
+- **Multi-page extraction (v2): one extraction run per service record over all its pages (in `page_order`), counted once against the receipt limit (30/day, 150/month).** *Why:* invoice data spans pages (line items on page 1, total and tax on page 2/3), so per-page runs would return partial or conflicting totals and need a merge step. They would also burn up to 10× the limit for one bill. The run claims one slot with `p_kind = 'maintenance_invoice'`, which shares the receipt counters, and sends all pages (max 10, images downscaled, PDF pages rasterized) in one model call. If it fails, the slot is refunded, as today.
 - v2 OCR prefill adds `DOC_TYPES.maintenance_invoice` (vendor, date, odometer, line items, total) in `app/lib/ai-extract.js`, adds `'maintenance_invoice'` to `extraction_runs_kind_check` (`0730`), and adds a limit branch in `claim_extraction_slot`.
 
 ## 8. Migrations (numbered after `20261010000730_extraction_runs_kind.sql`)
@@ -258,7 +272,7 @@ Starting 30 days before the due date, a soft nudge shows a **live countdown** ("
 | 1 | `20261012000800_trucks_extend.sql` | create `trucks` if missing; `add column if not exists` for §2.1; checks `not valid`; indexes; RLS reset; `updated_at` trigger | drop added columns and constraints (only the ones we added) |
 | 2 | `20261012000810_trailers_extend.sql` | **no create**: `add column if not exists` for §2.2; checks `not valid`; indexes `if not exists`; add the `user_id` default/FK and the `updated_at` trigger only if missing; RLS untouched | drop only the columns, constraints and indexes we added (never the table) |
 | 3 | `20261012000820_documents_vehicle_fks.sql` | `documents.truck_id` FK to trucks; add `documents.trailer_id` + FK to trailers (`not valid`, then validate) + the at-most-one check; grants; insert/update policies add the truck and trailer ownership checks | drop the FKs and `trailer_id`; restore the `0710`/`0400` policies |
-| 4 | `20261012000830_service_records.sql` | table, constraints, indexes, RLS, grants | `drop table service_records` |
+| 4 | `20261012000830_service_records.sql` | table, constraints, indexes, RLS, grants; `documents.service_record_id` + `page_order` + unique index; documents policies add the record ownership check | drop the documents columns, then `drop table service_records` |
 | 5 | `20261012000840_service_record_rpcs.sql` | `save_service_record` (truck or trailer), `delete_service_record`, the linked-expense guard trigger on `expenses` | drop functions and trigger |
 
 Each file is idempotent, like the existing ones, with a commented rollback block. Marc runs them in the SQL editor after Taylor reviews.
@@ -275,12 +289,15 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 ## 10. Test plan
 
 - **Isolation** (user A vs. B, SQL with `request.jwt.claims` plus API checks): B can't select, update or delete A's trucks, trailers or service records. B can't create a service record pointing at A's truck, trailer, document or expense. B can't set `documents.truck_id` / `trailer_id` to A's truck or trailer. The RPCs reject foreign ids.
+- **Multiple documents:** attach 3 pages and reorder (page_order 1–3 persists); remove one (unlinked and its file deleted); an 11th file is rejected by the UI and the RPC; a file over 10 MB is rejected; attaching user B's doc or a doc already on another record fails; a direct client update of `service_record_id` is denied; deleting a record cascades its document rows and the RPC returns the file paths; camera multi-capture on iPhone and Android; a multi-page PDF counts as one document.
+- **Multi-page extraction (v2):** a 3-page invoice uses exactly one slot and one run, and its totals come from the last page; a failure refunds the slot.
 - **Constraints:** a record with both or neither of truck/trailer fails (direct and via the RPC). Moving a record from a truck to a trailer clears `truck_id`. A trailer with records can't be deleted. Migration 2 runs cleanly on Marc's existing trailer rows and leaves his RLS policies unchanged. Bad VIN, negative amounts, and a duplicate unit number per user all fail.
 - **No double counting:**
   - Create a $500 record. Exactly one maintenance expense of $500 exists, and the dashboard's weekly maintenance total and expenseTotal go up by $500, not $1,000.
   - Edit the total to $450 and change the date. The expense follows and the dashboard reflects it.
   - Delete the record. The expense is gone. For a linked existing expense, unlink keeps it.
   - Editing or deleting a linked expense directly fails.
+  - A record with 3 pages creates one expense whose `document_id` is page 1.
   - A charged-to-load record shows once in that load's net (`LoadExpenses`). Clearing the load removes it from that load.
   - A $0 warranty record creates one $0.00 expense line, shows "No charge", and leaves totals unchanged.
   - The RPC rejects a `load_id` owned by another user.
@@ -288,7 +305,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Due stages:** unit tests for `dueStage` at `d = 31` (ok), `30` (soon), `15` (soon), `14` (near), `1` (near, "Due tomorrow"), `0` (today), `−1` (grace, 4 days left), `−5` (grace, last day), `−6` (now), and null (none). Also: a local-midnight rollover (11:59 PM → 12:00 AM local changes the stage), a DST transition day, a user in UTC−7 at 10 PM local (still "today" locally even though UTC is the next day), the worst-badge ordering, and a check that every stage has a unique label and icon (not color alone). The `dot_annual` record's +12 months suggestion, including Feb 29.
 - **Engine hours:** saved on records and vehicles. The "bump vehicle reading" suggestion appears only when the new value is higher.
 - **Trailers end to end:** add a reefer trailer, log a $300 reefer service with hours, see one expense "Trailer TR-12 · …", the doc at `{uid}/maintenance/trailer/{id}/…`, and a DOT badge on the trailer.
-- **Scanner:** upload PDF, JPEG and HEIC from Android and iPhone through the shared menu. The file lands at `{uid}/maintenance/{truck|trailer}/{id}/...` with `doc_type='maintenance_invoice'`, links to the record, and opens via a signed URL. The Documents page's rate con list is unchanged.
+- **Scanner:** upload PDF, JPEG and HEIC from Android and iPhone through the shared menu. The files land at `{uid}/maintenance/{truck|trailer}/{id}/{batch}/...` with `doc_type='maintenance_invoice'`, links to the record, and opens via a signed URL. The Documents page's rate con list is unchanged.
 - **Mobile:** forms at 360 px, 44 px targets, numeric keyboards for odometer, hours and amounts.
 - **Regression:** rate con upload and extraction, receipt auto-fill, expenses CRUD, mileage and `rate_per_mile`, dashboard totals unchanged for weeks without service records, and the loads list.
 
@@ -298,6 +315,5 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 
 ## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
-2. Is one scanned document per service record enough, or do you need several (invoice plus inspection report)?
-3. Should a sold or out-of-service vehicle's history stay visible?
-4. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
+2. Should a sold or out-of-service vehicle's history stay visible?
+3. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
