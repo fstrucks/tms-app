@@ -7,7 +7,7 @@ import { fmtMoney, fmtPerMile } from '../lib/money';
 import { fetchPaged, buildWeeks, localISO, aggregate, summarize, REVENUE_RULE } from '../lib/dashboard';
 
 const s = {
-  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 960, margin: '0 auto' },
+  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' },
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' },
   row: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.88rem', padding: '0.15rem 0' },

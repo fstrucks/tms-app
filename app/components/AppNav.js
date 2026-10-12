@@ -3,11 +3,13 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import AccountMenu from './ui/AccountMenu';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
   { href: '/dashboard', label: 'Dashboard', short: 'Stats', icon: '📊', match: (p) => p.startsWith('/dashboard') },
   { href: '/loads', label: 'Loads', icon: '🚚', match: (p) => p.startsWith('/loads') },
+  // TODO(pick 6, open): "Documents" on desktop vs "Docs" everywhere. Keeping "Docs" until Marc decides.
   { href: '/documents', label: 'Docs', icon: '📄', match: (p) => p.startsWith('/documents') },
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
   { href: '/mileage', label: 'Mileage', icon: '🛣️', match: (p) => p.startsWith('/mileage') },
@@ -16,8 +18,10 @@ const HIDDEN = (p) => p.startsWith('/login');
 
 const blue = '#2563eb';
 
-// One shared nav, rendered once from app/layout.js. Desktop: header links. Phones (<=640px): bottom tab bar.
-// Which one shows is decided by the .appnav-top / .appnav-bottom media query in globals.css.
+// One shared nav, rendered once from app/layout.js.
+//   >= 768px: top nav (brand, tabs, account menu).
+//   <  768px: slim top bar (brand + account menu) and the bottom tab bar.
+// Which one shows is decided by the .appnav-top / .appnav-mtop / .appnav-bottom media queries in globals.css (CSS only).
 export default function AppNav() {
   const pathname = usePathname() || '/';
   const hidden = HIDDEN(pathname);
@@ -44,19 +48,27 @@ export default function AppNav() {
   return (
     <>
       <header className="appnav-top" style={{ borderBottom: '1px solid #e5e7eb', background: '#fff', position: 'sticky', top: 0, zIndex: 40 }}>
-        <nav aria-label="Main" style={{ maxWidth: 960, margin: '0 auto', padding: '0 1rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontFamily: 'system-ui' }}>
+        <nav aria-label="Main" style={{ maxWidth: 1120, margin: '0 auto', padding: '0 var(--gutter)', minHeight: 56, display: 'flex', alignItems: 'center', gap: '0.25rem', fontFamily: 'system-ui' }}>
           <Link href="/" style={{ fontWeight: 700, color: '#111827', textDecoration: 'none', marginRight: '1rem', padding: '0.75rem 0', whiteSpace: 'nowrap', flexShrink: 0 }}>PowerHaul TMS</Link>
           {TABS.slice(1).map((t) => {
             const active = t.match(pathname);
             return (
               <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined}
-                style={{ display: 'inline-flex', alignItems: 'center', minHeight: 48, padding: '0 0.8rem', textDecoration: 'none',
+                style={{ display: 'inline-flex', alignItems: 'center', minHeight: 48, padding: '0 0.75rem', fontSize: '0.9375rem', textDecoration: 'none',
                   color: active ? blue : '#374151', fontWeight: active ? 600 : 400, borderBottom: `2px solid ${active ? blue : 'transparent'}` }}>
                 {t.label}
               </Link>
             );
           })}
+          <div style={{ marginLeft: 'auto' }}><AccountMenu showEmail /></div>
         </nav>
+      </header>
+
+      <header className="appnav-mtop" style={{ borderBottom: '1px solid #e5e7eb', background: '#fff', position: 'sticky', top: 0, zIndex: 40 }}>
+        <div style={{ minHeight: 48, padding: '0 0.5rem 0 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'system-ui' }}>
+          <Link href="/" style={{ fontWeight: 700, color: '#111827', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>PowerHaul TMS</Link>
+          <AccountMenu />
+        </div>
       </header>
 
       <nav className="appnav-bottom" aria-label="Main"

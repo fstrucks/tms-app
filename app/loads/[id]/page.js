@@ -7,6 +7,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import LoadMileage from '../../components/LoadMileage';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
+import { useLoads } from '../LoadsData';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
@@ -23,6 +24,7 @@ const s = {
 export default function LoadDetailPage() {
   const { id } = useParams();
   const supabase = getSupabase();
+  const list = useLoads(); // shared list (desktop left pane); kept in sync on status change
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [load, setLoad] = useState(null);
@@ -60,10 +62,11 @@ export default function LoadDetailPage() {
   async function changeStatus(status) {
     const prev = load.status;
     setLoad({ ...load, status });
+    list?.patchLoad(id, { status });
     setSaving(true);
     try {
       const { error } = await supabase.from('loads').update({ status }).eq('id', id);
-      if (error) { setLoad((l) => ({ ...l, status: prev })); console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
+      if (error) { setLoad((l) => ({ ...l, status: prev })); list?.patchLoad(id, { status: prev }); console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
     } finally {
       setSaving(false);
     }

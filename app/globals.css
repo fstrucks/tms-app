@@ -15,17 +15,46 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="h
 button[data-compact] { min-height: 36px; }
 button { touch-action: manipulation; }
 
-/* Shared nav: header on desktop, bottom tab bar on phones. --nav-h lets sticky actions sit above the bar. */
+/* Layout tokens. Breakpoints: 640 / 1024 (layout), 768 (nav only). max-width rules use .98 so
+   exactly one rule set applies at 640 / 768 / 1024. */
+:root { --gutter: 16px; }
+@media (min-width: 640px) { :root { --gutter: 24px; } }
+@media (min-width: 1024px) { :root { --gutter: 32px; } }
+
+/* Shell container (pick 1A): content centered, max 1120px. Pages keep their own inner padding. */
+.app-container { max-width: 1120px; margin: 0 auto; }
+
+/* CSS-only switches (no JS width checks, no flash). The hidden copy is display:none, so
+   screen readers and the tab order skip it. */
+.only-desktop { display: none !important; }
+@media (min-width: 1024px) {
+  .only-desktop { display: revert !important; }
+  .only-mobile { display: none !important; }
+}
+
+/* Loads list + detail split at >= 1024px (pick 2A). Below 1024 the aside is hidden and pages behave as before. */
+.loads-aside { display: none; }
+@media (min-width: 1024px) {
+  .loads-split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; padding: 0 var(--gutter); align-items: start; }
+  .loads-aside { display: block; position: sticky; top: 56px; max-height: calc(100vh - 56px); overflow-y: auto; padding: 1rem 0; }
+}
+
+/* Shared nav: top nav at >= 768px; slim top bar + bottom tab bar below. --nav-h lets sticky
+   actions sit above the bottom bar. */
 :root { --nav-h: 0px; }
 .appnav-bottom { display: none; }
-@media (max-width: 640px) {
+.appnav-mtop { display: none; }
+@media (max-width: 767.98px) {
   :root { --nav-h: 60px; }
   .appnav-top { display: none !important; }
+  .appnav-mtop { display: block !important; }
   .appnav-bottom { display: flex !important; }
   body.has-appnav { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
 }
 /* While typing on a phone, hide the tab bar so the keyboard + sticky Save have the room. */
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   body.kbd-open { --nav-h: 0px; }
   body.kbd-open .appnav-bottom { display: none !important; }
 }
+/* Account email next to the avatar only on wide screens. */
+@media (max-width: 1023.98px) { .account-email { display: none; } }
