@@ -107,7 +107,7 @@ The trucks design below assumes nothing. It says **"add if missing"**, and the f
 | notes | text | |
 | created_at, updated_at | timestamptz | reuse `set_updated_at()` from `0400` |
 
-Indexes: `unique (user_id, unit_number) where status <> 'sold'` (a sold unit's number can be reused), `unique (user_id, vin) where vin is not null`, `(user_id, status)`. New checks are added `not valid` so existing rows don't block the migration.
+Indexes: `unique (user_id, unit_number) where status <> 'sold'` (a sold unit's number can be reused: **confirmed by Marc, Oct 11**; see §6.3), `unique (user_id, vin) where vin is not null`, `(user_id, status)`. New checks are added `not valid` so existing rows don't block the migration.
 
 ### 2.2 `trailers`: EXISTS. Add maintenance columns only (PROPOSED)
 
@@ -286,8 +286,33 @@ Applies to trucks and trailers alike.
 - **Archive view:** `/maintenance?view=archive` (an "Archive (N)" link under the list) lists sold trucks and trailers. Opening one shows its details and history read-only: no add or edit of records, and no document upload.
 - **Mark as sold:** a "Mark as sold" action asks for the sale date (default today, local), then sets `status='sold'` and `sold_at`. **Restore** sets `status='active'` and clears `sold_at`. If an active unit now uses the same unit number, Restore asks for a new number (the partial unique index enforces this).
 - **Enforcement:** the RPC rejects saving or deleting service records on a sold vehicle (`22023 vehicle is sold`). Pickers query `status <> 'sold'`, so the "Load (optional)" picker is unaffected.
-- **Retention:** records for sold vehicles are kept **at least 3 years** after `sold_at` (*proposed, pending Marc's confirmation*). Basis: FMCSA 49 CFR 396.3(c) requires maintenance records to be kept for 18 months after the vehicle leaves the carrier's control, and the IRS generally expects about 3 years of expense records, so 3 years covers both. **v1 never auto-deletes.** A vehicle with service records can't be deleted at all (`on delete restrict`, and the UI offers "Mark as sold" instead of Delete). Any purge policy is a later decision.
+- **Retention:** records for sold vehicles are kept **at least 3 years** after `sold_at` (*proposed, pending Marc's confirmation*). Basis: FMCSA [49 CFR 396.3(c)](https://www.law.cornell.edu/cfr/text/49/396.3) requires maintenance records to be kept where the vehicle is housed or maintained for 1 year, and for 6 months after the vehicle leaves the carrier's control. The IRS generally expects about 3 years of expense records, so 3 years covers both with margin. **v1 never auto-deletes.** A vehicle with service records can't be deleted at all (`on delete restrict`, and the UI offers "Mark as sold" instead of Delete). Any purge policy is a later decision.
 - **Reports:** expenses from sold vehicles' service records **still count** in the dashboard, Expenses and per-load totals. Those sum `expenses`, which status never touches. Expense lines keep their "From service record" link, which opens the archived read-only record.
+
+### 6.3 Unit number reuse (confirmed: Marc, Oct 11)
+
+Reusing a unit number is common after a wreck, sale or replacement, and the app allows it. A number only has to be unique among the user's **non-sold** vehicles.
+
+**Research (Oct 11, 2026): no federal rule forbids reuse, but the VIN must be kept with the records, and some IRP states restrict it.**
+- **FMCSA marking, [49 CFR 390.21](https://www.law.cornell.edu/cfr/text/49/390.21):** requires the carrier's name and USDOT number on the power unit. Unit numbers aren't required ("other identifying information may be displayed"), so there's no reuse rule.
+- **Maintenance records, [49 CFR 396.3(b)(1)](https://www.law.cornell.edu/cfr/text/49/396.3):** records must identify the vehicle by "company number, if so marked, make, serial number, and year", plus who furnished it if it isn't carrier-owned. The serial number (VIN) is the durable identifier, and the unit number alone isn't enough. → **Requirement:** every service record shows and exports the vehicle's VIN, make, year and unit number. Because a vehicle's unit number can change, the **record stores a snapshot** of `unit_number`, `vin`, `make`, `model` and `year` at save time (`service_records.vehicle_snapshot jsonb`, set by `save_service_record`), and the FK still points at the live vehicle.
+- **ELD, [49 CFR 395.26](https://www.law.cornell.edu/cfr/text/49/395.26) + [Appendix A §7.4/7.5](https://eld-federal-requirements.readthedocs.io/en/master/7-data_elements_dictionary.html):** ELDs record "vehicle identification data". The "CMV Power Unit Number" is the carrier's own business identifier (1–10 characters, set by the carrier or driver), and the VIN, read from the ECM, is what "uniquely identifies the operated CMV". Reuse is allowed, but the ELD's unit-to-VIN mapping must be updated when a number moves to a new truck.
+- **IRP (apportioned plates / cab cards):** this is the one real restriction. Some base jurisdictions **don't allow a unit number to be reused within the same registration year** ([Illinois IRP instructions](https://www.ilsos.gov/publications/pdf_publications/cft_irp25_2025.pdf): "Unit numbers cannot be duplicated or reused during a registration year"). On a plate transfer, the added unit's number can't match the deleted unit's ([DC IRP manual](https://dmv.dc.gov/sites/default/files/dc/sites/dmv/publication/attachments/DC_IRP_Motor_Carrier_Manual_Nov2024.pdf)). Others require a unique number per listed vehicle ([Arizona](https://apps.azdot.gov/files/mvd/mvd-forms-lib/99-0149.pdf)), and transfers list both the old and new unit number plus VIN ([Wisconsin MV2914](https://wisconsindot.gov/Documents/formdocs/mv2914.pdf)). → The app warns about this but doesn't block it, because rules vary by base state.
+- **IFTA, PrePass, insurance:** I found no federal or industry rule against reuse. These are account setups keyed to the VIN and plate: PrePass has a truck-transfer form with the new truck number, VIN and registration, and insurance schedules list units by VIN. They just need updating.
+
+**UI: reminder checklist.** When saving a truck or trailer whose unit number **matches an archived (sold) unit**, or when **renumbering** an existing unit, a sheet shows "Unit #12 was used by a sold truck (VIN …8834, sold Mar 3). Update these so the old and new #12 don't get mixed up". The checklist items are tickable for the user's reference only and aren't stored in v1:
+- ELD unit number ↔ VIN
+- PrePass / Drivewyze / other bypass transponder
+- Insurance schedule (remove the old VIN, add the new one)
+- Fuel cards tied to unit number
+- IRP cab card / plate transfer and IFTA. Includes the warning: *"Some states (e.g. IL) don't allow reusing a unit number in the same IRP registration year. Check with your base state."*
+- Toll transponders (E-ZPass, PrePass Plus, BestPass)
+- Factoring, broker and shipper setups, and load board equipment profiles
+- Trailer-specific items: reefer telematics and trailer tracking
+
+It shows once per save, can be dismissed, and never blocks saving.
+
+**History displays VIN with the unit number.** Everywhere a vehicle appears in maintenance (lists, pickers, the history timeline, the Archive, expense descriptions and exports), the label is `#12 · …8834` (unit + last 4 of VIN, full VIN on the detail page). Each service record shows its snapshot, so the old #12's records still show the old VIN. When two vehicles share a unit number (one sold), the Archive and the "From service record" links show the VIN and `sold_at`, so they can't be confused. Because §396.3(b)(1) lists the serial number, a missing VIN on a truck or trailer shows a non-blocking "Add VIN, needed on maintenance records" prompt.
 
 ## 7. Scanner and extraction
 
@@ -303,7 +328,7 @@ Applies to trucks and trailers alike.
 | 2 | `20261012000810_trailers_extend.sql` | **no create**: `add column if not exists` for §2.2; checks `not valid`; indexes `if not exists`; add the `user_id` default/FK and the `updated_at` trigger only if missing; RLS untouched | drop only the columns, constraints and indexes we added (never the table) |
 | 3 | `20261012000820_documents_vehicle_fks.sql` | `documents.truck_id` (existing) FK to trucks; add `documents.trailer_id` + FK to trailers (`not valid`, then validate) + the at-most-one check; grants; insert/update policies add the truck and trailer ownership checks | drop the FKs and `trailer_id`; restore the `0710`/`0400` policies |
 | 4 | `20261012000830_service_records.sql` | table, constraints, indexes, RLS, grants; `documents.service_record_id` + `page_order` + unique index; documents policies add the record ownership check | drop the documents columns, then `drop table service_records` |
-| 5 | `20261012000840_service_record_rpcs.sql` | `save_service_record` (truck or trailer), `delete_service_record`, the linked-expense guard trigger on `expenses` | drop functions and trigger |
+| 5 | `20261012000840_service_record_rpcs.sql` | `save_service_record` (truck or trailer), `delete_service_record`, the `vehicle_snapshot` column (§6.3), the linked-expense guard trigger on `expenses` | drop functions and trigger |
 
 Each file is idempotent, like the existing ones, with a commented rollback block. Marc runs them in the SQL editor after Taylor reviews.
 
@@ -323,6 +348,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Multi-page extraction (v2):** a 3-page invoice uses exactly one slot and one run, and its totals come from the last page; a failure refunds the slot.
 - **Vehicle status:** an out-of-service unit appears in the list and pickers with the "Out of Service" tag, and its due badges still escalate. Marking a unit sold moves it to the Archive, hides it from pickers and makes its history read-only, while `sold_at` is required. The RPC rejects records on a sold unit. Restore returns the unit, prompting for a new number if it conflicts with an active unit. A unit number can be reused after a sale. Deleting a vehicle with records is blocked. Dashboard and Expenses totals are unchanged after marking a unit sold.
 - **Vehicle documents:** upload a title to a truck and a registration to a trailer; they appear in the Documents tab and the vault, at `{uid}/vehicles/{truck|trailer}/{id}/...`. A doc with both `truck_id` and `trailer_id` fails. Linking to user B's vehicle fails. View and delete work, and delete removes the storage object. For a sold unit the docs are read-only in the Archive and editable again after Restore. Rate cons and receipts are unaffected.
+- **Unit reuse:** creating a unit with a sold unit's number shows the checklist (including the IRP warning) and saves. Renumbering shows it too. Service records keep the old snapshot (VIN and unit) after renumbering. Labels show `#unit · …VIN4`. A missing VIN shows the prompt but doesn't block.
 - **Constraints:** a record with both or neither of truck/trailer fails (direct and via the RPC). Moving a record from a truck to a trailer clears `truck_id`. A trailer with records can't be deleted. Migration 2 runs cleanly on Marc's existing trailer rows and leaves his RLS policies unchanged. Bad VIN, negative amounts, and a duplicate unit number per user all fail.
 - **No double counting:**
   - Create a $500 record. Exactly one maintenance expense of $500 exists, and the dashboard's weekly maintenance total and expenseTotal go up by $500, not $1,000.
