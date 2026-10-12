@@ -273,7 +273,7 @@ Applies to trucks and trailers alike.
 - **Archive view:** `/maintenance?view=archive` (an "Archive (N)" link under the list) lists sold trucks and trailers. Opening one shows its details and history read-only: no add or edit of records, and no document upload.
 - **Mark as sold:** a "Mark as sold" action asks for the sale date (default today, local), then sets `status='sold'` and `sold_at`. **Restore** sets `status='active'` and clears `sold_at`. If an active unit now uses the same unit number, Restore asks for a new number (the partial unique index enforces this).
 - **Enforcement:** the RPC rejects saving or deleting service records on a sold vehicle (`22023 vehicle is sold`). Pickers query `status <> 'sold'`, so the "Load (optional)" picker is unaffected.
-- **Retention:** records for sold vehicles are kept **at least 2 years** after `sold_at`. **v1 never auto-deletes.** A vehicle with service records can't be deleted at all (`on delete restrict`, and the UI offers "Mark as sold" instead of Delete). Any purge policy is a later decision.
+- **Retention:** records for sold vehicles are kept **at least 3 years** after `sold_at` (*proposed, pending Marc's confirmation*). Basis: FMCSA 49 CFR 396.3(c) requires maintenance records to be kept for 18 months after the vehicle leaves the carrier's control, and the IRS generally expects about 3 years of expense records, so 3 years covers both. **v1 never auto-deletes.** A vehicle with service records can't be deleted at all (`on delete restrict`, and the UI offers "Mark as sold" instead of Delete). Any purge policy is a later decision.
 - **Reports:** expenses from sold vehicles' service records **still count** in the dashboard, Expenses and per-load totals. Those sum `expenses`, which status never touches. Expense lines keep their "From service record" link, which opens the archived read-only record.
 
 ## 7. Scanner and extraction
@@ -334,3 +334,4 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 ## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
 2. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
+3. Retention for sold vehicles: is **3 years after `sold_at`** OK (§6.2; covers the FMCSA 18-month minimum and the IRS ~3 years)? Nothing is auto-deleted in v1 either way.
