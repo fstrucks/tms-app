@@ -158,7 +158,7 @@ Cross-cutting rules for these pages (agreed now):
 - Table: actions cell is Receipt + **⋯ menu** (44×44, `aria-label="More actions for {category} {amount} on {date}"`, `aria-haspopup="menu"`). Menu items: Edit, View receipt (if any), a divider, **Delete** in danger style (`color: '#b91c1c'`). Menu keyboard matches `UploadMenu` (Esc, arrows, Home/End, close on focus-out, focus returns to the ⋯ button).
 - Mobile/tablet cards: the row becomes `Edit` (primary) + `Receipt` on the left, and Delete is removed from the card row; it lives in the **edit form** only.
 - Edit form (all sizes): when editing, the bottom bar shows **Delete bottom-left** (danger outline: `border: '1px solid #fecaca', color: '#b91c1c', background: '#fff'`), Cancel edit and **Save bottom-right**. ≥24px between Delete and any other button.
-- Confirm: choosing **Delete** in the ⋯ menu closes the menu and turns that row's actions cell into an inline confirm: "Delete expense? **Cancel** / **Yes, delete**" (Yes in danger style), with **focus on Cancel**. Esc or Cancel restores the actions and returns focus to the row's ⋯ button. The same inline confirm is used for Delete in the edit form. This is the `ConfirmButton` pattern from section 2 and **replaces `window.confirm('Delete this expense?')`** (today's confirm); if the shell PR hasn't shipped `ConfirmButton` yet, the page builds the same two-step locally rather than keeping `window.confirm`. after delete, focus moves to the next row (or the list heading) and the status line says "Expense deleted." The receipt-cleanup logic in `remove()` is unchanged.
+- Confirm: choosing **Delete** in the ⋯ menu closes the menu and turns that row's actions cell into an inline confirm: "Delete expense? **Cancel** / **Yes, delete**" (Yes in danger style), with **focus on Cancel**. Esc or Cancel restores the actions and returns focus to the row's ⋯ button. The same inline confirm is used for Delete in the edit form. This is the `ConfirmButton` pattern from section 2 and **replaces `window.confirm('Delete this expense?')`** (today's confirm); if the shell PR hasn't shipped `ConfirmButton` yet, the page builds the same two-step locally rather than keeping `window.confirm`. After delete, focus moves to the next row (or the list heading) and the status line says "Expense deleted." The receipt-cleanup logic in `remove()` is unchanged.
 
 **Acceptance criteria**
 - At 1280 and 1024: form left + table right, no horizontal page scroll; every column header sorts; URL reflects sort and survives refresh; `?load=` still filters.
@@ -171,6 +171,7 @@ Cross-cutting rules for these pages (agreed now):
 - [ ] Desktop 1024: same as above; long vendor text ellipsizes, tooltip shows full text; the form stays sticky while scrolling the list.
 - [ ] Tablet (768, portrait iPad 820): single column, cards, Edit/Receipt on the card, Delete only inside the edit form.
 - [ ] Phone (375 and 390, Android Chrome + iOS Safari): unchanged card list; sticky Save still clears the bottom tab bar; Delete in edit form confirms and returns focus.
+- [ ] Narrow tablet (~700px): sticky Save bar clears the bottom tabs; the ⋯ menu isn't clipped at the right edge.
 - [ ] Keyboard only: Tab to headers, Enter/Space sorts, screen reader reads `aria-sort`; open ⋯ with Enter, arrow to Delete, Esc closes and returns focus; delete via keyboard and confirm.
 - [ ] Cancelling the confirm leaves the row and the receipt intact; Delete from ⋯ → focus on Cancel; Esc returns focus to ⋯.
 - [ ] 1024 exactly: form is 340px, Category shows under Vendor, no page-level horizontal scroll; at 200% zoom the table region scrolls sideways and is reachable with Tab + arrows.
@@ -204,6 +205,7 @@ UI only; queries, `SOURCES`, totals and RPM stay with Alex (section 4 handoff). 
 **Test checklist**
 - [ ] Desktop 1280 / 1024: sort Date, Type, Miles, Load both ways; reload keeps sort; odometer entries show start → end.
 - [ ] Tablet 768: cards, stats 2-up, ⋯ menu works with touch.
+- [ ] Narrow tablet (~700px): sticky "Add miles" clears the bottom tabs; the ⋯ menu isn't clipped at the right edge.
 - [ ] Phone 375/390: list unchanged except ⋯ replaces Delete; menu does not clip off-screen at the right edge; sticky "Add miles" clears the tab bar.
 - [ ] Keyboard: headers sort, ⋯ opens/closes with Enter/Esc, focus returns; delete confirm via keyboard.
 - [ ] Delete from ⋯ → "Delete entry? Cancel / Yes, delete" with focus on Cancel; Esc restores and returns focus to ⋯.
