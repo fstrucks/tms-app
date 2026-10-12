@@ -261,3 +261,19 @@ test('decodeGuarded: <= 3000 decoded as-is; unknown size portrait redoes by heig
   const b2 = await decodeGuarded(null, null, { cib: u.cib, drawDown });
   assert.deepEqual([b2.width, b2.height], [2250, 3000]); assert.equal(u.calls.length, 2);
 });
+
+import { heicFallbackAllowed, SIZE_MARGIN } from '../../app/lib/scan.js';
+test('heicFallbackAllowed: refuses > 16.7 MP (48 MP HEIC), allows 12 MP and unknown', () => {
+  assert.equal(heicFallbackAllowed({ width: 8064, height: 6048 }), false);
+  assert.equal(heicFallbackAllowed({ width: 4032, height: 3024 }), true);
+  assert.equal(heicFallbackAllowed(null), true);
+});
+test('nextSizeStep: 1.3x and 1.4x over try q0.45 before 1400px; order kept on failure', async () => {
+  assert.equal(SIZE_MARGIN, 1);
+  assert.equal(nextSizeStep(1400, 0, { maxBytes: 1000 }), 2);
+  assert.equal(nextSizeStep(1300, 0, { maxBytes: 1000 }), 2);
+  assert.equal(nextSizeStep(1500, 0, { maxBytes: 1000 }), 3);
+  const seen = []; const f = fakeSize((s) => (s.maxW === 1400 ? 800 : 1400));
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i) => seen.push(i) });
+  assert.deepEqual(seen, [0, 2, 3]); assert.equal(r.ok, true);
+});

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
+import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
@@ -100,7 +100,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     setMsg(null);
     let list = files, capped = 0;
     if (replaceAt == null) { const c = capPages(pagesRef.current.length, files); list = c.accepted; capped = c.rejected; }
-    const added = [], failed = [];
+    const added = [], failed = [], tooLarge = [];
     for (let i = 0; i < list.length; i++) {
       setBusy(`Processing photo ${i + 1} of ${list.length}…`);
       try {
@@ -111,6 +111,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         added.push(page);
       } catch (e) {
         console.error('[scan] photo', e);
+        if (e?.message === TOO_LARGE) { tooLarge.push(list[i].name || 'photo'); continue; }
         failed.push(`${list[i].name || 'photo'} (${e.message?.endsWith('.') ? e.message.slice(0, -1) : 'try JPEG or PNG'})`);
       }
     }
@@ -127,9 +128,10 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     if (added.length) notes.push(`${added.length} page${added.length > 1 ? 's' : ''} ${replaceAt != null ? 'replaced' : 'added'}.`);
     if (capped) notes.push(`Limit reached: a scan can have at most ${MAX_PAGES} pages, so ${capped} photo${capped > 1 ? 's were' : ' was'} not added. Save this PDF and start another scan for the rest.`);
     if (failed.length) notes.push(`Couldn't read ${failed.join(', ')}.`);
+    if (tooLarge.length) notes.push(`${tooLarge.length > 1 ? `${tooLarge.join(', ')}: these photos are too large.` : 'This photo is too large.'} Set the camera to 12 MP or take a screenshot.`);
     const firstWeak = next.findIndex((p) => added.includes(p) && !p.detected);
     if (firstWeak >= 0) notes.push("Couldn't find clear page edges, so the full photo is kept. Drag the corners to crop, or tap \"Use full photo\".");
-    if (notes.length) setMsg({ err: !!(capped || failed.length), text: notes.join(' ') });
+    if (notes.length) setMsg({ err: !!(capped || failed.length || tooLarge.length), text: notes.join(' ') });
     if (firstWeak >= 0) setEditing(firstWeak);
   }
 

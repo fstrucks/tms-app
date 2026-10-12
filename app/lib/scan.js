@@ -227,7 +227,7 @@ export const SIZE_STEPS = [
   // factor: measured size relative to step 0 on a 20-page fake document
   { quality: JPEG_QUALITY, maxW: PAGE_MAX_WIDTH, factor: 1 },
   { quality: 0.55, maxW: PAGE_MAX_WIDTH, factor: 0.81 },
-  { quality: 0.45, maxW: PAGE_MAX_WIDTH, factor: 0.72 },
+  { quality: 0.45, maxW: PAGE_MAX_WIDTH, factor: 0.7 },
   { quality: 0.45, maxW: 1400, factor: 0.5 },
 ];
 
@@ -294,6 +294,11 @@ export async function decodeGuarded(blob, size, { cib, drawDown, close = (b) => 
   throw new Error(TOO_LARGE);
 }
 
+// heic2any renders at full size: only allowed when the header size is unknown or under the canvas limit.
+export function heicFallbackAllowed(size, canvasMax = CANVAS_MAX_PIXELS) {
+  return !size || size.width * size.height <= canvasMax;
+}
+
 // Cheap header probe: JPEG (SOFn + EXIF orientation), PNG (IHDR), HEIC/HEIF (largest ispe + irot).
 // bytes: Uint8Array of the start of the file (256 KB is plenty). Returns oriented { width, height } or null.
 export function probeImageSize(b) {
@@ -345,9 +350,11 @@ export function probeImageSize(b) {
 }
 
 // Pick the next size step to try after attempt `from` produced `size` bytes, using each step's
-// estimated size factor (relative to step 0), with a 5% margin. Falls back to the next step.
+// estimated size factor (relative to step 0). Falls back to the next step.
+// Estimates may land slightly over; the next step is still tried if they do, so no extra margin.
+export const SIZE_MARGIN = 1.0;
 export function nextSizeStep(size, from, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, base = size / (steps[from].factor || 1) } = {}) {
-  for (let j = from + 1; j < steps.length; j++) if (base * steps[j].factor <= maxBytes * 0.95) return j;
+  for (let j = from + 1; j < steps.length; j++) if (base * steps[j].factor <= maxBytes * SIZE_MARGIN) return j;
   return steps.length - 1 > from ? steps.length - 1 : -1;
 }
 

@@ -2,7 +2,7 @@
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
 // Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
 // Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
-import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, decodeGuarded, TOO_LARGE, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
+import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, decodeGuarded, TOO_LARGE, heicFallbackAllowed, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
 const DETECT_MAX = 400; // edge detection runs on a small copy
 
@@ -62,6 +62,8 @@ async function openPhoto(file) {
       try { const bmp = await createImageBitmap(img); return { src: file, size: { width: bmp.width, height: bmp.height }, bmp }; } finally { img.src = ''; }
     }
   }
+  // heic2any draws a full-size canvas: refuse anything over the iOS canvas limit up front.
+  if (!heicFallbackAllowed(size)) throw new Error(TOO_LARGE);
   const { default: heic2any } = await import('heic2any');
   const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
   const jpg = Array.isArray(out) ? out[0] : out;
