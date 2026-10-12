@@ -14,7 +14,7 @@ const s = {
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [usePw, setUsePw] = useState(false);
+  const [usePw, setUsePw] = useState(true);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
@@ -78,6 +78,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)} style={s.input} />
               </>
             )}
+            {error && <p role="alert" style={{ color: '#b91c1c' }}>{error}</p>}
             <button type="submit" disabled={sending || !email || (usePw && !password)} style={{ ...s.btn, opacity: sending || !email || (usePw && !password) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
             </button>
@@ -85,7 +86,6 @@ export default function LoginPage() {
               style={{ background: 'none', border: 'none', color: '#2563eb', marginTop: '0.75rem', padding: '0.5rem 0', minHeight: 44 }}>
               {usePw ? 'Email me a sign-in link instead' : 'Sign in with a password instead'}
             </button>
-            {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
           </form>
         )}
       </div>
