@@ -458,6 +458,50 @@ Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows 
   - **Skip cancelled loads** (`status = 'cancelled'`).
   - The user can always remove the link or keep "No load".
 
+## 10b. Follow-ups: M2 checklists (later phase, not v1)
+
+*From Drew via Sam. **No v1 scope change.** Nothing below is built in M1.*
+
+**Model:** each checklist is stored as **items**, each with a **result of pass / fail / NA plus an optional note**, attached to a **service record**. Templates are **seeded** (PM A, PM B, DOT annual, pre-trip DVIR) and **editable per vehicle**: a vehicle can add, hide or rename items through overrides without changing the seed.
+
+**Tables (sketch; same owner/RLS, security definer and vehicle-FK patterns as M1):**
+
+```sql
+-- SKETCH ONLY (M2)
+checklist_templates (
+  id uuid pk, user_id uuid null,          -- null = system seed, else the user's copy
+  truck_id uuid null, trailer_id uuid null,  -- set = per-vehicle override; check num_nonnulls(...) <= 1
+  base_template_id uuid null references checklist_templates(id),
+  kind text check (kind in ('pm_a','pm_b','dot_annual','dvir')),
+  name text, version int, created_at, updated_at)
+
+checklist_template_items (
+  id uuid pk, template_id uuid references checklist_templates(id) on delete cascade,
+  position smallint, code text,           -- stable key, e.g. 'brakes_adjust'
+  label text, help text, hidden boolean default false,  -- hidden = per-vehicle override
+  requires_measurement boolean default false, unit text) -- e.g. pad mm, tread /32, psi
+
+service_record_checks (
+  id uuid pk, user_id uuid, service_record_id uuid references service_records(id) on delete cascade,
+  template_item_id uuid null references checklist_template_items(id) on delete set null,
+  label_snapshot text,                    -- survives template edits
+  result text check (result in ('pass','fail','na')),
+  measurement numeric null, note text,
+  repair_service_record_id uuid null references service_records(id) on delete set null,  -- a fail can open a repair
+  unique (service_record_id, template_item_id))
+-- plus, for DOT annual: service_records.inspection jsonb
+--   { inspector_name, inspector_qualification, result: 'pass'|'fail', decal_number }
+```
+
+**Seeded templates:**
+
+- **PM A:** oil and filter; grease chassis and fifth wheel; fluids (coolant, power steering, DEF, washer); belts and hoses; air filter restriction; brakes adjusted, with pads/shoes measured; tire tread and pressure; lights and reflectors; air leaks and draining the tanks; battery and terminals; suspension and steering linkage; leaks; exhaust and aftertreatment codes.
+- **PM B:** everything in PM A, plus fuel filters and water separator; coolant SCA/freeze point; air dryer cartridge; trans and diff fluid sample; wheel bearing end play; u-joints and driveline; cab air filter; A/C; alignment wear.
+- **DOT annual ([49 CFR 396, Appendix G](https://www.ecfr.gov/current/title-49/subtitle-B/chapter-III/subchapter-B/part-396/appendix-Appendix%20G%20to%20Part%20396)):** brakes; coupling devices; exhaust; fuel system; lighting; safe loading; steering; suspension; frame; tires; wheels and rims; glazing; windshield wipers; emergency equipment. It also records the **inspector's qualification, the result (pass/fail) and the decal number**. A pass offers to set `dot_annual_due` (as in M1).
+- **Pre-trip DVIR (optional):** lights; tires; brakes/air; coupling; mirrors; wipers; horn; emergency kit; leaks; plus a free-text **defects** field. Any fail or defect can **open a repair service record** (prefilled vehicle, date and description, linked via `repair_service_record_id`).
+
+**Notes for M2:** PM B is seeded as its own full item list (PM A's items copied plus the extras) rather than inheritance, so overrides stay simple. Results never touch Expenses. The M1 history timeline shows a "Checklist: 2 fail" chip. `service_type` values `pm_a`, `pm_b`, `dot_annual` already exist in M1, so a record picks its template from its type.
+
 ## 11. Open questions for Marc
 
 **All open questions resolved. Taylor's reviews (7ef60e5 items 1–13; 68e166c R1–R6) are addressed; ready for re-review.** Marc's decisions (Oct 11): trailers in v1, every service record creates an expense (including $0), optional load link, due-date stages (5-day grace for DOT/PM only; legal expiries show EXPIRED), multiple documents per record, vehicle status/archive, unit number reuse, vehicle documents, and 1-year sold retention with expenses kept. The schema is confirmed (§1). The remaining unknowns are verify-at-build checks (§1.1).
