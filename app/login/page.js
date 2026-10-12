@@ -13,6 +13,8 @@ const s = {
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [usePw, setUsePw] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
@@ -24,6 +26,12 @@ export default function LoginPage() {
     setSending(true);
     setError(null);
     try {
+      if (usePw) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : error.message);
+        else window.location.assign('/documents');
+        return;
+      }
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -63,8 +71,19 @@ export default function LoginPage() {
             <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Email</label>
             <input id="email" type="email" required autoComplete="email" value={email}
               onChange={(e) => setEmail(e.target.value)} style={s.input} placeholder="you@example.com" />
-            <button type="submit" disabled={sending || !email} style={{ ...s.btn, opacity: sending || !email ? 0.6 : 1 }}>
-              {sending ? 'Sending…' : 'Send magic link'}
+            {usePw && (
+              <>
+                <label htmlFor="password" style={{ display: 'block', margin: '0.75rem 0 0.5rem', fontWeight: 600 }}>Password</label>
+                <input id="password" type="password" required autoComplete="current-password" value={password}
+                  onChange={(e) => setPassword(e.target.value)} style={s.input} />
+              </>
+            )}
+            <button type="submit" disabled={sending || !email || (usePw && !password)} style={{ ...s.btn, opacity: sending || !email || (usePw && !password) ? 0.6 : 1 }}>
+              {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
+            </button>
+            <button type="button" onClick={() => { setUsePw(!usePw); setError(null); }}
+              style={{ background: 'none', border: 'none', color: '#2563eb', marginTop: '0.75rem', padding: '0.5rem 0', minHeight: 44 }}>
+              {usePw ? 'Email me a sign-in link instead' : 'Sign in with a password instead'}
             </button>
             {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
           </form>
