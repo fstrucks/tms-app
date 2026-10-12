@@ -4,6 +4,7 @@ export const PAGE_MAX_WIDTH = 1700; // px per PDF page (~200 dpi on letter width
 export const JPEG_QUALITY = 0.7;
 export const PDF_PAGE_WIDTH_PT = 612; // US letter width in points
 export const SOURCE_MAX = 1700;  // long side of the per-page source JPEG kept in memory
+export const SAVE_SOURCE_MAX = 3000; // at save time the original is decoded and scaled to this long side
 export const THUMB_W = 300;      // thumbnails render from a copy this wide
 export const MAX_PAGES = 20;     // pages per scan
 
@@ -47,6 +48,15 @@ export function warpSize(q, maxW = PAGE_MAX_WIDTH) {
   const w = Math.max(d(q[0], q[1]), d(q[3], q[2]));
   const h = Math.max(d(q[0], q[3]), d(q[1], q[2]));
   return fitWidth(Math.max(1, w), Math.max(1, h), maxW);
+}
+
+// Save-time plan: the quad is picked on the preview (pw x ph). The original (ow x oh) is scaled to
+// SAVE_SOURCE_MAX on its long side and the quad scaled to match; output is capped at PAGE_MAX_WIDTH.
+export function planSave(ow, oh, pw, ph, quad, { sourceMax = SAVE_SOURCE_MAX, maxW = PAGE_MAX_WIDTH } = {}) {
+  const src = fitLongSide(ow, oh, sourceMax);
+  const kx = src.width / pw, ky = src.height / ph;
+  const q = quad.map((p) => ({ x: p.x * kx, y: p.y * ky }));
+  return { source: src, quad: q, out: warpSize(q, maxW) };
 }
 
 // ---- geometry ----

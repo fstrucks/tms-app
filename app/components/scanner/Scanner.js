@@ -7,7 +7,8 @@ import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release,
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
 // the image code never ship with the normal page. Edge detection is a small built-in heuristic
 // (no OpenCV). Weak or missing detections keep the full photo and open the corner editor.
-// Memory: a page is { blob (JPEG <= 1700px), w, h, quad, detected, thumb (object URL) }, with no live canvases.
+// Memory: a page is { orig (undecoded original Blob), blob (preview JPEG <= 1700px), w, h, quad, detected, thumb (object URL) },
+// with no live canvases. Save decodes one original at a time (scaled to ~3000px) and releases it before the next.
 //
 // TODO(pick 7, open): doc types come from one shared docTypes.js list once Marc decides.
 // BOL/POD are used here because the scanner needs them.
@@ -38,6 +39,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const keepRef = useRef(null);
   const pending = useRef(null); // which input is open, for "nothing captured" feedback
   const firstMode = useRef(true);
+  const loadingRef = useRef(false); // true while photos are being processed
 
   useEffect(() => {
     const opener = document.activeElement; // focus goes back here on close
@@ -73,9 +75,11 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   function openInput(ref, kind) {
     const input = ref.current; if (!input) return;
     pending.current = kind;
-    const nothing = () => { if (pending.current === kind) { pending.current = null; setMsg({ err: true, text: NO_PHOTO }); } };
+    const nothing = () => { if (pending.current === kind && !loadingRef.current) { pending.current = null; setMsg({ err: true, text: NO_PHOTO }); } };
+    // Primary signal: the input's cancel event. Fallback for browsers without it: ~4 s after focus
+    // returns, only if no file arrived (change clears `pending`) and none is still loading.
     input.addEventListener('cancel', nothing, { once: true });
-    window.addEventListener('focus', () => setTimeout(nothing, 1500), { once: true });
+    window.addEventListener('focus', () => setTimeout(nothing, 4000), { once: true });
     input.click();
   }
   function takeFiles(e) {
@@ -88,6 +92,11 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
   async function addFiles(files, replaceAt = null) {
     if (!files.length) return;
+    loadingRef.current = true;
+    try { await addFilesInner(files, replaceAt); } finally { loadingRef.current = false; }
+  }
+
+  async function addFilesInner(files, replaceAt) {
     setMsg(null);
     let list = files, capped = 0;
     if (replaceAt == null) { const c = capPages(pagesRef.current.length, files); list = c.accepted; capped = c.rejected; }

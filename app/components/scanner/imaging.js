@@ -2,7 +2,7 @@
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
 // Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
 // Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
-import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
+import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
 const DETECT_MAX = 400; // edge detection runs on a small copy
 
@@ -30,13 +30,15 @@ export function revoke(url) { if (url) URL.revokeObjectURL(url); }
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
-async function decodeFile(file) {
-  let blob = file;
-  if (isHeic(file)) {
-    const { default: heic2any } = await import('heic2any');
-    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-    blob = Array.isArray(out) ? out[0] : out;
-  }
+// HEIC -> JPEG once (browsers can't decode HEIC); other files are kept as-is (not decoded).
+async function originalOf(file) {
+  if (!isHeic(file)) return file;
+  const { default: heic2any } = await import('heic2any');
+  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+  return Array.isArray(out) ? out[0] : out;
+}
+
+async function decodeFile(blob) {
   const url = URL.createObjectURL(blob);
   try {
     const img = new Image();
@@ -70,9 +72,11 @@ function detectOn(drawable, w, h) {
   return { quad: q.map((p) => ({ x: p.x * kx, y: p.y * ky })), detected: true };
 }
 
-// File -> { blob (JPEG, long side <= SOURCE_MAX), w, h, quad, detected }
+// File -> { orig (undecoded original Blob), ow, oh, blob (preview JPEG, long side <= SOURCE_MAX), w, h, quad (preview px), detected }
 export async function loadPhoto(file) {
-  const img = await decodeFile(file);
+  const orig = await originalOf(file);
+  const img = await decodeFile(orig);
+  const ow = img.naturalWidth, oh = img.naturalHeight;
   const { width: w, height: h } = fitLongSide(img.naturalWidth, img.naturalHeight, SOURCE_MAX);
   const c = canvas(w, h);
   c.getContext('2d').drawImage(img, 0, 0, w, h);
@@ -80,7 +84,7 @@ export async function loadPhoto(file) {
   try {
     const det = detectOn(c, w, h);
     const blob = await toBlob(c, 'image/jpeg', 0.9);
-    return { blob, w, h, ...det };
+    return { orig, ow, oh, blob, w, h, ...det };
   } finally { release(c); }
 }
 
@@ -132,12 +136,26 @@ function warp(drawable, sw, sh, quad, mode, maxW) {
   return out;
 }
 
-// Full-size page -> { bytes (JPEG), width, height }. Releases everything it creates.
+// Full-size page -> { bytes (JPEG), width, height }. Decodes the ORIGINAL, scales it to ~3000px,
+// and crops from that, so a 12 MP photo gives a ~1275-1700px wide page. Called one page at a time;
+// everything it creates is released before it returns.
 export async function renderPageJpeg(page, mode, maxW) {
-  const bmp = await bitmapOf(page.blob);
+  if (!page.orig) return renderFrom(page.blob, page.w, page.h, page.quad, mode, maxW);
+  const plan = planSave(page.ow, page.oh, page.w, page.h, page.quad, { maxW });
+  const img = await decodeFile(page.orig);
+  const c = canvas(plan.source.width, plan.source.height);
+  try {
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    img.src = ''; // drop the full-resolution decode before the warp allocates
+    return await renderFrom(c, c.width, c.height, plan.quad, mode, maxW);
+  } finally { release(c); }
+}
+
+async function renderFrom(src, sw, sh, quad, mode, maxW) {
+  const bmp = src instanceof Blob ? await bitmapOf(src) : null;
   let out;
   try {
-    out = warp(bmp, page.w, page.h, page.quad, mode, maxW);
+    out = warp(bmp || src, sw, sh, quad, mode, maxW);
     const blob = await toBlob(out, 'image/jpeg', JPEG_QUALITY);
     return { bytes: new Uint8Array(await blob.arrayBuffer()), width: out.width, height: out.height };
   } finally { release(bmp, out); }

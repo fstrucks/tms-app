@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
 import { movePage, removePage, replacePage, fitWidth, fitLongSide, pdfPageSize, warpSize, orderCorners, homography, applyH,
-  detectQuad, plausibleQuad, capPages, MAX_PAGES, levelsLut, buildPdf, scanFileName, PAGE_MAX_WIDTH } from '../../app/lib/scan.js';
+  detectQuad, plausibleQuad, planSave, fitLongSide as fls, SOURCE_MAX, capPages, MAX_PAGES, levelsLut, buildPdf, scanFileName, PAGE_MAX_WIDTH } from '../../app/lib/scan.js';
 
 const JPG = new Uint8Array(Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAAWABEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD2aiiigAooooAKKKKACiiigD//2Q==', 'base64')); // 17x22 white JPEG
 
@@ -99,4 +99,22 @@ test('capPages: 20-page cap', () => {
   assert.deepEqual(capPages(20, ['a']), { accepted: [], rejected: 1 });
   assert.deepEqual(capPages(0, ['a', 'b']), { accepted: ['a', 'b'], rejected: 0 });
   assert.deepEqual(capPages(25, []), { accepted: [], rejected: 0 });
+});
+
+test('12 MP photo -> page at least 1275px wide (crop from the original, not the 1700px preview)', () => {
+  // Portrait 3000x4000, page filling ~70% of the width, picked on the preview.
+  let pv = fls(3000, 4000, SOURCE_MAX);
+  let q = [{ x: 0.15, y: 0.1 }, { x: 0.85, y: 0.12 }, { x: 0.83, y: 0.9 }, { x: 0.17, y: 0.88 }].map((p) => ({ x: p.x * pv.width, y: p.y * pv.height }));
+  let plan = planSave(3000, 4000, pv.width, pv.height, q);
+  assert.deepEqual(plan.source, { width: 2250, height: 3000 });
+  assert.ok(plan.out.width >= 1275 && plan.out.width <= 1700, JSON.stringify(plan.out));
+  // Landscape 4000x3000 with a portrait page across ~85% of the height.
+  pv = fls(4000, 3000, SOURCE_MAX);
+  q = [{ x: 0.25, y: 0.07 }, { x: 0.75, y: 0.07 }, { x: 0.75, y: 0.93 }, { x: 0.25, y: 0.93 }].map((p) => ({ x: p.x * pv.width, y: p.y * pv.height }));
+  plan = planSave(4000, 3000, pv.width, pv.height, q);
+  assert.ok(plan.out.width >= 1275, JSON.stringify(plan.out));
+  // Full-frame portrait 12 MP: capped at 1700 wide.
+  pv = fls(3000, 4000, SOURCE_MAX);
+  plan = planSave(3000, 4000, pv.width, pv.height, [{ x: 0, y: 0 }, { x: pv.width, y: 0 }, { x: pv.width, y: pv.height }, { x: 0, y: pv.height }]);
+  assert.deepEqual(plan.out, { width: 1700, height: 2267 });
 });
