@@ -29,11 +29,15 @@ Goals: use the desktop width without hurting mobile; one shell and one set of co
 ### Breakpoints (FINAL)
 | Name | Width | Nav | Columns |
 |------|-------|-----|---------|
-| mobile | < 640px | bottom tab bar (kept as today) | 1 |
-| tablet | 640–1023px | top nav | 1, with 2-up card grids |
+| mobile | < 640px | bottom tab bar + slim top bar (kept as today, plus account button) | 1 |
+| tablet (narrow) | 640–767px | bottom tab bar + slim top bar (same as mobile) | 1, with 2-up card grids |
+| tablet | 768–1023px | top nav | 1, with 2-up card grids |
 | desktop | ≥ 1024px | top nav | list+detail splits, 3-up grids, tables |
 
-CSS: `@media (min-width: 640px)` and `@media (min-width: 1024px)` (mobile-first). Note: today's `max-width: 640px` rule includes 640 as mobile; the new rule makes 640 tablet.
+Layout breakpoints stay 640 / 1024 (gutters, grids, Table vs Card). The **nav** has its own switch at **768px**: the full top nav needs ~650px of content width and has only 592px at 640 (640 − 2×24 gutters). So bottom tabs + slim top bar are kept up to 767px, and the top nav shows at ≥768px. (Rejected: a short "PH" brand + icon-only account button at 640–1023. It's more variants for little gain.)
+
+CSS is mobile-first: `@media (min-width: 640px)`, `@media (min-width: 768px)` (nav only) and `@media (min-width: 1024px)`. Any remaining `max-width` rules use `.98` values (`max-width: 639.98px`, `767.98px`, `1023.98px`). The shell PR changes today's `max-width: 640px` rules in `globals.css` to `max-width: 639.98px`, so exactly one layout applies at 640, and moves the nav switch to `767.98px` / `768px`, so exactly one nav renders at every width.
+**Test (shell PR):** at 639, 640, 641, 767, 768 and 769px exactly one nav is visible (bottom tabs ≤767, top nav ≥768) and the other is `display:none`. Gutters and grids switch between 639 and 640. `--nav-h: 60px` (used by sticky Save bars) follows the nav, so it applies up to 767.98px, not just under 640.
 
 ### Container
 - `max-width: 1120px`, centered, applied once in the shell (`<main class="container">`). Pages stop setting their own `maxWidth`. Forms inside may cap their own width at 640px.
@@ -41,7 +45,7 @@ CSS: `@media (min-width: 640px)` and `@media (min-width: 1024px)` (mobile-first)
 - Grid gap: 12px mobile, 16px tablet and desktop.
 - The header's inner width matches the container (1120px, same gutters).
 
-### Top nav (tablet + desktop)
+### Top nav (≥ 768px)
 - Height 56px, sticky, white, bottom border.
 - Left: "PowerHaul TMS" brand → `/`. Then tabs: Dashboard, Loads, Documents, Expenses, Mileage. The label changes from "Docs" to "Documents" on desktop.
 - Tab text 15px (0.9375rem), weight 500 (600 when active), a 2px active underline, each link ≥ 44px high with ≥ 12px horizontal padding.
@@ -49,7 +53,7 @@ CSS: `@media (min-width: 640px)` and `@media (min-width: 1024px)` (mobile-first)
 - Sign-out is removed from page content (home).
 
 ### Mobile bottom tabs
-- Kept: 6 tabs, 60px bar, safe-area padding, hidden while the keyboard is open.
+- Kept below 768px (mobile and narrow tablet): 6 tabs, 60px bar, safe-area padding, hidden while the keyboard is open.
 - Account and Sign out on mobile: a small account button in a slim mobile top bar (brand + account, 48px), using the same menu component.
 
 ### Targets
@@ -63,7 +67,7 @@ CSS: `@media (min-width: 640px)` and `@media (min-width: 1024px)` (mobile-first)
 |-----------|-------|-------|
 | `PageHeader` | `title`, `subtitle?`, `actions?` (node), `back?` ({href,label}) | h1 22px/26px desktop; actions right-aligned, wrap under the title on mobile |
 | `Card` | `title?`, `actions?`, `href?` / `onClick?`, `padding?` ('sm'\|'md'), `children` | interactive when `href`/`onClick` is set: hover shadow, chevron, focus ring, whole card clickable |
-| `Table` | `columns` [{key,label,align?,sortable?,render?,width?}], `rows`, `rowKey`, `sort?` {key,dir}, `onSort?`, `onRowClick?`, `empty?` (node), `loading?` | ≥1024px only; below that, pages render `Card` lists. Sort state is kept in the URL query (`?sort=date&dir=desc`) |
+| `Table` | `columns` [{key,label,align?,sortable?,render?,width?}], `rows`, `rowKey`, `sort?` {key,dir}, `onSort?`, `onRowClick?`, `empty?` (node), `loading?` | ≥1024px only; below that, pages render `Card` lists. The switch is **CSS only**: the page renders both, the table in `.only-desktop` and the cards in `.only-mobile`. `globals.css` sets `display:none` on the inactive one (`.only-desktop{display:none} @media (min-width:1024px){.only-desktop{display:revert}.only-mobile{display:none}}`). No JS width check, so there's no flash on load, and the hidden copy is `display:none`, so screen readers and the tab order skip it. Sort state is kept in the URL query (`?sort=date&dir=desc`) |
 | `StatusPill` | `status`, `size?` ('sm'\|'md') | colours in section 3; unknown status → gray |
 | `EmptyState` | `icon?`, `title`, `body?`, `action?` ({label, href \| onClick}) | used for "no loads yet → Upload a rate con", etc. |
 | `ConfirmButton` | `label`, `confirmLabel`, `onConfirm`, `danger?` | inline two-step confirm (first click → "Delete? Yes / Cancel"); replaces `window.confirm` |
@@ -74,7 +78,9 @@ Styling stays inline/CSS-variable based (no new UI library). Tokens go in `globa
 ## 3. Loads & Documents (owner: Alex)
 
 ### Loads
-- **Desktop (≥1024): list + detail split.** Left: the loads list at 380px, either a `Table` (Load #, Broker, Pickup → Delivery, Rate, Status, Date), sortable, or compact cards. Right: the selected load's detail. The URL stays `/loads/[id]`, so links and refresh work; `/loads` with nothing selected shows an `EmptyState` on the right.
+- **Desktop (≥1024): list + detail split.** Left: the loads list at 380px, either a `Table` (Load #, Broker, Pickup → Delivery, Rate, Status, Date), sortable, or compact cards.
+  - **Stop times** show in **each stop's own timezone** (`stops.timezone`) with the zone abbreviation, e.g. "Oct 15, 8:00 AM EDT" for Atlanta and "Oct 16, 9:00 AM CDT" for Chicago (`Intl.DateTimeFormat` with `timeZone` + `timeZoneName: 'short'`; if there's no `timezone`, fall back to the browser zone with its abbreviation).
+  - **Sorting** by pickup/delivery uses the absolute timestamp `appointment_start` (timestamptz), never the formatted local text or the browser-local time. Right: the selected load's detail. The URL stays `/loads/[id]`, so links and refresh work; `/loads` with nothing selected shows an `EmptyState` on the right.
 - Tablet and mobile: the list is full width; tapping a load opens `/loads/[id]` as today.
 - List cards use the `Card` interactive variant.
 - The load detail redesign (stops, map) comes after the scanner; see section 6. This PR only moves the existing detail into the right pane.
@@ -89,15 +95,24 @@ Solid, readable pills, 12px semibold text, with a text label (colour is never th
 | in_transit | amber-100 #fef3c7 / #92400e |
 | delivered | green-100 #dcfce7 / #166534 |
 | invoiced | teal-100 #ccfbf1 / #115e59 |
-| paid | green-600 #16a34a / #fff |
+| paid | green-700 #15803d / #fff |
 | cancelled / canceled / tonu / void | gray-100 #f3f4f6 / #4b5563, label "Cancelled", "TONU" or "Void" |
 | unknown | gray outline |
 
 Labels are human text ("In transit", not `in_transit`).
 
+Contrast (WCAG AA, ≥ 4.5:1 for 12px text), checked: booked 7.2, dispatched 8.1, in_transit 6.4, delivered 6.5, invoiced 6.7, paid 5.0 (was #16a34a = 3.3, failed), cancelled 6.9, unknown (#4b5563 on white) 7.6. All pass.
+
 ### Documents: auto-upload
 - After a file is picked through `UploadMenu` (Take photo / Photo library / Files-PDF), the upload **starts immediately**, with no separate Upload button.
 - A row appears at the top of the list with the filename, a **progress bar** (percentage) and a Cancel button. HEIC is converted to JPEG first, and the bar shows "Converting…".
+- **Same checks as today's upload** for both the picker and drag-and-drop, run before anything is sent:
+  - PDF, JPEG, PNG, WebP, HEIC/HEIF only (checked by MIME type and extension). **SVG is rejected**, as is anything else.
+  - **10 MB cap** (matches the storage bucket limit), checked after HEIC conversion.
+  - HEIC → JPEG with downscale (same as the current converter).
+  - **One file at a time**: a multi-file drop takes the first file and says "One file at a time". A drop during an upload is refused until it finishes.
+- **Cancel** aborts the XHR and **removes any partial storage object** (`storage.remove([path])`). No `documents` row is created until the upload succeeds.
+- **Accessibility:** progress and the result are announced in an `aria-live="polite"` region ("Uploading rate-con.pdf, 40%" at 25% steps, then "Uploaded" or the error). The bar is `role="progressbar"` with `aria-valuenow`.
 - On success the row becomes the document card. For rate cons it offers "Extract details" (the current flow). On failure it shows an inline error with Retry.
 - Doc type is chosen *before* picking (a segmented control defaulting to Rate confirmation) and can be changed afterwards on the card.
 - Progress: supabase-js `upload()` doesn't report progress, so we'd use a signed upload URL (`createSignedUploadUrl`) and an XHR PUT with `upload.onprogress`. No DB or SQL changes.
@@ -316,6 +331,6 @@ Only `rate_confirmation` and `receipt` exist in data today. The load/company row
 2. **Desktop loads view.** A) list + detail split (recommended) B) a full-width sortable table that opens the detail page C) both, with a toggle.
 3. **Mobile sign-out location.** A) a slim top bar with an account button (recommended) B) a 7th "Account" bottom tab C) on the Home page only.
 4. **Delete pattern.** A) inline two-step confirm (recommended) B) a modal dialog C) an "Undo" toast after delete (soft delete; needs a DB change).
-5. **Status colours.** Approve the table in section 3, or use your brand colours (send the hex values).
+5. **Status colours.** A) approve the table in section 3 (all ≥ 4.5:1) B) a neutral palette: gray pills for everything except a colour accent for delivered/paid, with the text label carrying the meaning C) your brand colours (send the hex values; we'll check contrast).
 6. **Nav label.** "Documents" on desktop and "Docs" on mobile (recommended), or "Docs" everywhere.
 7. **Extra doc types** (BOL, POD, lumper, W-9, COI, MC letter). A) add them now in `docTypes.js` B) add them only when the scanner/vault ship.
