@@ -176,8 +176,8 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 ### 2.4 Maintenance documents: reuse `documents`
 
-- New `doc_type` values: `'maintenance_invoice'` and `'dot_inspection'`. There's no doc_type check constraint in the repo today (query 6 in §1 confirms prod). If Marc's schema has one, the migration extends it.
-- **Add `documents.trailer_id uuid` (nullable, FK `not valid` to `trailers`, `on delete set null`)** to mirror `documents.truck_id`, plus `check (num_nonnulls(truck_id, trailer_id) <= 1)`. This lets the vault (Alex) and the vehicle page list a unit's docs (DOT reports, registrations) even without a service record. `trailer_id` is added to the client insert/update column grants, with the same ownership check as `truck_id` (§4).
+- New `doc_type` values: `'maintenance_invoice'` and `'dot_inspection'` (service records), plus vehicle documents `'vehicle_title'`, `'vehicle_registration'`, `'vehicle_insurance'`, `'bill_of_sale'` and `'other_vehicle_doc'` (§2.5). There's no doc_type check constraint in the repo today (query 6 in §1 confirms prod). If Marc's schema has one, the migration extends it.
+- **Approved (Marc, Oct 11): documents link directly to a truck or trailer**, with no service record needed. `documents.truck_id` **already exists** (uuid, no FK, client-insertable; `20261010000050`), and v1 adds an FK `not valid` to `trucks`. We add **`documents.trailer_id uuid`** (FK `not valid` to `trailers`). Both use `on delete restrict`, because vehicles aren't deleted, only sold (§6.2). A check `num_nonnulls(truck_id, trailer_id) <= 1` means a document belongs to at most one vehicle. `trailer_id` is added to the client insert/update column grants, with the ownership check in §4.
 - `documents.truck_id` gets an FK `not valid` to `trucks`. The RPC sets each attached doc's `truck_id`/`trailer_id` to match the record's vehicle.
 - **Multiple documents per record: decision is `documents.service_record_id` (FK) + `documents.page_order`, not a join table.**
   ```sql
@@ -194,6 +194,19 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 - Upload goes through Alex's scanner component (shared upload menu, type/size checks, HEIC conversion). v1 only stores the files and links them.
 - **Form attachments:** an "Add pages" button opens the shared menu. **Camera multi-capture** lets the user take page after page and tap Done, or the **file picker** allows multi-select (`multiple`). Pages show as a thumbnail strip with a page number, **drag/arrow reorder** and **remove (×)**, plus an "N/10" counter, and the add button disables at 10. Each file uploads immediately with its own progress and retry. Saving waits for pending uploads. Files removed or abandoned before saving are deleted from storage and `documents` by the client (best effort; a v2 sweep cleans orphans with no record that are older than 24 h).
 - The Documents page (`app/documents/page.js`) currently lists rate cons. It should filter maintenance doc types out, or tab them, so the rate con flow is unchanged.
+
+### 2.5 Vehicle documents (title, registration, insurance, bill of sale…)
+
+- A document with `truck_id` or `trailer_id` set and **no `service_record_id`** is a **vehicle document**. Doc types are `vehicle_title`, `vehicle_registration`, `vehicle_insurance`, `bill_of_sale` and `other_vehicle_doc` (with `original_filename` as its label). The list lives in JS (`VEHICLE_DOC_TYPES` in `app/lib/maintenance.js`), and a DB check is only extended if Marc's schema has one (§1 query 7).
+- **Storage path:** `{uid}/vehicles/{truck|trailer}/{vehicle_id}/{ts}-{safeName}`. The first segment is still `{uid}`, so the existing `documents_insert_own` rule and the bucket policies already allow it, with no storage policy change. Limits are the same as other documents (10 MB per file; PDF/JPEG/PNG/HEIC). Service-record pages keep their `{uid}/maintenance/...` path (§5).
+- **RLS:** insert and update require that `truck_id`/`trailer_id`, when set, belong to the caller (`exists` on `trucks`/`trailers`). Select and delete stay `user_id = auth.uid()`. A vehicle doc can't be attached to a vehicle that's sold (UI check, plus the RPC for service records).
+- **Documents tab** on `/maintenance/trucks/[id]` and `/maintenance/trailers/[id]` (tabs: Overview · History · **Documents**):
+  - **Upload** goes through Alex's shared upload menu (camera or file). The user picks a type, which defaults to `other_vehicle_doc`.
+  - **List** is grouped by type, newest first, with thumbnail, name, date and type. Service-record pages also appear in a collapsed "From service records" group that links to the record.
+  - **View** opens a signed URL, same as today.
+  - **Delete** asks for confirmation, then removes the row and the storage object. Service-record pages are removed from the record form, not here.
+- **Sold vehicles:** documents stay attached and visible **read-only** in the Archive (no upload or delete). They fall under the §6.2 retention rule (at least 3 years after `sold_at`, no auto-delete in v1), and Restore makes them editable again. A `bill_of_sale` upload is suggested when marking a unit sold.
+- **Alex's document vault:** the vault is the cross-cutting view of all documents. Vehicle docs are ordinary `documents` rows, so the vault lists them automatically. It can filter by vehicle (`truck_id`/`trailer_id`) and type, and its checklist can flag a missing registration or insurance per active vehicle. Its send picker can attach them (e.g. registration plus insurance for a broker or a DOT stop). The vehicle Documents tab and the vault share the same upload component and doc-type list, so nothing is duplicated. Exact vault UI and naming are Alex's call, and I'll coordinate with Alex before the build.
 
 ## 3. Costs flowing into Expenses (one source of truth)
 
@@ -288,7 +301,7 @@ Applies to trucks and trailers alike.
 |---|---|---|---|
 | 1 | `20261012000800_trucks_extend.sql` | create `trucks` if missing; `add column if not exists` for §2.1; checks `not valid`; indexes; RLS reset; `updated_at` trigger | drop added columns and constraints (only the ones we added) |
 | 2 | `20261012000810_trailers_extend.sql` | **no create**: `add column if not exists` for §2.2; checks `not valid`; indexes `if not exists`; add the `user_id` default/FK and the `updated_at` trigger only if missing; RLS untouched | drop only the columns, constraints and indexes we added (never the table) |
-| 3 | `20261012000820_documents_vehicle_fks.sql` | `documents.truck_id` FK to trucks; add `documents.trailer_id` + FK to trailers (`not valid`, then validate) + the at-most-one check; grants; insert/update policies add the truck and trailer ownership checks | drop the FKs and `trailer_id`; restore the `0710`/`0400` policies |
+| 3 | `20261012000820_documents_vehicle_fks.sql` | `documents.truck_id` (existing) FK to trucks; add `documents.trailer_id` + FK to trailers (`not valid`, then validate) + the at-most-one check; grants; insert/update policies add the truck and trailer ownership checks | drop the FKs and `trailer_id`; restore the `0710`/`0400` policies |
 | 4 | `20261012000830_service_records.sql` | table, constraints, indexes, RLS, grants; `documents.service_record_id` + `page_order` + unique index; documents policies add the record ownership check | drop the documents columns, then `drop table service_records` |
 | 5 | `20261012000840_service_record_rpcs.sql` | `save_service_record` (truck or trailer), `delete_service_record`, the linked-expense guard trigger on `expenses` | drop functions and trigger |
 
@@ -309,6 +322,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Multiple documents:** attach 3 pages and reorder (page_order 1–3 persists); remove one (unlinked and its file deleted); an 11th file is rejected by the UI and the RPC; a file over 10 MB is rejected; attaching user B's doc or a doc already on another record fails; a direct client update of `service_record_id` is denied; deleting a record cascades its document rows and the RPC returns the file paths; camera multi-capture on iPhone and Android; a multi-page PDF counts as one document.
 - **Multi-page extraction (v2):** a 3-page invoice uses exactly one slot and one run, and its totals come from the last page; a failure refunds the slot.
 - **Vehicle status:** an out-of-service unit appears in the list and pickers with the "Out of Service" tag, and its due badges still escalate. Marking a unit sold moves it to the Archive, hides it from pickers and makes its history read-only, while `sold_at` is required. The RPC rejects records on a sold unit. Restore returns the unit, prompting for a new number if it conflicts with an active unit. A unit number can be reused after a sale. Deleting a vehicle with records is blocked. Dashboard and Expenses totals are unchanged after marking a unit sold.
+- **Vehicle documents:** upload a title to a truck and a registration to a trailer; they appear in the Documents tab and the vault, at `{uid}/vehicles/{truck|trailer}/{id}/...`. A doc with both `truck_id` and `trailer_id` fails. Linking to user B's vehicle fails. View and delete work, and delete removes the storage object. For a sold unit the docs are read-only in the Archive and editable again after Restore. Rate cons and receipts are unaffected.
 - **Constraints:** a record with both or neither of truck/trailer fails (direct and via the RPC). Moving a record from a truck to a trailer clears `truck_id`. A trailer with records can't be deleted. Migration 2 runs cleanly on Marc's existing trailer rows and leaves his RLS policies unchanged. Bad VIN, negative amounts, and a duplicate unit number per user all fail.
 - **No double counting:**
   - Create a $500 record. Exactly one maintenance expense of $500 exists, and the dashboard's weekly maintenance total and expenseTotal go up by $500, not $1,000.
@@ -333,5 +347,4 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 
 ## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
-2. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
-3. Retention for sold vehicles: is **3 years after `sold_at`** OK (§6.2; covers the FMCSA 18-month minimum and the IRS ~3 years)? Nothing is auto-deleted in v1 either way.
+2. Retention for sold vehicles: is **3 years after `sold_at`** OK (§6.2; covers the FMCSA 18-month minimum and the IRS ~3 years)? Nothing is auto-deleted in v1 either way.
