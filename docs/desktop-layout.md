@@ -112,11 +112,147 @@ Cross-cutting rules for these pages (agreed now):
 - **Delete with confirm, away from Edit**: Edit stays the primary row action. Delete moves to a row overflow menu (⋯), or to the far right with ≥ 24px gap, and uses `ConfirmButton` (the inline two-step) instead of `window.confirm`. On the edit form, Delete sits bottom-left in red and Save bottom-right.
 - **Dashboard weekly cards** (Alex, since the data is Alex's): fixed grid of 1 column below 640, 2 at 640–1023, 3 at ≥1024 (`grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))` capped by the container). Short labels ("All-in RPM") with the long formula moved to a tooltip/footnote, numbers right-aligned with `tabular-nums`, and no wrapping at 590px. The summary card spans the full width with the chart on the left and totals on the right at ≥1024px.
 
-### 4.1 Expenses desktop layout (TODO: Casey)
-### 4.2 Mileage desktop layout (TODO: Casey)
-### 4.3 Mileage dropdowns: look enabled, contrast, sizes (TODO: Casey)
-### 4.4 Empty states for expenses and mileage (TODO: Casey)
-### 4.5 Receipt upload on desktop (reuse auto-upload from section 3?) (TODO: Casey)
+### Conventions for 4.1–4.6 (Casey)
+- Styles stay inline objects (`const s = {...}` per file), same tokens as today: border `#e5e7eb`, input border `#d1d5db`, text `#111827`, labels `#374151`, muted `#6b7280`, primary `#2563eb`, danger `#b91c1c` / `#fecaca`, radius 8 (controls) and 12 (cards). Breakpoint-dependent rules (which inline styles can't express) go in `globals.css` as a few small classes (`.only-desktop`, `.only-mobile`, `.week-grid`), mobile-first with the section 2 breakpoints (640 / 1024).
+- Money is always `fmtMoney` from `app/lib/money.js` (2 decimals, `—` for empty); RPM is `fmtPerMile`. `LoadExpenses.js` keeps importing `fmtMoney` via the `lib/loads` re-export (same function); new code imports from `lib/money` directly. Number columns use `fontVariantNumeric: 'tabular-nums'` and right alignment.
+- Table vs cards: the `Table` component renders at ≥1024px only (section 2). Below 1024 the existing card/row lists stay (the mobile card list is unchanged under 640; 640–1023 uses the same cards inside the wider container). Both are rendered from the same sorted array, so sort order matches across sizes.
+- No data, query or SQL changes. Sorting is client-side on the rows already fetched (both pages fetch the full list today).
+
+### 4.1 Expenses desktop layout
+**Layout (≥1024):** two columns inside the 1120 container: the Add/Edit expense form on the left (`380px`, sticky at `top: 72px` = nav 56 + 16), the list on the right (`minmax(0, 1fr)`). 640–1023 and <640: single column as today (form, then list), with the form capped at 640px.
+
+**Toolbar above the table:** Load filter (existing select) left; filtered total `fmtMoney(sumAmounts(shown))` right; the existing "Rate · Net" line stays under it when a load is selected.
+
+**Table columns** (`Table` props):
+| key | label | align | sortable | render |
+|-----|-------|-------|----------|--------|
+| expense_date | Date | left | yes | `Oct 12, 2026` (same format as `fmtEntryDate`) |
+| description | Vendor / description | left | yes (case-insensitive, empty last) | ellipsis at 1 line, full text in `title` |
+| category | Category | left | yes | capitalized |
+| load | Load | left | yes (by label, "—" last) | link to `/loads/[id]` (stops row click) |
+| amount | Amount | right | yes (numeric) | `fmtMoney(x.amount)`, tabular-nums |
+| actions | (sr-only "Actions") | right | no | Receipt icon button (if any) + ⋯ menu |
+
+- **Default sort:** `expense_date` desc, tie-break `created_at` desc. Sort state in the URL (`?sort=amount&dir=asc`), merged with the existing `?load=` param (not replacing it). Unknown keys fall back to the default.
+- **Keyboard / a11y:** sortable headers are `<th aria-sort="ascending|descending|none">` containing a real `<button>` (≥44px high) labelled e.g. "Amount, sort ascending"; Enter/Space toggles (first click: desc for date/amount, asc for text; second click flips). Only the active column has a non-`none` `aria-sort`; a ▲/▼ glyph is `aria-hidden`. A polite live region announces "Sorted by Amount, ascending". Row click = Edit (loads it into the left form and moves focus to the form heading); rows are not tab stops themselves, the Edit item in the ⋯ menu is the keyboard path, plus the Load link.
+- **Footer row:** "N expenses · Total {fmtMoney}" right-aligned under Amount.
+
+**Delete moved away from Edit:**
+- Table: actions cell is Receipt + **⋯ menu** (44×44, `aria-label="More actions for {category} {amount} on {date}"`, `aria-haspopup="menu"`). Menu items: Edit, View receipt (if any), a divider, **Delete** in danger style (`color: '#b91c1c'`). Menu keyboard matches `UploadMenu` (Esc, arrows, Home/End, close on focus-out, focus returns to the ⋯ button).
+- Mobile/tablet cards: the row becomes `Edit` (primary) + `Receipt` on the left, and Delete is removed from the card row; it lives in the **edit form** only.
+- Edit form (all sizes): when editing, the bottom bar shows **Delete bottom-left** (danger outline: `border: '1px solid #fecaca', color: '#b91c1c', background: '#fff'`), Cancel edit and **Save bottom-right**. ≥24px between Delete and any other button.
+- Confirm: the existing confirm behaviour stays (today `window.confirm('Delete this expense?')`). It becomes `ConfirmButton` ("Delete" → "Delete expense? Yes, delete / Cancel") once the shell PR ships it; until then `window.confirm` stays. Focus goes to "Cancel" on the first click; after delete, focus moves to the next row (or the list heading) and the status line says "Expense deleted." The receipt-cleanup logic in `remove()` is unchanged.
+
+**Acceptance criteria**
+- At 1280 and 1024: form left + table right, no horizontal page scroll; every column header sorts; URL reflects sort and survives refresh; `?load=` still filters.
+- At <1024: the card list renders (same order as the table would), no table markup in the DOM tab order.
+- No Delete button sits next to Edit anywhere; Delete is reachable in ≤2 actions and always confirmed.
+- All amounts use `fmtMoney`; totals equal the sum of visible rows.
+
+**Test checklist**
+- [ ] Desktop 1280: sort each column both ways; reload keeps sort; filter by load + sort together; totals and Rate/Net correct.
+- [ ] Desktop 1024: same as above; long vendor text ellipsizes, tooltip shows full text; the form stays sticky while scrolling the list.
+- [ ] Tablet (768, portrait iPad 820): single column, cards, Edit/Receipt on the card, Delete only inside the edit form.
+- [ ] Phone (375 and 390, Android Chrome + iOS Safari): unchanged card list; sticky Save still clears the bottom tab bar; Delete in edit form confirms and returns focus.
+- [ ] Keyboard only: Tab to headers, Enter/Space sorts, screen reader reads `aria-sort`; open ⋯ with Enter, arrow to Delete, Esc closes and returns focus; delete via keyboard and confirm.
+- [ ] Cancelling the confirm leaves the row and the receipt intact.
+
+### 4.2 Mileage desktop layout
+UI only; queries, `SOURCES`, totals and RPM stay with Alex (section 4 handoff). The presentational pieces in `app/lib/mileage.js` (`EntryRow`, the `MileageForm` styles) are restyled, not re-wired.
+
+**Layout (≥1024):** stats strip on top (This week / This month as today, plus they sit 2-up at ≥640); below it, the Add miles form on the left (380px, sticky) and the Entries table on the right. <1024: single column as today.
+
+**Table columns:**
+| key | label | align | sortable | render |
+|-----|-------|-------|----------|--------|
+| entry_date | Date | left | yes | `fmtEntryDate` |
+| source | Type | left | yes | capitalized (Loaded / Deadhead / Personal / Other), with a small neutral text tag, not colour-only |
+| miles | Miles | right | yes | `fmtMiles`, tabular-nums |
+| odometer | Odometer | right | no | `start → end` or `—` |
+| load | Load | left | yes ("—" last) | `Load #123 · Broker` link |
+| notes | Notes | left | no | 1-line ellipsis + `title` |
+| actions | (sr-only) | right | no | ⋯ menu |
+
+- **Default sort:** `entry_date` desc, tie-break `created_at` desc; URL `?sort=&dir=`. Same header button / `aria-sort` / live-region rules as 4.1.
+- **Footer row:** "N entries · {fmtMiles(total)}" for the visible rows.
+- **Delete away from Edit:** mileage has no Edit today, and this doc adds none (no feature changes). Delete leaves the always-visible row: on desktop it's the only item in the ⋯ menu (danger style); on cards (<1024) `EntryRow` gets a ⋯ button at the far right (44×44) with Delete inside, replacing the bare red button. Existing `window.confirm('Delete this entry?')` stays until `ConfirmButton` exists. If an Edit is added later, it becomes the first menu item.
+
+**Acceptance criteria**
+- Same as 4.1 for layout, sort, URL and confirm; stats and totals values identical to today (no logic change).
+- `EntryRow` has no visible Delete button; delete is ⋯ → Delete → confirm.
+
+**Test checklist**
+- [ ] Desktop 1280 / 1024: sort Date, Type, Miles, Load both ways; reload keeps sort; odometer entries show start → end.
+- [ ] Tablet 768: cards, stats 2-up, ⋯ menu works with touch.
+- [ ] Phone 375/390: list unchanged except ⋯ replaces Delete; menu does not clip off-screen at the right edge; sticky "Add miles" clears the tab bar.
+- [ ] Keyboard: headers sort, ⋯ opens/closes with Enter/Esc, focus returns; delete confirm via keyboard.
+- [ ] Totals on /mileage and the dashboard unchanged before/after (spot-check one week).
+
+### 4.3 Mileage dropdowns: look enabled
+Cause: the mileage `st.input` (lib/mileage.js) sets no `background` or `color`, so Android Chrome and some desktop themes draw the native gray "disabled-looking" fill on `<select>` (Type, Load). The expenses `s.input` already sets `background: '#fff'`.
+
+One shared style for every `<select>` on Expenses and Mileage (Type, LoadPicker select, Expenses category/load/filter):
+- `background: '#fff'`, `color: '#111827'`, `border: '1px solid #9ca3af'` (3:1 against white, meets WCAG 1.4.11 for control boundaries; `#d1d5db` doesn't), radius 8, `fontSize: '1rem'` (prevents iOS zoom), `minHeight: 44`, `padding: '0.55rem 2.25rem 0.55rem 0.6rem'`.
+- `appearance: 'none'` / `WebkitAppearance: 'none'` with a chevron as an inline SVG data-URI `backgroundImage` (`#374151`, 12px, `backgroundPosition: 'right 0.75rem center'`, `backgroundRepeat: 'no-repeat'`).
+- Placeholder option ("No load", "All loads") shows in `#374151`, not gray-on-gray.
+- Focus: `globals.css` rule `select:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` (inline styles can't do `:focus-visible`).
+- Real disabled state is distinct: `background: '#f3f4f6'`, `color: '#9ca3af'`, `cursor: 'not-allowed'`, chevron hidden.
+- The Odometer / Miles toggle (`st.tab`) gets `minHeight: 44` and `aria-pressed`.
+
+**Acceptance criteria:** enabled selects are white with a dark chevron on Android Chrome, iOS Safari, desktop Chrome/Safari/Firefox; text contrast ≥ 4.5:1, border ≥ 3:1; visible focus ring on keyboard focus only; disabled clearly differs.
+
+**Test checklist**
+- [ ] Phone (Marc's Android + iPhone): Type and Load selects white, chevron visible, native picker still opens.
+- [ ] Desktop 1280/1024 Chrome, Safari, Firefox: same look; dark-mode OS setting doesn't turn them gray.
+- [ ] Tablet: same.
+- [ ] Keyboard: Tab shows the blue ring; arrow keys change value; Space/Alt+↓ opens.
+- [ ] Disabled (while saving) looks disabled.
+
+### 4.4 Empty states
+Use `EmptyState` (section 2: `icon?`, `title`, `body?`, `action?`). Centered in the list area, `padding: '2rem 1rem'`, title 1rem/600 `#111827`, body `#6b7280`, action is a 44px primary or outline button. Loading and error states (`Loading`, `LoadError`) stay as they are; empty only shows after a successful fetch.
+
+| Where | Condition | Title | Body | Action |
+|-------|-----------|-------|------|--------|
+| /expenses list | no expenses at all | No expenses yet | Add fuel, tolls, repairs and more. Snap a receipt and we'll fill it in. | "Add expense" → focus the Amount field (desktop) / scroll to form (mobile) |
+| /expenses filtered | a load is selected, 0 rows | No expenses for this load | — | "Add expense for this load" (presets the load) + "Show all loads" (clears filter) |
+| /mileage list | no entries | No miles logged yet | Log loaded and deadhead miles to see your all-in RPM. | "Add miles" → focus Date field |
+| Load page `LoadExpenses` | 0 expenses | keep the compact rows; change "Expenses (0)" line to "No expenses yet" with the existing "Add / view" link | — | existing link |
+| Dashboard week with no data | (Alex's page; suggestion) | Nothing this week | — | "Add expense" / "Log miles" links |
+
+Empty states never show `$0.00` as if it were data (per the LoadExpenses rule). The filtered total shows `fmtMoney(0)` only when a filter returned 0 rows and the empty state is visible.
+
+**Acceptance criteria:** each list has its own copy and a working action; the action is keyboard reachable and moves focus as described; nothing renders "empty" during loading or after an error.
+
+**Test checklist**
+- [ ] New test account (no data): /expenses, /mileage show the states at 1280, 1024, tablet, phone.
+- [ ] Filter to a load with no expenses: filtered state + both actions work.
+- [ ] Throttle network: Loading shows first, never the empty state; offline: error, not empty.
+- [ ] Keyboard: Tab to the action, Enter moves focus to the form field.
+
+### 4.5 Receipt upload on desktop
+- Keep the current flow (pick via `UploadMenu` → convert/downscale → `/api/extract-receipt` auto-fill → saved on Save). It already starts reading immediately after the pick, so there's no extra Upload click to remove.
+- Desktop only: the receipt fieldset becomes a drop zone (dashed `#9ca3af` border, "Drop a receipt here or choose a file"), feeding the same `pickFile()`. Paste (Ctrl/Cmd+V of an image) feeds the same path.
+- Reuse section 3's progress row only for the actual storage upload on Save if Alex's signed-URL XHR helper lands; until then the existing "Reading receipt…" / Saving states stay. No change to receipt storage paths or the orphan cleanup in `submit()`/`remove()`.
+- Test: drag a JPG, HEIC and PDF at 1280 (PDF: saved, no AI, per section 5); keyboard path still via `UploadMenu`; phone flow unchanged.
+
+### 4.6 Dashboard weekly card wrapping at ~590px
+Ownership: Alex owns the data and label wording (section 4). This is the layout spec Casey proposes for it.
+- Cause: `s.grid` uses `repeat(auto-fill, minmax(260px, 1fr))`. At 590px (≈558 content) that makes two ~273px columns, and the stat rows (`display:flex; justify-content:space-between`) let the long labels wrap under or into the values.
+- Grid: a `globals.css` class instead of `auto-fill`, so column counts match section 2 exactly: `.week-grid { display:grid; gap:12px; grid-template-columns: minmax(0,1fr); } @media (min-width:640px){ .week-grid{ gap:16px; grid-template-columns: repeat(2, minmax(0,1fr)); } } @media (min-width:1024px){ .week-grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }`. (Note: the `minmax(300px,1fr)` rule above gives only 1 column at 640–1023, since 2×300+16 > 592; the explicit counts fix that.) Cards `align-items: stretch` so heights match per row.
+- Stat row: `display:grid; grid-template-columns: minmax(0,1fr) auto; column-gap: 0.75rem; align-items: baseline`. Label may wrap to 2 lines max inside its own column; value `whiteSpace:'nowrap'`, right-aligned, tabular-nums, via `fmtMoney` / `fmtPerMile`.
+- Labels shortened (Alex to confirm wording): "Loaded RPM", "All-in RPM", "Loaded / deadhead"; the formulas move to a footnote under the card ("All-in RPM = revenue ÷ (loaded + deadhead logged miles)") or an info button (44px, `aria-describedby`), not hover-only.
+
+**Acceptance criteria:** at 590 one column, no label overlaps or pushes a value; at 640–1023 two columns; ≥1024 three; values never wrap.
+
+**Test checklist**
+- [ ] 590, 375, 640, 768, 1024, 1280: column count 1/1/2/2/3/3; no overlaps; equal heights per row.
+- [ ] Largest values ($99,999.99, 9,999 mi): still one line.
+- [ ] Phone with 200% text size: labels wrap within their column, values intact.
+- [ ] Keyboard/screen reader: formula footnote/info reachable and read.
+
+### Notes / questions from Casey (not added to section 7)
+- Section 7 Q4 (delete pattern) already covers the confirm choice; 4.1/4.2 follow whatever Marc picks.
+- Mileage has no Edit; adding one would be a feature change, so it's left out. Raise later only if Marc wants it.
 
 ## 5. Shared `app/lib/docTypes.js`
 
