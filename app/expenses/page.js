@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
+import ConfirmButton from '../components/ui/ConfirmButton';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
@@ -466,7 +467,6 @@ function ExpensesInner() {
   }
 
   async function remove(x) {
-    if (!window.confirm('Delete this expense?')) return;
     const { error } = await supabase.from('expenses').delete().eq('id', x.id);
     if (error) return failMsg('Could not delete the expense. Please try again.', error);
     if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
@@ -582,7 +582,7 @@ function ExpensesInner() {
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <button onClick={() => edit(x)} style={s.small}>Edit</button>
                   {x.documents?.file_path && <button onClick={() => viewReceipt(x.documents)} style={s.small}>Receipt</button>}
-                  <button onClick={() => remove(x)} style={{ ...s.small, color: '#b91c1c' }}>Delete</button>
+                  <ConfirmButton label="Delete" prompt="Delete this expense?" onConfirm={() => remove(x)} />
                 </div>
               </div>
             ))}

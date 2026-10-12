@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from './supabase';
+import ConfirmButton from '../components/ui/ConfirmButton';
 
 // Convention only; the DB column is free text.
 export const SOURCES = ['loaded', 'deadhead', 'personal', 'other'];
@@ -182,8 +183,7 @@ export function EntryRow({ e, onDelete, loadLink }) {
         {loadLink}
         {e.notes && <div style={{ color: '#6b7280', fontSize: '0.8rem', wordBreak: 'break-word' }}>{e.notes}</div>}
       </div>
-      <button onClick={() => window.confirm('Delete this entry?') && onDelete(e)}
-        style={{ background: 'none', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 8, padding: '0.35rem 0.7rem', fontSize: '0.85rem' }}>Delete</button>
+      <ConfirmButton label="Delete" prompt="Delete this entry?" onConfirm={() => onDelete(e)} />
     </div>
   );
 }
