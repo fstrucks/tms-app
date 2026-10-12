@@ -10,9 +10,12 @@ export default function LoadsLayout({ children }) {
   return (
     <LoadsProvider>
       <div className={id ? 'loads-split' : undefined}>
-        <aside className="loads-aside" aria-label="Loads list">
-          {id ? <LoadsList selectedId={id} /> : null}
-        </aside>
+        {/* Only render the side list when a load is selected, so /loads has no empty panel. */}
+        {id ? (
+          <aside className="loads-aside" aria-label="Loads list" style={{ fontFamily: 'system-ui' }}>
+            <LoadsList selectedId={id} />
+          </aside>
+        ) : null}
         <div style={{ minWidth: 0 }}>{children}</div>
       </div>
     </LoadsProvider>
