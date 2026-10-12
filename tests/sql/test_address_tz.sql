@@ -63,6 +63,12 @@ select pg_temp.chk('Seattle, Washington 98101', '1 Main St, Seattle, Washington 
 select pg_temp.chk('Puerto Rico', '1 Calle Sol, San Juan, Puerto Rico 00901', '1 Calle Sol','San Juan','PR','00901');
 select pg_temp.chk('no-comma full name', 'Atlanta Georgia 30303', null,'Atlanta','GA','30303');
 
+select pg_temp.chk('Dulles VA 201 stays VA', 'Dulles, VA 20166', null,'Dulles','VA','20166');
+select pg_temp.chk('Herndon VA 201 stays VA', 'Herndon, VA 20170', null,'Herndon','VA','20170');
+select pg_temp.chk('Bethesda MD 208 stays MD', 'Bethesda, MD 20814', null,'Bethesda','MD','20814');
+select pg_temp.chk('Washington, 20500 still DC', 'Washington, 20500', null,'Washington','DC','20500');
+select pg_temp.chk('Atlanta Georgia (no comma, no zip)', 'Atlanta Georgia', null,'Atlanta','GA',null);
+
 -- us_state_tz
 insert into results select 'tz '||s, coalesce(public.us_state_tz(s),'∅') = w, coalesce(public.us_state_tz(s),'∅'), w
 from (values ('GA','America/New_York'),('IL','America/Chicago'),('il','America/Chicago'),(' in ','America/Indiana/Indianapolis'),

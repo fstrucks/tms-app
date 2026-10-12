@@ -18,6 +18,8 @@ declare
   v_norm text;
   v_pat constant text := '\m([A-Za-z]{2})\M[\s,.]*(\d{5}(?:-?\d{4})?)?';
   v_name record;
+  v_before text;
+  v_named boolean := false;  -- a full state name was converted
   v_m text[];
   v_n int := 0;
   v_best int;           -- occurrence index of the chosen state match
@@ -44,6 +46,7 @@ begin
   -- digit-free segment/words starting at the beginning or after a comma ("Atlanta, Georgia 30303",
   -- "Atlanta Georgia"), so "1600 Pennsylvania Ave, Washington" and "Washington, 20500" are not
   -- read as a state. Longest names first.
+  v_before := v_norm;
   for v_name in
     select n, c from (values
       ('Alabama','AL'),('Alaska','AK'),('Arizona','AZ'),('Arkansas','AR'),('California','CA'),('Colorado','CO'),
@@ -62,6 +65,7 @@ begin
       '(^|,\s*)([^,\d]*[A-Za-z][^,\d]*?)(,\s*|\s+)' || replace(v_name.n, ' ', '\s+') || '\M(?=[\s,.]*(\d{5}|$))',
       '\1\2\3' || v_name.c, 'gi');
   end loop;
+  v_named := v_norm <> v_before;
 
   line1 := nullif(v_norm, '');
 
@@ -90,17 +94,17 @@ begin
 
   if v_best is not null then
     v_pos := regexp_instr(v_norm, v_pat, 1, v_best);
-  elsif v_norm ~ '\m20[0-5]\d{2}(-?\d{4})?$' then
+  elsif v_norm ~ '\m20[02-5]\d{2}(-?\d{4})?$' then
     -- No state code but a DC ZIP at the end ("Washington, 20500"): the ZIP decides.
-    v_pos := regexp_instr(v_norm, '\m20[0-5]\d{2}(-?\d{4})?$');
+    v_pos := regexp_instr(v_norm, '\m20[02-5]\d{2}(-?\d{4})?$');
     zip := substring(v_norm from v_pos);
     v_best_zip := true;
   else
     return;  -- unparsed: line1 = full normalised address
   end if;
   if zip ~ '^\d{9}$' then zip := substr(zip, 1, 5) || '-' || substr(zip, 6); end if;
-  -- When a ZIP is present it wins over the written state for DC (ZIP3 200-205).
-  if zip ~ '^20[0-5]' then state := 'DC'; end if;
+  -- When a ZIP is present it wins over the written state for DC (ZIP3 200 and 202-205; 201 is Northern Virginia).
+  if zip ~ '^20[02-5]' then state := 'DC'; end if;
 
   -- City = the comma segment right before the state; line1 = everything before the city.
   v_prefix := btrim(substr(v_norm, 1, v_pos - 1), ' ,');
@@ -113,7 +117,7 @@ begin
   elsif substr(v_norm, v_pos - 2, 2) = ', ' then
     city := v_prefix;  -- "Atlanta, GA ..."
     line1 := null;
-  elsif v_best_zip and v_prefix !~ '\d' then
+  elsif (v_best_zip or v_named) and v_prefix !~ '\d' then
     city := v_prefix;  -- "Atlanta GA 30303": no digits, so it's a city, not a street
     line1 := null;
   else
