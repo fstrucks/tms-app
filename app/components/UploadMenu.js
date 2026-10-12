@@ -10,8 +10,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 // iOS Safari: each menu option is a <label htmlFor> for its input, so a tap opens the picker
 // natively (no programmatic input.click(), which iOS drops when it isn't a direct, synchronous
 // user activation or when the input is display:none). The inputs stay mounted outside the menu
-// and are visually hidden, not display:none. The menu closes on the next tick after the tap,
-// so the label isn't unmounted before its activation reaches the input.
+// and are visually hidden, not display:none. The menu is NOT closed by the option tap itself:
+// it closes only once the input has received its click (label activation reached it), or on
+// change/cancel/window focus. Android Chrome dispatches the click after touchend, so nothing on
+// the option's pointer/touch path may close the menu or call preventDefault.
 const OPTIONS = [
   { id: 'camera', icon: '📷', label: 'Take photo', accept: 'image/*', capture: 'environment' },
   { id: 'library', icon: '🖼️', label: 'Photo library', accept: 'image/*' },
@@ -97,20 +99,22 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
 
   const refocus = () => setTimeout(() => triggerRef.current?.focus(), 0);
 
-  // Runs synchronously inside the tap/keypress. Arms focus-return listeners, then closes the
-  // menu on the next tick (after the label's native activation has reached the input).
+  // Close after the input's own click has dispatched (deferred so the current dispatch finishes).
+  const closeAfterInputClick = () => setTimeout(() => setOpen(false), 0);
+
+  // Runs synchronously inside the tap/keypress. Arms focus-return listeners only; it never
+  // closes the menu or changes state, so the label stays mounted for its native activation.
   const arm = (id) => {
     const input = inputRefs.current[id];
-    setTimeout(() => setOpen(false), 0);
     if (!input) return null;
     // Return focus to the trigger after a pick or a cancel. 'cancel' isn't fired everywhere,
     // so also catch the window regaining focus when the native picker closes.
     clearBack();
-    const onBack = () => { backRef.current = null; refocus(); };
+    const onBack = () => { backRef.current = null; setOpen(false); refocus(); };
     backRef.current = onBack;
     window.addEventListener('focus', onBack, { once: true });
     // React 18 has no onCancel prop; use the native event (once per open).
-    input.addEventListener('cancel', () => { clearBack(); refocus(); }, { once: true });
+    input.addEventListener('cancel', () => { clearBack(); setOpen(false); refocus(); }, { once: true });
     return input;
   };
 
@@ -127,7 +131,8 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
       {OPTIONS.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
           {...(o.capture ? { capture: o.capture } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
-          onChange={(e) => { clearBack(); const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
+          onClick={closeAfterInputClick}
+          onChange={(e) => { setOpen(false); clearBack(); const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
         />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
