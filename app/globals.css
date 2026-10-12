@@ -29,3 +29,6 @@ button { touch-action: manipulation; }
   body.kbd-open { --nav-h: 0px; }
   body.kbd-open .appnav-bottom { display: none !important; }
 }
+
+/* iOS Safari centers date text by default */
+input[type=date]::-webkit-date-and-time-value { text-align: left; }

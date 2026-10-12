@@ -136,7 +136,7 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
       </div>
       <div style={st.grid}>
         <label style={st.cell}><span style={st.label}>Date</span>
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={st.input} /></label>
+          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={{ ...st.input, textAlign: 'left' }} /></label>
         <label style={st.cell}><span style={st.label}>Type</span>
           <select value={source} onChange={(e) => setSource(e.target.value)} style={st.input}>
             {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
