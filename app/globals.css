@@ -29,3 +29,7 @@ button { touch-action: manipulation; }
   body.kbd-open { --nav-h: 0px; }
   body.kbd-open .appnav-bottom { display: none !important; }
 }
+
+/* Load status tags (StatusTag): light set by default, dark set when the OS is in dark mode. */
+.status-tag { background: var(--st-bg); color: var(--st-fg); }
+@media (prefers-color-scheme: dark) { .status-tag { background: var(--st-bg-d); color: var(--st-fg-d); } }
