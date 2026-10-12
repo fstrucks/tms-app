@@ -12,7 +12,7 @@
 - `service_records`: date, odometer, engine hours, service type, free-text vendor, costs, and a linked scanned document.
 - Scanned maintenance docs go through Alex's scanner. v1 only stores and links them; there's **no OCR prefill**.
 - Service costs flow into Expenses **exactly once**.
-- Per-vehicle due dates (DOT annual, registration, IRP, plate) are shown with an OK / Due soon / Overdue badge. **v1 sends no alerts.**
+- Per-vehicle due dates (DOT annual, registration, IRP, plate) are shown with a staged countdown badge (§6.1: OK → Due soon → Due today → Overdue with 5-day grace → Due now). **v1 sends no alerts.**
 - A per-vehicle history page (timeline).
 
 **v2: out of scope, but the design leaves room for it without rework**
@@ -223,7 +223,27 @@ Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{ts}-{safeName}` (for 
 - **Unit picker** in the service record form: a single searchable list grouped **Trucks** then **Trailers** (`T-101 · 2019 Freightliner`, `TR-12 · Reefer 53 ft`). Selecting a unit sets `truck_id` or `trailer_id`.
 - **Load (optional)** picker in the same form, defaulting to **"No load"**, listing the user's loads (most recent first). Amount accepts `0.00` with the hint "Use $0 for warranty / no-charge work". Engine hours show for trucks and reefer trailers. The `irp` service and due field are hidden for trailers.
 - **`/maintenance/trucks/[id]` and `/maintenance/trailers/[id]`:** vehicle details plus a **history timeline** of service records (newest first; date, type, vendor, total, odometer/hours, document link) and the due-date list.
-- **Due badges:** a pure function in `app/lib/maintenance.js` returns `dueStatus(date, today)`: `overdue` if `date < today`, `due_soon` if within 30 days (open question), `ok` otherwise, or `none` if no date. v2 reminders reuse it. **No notifications in v1.**
+- **Due badges:** see §6.1. v2 reminders reuse the same helper. **No notifications in v1.**
+
+### 6.1 Due-date stages (decision: Marc, Oct 11)
+
+Starting 30 days before the due date, a soft nudge shows a **live countdown** ("Due in 12 days"). The color escalates as the date gets close. After the due date there's a **5-day grace period**, and from day 6 past due the badge shows the strongest alert.
+
+`d = dueDate − today` in whole days:
+
+| Stage key | Days left `d` | Label (text is always shown) | Color / style | Icon |
+|---|---|---|---|---|
+| `none` | no date | "No date set" | neutral grey outline | — |
+| `ok` | `d > 30` | "Due Mar 3" (date) | neutral, no fill | — |
+| `soon` | `30 ≥ d ≥ 15` | "Due in {d} days" | yellow | clock |
+| `near` | `14 ≥ d ≥ 1` | "Due in {d} days" / "Due tomorrow" (d=1) | orange | clock |
+| `today` | `d = 0` | "Due today" | red | alert |
+| `grace` | `−1 ≥ d ≥ −5` | "Overdue {−d} day(s) · {5+d} days grace left" (d=−5 → "last grace day") | red | alert |
+| `now` | `d ≤ −6` | "Due now — overdue {−d} days" | strongest red: solid fill, bold, pulsing border (respects `prefers-reduced-motion`) | alert-octagon |
+
+- **One shared helper:** `dueStage(dueDate, today) → { stage, daysLeft, label, tone }` in `app/lib/maintenance.js` is a pure function with no I/O. Vehicle list badges, the "worst badge" sort (`now > grace > today > near > soon > ok > none`), detail pages and the future v2 reminders all use it. The thresholds are named constants (`SOON_DAYS = 30`, `NEAR_DAYS = 14`, `GRACE_DAYS = 5`).
+- **Date-only, user's local day:** due dates are Postgres `date` values (no time). `today` is the user's **local calendar date** (`new Date()` → local Y/M/D, the same approach as the existing `todayISO()`), never UTC. Both are converted to day numbers with `Date.UTC(y, m-1, d) / 86400000` before subtracting, so DST shifts and time of day can't move a boundary. The countdown re-renders when the local date changes (a check on focus and visibility change, plus a timer at the next local midnight).
+- **Accessible:** color is never the only signal. Each stage has distinct text and an icon, and the badge carries `aria-label` with the full label. Yellow and orange use dark text (#1f2937) on the fill, and red/strong red use white text, all meeting WCAG AA 4.5:1. On buttons (e.g. "Log DOT inspection"), the same tone is applied to the border and an icon.
 - Built mobile-first with the bottom tab bar, 44 px targets and the `DataState` loading/empty/error states. Amounts show two decimals.
 
 ## 7. Scanner and extraction
@@ -247,7 +267,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 
 1. **docs:** this design.
 2. **db: trucks extend + trailers extend** (migrations 1–2). Rollback: SQL above.
-3. **app: vehicles list and add/edit for trucks and trailers** (`/maintenance`, `app/lib/maintenance.js` with presets and `dueStatus`), plus due badges. Rollback: revert; tables stay harmless.
+3. **app: vehicles list and add/edit for trucks and trailers** (`/maintenance`, `app/lib/maintenance.js` with presets and `dueStage`), plus due badges. Rollback: revert; tables stay harmless.
 4. **db: documents truck/trailer FKs + service_records + RPCs** (migrations 3–5). Rollback: SQL above.
 5. **app: add/edit/delete service record** through the RPCs, with scanner upload and document link, and the expense created or linked. The Expenses page shows linked rows read-only. Rollback: revert.
 6. **app: per-vehicle history timeline** page. Rollback: revert.
@@ -265,7 +285,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
   - A $0 warranty record creates one $0.00 expense line, shows "No charge", and leaves totals unchanged.
   - The RPC rejects a `load_id` owned by another user.
   - Force an error mid-RPC: no orphan record or expense.
-- **Due badges:** unit tests for `dueStatus` (past, today, today+30, today+31, null). The `dot_annual` record's +12 months suggestion, including Feb 29.
+- **Due stages:** unit tests for `dueStage` at `d = 31` (ok), `30` (soon), `15` (soon), `14` (near), `1` (near, "Due tomorrow"), `0` (today), `−1` (grace, 4 days left), `−5` (grace, last day), `−6` (now), and null (none). Also: a local-midnight rollover (11:59 PM → 12:00 AM local changes the stage), a DST transition day, a user in UTC−7 at 10 PM local (still "today" locally even though UTC is the next day), the worst-badge ordering, and a check that every stage has a unique label and icon (not color alone). The `dot_annual` record's +12 months suggestion, including Feb 29.
 - **Engine hours:** saved on records and vehicles. The "bump vehicle reading" suggestion appears only when the new value is higher.
 - **Trailers end to end:** add a reefer trailer, log a $300 reefer service with hours, see one expense "Trailer TR-12 · …", the doc at `{uid}/maintenance/trailer/{id}/…`, and a DOT badge on the trailer.
 - **Scanner:** upload PDF, JPEG and HEIC from Android and iPhone through the shared menu. The file lands at `{uid}/maintenance/{truck|trailer}/{id}/...` with `doc_type='maintenance_invoice'`, links to the record, and opens via a signed URL. The Documents page's rate con list is unchanged.
@@ -278,7 +298,6 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 
 ## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
-2. Due-soon window: is 30 days right for DOT, registration, IRP and plates (trucks and trailers)?
-3. Is one scanned document per service record enough, or do you need several (invoice plus inspection report)?
-4. Should a sold or out-of-service vehicle's history stay visible?
-5. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
+2. Is one scanned document per service record enough, or do you need several (invoice plus inspection report)?
+3. Should a sold or out-of-service vehicle's history stay visible?
+4. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
