@@ -51,17 +51,20 @@ function resolveCandidate({ y, m, d }, latest) {
 // Never substitutes today.
 export function parseReceiptDate(raw, latest) {
   if (typeof raw !== 'string') return null;
-  const s = raw.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
+  const s = raw.trim().toLowerCase()
+    .replace(/\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?![\d\/.-])/g, ' ') // money ("$3.15") is never a date
+    .replace(/,/g, ' ').replace(/\s+/g, ' ');
   const cands = [];
   const ymd = /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/g;
-  const mdy = /\b(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{4}|\d{2}))?\b/g;
+  // Dotted dates need a year ("03.15.26"), so prices like "3.15" aren't dates.
+  const mdy = /\b(\d{1,2})(?:([-/])(\d{1,2})(?:[-/](\d{4}|\d{2}))?|\.(\d{1,2})\.(\d{4}|\d{2}))\b/g;
   const mon = /\b([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}|\d{2}))?\b/g;
   const dmon = /\b(\d{1,2}) ([a-z]{3,9})\.?(?: (\d{4}|\d{2}))?\b/g;
   const taken = []; // spans of ISO matches, so "2026-09-26" isn't re-read as "09-26"
   for (const x of s.matchAll(ymd)) { cands.push({ i: x.index, y: +x[1], m: +x[2], d: +x[3] }); taken.push([x.index, x.index + x[0].length]); }
   const inTaken = (i) => taken.some(([a, b]) => i >= a && i < b);
   const numSpans = [...taken];
-  for (const x of s.matchAll(mdy)) if (!inTaken(x.index)) { cands.push({ i: x.index, y: yearOf(x[3]), m: +x[1], d: +x[2] }); numSpans.push([x.index, x.index + x[0].length]); }
+  for (const x of s.matchAll(mdy)) if (!inTaken(x.index)) { cands.push({ i: x.index, y: yearOf(x[4] ?? x[6]), m: +x[1], d: +(x[3] ?? x[5]) }); numSpans.push([x.index, x.index + x[0].length]); }
   // Word-month matches must not start inside a numeric date ("01/29 Sep 26" is not "29 Sep 26").
   const inNum = (i) => numSpans.some(([a0, b0]) => i >= a0 && i < b0);
   for (const x of s.matchAll(mon)) { const m = monthOf(x[1]); if (m) cands.push({ i: x.index, y: yearOf(x[3]), m, d: +x[2] }); }
