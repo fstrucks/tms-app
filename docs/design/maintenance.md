@@ -1,6 +1,6 @@
 # Truck & Trailer Maintenance v1 (M1): design
 
-> **Status: DESIGN ONLY.** This PR adds no migrations or app code. Taylor reviews it first, then it **waits on Marc's schema confirmation** (§1) and his approval.
+> **Status: DESIGN ONLY. All open questions resolved, ready for review.** This PR adds no migrations or app code. Taylor reviews it, then Marc approves. Marc's schema output (Oct 11) is in §1, and the few items it couldn't show are verify-at-build checks (§1.1), not questions.
 > The build starts **after Alex's scanner PR merges**. Core owner-operator fixes always take priority.
 > Every SQL block below is **illustrative**, not a migration.
 > Source spec: `/workspace/plans/maintenance-spec-v1.md` (Drew's spec, trimmed per Dakota on Oct 11).
@@ -32,82 +32,49 @@
 
 **Constraint:** nothing about loads, expenses, mileage or the dashboard changes for Marc unless he adds a service record.
 
-## 1. Schema to confirm with Marc ⚠️
+## 1. Current schema (confirmed by Marc's query, Oct 11)
 
-**`trailers`: confirmed (Marc, Oct 11).** Created in Supabase with RLS limited to own rows. Columns: `id uuid, user_id uuid, unit_number text, year integer, make text, model text, vin text, license_plate text, license_state text, trailer_type text, length_ft integer, notes text, created_at timestamptz, updated_at timestamptz`. We **do not recreate it**. v1 only adds the maintenance columns listed in §2.2.
+All three tables were created in prod outside `supabase/migrations`. Marc's output gave column names and types. Nullability, defaults, FKs, policies and triggers weren't included, except `loads.status default 'booked'`.
 
-**`trucks`: still unconfirmed.** What the repo shows today:
-- There is **no `trucks` table in `supabase/migrations`** (and `trailers` was also created outside the repo). Any trucks table was created in prod outside the repo, like `loads`, `stops`, `expenses`, `mileage_entries` and `profiles` were.
-- `documents.truck_id uuid` exists with **no FK** (`20261010000050_documents_table.sql`). It's client-insertable and updatable (`20261010000200_documents_update_rls.sql`). The app always sends `null` (`app/documents/page.js:215`, `app/expenses/page.js:378`).
-- `loads.truck_id` exists. It's listed in the UPDATE grant in `20261010000600_mileage.sql:152`, but its type and FK are unknown.
-- `mileage_entries` has **no `truck_id`** that the repo knows of. It's tied to vehicles only through `load_id`.
+| Table | Columns (type) |
+|---|---|
+| `trucks` | id uuid, user_id uuid, unit_number text, year integer, make text, model text, vin text, license_plate text, license_state text, **odometer integer**, **insurance_provider text, insurance_policy text, insurance_expiry date**, notes text, created_at timestamptz, updated_at timestamptz |
+| `trailers` | id uuid, user_id uuid, unit_number text, year integer, make text, model text, vin text, license_plate text, license_state text, trailer_type text, length_ft integer, notes text, created_at timestamptz, updated_at timestamptz (RLS own-rows, per Marc) |
+| `loads` | **id uuid**, user_id uuid, **truck_id uuid**, status text default 'booked', broker_name, broker_load_number, rate numeric, rate_per_mile numeric, commodity, weight integer, equipment_type, special_instructions, total_miles integer, notes, created_at, updated_at |
 
-**Marc, please run this in the Supabase SQL editor and paste the output.** It still covers `trailers` so we can confirm its `user_id` default and FK, its policies and its `updated_at` trigger before we add columns:
+What this settles:
+- Trucks **already have** `license_plate`/`license_state`, so there's no rename. They also have `odometer` (not re-added) and insurance fields. **`trucks.insurance_expiry` is used as a due date** with the §6.1 `dueStage` badges ("Insurance"), instead of adding a duplicate column. Trailers have no insurance fields, and none are added in v1 (trailer coverage is usually on the truck/fleet policy).
+- `loads.id` is uuid, so `service_records.load_id uuid references loads(id)` holds. `loads.truck_id` is uuid, so a later FK to `trucks` is possible (not in v1).
+- `documents.truck_id` (uuid, no FK) is from the repo (`20261010000050`). `mileage_entries` has no `truck_id`.
 
-```sql
--- 1. Columns of trucks / trailers (if they exist)
-select table_name, column_name, data_type, is_nullable, column_default
-  from information_schema.columns
- where table_schema = 'public' and table_name in ('trucks', 'trailers')
- order by table_name, ordinal_position;
+### 1.1 Verify at build (defensive migrations; no need to ask Marc again)
 
--- 2. RLS policies on them
-select tablename, policyname, cmd, roles, qual, with_check
-  from pg_policies
- where schemaname = 'public' and tablename in ('trucks', 'trailers');
-
--- 3. RLS enabled? row counts?
-select relname, relrowsecurity from pg_class
- where relnamespace = 'public'::regnamespace and relname in ('trucks', 'trailers');
-select (select count(*) from public.trucks) as trucks;  -- skip if the table doesn't exist
-
--- 4. Constraints / FKs touching trucks anywhere
-select conrelid::regclass as tbl, conname, pg_get_constraintdef(oid)
-  from pg_constraint
- where connamespace = 'public'::regnamespace
-   and (conrelid::regclass::text in ('trucks', 'trailers')
-        or pg_get_constraintdef(oid) ilike '%truck%');
-
--- 5. Every truck_id / trailer_id column and its type
-select table_name, column_name, data_type
-  from information_schema.columns
- where table_schema = 'public' and column_name in ('truck_id', 'trailer_id');
-
--- 6. Triggers on trucks / trailers (updated_at?)
-select event_object_table, trigger_name, action_statement
-  from information_schema.triggers
- where event_object_schema = 'public' and event_object_table in ('trucks', 'trailers');
-
--- 7. Any doc_type check on documents
-select conname, pg_get_constraintdef(oid) from pg_constraint
- where conrelid = 'public.documents'::regclass and contype = 'c';
-```
-
-The trucks design below assumes nothing. It says **"add if missing"**, and the first migration uses `add column if not exists`. We'll rename the proposed columns to match his existing ones (for example, if he already has `unit` rather than `unit_number`) once we see the output. For consistency with `trailers`, the proposed truck plate columns are now `license_plate` / `license_state`.
+Each migration checks the catalog first and only changes what's missing:
+- **`user_id` default:** `alter column user_id set default auth.uid()` only if `column_default is null` (trucks, trailers).
+- **`user_id` not null / FK to `profiles`:** add the FK `not valid` only if no FK exists on that column. Set `not null` only if no null rows exist; otherwise skip and report.
+- **`id` default:** set `gen_random_uuid()` only if missing.
+- **`updated_at` trigger:** `create trigger … execute function set_updated_at()` only if no trigger on the table already updates `updated_at` (`if not exists` check on `pg_trigger`). Also set the `created_at`/`updated_at` default `now()` if missing.
+- **RLS on `trucks`:** if RLS is off or has no own-row policies, enable it and create `user_id = (select auth.uid())` policies. If it already has policies, they're left alone unless they're broader than own-rows, which is reported, not silently replaced. `trailers` RLS is left as Marc set it.
+- **Unique indexes** (`unit_number` per user among non-sold units, VIN per user): created only if no duplicates exist; otherwise skipped and reported.
+- **`documents` doc_type check:** extended only if one exists.
+- The build PR's description includes the output of these checks run against prod (read-only), before Marc runs the migrations.
 
 ## 2. Data model
 
-### 2.1 `trucks`: extend with these columns if missing (PROPOSED)
+### 2.1 `trucks`: EXISTS. Add maintenance columns only (PROPOSED)
+
+The existing columns (§1) stay as they are, with no renames and no re-adds. `20261012000800` runs `add column if not exists` for **only** these:
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid pk default gen_random_uuid() | if the table doesn't exist yet |
-| user_id | uuid not null default auth.uid() references profiles(id) | owner key, same as `documents` |
-| unit_number | text not null | unique per user |
-| vin | text | `check (vin is null or vin ~ '^[A-HJ-NPR-Z0-9]{17}$')` (17 characters, no I/O/Q) |
-| year | int | `check (year between 1980 and 2100)` |
-| make, model | text | |
-| license_plate, license_state | text | `license_state ~ '^[A-Z]{2}$'` (same names as `trailers`) |
-| odometer, odometer_updated_at | int, timestamptz | current reading, `>= 0` |
+| odometer_updated_at | timestamptz | `odometer` already exists |
 | engine_hours, engine_hours_updated_at | numeric(10,1), timestamptz | `>= 0` |
 | in_service_date | date | |
 | status | text not null default 'active' | `check (status in ('active','out_of_service','sold'))` (§6.2) |
-| sold_at | date | set when sold; `check ((status = 'sold') = (sold_at is not null))` `not valid` |
-| dot_annual_due, registration_due, irp_due, plate_due | date | v1 due-date badges |
-| notes | text | |
-| created_at, updated_at | timestamptz | reuse `set_updated_at()` from `0400` |
+| sold_at | date | `check ((status = 'sold') = (sold_at is not null))` `not valid` |
+| dot_annual_due, registration_due, irp_due, plate_due | date | due badges. **Insurance uses the existing `insurance_expiry`.** |
 
-Indexes: `unique (user_id, unit_number) where status <> 'sold'` (a sold unit's number can be reused: **confirmed by Marc, Oct 11**; see §6.3), `unique (user_id, vin) where vin is not null`, `(user_id, status)`. New checks are added `not valid` so existing rows don't block the migration.
+Checks on existing columns are added `not valid`: VIN `^[A-HJ-NPR-Z0-9]{17}$`, `year between 1980 and 2100`, `license_state ~ '^[A-Z]{2}$'`, `odometer >= 0`. Indexes: `unique (user_id, unit_number) where status <> 'sold'` (reuse confirmed, §6.3), `unique (user_id, vin) where vin is not null`, `(user_id, status)`, all subject to §1.1.
 
 ### 2.2 `trailers`: EXISTS. Add maintenance columns only (PROPOSED)
 
@@ -123,7 +90,7 @@ The table, its RLS and the base columns (`id, user_id, unit_number, year, make, 
 
 - `trailer_type` stays free text as Marc created it. The UI offers presets (`dry_van, reefer, flatbed, step_deck, tanker, other`) and shows engine hours fields when it's `reefer`. No DB check is added, so existing values never block anything.
 - New checks (VIN format, year range, `license_state`) are added `not valid`, and the indexes `unique (user_id, unit_number) where status <> 'sold'`, `unique (user_id, vin) where vin is not null` and `(user_id, status)` are created `if not exists`. If existing rows have duplicates, that index is skipped and flagged to Marc rather than failing.
-- **RLS is left as Marc set it.** We only verify (query 2 in §1) that it's `user_id = auth.uid()` for all commands. If `user_id` has no `default auth.uid()` or no FK to `profiles`, the migration adds them (`not valid` FK), and the `updated_at` trigger is added only if query 6 shows none.
+- **RLS is left as Marc set it.** The `user_id` default and FK and the `updated_at` trigger are handled defensively per §1.1.
 
 ### 2.2a How a record points at a truck or a trailer (decision)
 
@@ -176,7 +143,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 ### 2.4 Maintenance documents: reuse `documents`
 
-- New `doc_type` values: `'maintenance_invoice'` and `'dot_inspection'` (service records), plus vehicle documents `'vehicle_title'`, `'vehicle_registration'`, `'vehicle_insurance'`, `'bill_of_sale'` and `'other_vehicle_doc'` (§2.5). There's no doc_type check constraint in the repo today (query 6 in §1 confirms prod). If Marc's schema has one, the migration extends it.
+- New `doc_type` values: `'maintenance_invoice'` and `'dot_inspection'` (service records), plus vehicle documents `'vehicle_title'`, `'vehicle_registration'`, `'vehicle_insurance'`, `'bill_of_sale'` and `'other_vehicle_doc'` (§2.5). There's no doc_type check constraint in the repo today (verified at build, §1.1). If prod has one, the migration extends it.
 - **Approved (Marc, Oct 11): documents link directly to a truck or trailer**, with no service record needed. `documents.truck_id` **already exists** (uuid, no FK, client-insertable; `20261010000050`), and v1 adds an FK `not valid` to `trucks`. We add **`documents.trailer_id uuid`** (FK `not valid` to `trailers`). Both use `on delete restrict`, because vehicles aren't deleted, only sold (§6.2). A check `num_nonnulls(truck_id, trailer_id) <= 1` means a document belongs to at most one vehicle. `trailer_id` is added to the client insert/update column grants, with the ownership check in §4.
 - `documents.truck_id` gets an FK `not valid` to `trucks`. The RPC sets each attached doc's `truck_id`/`trailer_id` to match the record's vehicle.
 - **Multiple documents per record: decision is `documents.service_record_id` (FK) + `documents.page_order`, not a join table.**
@@ -197,7 +164,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 
 ### 2.5 Vehicle documents (title, registration, insurance, bill of sale…)
 
-- A document with `truck_id` or `trailer_id` set and **no `service_record_id`** is a **vehicle document**. Doc types are `vehicle_title`, `vehicle_registration`, `vehicle_insurance`, `bill_of_sale` and `other_vehicle_doc` (with `original_filename` as its label). The list lives in JS (`VEHICLE_DOC_TYPES` in `app/lib/maintenance.js`), and a DB check is only extended if Marc's schema has one (§1 query 7).
+- A document with `truck_id` or `trailer_id` set and **no `service_record_id`** is a **vehicle document**. Doc types are `vehicle_title`, `vehicle_registration`, `vehicle_insurance`, `bill_of_sale` and `other_vehicle_doc` (with `original_filename` as its label). The list lives in JS (`VEHICLE_DOC_TYPES` in `app/lib/maintenance.js`), and a DB check is only extended if prod has one (§1.1).
 - **Storage path:** `{uid}/vehicles/{truck|trailer}/{vehicle_id}/{ts}-{safeName}`. The first segment is still `{uid}`, so the existing `documents_insert_own` rule and the bucket policies already allow it, with no storage policy change. Limits are the same as other documents (10 MB per file; PDF/JPEG/PNG/HEIC). Service-record pages keep their `{uid}/maintenance/...` path (§5).
 - **RLS:** insert and update require that `truck_id`/`trailer_id`, when set, belong to the caller (`exists` on `trucks`/`trailers`). Select and delete stay `user_id = auth.uid()`. A vehicle doc can't be attached to a vehicle that's sold (UI check, plus the RPC for service records).
 - **Documents tab** on `/maintenance/trucks/[id]` and `/maintenance/trailers/[id]` (tabs: Overview · History · **Documents**):
@@ -233,7 +200,7 @@ create index on public.service_records (user_id, trailer_id, service_date desc);
 | trailers | **already set by Marc** (own rows only); verified, not replaced | — | — |
 | service_records | own | own **and** the referenced truck *or* trailer (whichever is set), the optional load, document and expense all have `user_id = auth.uid()` (`exists` checks, like `0700`/`0710`) and `documents.doc_type` is a maintenance type | own |
 
-- If Marc's existing `trucks` policies differ from the pattern, the migration **drops all non-ours and recreates them** (the `0600`/`0700` pattern), once he has reviewed the §1 output.
+- `trucks` RLS is handled defensively per §1.1: policies are created only if missing, and broader-than-own policies are reported rather than silently replaced.
 - `documents.truck_id` / `documents.trailer_id`: update `documents_insert_own` and `documents_update_own` to also require that each is null or owned by the user (`exists` against `trucks` / `trailers`), mirroring the `load_id` rule in `0710`.
 - `service_records` writes are **RPC-only**: grant `select` + `delete` to clients, and keep `insert`/`update` inside the security-invoker RPCs (the RLS checks still apply). `user_id` and `expense_id` can't be changed directly.
 - **Company accounts (PR #27):** later, `trucks`, `trailers` and `service_records` get `company_id`, with composite FKs to keep the vehicle, document and expense in the same company. A future vendors table gets `company_id` too. The cross-row `exists` checks become company checks, and the RPCs take the company from the vehicle.
@@ -250,7 +217,7 @@ Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{batch_id}/{nn}-{ts}-{
 - **Unit picker** in the service record form: a single searchable list grouped **Trucks** then **Trailers** (`T-101 · 2019 Freightliner`, `TR-12 · Reefer 53 ft`). Selecting a unit sets `truck_id` or `trailer_id`.
 - **Load (optional)** picker in the same form, defaulting to **"No load"**, listing the user's loads (most recent first). Amount accepts `0.00` with the hint "Use $0 for warranty / no-charge work". Engine hours show for trucks and reefer trailers. The `irp` service and due field are hidden for trailers.
 - **`/maintenance/trucks/[id]` and `/maintenance/trailers/[id]`:** vehicle details plus a **history timeline** of service records (newest first; date, type, vendor, total, odometer/hours, document link) and the due-date list.
-- **Due badges:** see §6.1. v2 reminders reuse the same helper. **No notifications in v1.**
+- **Due badges:** see §6.1. They cover DOT annual, registration, IRP and plate, plus **insurance (`trucks.insurance_expiry`, existing column)** for trucks. v2 reminders reuse the same helper. **No notifications in v1.**
 
 ### 6.1 Due-date stages (decision: Marc, Oct 11)
 
@@ -332,7 +299,7 @@ It shows once per save, can be dismissed, and never blocks saving.
 
 | # | File | Contents | Rollback |
 |---|---|---|---|
-| 1 | `20261012000800_trucks_extend.sql` | create `trucks` if missing; `add column if not exists` for §2.1; checks `not valid`; indexes; RLS reset; `updated_at` trigger | drop added columns and constraints (only the ones we added) |
+| 1 | `20261012000800_trucks_extend.sql` | **no create, no renames**; `add column if not exists` for only the §2.1 columns; checks `not valid`; §1.1 defensive defaults, FK, trigger, RLS and indexes | drop added columns and constraints (only the ones we added) |
 | 2 | `20261012000810_trailers_extend.sql` | **no create**: `add column if not exists` for §2.2; checks `not valid`; indexes `if not exists`; add the `user_id` default/FK and the `updated_at` trigger only if missing; RLS untouched | drop only the columns, constraints and indexes we added (never the table) |
 | 3 | `20261012000820_documents_vehicle_fks.sql` | `documents.truck_id` (existing) FK to trucks; add `documents.trailer_id` + FK to trailers (`not valid`, then validate) + the at-most-one check; grants; insert/update policies add the truck and trailer ownership checks | drop the FKs and `trailer_id`; restore the `0710`/`0400` policies |
 | 4 | `20261012000830_service_records.sql` | table, constraints, indexes, RLS, grants; `documents.service_record_id` + `page_order` + unique index; documents policies add the record ownership check | drop the documents columns, then `drop table service_records` |
@@ -380,4 +347,5 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Auto-suggest a load from the receipt date** (expenses and service records): when a receipt or service date is entered, suggest the load whose pickup–delivery dates cover that date. The user can remove the link or keep "No load". To be validated with testers before building.
 
 ## 11. Open questions for Marc
-1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
+
+**All open questions resolved, ready for review.** Marc's decisions (Oct 11): trailers in v1, every service record creates an expense (including $0), optional load link, due-date stages with 5-day grace, multiple documents per record, vehicle status/archive, unit number reuse, vehicle documents, and 1-year sold retention with expenses kept. The schema is confirmed (§1). The remaining unknowns are verify-at-build checks (§1.1).
