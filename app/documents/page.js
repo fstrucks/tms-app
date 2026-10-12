@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import Link from 'next/link';
+import SignInLink from '../components/SignInLink';
 import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney } from '../lib/money';
@@ -255,7 +256,7 @@ export default function DocumentsPage() {
       ) : !user ? (
         <div style={s.card}>
           <p style={s.error}>You need to be signed in to upload and view documents.</p>
-          <Link href="/login" style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Sign in</Link>
+          <SignInLink style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Sign in</SignInLink>
         </div>
       ) : (
         <>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { Loading, LoadError } from '../components/DataState';
@@ -60,7 +61,7 @@ export default function LoadsPage() {
       <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your loads.</p>
         : (
           <>
             {error && <LoadError message={error.text} subtle={error.subtle} onRetry={loadLoads} />}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import SignInLink from '../../components/SignInLink';
 import { useParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
@@ -84,7 +85,7 @@ export default function LoadDetailPage() {
       </p>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to view this load.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to view this load.</p>
         : (
           <>
             {error && (error.retry ? <LoadError message={error.text} onRetry={fetchAll} /> : <p style={s.error}>{error.text}</p>)}
