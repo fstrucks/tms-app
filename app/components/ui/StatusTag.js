@@ -1,7 +1,7 @@
 import { statusColors, statusLabel } from '../../lib/statusColors';
 
-// Load status tag: colored pill + text label. Colors come from CSS variables so globals.css can
-// switch to the dark set under prefers-color-scheme: dark.
+// Load status tag: colored pill + text label. Light set always; globals.css switches to the dark set
+// only under [data-theme="dark"] (no app-wide dark mode yet).
 export default function StatusTag({ status }) {
   const c = statusColors(status);
   return (

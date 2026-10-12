@@ -30,6 +30,7 @@ button { touch-action: manipulation; }
   body.kbd-open .appnav-bottom { display: none !important; }
 }
 
-/* Load status tags (StatusTag): light set by default, dark set when the OS is in dark mode. */
+/* Load status tags (StatusTag): always the light set. The app has no dark mode yet; when it gets one,
+   setting data-theme="dark" on <html> switches the tags to the dark set (already contrast-tested). */
 .status-tag { background: var(--st-bg); color: var(--st-fg); }
-@media (prefers-color-scheme: dark) { .status-tag { background: var(--st-bg-d); color: var(--st-fg-d); } }
+[data-theme="dark"] .status-tag { background: var(--st-bg-d); color: var(--st-fg-d); }

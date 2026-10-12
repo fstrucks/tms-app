@@ -1,5 +1,5 @@
 // Load status tag colors (pick 5A): exact PR #33 section 3 light colors, one hue per status. Light: tint background + dark text.
-// Dark (prefers-color-scheme: dark): deep background + light text. Paid is a solid filled tag.
+// Dark set (used only under [data-theme="dark"], for a future app-wide dark mode): deep background + light text. Paid is a solid filled tag.
 // Every pair is >= 4.5:1 (tests/js/statusColors.test.mjs). Color is never the only signal: the label is always shown.
 const BLUE = { light: ['#dbeafe', '#1e40af'], dark: ['#1e3a8a', '#dbeafe'] };
 const INDIGO = { light: ['#e0e7ff', '#3730a3'], dark: ['#312e81', '#e0e7ff'] };
