@@ -164,3 +164,10 @@ test('decodeResize: long edge to 3000, no upscale, unknown dims width-first', ()
   assert.equal(decodeResize(2000, 1500), null);
   assert.deepEqual(decodeResize(null, null), { resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
 });
+test('buildPdfWithinLimit: onProgress per page with the step index', async () => {
+  const calls = [];
+  const r = await buildPdfWithinLimit(async (s, progress) => { for (let x = 1; x <= 3; x++) progress(x, 3); return [s]; },
+    async ([s]) => new Uint8Array(s.quality > 0.6 ? 2000 : 900), { maxBytes: 1000, onProgress: (k, x, n) => calls.push(`${k}:${x}/${n}`) });
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls, ['0:1/3', '0:2/3', '0:3/3', '1:1/3', '1:2/3', '1:3/3']);
+});

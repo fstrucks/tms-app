@@ -152,16 +152,17 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     try {
       setBusy('Building PDF…');
       const { PDFDocument } = await import('pdf-lib');
-      const res = await buildPdfWithinLimit(async (step) => {
+      const res = await buildPdfWithinLimit(async (step, progress) => {
         const out = [];
         for (let i = 0; i < pages.length; i++) {
-          await new Promise((r) => setTimeout(r, 0)); // let the status paint
+          progress(i + 1, pages.length);
+          await new Promise((r) => setTimeout(r, 0)); // yield so the status paints and the UI stays responsive
           out.push(await renderPageJpeg(pages[i], mode, step.maxW, step.quality));
         }
         return out;
       }, (out) => buildPdf(out, PDFDocument, { title: `${docType.toUpperCase()} scan` }), {
         maxBytes: MAX_BYTES,
-        onStep: (k) => setBusy(k === 0 ? 'Building PDF…' : `Compressing… (try ${k} of ${SIZE_STEPS.length - 1})`),
+        onProgress: (k, x, total) => setBusy(k === 0 ? `Building PDF… page ${x} of ${total}` : `Compressing… try ${k} of ${SIZE_STEPS.length - 1}, page ${x} of ${total}`),
       });
       if (!res.ok) { setBusy(null); return setMsg({ err: true, text: `Even compressed, the PDF is ${(res.bytes.length / 1048576).toFixed(1)} MB (max 10 MB). Your pages are kept: remove a few or switch to B&W, then save again.` }); }
       const bytes = res.bytes;

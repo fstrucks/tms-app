@@ -231,14 +231,16 @@ export const SIZE_STEPS = [
 ];
 
 // render(step) -> pages for buildPdf; build(pages) -> PDF bytes. onStep(index, step) is called before
-// each attempt (index > 0 means compressing). Returns { bytes, step, attempts, ok, sizes }.
+// each attempt (index > 0 means compressing). render also gets progress(x, n), which calls
+// onProgress(index, x, n) once per page. Returns { bytes, step, attempts, ok, sizes }.
 // When no step fits, ok is false and bytes is the smallest attempt (nothing is uploaded).
-export async function buildPdfWithinLimit(render, build, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, onStep } = {}) {
+export async function buildPdfWithinLimit(render, build, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, onStep, onProgress } = {}) {
   const sizes = [];
   let best = null;
   for (let i = 0; i < steps.length; i++) {
     if (onStep) await onStep(i, steps[i]);
-    let pages = await render(steps[i]);
+    const progress = (x, n) => (onProgress ? onProgress(i, x, n) : undefined);
+    let pages = await render(steps[i], progress);
     const bytes = await build(pages);
     pages = null;
     sizes.push(bytes.length);
