@@ -6,7 +6,10 @@ test('safeNext: same-site paths pass through', () => {
   assert.equal(safeNext('/loads/123?x=1'), '/loads/123?x=1');
   assert.equal(safeNext('/documents'), '/documents');
   assert.equal(safeNext('/loads/123?x=1#stops'), '/loads/123?x=1#stops');
-  assert.equal(safeNext('%2Floads%2F123%3Fx%3D1'), '/loads/123?x=1');
+  assert.equal(safeNext('%2Floads%2F123%3Fx%3D1'), DEFAULT_NEXT); // must start with a literal '/'
+  assert.equal(safeNext('/loads?broker=A%26B'), '/loads?broker=A%26B');
+  assert.equal(safeNext('/loads?q=100%25'), '/loads?q=100%25');
+  assert.equal(safeNext('/loads/a%2Fb'), '/loads/a%2Fb');
 });
 test('safeNext: protocol-relative and backslash tricks are refused', () => {
   for (const v of ['//evil.com', '/\\evil.com', '\\\\evil.com', '/\\/evil.com', '///evil.com', '/%2Fevil.com', '%2F%2Fevil.com', '/%5Cevil.com', '%2F%5Cevil.com', '%252F%252Fevil.com', '/%09/evil.com', '/\t/evil.com', '/foo\\bar', '/..//evil.com', '/%2e%2e//evil.com', '/./%2F/evil.com'])
@@ -38,4 +41,9 @@ test('safeNext: control chars, tabs, newlines (raw and encoded) refused', () => 
 test('safeNext: malformed encoding (decode throws) refused', () => {
   for (const v of ['/%', '/%E0%A4%A', '/a%ZZ', '/%25%'])
     assert.equal(safeNext(v), DEFAULT_NEXT, v);
+});
+test('safeNext: literal % after decoding is fine; malformed raw still refused', () => {
+  assert.equal(safeNext('/loads?q=100%25'), '/loads?q=100%25');
+  assert.equal(safeNext('/x?a=%25%25'), '/x?a=%25%25');
+  assert.equal(safeNext('/x?a=50%'), DEFAULT_NEXT);
 });

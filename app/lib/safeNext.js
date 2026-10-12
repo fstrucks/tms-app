@@ -4,25 +4,30 @@ export const DEFAULT_NEXT = '/documents';
 
 export function safeNext(raw, fallback = DEFAULT_NEXT) {
   if (typeof raw !== 'string' || !raw || raw.length > 2048) return fallback;
+  // 1) Validate a decoded copy (up to 3 passes, so %5C, %255C, %09… are seen in final form).
   let v = raw;
-  // Decode up to 3 times so encoded tricks (%2F%2F, %5C, %252F…) are judged in their final form.
   for (let i = 0; i < 3; i++) {
     let d;
-    try { d = decodeURIComponent(v); } catch { return fallback; }
+    try { d = decodeURIComponent(v); } catch {
+      if (i === 0) return fallback; // the raw value itself is malformed
+      break; // a later pass hit a literal '%' (e.g. 100%25 -> 100%): nothing more can be hidden
+    }
     if (d === v) break;
     v = d;
   }
   if (/[\u0000-\u001f\u007f]/.test(raw + v)) return fallback; // control chars, tabs, newlines
-  if (v[0] !== '/' || v[1] === '/' || v[1] === '\\') return fallback;
-  if (v.includes('\\')) return fallback;
-  // Resolve against a dummy origin: must stay on it.
-  let u;
-  try { u = new URL(v, 'https://same.invalid'); } catch { return fallback; }
-  if (u.origin !== 'https://same.invalid') return fallback;
-  if (u.pathname === '/login' || u.pathname.startsWith('/login/')) return fallback;
-  const out = u.pathname + u.search + u.hash;
-  if (out[1] === '/' || out[1] === '\\') return fallback; // e.g. '/..//evil.com' normalizes to '//evil.com'
-  return out;
+  if (raw.includes('\\') || v.includes('\\')) return fallback;   // any backslash, raw or encoded
+  for (const x of [raw, v]) if (x[0] !== '/' || x[1] === '/') return fallback;
+  // 2) Return the ORIGINAL (not the decoded copy) as normalized by URL, so %26/%25 survive.
+  const origin = 'https://same.invalid';
+  let u, dv;
+  try { u = new URL(raw, origin); dv = new URL(v, origin); } catch { return fallback; }
+  if (u.origin !== origin || dv.origin !== origin) return fallback;
+  for (const p of [u.pathname, dv.pathname]) {
+    if (p[1] === '/') return fallback; // e.g. '/..//evil.com' normalizes to '//evil.com'
+    if (p === '/login' || p.startsWith('/login/')) return fallback;
+  }
+  return u.pathname + u.search + u.hash;
 }
 
 // /login?next=<current path+query>, for links shown to signed-out users.
