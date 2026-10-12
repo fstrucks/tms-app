@@ -1,5 +1,5 @@
 // Upload a scanned PDF through the normal document path: same bucket, same `{uid}/{ts}-{name}`
-// path scheme, and a documents row (doc_type bol/pod, optional load_id). If the row insert
+// path scheme, and a documents row (doc_type from lib/docTypes.js, optional load_id). If the row insert
 // fails, the storage object is removed. Returns an error message, or null on success.
 export const SCAN_MAX_BYTES = 10 * 1024 * 1024;
 

@@ -1,3 +1,4 @@
+import { docTypeShort } from './docTypes.js';
 // Pure helpers for the BOL/POD scanner (no DOM). Unit-tested in tests/js/scan.test.mjs.
 
 export const PAGE_MAX_WIDTH = 1700; // px per PDF page (~200 dpi on letter width)
@@ -361,5 +362,5 @@ export function nextSizeStep(size, from, { maxBytes = PDF_MAX_BYTES, steps = SIZ
 export function scanFileName(docType, date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;
-  return `${(docType || 'scan').toUpperCase()}_${stamp}.pdf`;
+  return `${docTypeShort(docType)}_${stamp}.pdf`;
 }

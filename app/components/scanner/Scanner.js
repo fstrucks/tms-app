@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { SCAN_DOC_TYPES, docTypeShort } from '../../lib/docTypes';
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
@@ -10,9 +11,7 @@ import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release,
 // Memory: a page is { orig (undecoded original Blob), blob (preview JPEG <= 1700px), w, h, quad, detected, thumb (object URL) },
 // with no live canvases. Save decodes one original at a time (scaled to ~3000px) and releases it before the next.
 //
-// TODO(pick 7, open): doc types come from one shared docTypes.js list once Marc decides.
-// BOL/POD are used here because the scanner needs them.
-const DOC_TYPES = [{ id: 'bol', label: 'BOL' }, { id: 'pod', label: 'POD' }];
+// Doc types come from the shared list in lib/docTypes.js (pick 7A).
 const MAX_BYTES = PDF_MAX_BYTES;
 const NO_PHOTO = "No photo was captured. If the camera didn't open, allow camera access for this site in your browser settings, or use \"Choose photos\".";
 
@@ -164,7 +163,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         setBusy('Finishing…');
         await new Promise((r) => setTimeout(r, 0));
         return out;
-      }, (out) => buildPdf(out, PDFDocument, { title: `${docType.toUpperCase()} scan` }), {
+      }, (out) => buildPdf(out, PDFDocument, { title: `${docTypeShort(docType)} scan` }), {
         maxBytes: MAX_BYTES,
         onProgress: (k, x, total) => setBusy(k === 0 ? `Building PDF… page ${x} of ${total}` : `Compressing… try ${k} of ${SIZE_STEPS.length - 1}, page ${x} of ${total}`),
       });
@@ -245,12 +244,12 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <button type="button" style={btn} disabled={!!busy || full} onClick={() => openInput(cameraRef, 'camera')}>📷 Take photo</button>
           <button type="button" style={btn} disabled={!!busy || full} onClick={() => openInput(chooseRef, 'choose')}>🖼️ Choose photos</button>
-          <div role="group" aria-label="Document type" style={{ display: 'inline-flex' }}>
-            {DOC_TYPES.map((t, k) => (
-              <button key={t.id} type="button" aria-pressed={docType === t.id} onClick={() => setDocType(t.id)} disabled={!!busy}
-                style={{ ...btn, borderRadius: k === 0 ? '8px 0 0 8px' : '0 8px 8px 0', background: docType === t.id ? '#1d4ed8' : '#fff', color: docType === t.id ? '#fff' : '#111827' }}>{t.label}</button>
-            ))}
-          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 200px', minWidth: 0 }}>
+            <span style={{ fontSize: 14, color: '#374151' }}>Type</span>
+            <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!!busy} aria-label="Document type" style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
+              {SCAN_DOC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 180px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
             <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>

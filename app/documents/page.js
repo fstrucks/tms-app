@@ -1,5 +1,6 @@
 'use client';
 
+import { DOC_TYPE_LABEL } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import dynamic from 'next/dynamic';
@@ -29,9 +30,9 @@ function resolveType(file) {
 }
 
 const BUCKET = 'documents';
-// Only rate confirmations are AI-extracted / turned into loads; scanned BOL/POD are stored as-is.
+// Only rate confirmations are AI-extracted / turned into loads; scanned docs (BOL, POD, etc.) are stored as-is.
 const EXTRACTABLE = (t) => !t || t === 'rate_confirmation';
-const TYPE_LABEL = { rate_confirmation: 'Rate confirmation', bol: 'BOL', pod: 'POD' };
+const TYPE_LABEL = DOC_TYPE_LABEL;
 
 function isHeic(file, type) {
   return type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);

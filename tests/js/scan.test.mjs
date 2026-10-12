@@ -277,3 +277,12 @@ test('nextSizeStep: 1.3x and 1.4x over try q0.45 before 1400px; order kept on fa
   const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i) => seen.push(i) });
   assert.deepEqual(seen, [0, 2, 3]); assert.equal(r.ok, true);
 });
+
+test('scanFileName: pick 7A doc types', () => {
+  const d = new Date(2026, 9, 12, 8, 5);
+  assert.equal(scanFileName('pod', d), 'POD_2026-10-12_0805.pdf');
+  assert.equal(scanFileName('w9', d), 'W9_2026-10-12_0805.pdf');
+  assert.equal(scanFileName('coi', d), 'COI_2026-10-12_0805.pdf');
+  assert.equal(scanFileName('lumper_receipt', d), 'LUMPER_2026-10-12_0805.pdf');
+  assert.equal(scanFileName('mc_authority', d), 'MC_AUTHORITY_2026-10-12_0805.pdf');
+});
