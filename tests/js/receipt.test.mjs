@@ -66,3 +66,14 @@ test('normalize: amount + not-a-receipt', () => {
   const n = norm({ is_receipt: false, amount: 5, category: 'fuel', category_confident: true, date_raw: '09/26/26' }, { today: L });
   assert.deepEqual([n.amount, n.category, n.expense_date, n.confidence], [null, null, null, 0]);
 });
+
+test('parseReceiptDate: dotted dates need a year; prices are not dates', () => {
+  assert.equal(parseReceiptDate('03.15.26', L), '2026-03-15');
+  assert.equal(parseReceiptDate('Total 3.15', L), null);
+  assert.equal(parseReceiptDate('Gallons 3.15', L), null);
+  assert.equal(parseReceiptDate('USD 3.15', L), null);
+  assert.equal(parseReceiptDate('Total $1,234.56 Date 09/26/26', L), '2026-09-26');
+});
+test('parseReceiptDate: money filter does not eat a $-prefixed date', () => {
+  assert.equal(parseReceiptDate('$10/03/26', L), '2026-10-03');
+});

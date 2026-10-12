@@ -54,6 +54,15 @@ select pg_temp.chk('Washington DC city untouched', '1600 Pennsylvania Ave NW, Wa
 select pg_temp.chk('New York city untouched', '1 Broadway, New York, NY 10004', '1 Broadway','New York','NY','10004');
 select pg_temp.chk('street + no-comma city kept in line1', '123 Main St Atlanta GA 30303', '123 Main St Atlanta',null,'GA','30303');
 
+select pg_temp.chk('Washington no DC, no zip (not WA)', '1600 Pennsylvania Ave, Washington', '1600 Pennsylvania Ave, Washington',null,null,null);
+select pg_temp.chk('Washington + DC zip only', 'Washington, 20500', null,'Washington','DC','20500');
+select pg_temp.chk('DC ZIP wins over written state', '1 Main St, Washington, WA 20001', '1 Main St','Washington','DC','20001');
+select pg_temp.chk('street + Washington + 981 zip (no city before name)', '1 Main St, Washington 98101', '1 Main St, Washington 98101',null,null,null);
+select pg_temp.chk('city with digits -> street line', 'Dock 4, Bldg 7 GA 30303', 'Dock 4, Bldg 7',null,'GA','30303');
+select pg_temp.chk('Seattle, Washington 98101', '1 Main St, Seattle, Washington 98101', '1 Main St','Seattle','WA','98101');
+select pg_temp.chk('Puerto Rico', '1 Calle Sol, San Juan, Puerto Rico 00901', '1 Calle Sol','San Juan','PR','00901');
+select pg_temp.chk('no-comma full name', 'Atlanta Georgia 30303', null,'Atlanta','GA','30303');
+
 -- us_state_tz
 insert into results select 'tz '||s, coalesce(public.us_state_tz(s),'∅') = w, coalesce(public.us_state_tz(s),'∅'), w
 from (values ('GA','America/New_York'),('IL','America/Chicago'),('il','America/Chicago'),(' in ','America/Indiana/Indianapolis'),
@@ -67,6 +76,8 @@ select pg_temp.tz('Atlanta multiline -> New_York', E'123 Peachtree St\nAtlanta, 
 select pg_temp.tz('Atlanta USA -> New_York', '123 Peachtree St, Atlanta, GA 30303, USA', 'America/New_York');
 select pg_temp.tz('Chicago ZIP+4 -> Chicago', '500 W Madison St, Chicago, IL 60661-2591', 'America/Chicago');
 select pg_temp.tz('Chicago multiline no comma -> Chicago', E'77 Rail Way\nChicago IL 60607', 'America/Chicago');
+select pg_temp.tz('Washington 20500 -> New_York', 'Washington, 20500', 'America/New_York');
+select pg_temp.tz('1600 Pennsylvania Ave, Washington -> no zone', '1600 Pennsylvania Ave, Washington', '∅');
 select pg_temp.tz('Indianapolis lowercase in', '1 Plant Rd, Indianapolis, in 46201', 'America/Indiana/Indianapolis');
 select pg_temp.tz('Atlanta, Georgia -> New_York', '123 Main St, Atlanta, Georgia 30303', 'America/New_York');
 -- Appointment conversion sanity: 08:00 local in Atlanta vs Chicago

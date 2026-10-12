@@ -39,8 +39,11 @@ begin
   v_norm := regexp_replace(v_norm, '[\s,]*\m(u\.s\.a\.?|u\.s\.?|usa|us|united states( of america)?)\.?\s*$', '', 'i');
   v_norm := btrim(v_norm, ' ,');
 
-  -- Full state names -> codes (case-insensitive), only when followed by a ZIP or the end of the address,
-  -- so cities like "Washington, DC" or "New York, NY" are left alone. Longest names first.
+  -- Full state names -> codes (case-insensitive). Only when (a) a ZIP or the end of the address follows,
+  -- so "Washington, DC" / "New York, NY" are left alone, and (b) a city comes right before it: a
+  -- digit-free segment/words starting at the beginning or after a comma ("Atlanta, Georgia 30303",
+  -- "Atlanta Georgia"), so "1600 Pennsylvania Ave, Washington" and "Washington, 20500" are not
+  -- read as a state. Longest names first.
   for v_name in
     select n, c from (values
       ('Alabama','AL'),('Alaska','AK'),('Arizona','AZ'),('Arkansas','AR'),('California','CA'),('Colorado','CO'),
@@ -50,13 +53,14 @@ begin
       ('Michigan','MI'),('Minnesota','MN'),('Mississippi','MS'),('Missouri','MO'),('Montana','MT'),
       ('Nebraska','NE'),('Nevada','NV'),('New Hampshire','NH'),('New Jersey','NJ'),('New Mexico','NM'),
       ('New York','NY'),('North Carolina','NC'),('North Dakota','ND'),('Ohio','OH'),('Oklahoma','OK'),
-      ('Oregon','OR'),('Pennsylvania','PA'),('Rhode Island','RI'),('South Carolina','SC'),('South Dakota','SD'),
+      ('Oregon','OR'),('Pennsylvania','PA'),('Puerto Rico','PR'),('Rhode Island','RI'),('South Carolina','SC'),('South Dakota','SD'),
       ('Tennessee','TN'),('Texas','TX'),('Utah','UT'),('Vermont','VT'),('Virginia','VA'),('Washington','WA'),
       ('West Virginia','WV'),('Wisconsin','WI'),('Wyoming','WY')
     ) t(n, c) order by length(n) desc
   loop
     v_norm := regexp_replace(v_norm,
-      '(^|,\s*|\s)' || replace(v_name.n, ' ', '\s+') || '\M(?=[\s,.]*(\d{5}|$))', '\1' || v_name.c, 'gi');
+      '(^|,\s*)([^,\d]*[A-Za-z][^,\d]*?)(,\s*|\s+)' || replace(v_name.n, ' ', '\s+') || '\M(?=[\s,.]*(\d{5}|$))',
+      '\1\2\3' || v_name.c, 'gi');
   end loop;
 
   line1 := nullif(v_norm, '');
@@ -84,12 +88,21 @@ begin
     end if;
   end loop;
 
-  if v_best is null then
+  if v_best is not null then
+    v_pos := regexp_instr(v_norm, v_pat, 1, v_best);
+  elsif v_norm ~ '\m20[0-5]\d{2}(-?\d{4})?$' then
+    -- No state code but a DC ZIP at the end ("Washington, 20500"): the ZIP decides.
+    v_pos := regexp_instr(v_norm, '\m20[0-5]\d{2}(-?\d{4})?$');
+    zip := substring(v_norm from v_pos);
+    v_best_zip := true;
+  else
     return;  -- unparsed: line1 = full normalised address
   end if;
+  if zip ~ '^\d{9}$' then zip := substr(zip, 1, 5) || '-' || substr(zip, 6); end if;
+  -- When a ZIP is present it wins over the written state for DC (ZIP3 200-205).
+  if zip ~ '^20[0-5]' then state := 'DC'; end if;
 
   -- City = the comma segment right before the state; line1 = everything before the city.
-  v_pos := regexp_instr(v_norm, v_pat, 1, v_best);
   v_prefix := btrim(substr(v_norm, 1, v_pos - 1), ' ,');
   if v_prefix = '' then
     line1 := null;
@@ -105,6 +118,11 @@ begin
     line1 := null;
   else
     line1 := v_prefix; -- no comma: can't separate street from city reliably
+  end if;
+  -- A "city" with digits is really part of the street line.
+  if city ~ '\d' then
+    line1 := nullif(concat_ws(', ', line1, city), '');
+    city := null;
   end if;
 end;
 $$;
