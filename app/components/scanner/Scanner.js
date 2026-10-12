@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { movePage, removePage, replacePage, fullFrame, buildPdf, scanFileName, capPages, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
+import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
@@ -13,7 +13,7 @@ import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release,
 // TODO(pick 7, open): doc types come from one shared docTypes.js list once Marc decides.
 // BOL/POD are used here because the scanner needs them.
 const DOC_TYPES = [{ id: 'bol', label: 'BOL' }, { id: 'pod', label: 'POD' }];
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = PDF_MAX_BYTES;
 const NO_PHOTO = "No photo was captured. If the camera didn't open, allow camera access for this site in your browser settings, or use \"Choose photos\".";
 
 const btn = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#111827', fontSize: '0.95rem', cursor: 'pointer' };
@@ -152,15 +152,19 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     try {
       setBusy('Building PDF…');
       const { PDFDocument } = await import('pdf-lib');
-      const out = [];
-      for (let i = 0; i < pages.length; i++) {
-        setBusy(`Preparing page ${i + 1} of ${pages.length}…`);
-        await new Promise((r) => setTimeout(r, 0)); // let the status paint
-        out.push(await renderPageJpeg(pages[i], mode, PAGE_MAX_WIDTH));
-      }
-      const bytes = await buildPdf(out, PDFDocument, { title: `${docType.toUpperCase()} scan` });
-      out.length = 0;
-      if (bytes.length > MAX_BYTES) { setBusy(null); return setMsg({ err: true, text: `The PDF is ${(bytes.length / 1048576).toFixed(1)} MB (max 10 MB). Remove a page or switch to B&W.` }); }
+      const res = await buildPdfWithinLimit(async (step) => {
+        const out = [];
+        for (let i = 0; i < pages.length; i++) {
+          await new Promise((r) => setTimeout(r, 0)); // let the status paint
+          out.push(await renderPageJpeg(pages[i], mode, step.maxW, step.quality));
+        }
+        return out;
+      }, (out) => buildPdf(out, PDFDocument, { title: `${docType.toUpperCase()} scan` }), {
+        maxBytes: MAX_BYTES,
+        onStep: (k) => setBusy(k === 0 ? 'Building PDF…' : `Compressing… (try ${k} of ${SIZE_STEPS.length - 1})`),
+      });
+      if (!res.ok) { setBusy(null); return setMsg({ err: true, text: `Even compressed, the PDF is ${(res.bytes.length / 1048576).toFixed(1)} MB (max 10 MB). Your pages are kept: remove a few or switch to B&W, then save again.` }); }
+      const bytes = res.bytes;
       const file = new File([bytes], scanFileName(docType), { type: 'application/pdf' });
       setBusy('Uploading…');
       const err = await onSave({ file, docType, loadId: loadId || null });

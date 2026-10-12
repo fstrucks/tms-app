@@ -219,6 +219,43 @@ export async function buildPdf(pages, PDFDocument, { title = 'Scanned document' 
   return doc.save();
 }
 
+// ---- Size limit ----
+// If the PDF is over the upload limit, rebuild with smaller pages: lower JPEG quality first,
+// then a narrower page. The first step is the normal output.
+export const PDF_MAX_BYTES = 10 * 1024 * 1024;
+export const SIZE_STEPS = [
+  { quality: JPEG_QUALITY, maxW: PAGE_MAX_WIDTH },
+  { quality: 0.55, maxW: PAGE_MAX_WIDTH },
+  { quality: 0.45, maxW: PAGE_MAX_WIDTH },
+  { quality: 0.45, maxW: 1400 },
+];
+
+// render(step) -> pages for buildPdf; build(pages) -> PDF bytes. onStep(index, step) is called before
+// each attempt (index > 0 means compressing). Returns { bytes, step, attempts, ok, sizes }.
+// When no step fits, ok is false and bytes is the smallest attempt (nothing is uploaded).
+export async function buildPdfWithinLimit(render, build, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, onStep } = {}) {
+  const sizes = [];
+  let best = null;
+  for (let i = 0; i < steps.length; i++) {
+    if (onStep) await onStep(i, steps[i]);
+    let pages = await render(steps[i]);
+    const bytes = await build(pages);
+    pages = null;
+    sizes.push(bytes.length);
+    if (bytes.length <= maxBytes) return { bytes, step: steps[i], attempts: i + 1, ok: true, sizes };
+    if (!best || bytes.length < best.bytes.length) best = { bytes, step: steps[i] };
+  }
+  return { ...best, attempts: steps.length, ok: false, sizes };
+}
+
+// createImageBitmap resize options that bring the long edge down to `max` without upscaling.
+// w/h may be unknown (null): then a width-only resize is tried first and checked afterwards.
+export function decodeResize(w, h, max = SAVE_SOURCE_MAX) {
+  if (!w || !h) return { resizeWidth: max, resizeQuality: 'high' };
+  if (Math.max(w, h) <= max) return null;
+  return w >= h ? { resizeWidth: max, resizeQuality: 'high' } : { resizeHeight: max, resizeQuality: 'high' };
+}
+
 export function scanFileName(docType, date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;

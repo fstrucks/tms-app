@@ -118,3 +118,49 @@ test('12 MP photo -> page at least 1275px wide (crop from the original, not the 
   plan = planSave(3000, 4000, pv.width, pv.height, [{ x: 0, y: 0 }, { x: pv.width, y: 0 }, { x: pv.width, y: pv.height }, { x: 0, y: pv.height }]);
   assert.deepEqual(plan.out, { width: 1700, height: 2267 });
 });
+
+// ---- size fallback ----
+import { buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, decodeResize, JPEG_QUALITY, SAVE_SOURCE_MAX } from '../../app/lib/scan.js';
+const fakeSize = (sizeFor) => ({ render: async (s) => [s], build: async ([s]) => new Uint8Array(sizeFor(s)) });
+
+test('SIZE_STEPS: normal, q0.55, q0.45, then 1400px', () => {
+  assert.deepEqual(SIZE_STEPS.map((s) => [s.quality, s.maxW]), [[JPEG_QUALITY, PAGE_MAX_WIDTH], [0.55, 1700], [0.45, 1700], [0.45, 1400]]);
+  assert.equal(PDF_MAX_BYTES, 10 * 1024 * 1024);
+});
+test('buildPdfWithinLimit: under the limit builds once, no compressing', async () => {
+  const seen = []; const f = fakeSize(() => 100);
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i) => seen.push(i) });
+  assert.equal(r.ok, true); assert.equal(r.attempts, 1); assert.deepEqual(seen, [0]); assert.equal(r.step, SIZE_STEPS[0]);
+});
+test('buildPdfWithinLimit: steps down until it fits (q0.55)', async () => {
+  const f = fakeSize((s) => (s.quality > 0.6 ? 2000 : 900));
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000 });
+  assert.equal(r.ok, true); assert.equal(r.step.quality, 0.55); assert.deepEqual(r.sizes, [2000, 900]);
+});
+test('buildPdfWithinLimit: reaches 1400px step', async () => {
+  const seen = []; const f = fakeSize((s) => (s.maxW === 1400 ? 999 : 1500));
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i, s) => seen.push([i, s.maxW]) });
+  assert.equal(r.ok, true); assert.equal(r.attempts, 4); assert.equal(r.step.maxW, 1400);
+  assert.deepEqual(seen.map((x) => x[0]), [0, 1, 2, 3]);
+});
+test('buildPdfWithinLimit: nothing fits -> ok false, smallest attempt returned', async () => {
+  const f = fakeSize((s) => Math.round(s.quality * 10000 + s.maxW));
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 10 });
+  assert.equal(r.ok, false); assert.equal(r.attempts, 4); assert.equal(r.bytes.length, Math.min(...r.sizes)); assert.equal(r.step.maxW, 1400);
+});
+test('buildPdfWithinLimit: exactly at the limit counts as fitting', async () => {
+  const f = fakeSize(() => 1000);
+  assert.equal((await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000 })).ok, true);
+});
+test('buildPdfWithinLimit: with real pdf-lib, smaller JPEGs make it fit', async () => {
+  const big = new Uint8Array(JPG.length + 4000); big.set(JPG.subarray(0, JPG.length - 2)); big.set([0xff, 0xd9], big.length - 2);
+  const r = await buildPdfWithinLimit(async (s) => [{ bytes: s.quality > 0.5 ? big : JPG, width: 17, height: 22 }], (p) => buildPdf(p, PDFDocument), { maxBytes: 3000 });
+  assert.equal(r.ok, true); assert.equal(r.step.quality, 0.45);
+  assert.equal((await PDFDocument.load(r.bytes)).getPageCount(), 1);
+});
+test('decodeResize: long edge to 3000, no upscale, unknown dims width-first', () => {
+  assert.deepEqual(decodeResize(8064, 6048), { resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+  assert.deepEqual(decodeResize(6048, 8064), { resizeHeight: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+  assert.equal(decodeResize(2000, 1500), null);
+  assert.deepEqual(decodeResize(null, null), { resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+});
