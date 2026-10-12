@@ -12,7 +12,7 @@
 - `service_records`: date, odometer, engine hours, service type, free-text vendor, costs, and **multiple scanned documents / pages** (up to 10).
 - Scanned maintenance docs go through Alex's scanner. v1 only stores and links them; there's **no OCR prefill**.
 - Service costs flow into Expenses **exactly once**.
-- Per-vehicle due dates (DOT annual, registration, IRP, plate) are shown with a staged countdown badge (§6.1: OK → Due soon → Due today → Overdue with 5-day grace → Due now). **v1 sends no alerts.**
+- Per-vehicle due dates (DOT annual, registration, IRP, plate) are shown with a staged countdown badge (§6.1: OK → Due soon → Due today → Overdue/grace for DOT and PM, EXPIRED for legal expiries; §6.1). **v1 sends no alerts.**
 - A per-vehicle history page (timeline).
 
 **v2: out of scope, but the design leaves room for it without rework**
@@ -224,7 +224,7 @@ Deleting a user deletes `profiles`, which cascades to `service_records`, `expens
 | trailers | **already set by Marc** (own rows only); verified, not replaced | — | — |
 | service_records | own | own **and** the referenced truck *or* trailer (whichever is set), the optional load, document and expense all have `user_id = auth.uid()` (`exists` checks, like `0700`/`0710`) and `documents.doc_type` is a maintenance type | own |
 
-- **Leftover broad policies (Taylor item 4):** migrations 0800, 0810 and 0820 first scan `pg_policies` for `trucks`, `trailers` and `documents`, and **`raise exception`** (aborting the migration) if any policy isn't strictly own-rows: `qual`/`with_check` must reference `auth.uid()` = `user_id`, roles must be `authenticated` (or `public` with that predicate), and there must be no `true` or role-only policies. The fix is then made deliberately rather than shipped. The build PR **pastes the full `pg_policies` output** for these tables. If `trucks` has no policies, the own-row set is created (with existence guards).
+- **Leftover broad policies (Taylor item 4):** migrations 0800, 0810, 0820 and 0830 first scan `pg_policies` for `trucks`, `trailers` and `documents`, and **`raise exception`** (aborting the migration) if any policy isn't own-rows. **Accepted (Taylor R4):** `qual` (and `with_check` where present) contains `user_id = auth.uid()` **or** `user_id = (select auth.uid())` (either operand order, with or without casts and `public.`), optionally **AND-ed with extra conditions** (e.g. the `exists` ownership checks this design adds). **Rejected:** `true`, role-only policies, any top-level `OR` that could widen access, or a policy with no `user_id`/`auth.uid()` predicate. Roles must be `authenticated` (or `public` with that predicate). So re-running 0820/0830 doesn't abort on the policies they create themselves. The fix is then made deliberately rather than shipped. The build PR **pastes the full `pg_policies` output** for these tables. If `trucks` has no policies, the own-row set is created (with existence guards).
 - **`service_records` policies, explicit:** `sr_select_own` (`using user_id = auth.uid()`), `sr_insert_own` (`with check user_id = auth.uid()` and the vehicle/load/expense ownership `exists`), `sr_update_own` (`using` + `with check`, same predicates), and `sr_delete_own` (`using user_id = auth.uid()`). Client grants are `select` and `delete` only. Insert and update happen inside the definer RPCs, and the policies are defense-in-depth if a grant is ever widened.
 - `documents.truck_id` / `documents.trailer_id`: update `documents_insert_own` and `documents_update_own` to also require that each is null or owned by the user (`exists` against `trucks` / `trailers`), mirroring the `load_id` rule in `0710`.
 - `service_records` writes are **RPC-only** (security definer, §3). `user_id` and `expense_id` can't be changed directly.
@@ -232,7 +232,15 @@ Deleting a user deletes `profiles`, which cascades to `service_records`, `expens
 
 ## 5. Storage
 
-**Storage cleanup (Taylor item 10): `storage_delete_queue (id, user_id, bucket, path, queued_at, attempts, last_error)`** (RLS own-rows select; written only by the definer RPCs and by an `after delete` trigger on `documents`). Every RPC that deletes documents inserts their paths **inside the same transaction**, so a crash can't lose them. The client drains its own queue after the RPC returns (deleting objects via the storage API and then the queue rows), and **a v1 scheduled sweep** (Supabase cron calling an edge function, every 6 h) retries anything left over. It also removes upload orphans: `documents` with no record, vehicle or expense link that are older than 24 h, under `/maintenance/`.
+**Storage cleanup (Taylor item 10): `storage_delete_queue (id, user_id uuid not null, bucket, path, queued_at, attempts, last_error)`**. **`user_id` is a plain uuid with no FK (Taylor R2)**, so deleting an account doesn't cascade-wipe its queued paths, and the files still get cleaned up. RLS: the app can **select and delete only its own rows** (`user_id = (select auth.uid())`), with no client insert or update. It's written only by the definer RPCs and by an `after delete` trigger on `documents`). Every RPC that deletes documents inserts their paths **inside the same transaction**, so a crash can't lose them. The client drains its own queue after the RPC returns (deleting objects via the storage API and then the queue rows), and **a v1 scheduled sweep** (**daily**, pg_cron + pg_net calling an edge function; see §5.1) retries anything left over. It also removes upload orphans: `documents` with no record, vehicle or expense link that are older than 24 h, under `/maintenance/`.
+
+### 5.1 Cleanup job security (Taylor R1)
+
+- **Secrets:** the **service role key lives only in the edge function's secrets** (`supabase secrets set`). It's never in SQL, migrations, client code or the repo. The cron job authenticates with a separate **shared secret** sent in an `x-cleanup-secret` header. That secret is stored in **Supabase Vault** (read by the cron SQL via `vault.decrypted_secrets`) and in the function's secrets. The function **rejects any call** without a matching header (constant-time compare, `401`), and has JWT verification off only because the header replaces it.
+- **Scope (allow-list):** it deletes only (a) paths in `storage_delete_queue`, and (b) unlinked uploads under `{uid}/maintenance/` older than 24 h (a `documents` row with no `service_record_id`, no vehicle link and not any expense's `document_id`, or a storage object with no `documents` row). It **never touches `/vehicles/`, rate cons or receipts**: paths must match `^[0-9a-f-]{36}/maintenance/`, and anything else is skipped and logged.
+- **Re-check right before each delete:** in the same transaction as the claim, the function confirms **no `documents` row points at the path** and **no expense uses it as a receipt** (`expenses.document_id` → that doc), and that the path's first segment **equals the queue row's `user_id`**. If any check fails, the queue row is dropped without deleting the file, and this is logged.
+- **Re-runnable:** batches of 100 are claimed with `select … for update skip locked`, so two runs can't overlap on the same rows. A queue row is removed **only after the file is confirmed gone**, and a storage 404 counts as gone. On error it does `attempts += 1, last_error = …`. Rows with `attempts >= 10` are skipped (left for manual review and listed in the function log). Running it twice in a row is a no-op the second time.
+- **Schedule:** daily at 03:15 PT (`cron.schedule('maintenance-storage-cleanup', '15 10 * * *', …)` in UTC; 10:15 UTC is 03:15 PDT, 02:15 PST).
 
 Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{batch_id}/{nn}-{ts}-{safeName}`, where `batch_id` is a client UUID per form session (the record id isn't known before the first save) and `nn` is the capture order. For example: `{uid}/maintenance/trailer/9f2c…/b71e…/02-1760300000-page.jpg`. Display order comes from `page_order`, not the path. The unit segment is only for browsing and cleanup; the DB FKs are authoritative. That already satisfies `documents_insert_own` (`split_part(file_path,'/',1) = uid`) and the bucket policies in `20261010000000_documents_bucket.sql`, so no storage policy changes are needed. Allowed types and the 10 MB limit are unchanged (`0000`, `0300`). After company accounts, these become `{company_id}/{uid}/maintenance/...`.
 
@@ -248,7 +256,7 @@ Paths are `{uid}/maintenance/{truck|trailer}/{vehicle_id}/{batch_id}/{nn}-{ts}-{
 
 ### 6.1 Due-date stages (decision: Marc, Oct 11)
 
-Starting 30 days before the due date, a soft nudge shows a **live countdown** ("Due in 12 days"). The color escalates as the date gets close. After the due date there's a **5-day grace period**, and from day 6 past due the badge shows the strongest alert.
+Starting 30 days before the due date, a soft nudge shows a **live countdown** ("Due in 12 days"). The color escalates as the date gets close. After the due date, **DOT annual and PM** get a 5-day grace period, then the strongest alert from day 6. **Insurance, registration, IRP and plate** have no grace: they show "EXPIRED {n} days" in strongest red from the day after expiry.
 
 `d = dueDate − today` in whole days:
 
@@ -321,7 +329,7 @@ It shows once per save, can be dismissed, and never blocks saving.
 ## 7. Scanner and extraction
 
 - v1 uses Alex's scanner for capture and upload only. It does **not** call `/api/extract`, so there's no `extraction_runs` change in v1.
-- **Multi-page extraction (v2): one extraction run per service record over all its pages (in `page_order`), counted once against the receipt limit (30/day, 150/month).** *Why:* invoice data spans pages (line items on page 1, total and tax on page 2/3), so per-page runs would return partial or conflicting totals and need a merge step. They would also burn up to 10× the limit for one bill. The run claims one slot with `p_kind = 'maintenance_invoice'`, which shares the receipt counters, and sends all pages (max 10, images downscaled, PDF pages rasterized) in one model call. If it fails, the slot is refunded, as today.
+- **Multi-page extraction (v2): one extraction run per service record over all its pages (in `page_order`), counted once against the receipt limit (30/day, 150/month).** *Why:* invoice data spans pages (line items on page 1, total and tax on page 2/3), so per-page runs would return partial or conflicting totals and need a merge step. They would also burn up to 10× the limit for one bill. The run claims one slot with `p_kind = 'maintenance_invoice'`, which shares the receipt counters, and sends **the first 10 pages in `page_order`** across all of the record's documents (images downscaled, PDF pages rasterized) in one model call. A record can hold more (10 files × up to 20 PDF pages), so **the UI says so clearly**: "Auto-fill reads the first 10 pages. Put the invoice summary/total first." The reorder control is right there. If it fails, the slot is refunded, as today.
 - v2 OCR prefill adds `DOC_TYPES.maintenance_invoice` (vendor, date, odometer, line items, total) in `app/lib/ai-extract.js`, adds `'maintenance_invoice'` to `extraction_runs_kind_check` (`0730`), and adds a limit branch in `claim_extraction_slot`.
 
 ## 8. Migrations (numbered after `20261010000730_extraction_runs_kind.sql`)
@@ -367,11 +375,16 @@ union all
 select 'trigger', event_object_table, trigger_name
   from information_schema.triggers where event_object_schema = 'public' and event_object_table in ('trucks','trailers')
 union all
+select 'fk on delete', conrelid::regclass::text, conname || ' ' || pg_get_constraintdef(oid)
+  from pg_constraint
+ where contype = 'f' and conrelid = 'public.expenses'::regclass
+   and pg_get_constraintdef(oid) ilike '%(document_id)%'
+union all
 select 'rls enabled', relname, relrowsecurity::text
   from pg_class where relnamespace = 'public'::regnamespace and relname in ('trucks','trailers','documents');
 ```
 
-Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows are reported (item 7). Any `dup unit_number` rows mean the unique index is skipped and reported. Any policy that isn't own-rows will make the migration raise.
+Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows are reported (item 7). Any `dup unit_number` rows mean the unique index is skipped and reported. Any policy that isn't own-rows will make the migration raise. The `fk on delete` row shows the `expenses.document_id` action (Taylor R6). If it's `cascade`, a receipt delete would remove the expense, so the build flags it. If there's no FK, none is added in v1, and the cleanup re-check (§5.1) protects receipts.
 
 ## 9. PR breakdown (in order; each small and reversible; starts after Alex's scanner merges)
 
@@ -381,6 +394,12 @@ Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows 
 4. **db: documents truck/trailer FKs + service_records + RPCs** (migrations 3–5). Rollback: SQL above.
 5. **app: add/edit/delete service record** through the RPCs, with scanner upload and document link, and the expense created or linked. The Expenses page shows linked rows read-only. Rollback: revert.
 6. **app: per-vehicle history timeline** page. Rollback: revert.
+7. **ops: storage cleanup job** (Marc or Alex, in the Supabase dashboard):
+   1. Enable the **pg_cron** and **pg_net** extensions (Database → Extensions).
+   2. Deploy the `maintenance-storage-cleanup` edge function (`supabase functions deploy`), and set its secrets: `SUPABASE_SERVICE_ROLE_KEY` (function secrets only) and `CLEANUP_SECRET`.
+   3. Store the same `CLEANUP_SECRET` in **Vault** (`select vault.create_secret('…', 'cleanup_secret')`).
+   4. Schedule the daily job with `cron.schedule('maintenance-storage-cleanup', '15 10 * * *', $$ select net.http_post(url := '<function url>', headers := jsonb_build_object('x-cleanup-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'cleanup_secret'))) $$)`.
+   5. Verify with one manual run and check the function log. Rollback: `cron.unschedule('maintenance-storage-cleanup')`.
 
 ## 10. Test plan
 
@@ -396,6 +415,10 @@ Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows 
   - **Re-run:** running every migration twice succeeds with no changes on the second run, and a failure mid-file rolls the whole file back.
   - **Reorder:** swapping pages 1↔2 and moving 3→1 in one save succeeds (deferred unique). A 21-page PDF is rejected.
   - **Storage queue:** after a delete, paths are in `storage_delete_queue`. The client drains them, and the sweep retries a failed one.
+  - **Queue on account delete (R2):** deleting a user with queued paths keeps those queue rows (no FK). The next sweep deletes the files and then the rows. User B can't select or delete A's queue rows, and no client can insert.
+  - **Cleanup job (R1):** a call without or with a wrong `x-cleanup-secret` gets 401. A queued `/vehicles/` path, rate con or receipt is skipped. A path whose doc was re-linked before the run isn't deleted. An owner mismatch is dropped and not deleted. A missing file removes the row. After 10 failures it stops retrying. Two concurrent runs never process the same row. A second run is a no-op. The repo is grepped for the service role key: none found.
+  - **Policy check (R4):** re-running 0820/0830 passes with their own `user_id = (select auth.uid()) and exists(…)` policies. A `using (true)` or `… or true` policy still raises.
+  - **Extraction cap (R3, v2):** a record with 3 PDFs of 6 pages each sends pages 1–10 in `page_order`, and the UI note is shown.
   - **Documents page:** see §2.4 (PR 5 regression).
 - **Multiple documents:** attach 3 pages and reorder (page_order 1–3 persists); remove one (unlinked and its file deleted); an 11th file is rejected by the UI and the RPC; a file over 10 MB is rejected; attaching user B's doc or a doc already on another record fails; a direct client update of `service_record_id` is denied; deleting a record cascades its document rows and the RPC returns the file paths; camera multi-capture on iPhone and Android; a multi-page PDF counts as one document.
 - **Multi-page extraction (v2):** a 3-page invoice uses exactly one slot and one run, and its totals come from the last page; a failure refunds the slot.
@@ -413,7 +436,7 @@ Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows 
   - A $0 warranty record creates one $0.00 expense line, shows "No charge", and leaves totals unchanged.
   - The RPC rejects a `load_id` owned by another user.
   - Force an error mid-RPC: no orphan record or expense.
-- **Due stages:** expiry kinds at `d = −1` show "EXPIRED 1 day" (no grace), and at `−6` show "EXPIRED 6 days". DOT at `−1` shows grace. `dueStage({date: null})`, `''` and `'2026-02-30'` give `none`. Worst-of: the date `ok` with `milesLeft` past due gives the mileage stage. **Feb 29, 2028 + 12 months gives Feb 28, 2029** (the DOT suggestion clamps to month end). Unit tests for `dueStage` at `d = 31` (ok), `30` (soon), `15` (soon), `14` (near), `1` (near, "Due tomorrow"), `0` (today), `−1` (grace, 4 days left), `−5` (grace, last day), `−6` (now), and null (none). Also: a local-midnight rollover (11:59 PM → 12:00 AM local changes the stage), a DST transition day, a user in UTC−7 at 10 PM local (still "today" locally even though UTC is the next day), the worst-badge ordering, and a check that every stage has a unique label and icon (not color alone). The `dot_annual` record's +12 months suggestion, including Feb 29.
+- **Due stages:** expiry kinds at `d = −1` show "EXPIRED 1 day" (no grace), and at `−6` show "EXPIRED 6 days". DOT at `−1` shows grace. `dueStage({date: null})`, `''` and `'2026-02-30'` give `none`. Worst-of: the date `ok` with `milesLeft` past due gives the mileage stage. **Feb 29, 2028 + 12 months gives Feb 28, 2029** (the DOT suggestion clamps to month end). Unit tests for `dueStage` at `d = 31` (ok), `30` (soon), `15` (soon), `14` (near), `1` (near, "Due tomorrow"), `0` (today), and, for DOT/PM: `−1` (grace, 4 days left), `−5` (grace, last day), `−6` (now); for expiry kinds: `−1`/`−6` (expired); and null (none). **Insurance on its expiry day (`d = 0`) shows "Due today"** (not expired). Also: a local-midnight rollover (11:59 PM → 12:00 AM local changes the stage), a DST transition day, a user in UTC−7 at 10 PM local (still "today" locally even though UTC is the next day), the worst-badge ordering, and a check that every stage has a unique label and icon (not color alone). The `dot_annual` record's +12 months suggestion, including Feb 29.
 - **Engine hours:** saved on records and vehicles. The "bump vehicle reading" suggestion appears only when the new value is higher.
 - **Trailers end to end:** add a reefer trailer, log a $300 reefer service with hours, see one expense "Trailer TR-12 · …", the doc at `{uid}/maintenance/trailer/{id}/…`, and a DOT badge on the trailer.
 - **Scanner:** upload PDF, JPEG and HEIC from Android and iPhone through the shared menu. The files land at `{uid}/maintenance/{truck|trailer}/{id}/{batch}/...` with `doc_type='maintenance_invoice'`, links to the record, and opens via a signed URL. The Documents page's rate con list is unchanged.
@@ -431,4 +454,4 @@ Any `orphan documents.truck_id` rows mean the FK stays `not valid` and the rows 
 
 ## 11. Open questions for Marc
 
-**All open questions resolved. Taylor's review (7ef60e5) items 1–13 are addressed (§3, §3.1, §4, §5, §6.1, §8.1, §10); ready for re-review.** Marc's decisions (Oct 11): trailers in v1, every service record creates an expense (including $0), optional load link, due-date stages with 5-day grace, multiple documents per record, vehicle status/archive, unit number reuse, vehicle documents, and 1-year sold retention with expenses kept. The schema is confirmed (§1). The remaining unknowns are verify-at-build checks (§1.1).
+**All open questions resolved. Taylor's reviews (7ef60e5 items 1–13; 68e166c R1–R6) are addressed; ready for re-review.** Marc's decisions (Oct 11): trailers in v1, every service record creates an expense (including $0), optional load link, due-date stages (5-day grace for DOT/PM only; legal expiries show EXPIRED), multiple documents per record, vehicle status/archive, unit number reuse, vehicle documents, and 1-year sold retention with expenses kept. The schema is confirmed (§1). The remaining unknowns are verify-at-build checks (§1.1).
