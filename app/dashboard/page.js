@@ -65,11 +65,11 @@ function MiniBar({ w, max }) {
 function Stats({ w, cats }) {
   return (
     <>
-      <div style={s.row}><span style={s.muted}>Booked revenue ({w.loads} load{w.loads === 1 ? '' : 's'})</span><strong>{fmtMoney(w.revenue)}</strong></div>
+      <div style={s.row}><span style={s.muted}>Delivered revenue ({w.loads} load{w.loads === 1 ? '' : 's'})</span><strong>{fmtMoney(w.revenue)}</strong></div>
       {w.missingRate > 0 && (
         <div style={{ ...s.row, fontSize: '0.8rem', color: '#b45309' }}><span>{w.missingRate} load{w.missingRate === 1 ? '' : 's'} missing rate</span><span>not in revenue</span></div>
       )}
-      <div style={s.row}><span style={s.muted}>Load miles (loads.total_miles)</span><span>{mi(w.rpmMiles)}</span></div>
+      <div style={s.row}><span style={s.muted}>Load miles</span><span>{mi(w.rpmMiles)}</span></div>
       <div style={s.row}><span style={s.muted}>Logged loaded / deadhead</span><span>{mi(w.miles.loaded)} / {mi(w.miles.deadhead)}</span></div>
       <div style={s.row}><span style={s.muted}>Logged total miles</span><span>{mi(w.totalMiles)}</span></div>
       {(w.miles.personal > 0 || w.miles.other > 0) && (
@@ -174,12 +174,12 @@ export default function DashboardPage() {
                   </div>
                   <Chart rows={rows} />
                   <div style={{ display: 'flex', gap: '0.9rem', fontSize: '0.75rem', ...s.muted, marginBottom: '0.4rem' }}>
-                    <span><span style={{ color: '#2563eb' }}>■</span> Booked revenue</span>
+                    <span><span style={{ color: '#2563eb' }}>■</span> Delivered revenue</span>
                     <span><span style={{ color: '#f87171' }}>■</span> Expenses</span>
                     <span><span style={{ color: '#059669' }}>—</span> Net</span>
                   </div>
                   <p style={{ ...s.muted, fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
-                    Booked revenue {REVENUE_RULE === 'completed_only' ? 'counts delivered / invoiced / paid loads only' : 'excludes cancelled / canceled / TONU / void loads'}.
+                    Delivered revenue {REVENUE_RULE === 'completed_only' ? 'counts delivered / invoiced / paid loads only' : 'excludes cancelled / canceled / TONU / void loads'}.
                   </p>
                   <Stats w={total} cats={cats} />
                 </div>

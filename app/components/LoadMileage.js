@@ -98,9 +98,9 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
               <p style={{ ...muted, fontSize: '0.85rem', margin: '0 0 0.4rem' }}>No mileage entries. Enter total miles manually, or add entries below.</p>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <input inputMode="numeric" pattern="[0-9]*" placeholder="Total miles" value={manual}
-                  onChange={(e) => setManual(e.target.value.replace(/\D/g, ''))} style={input} />
+                  onChange={(e) => setManual(e.target.value.replace(/\D/g, ''))} style={{ ...input, flex: '1 1 auto', minWidth: 0 }} />
                 <button type="submit" disabled={savingManual}
-                  style={{ padding: '0 1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', opacity: savingManual ? 0.6 : 1 }}>Save</button>
+                  style={{ padding: '0 1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', whiteSpace: 'nowrap', minWidth: 72, flexShrink: 0, opacity: savingManual ? 0.6 : 1 }}>Save</button>
               </div>
               {load.total_miles > 0 && (
                 <div style={{ ...row, marginTop: '0.4rem' }}><span style={muted}>RPM</span><strong>{load.rate_per_mile != null ? `${fmtMoney(load.rate_per_mile)}/mi` : fmtRpm(rpm(load.total_miles))}</strong></div>

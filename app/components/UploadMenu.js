@@ -15,7 +15,7 @@ const OPTIONS = [
 const st = {
   wrap: { position: 'relative' },
   trigger: { width: '100%', minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
-  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 60, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
+  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 1000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
   item: { display: 'block', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
@@ -27,6 +27,25 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
   const itemRefs = useRef([]);
   const inputRefs = useRef({});
   const menuId = useId();
+  const backRef = useRef(null); // pending window-focus listener from choose()
+
+  const clearBack = () => { if (backRef.current) { window.removeEventListener('focus', backRef.current); backRef.current = null; } };
+  useEffect(() => clearBack, []);
+
+  // Open upward when there isn't room below: subtract the bottom nav and any sticky bar marked
+  // data-upload-avoid (e.g. the Save bar on /expenses) that overlaps the space under the trigger.
+  const computeUp = () => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    let limit = window.innerHeight;
+    document.querySelectorAll('.appnav-bottom, [data-upload-avoid]').forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (b.height && b.top > r.bottom && b.top < limit) limit = b.top;
+    });
+    const below = limit - r.bottom;
+    const need = OPTIONS.length * 48 + 16;
+    setUp(below < need && r.top > below);
+  };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -34,8 +53,13 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
     const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); triggerRef.current?.focus(); } };
     document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', computeUp);
+    window.addEventListener('orientationchange', computeUp);
     itemRefs.current[0]?.focus();
-    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey); };
+    return () => {
+      document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', computeUp); window.removeEventListener('orientationchange', computeUp);
+    };
   }, [open]);
 
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
@@ -45,19 +69,19 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
     const i = items.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1]?.focus(); }
     else if (e.key === 'Tab') setOpen(false);
   };
 
-  // Open upward when there isn't room below (bottom nav + safe area on short phones).
   const toggle = () => {
-    if (!open && triggerRef.current) {
-      const r = triggerRef.current.getBoundingClientRect();
-      const nav = document.querySelector('.appnav-bottom')?.getBoundingClientRect().height || 0;
-      const below = window.innerHeight - r.bottom - nav;
-      const need = OPTIONS.length * 48 + 16;
-      setUp(below < need && r.top > below);
-    }
+    if (!open) computeUp();
     setOpen((v) => !v);
+  };
+
+  // Close when focus moves outside the menu/trigger (keyboard or screen-reader navigation).
+  const onFocusOut = (e) => {
+    if (open && wrapRef.current && !wrapRef.current.contains(e.relatedTarget)) setOpen(false);
   };
 
   const refocus = () => setTimeout(() => triggerRef.current?.focus(), 0);
@@ -68,18 +92,22 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
     if (!input) return;
     // Return focus to the trigger after a pick or a cancel. 'cancel' isn't fired everywhere,
     // so also catch the window regaining focus when the native picker closes.
-    const onBack = () => { window.removeEventListener('focus', onBack); refocus(); };
-    window.addEventListener('focus', onBack);
+    clearBack();
+    const onBack = () => { backRef.current = null; refocus(); };
+    backRef.current = onBack;
+    window.addEventListener('focus', onBack, { once: true });
+    // React 18 has no onCancel prop; use the native event (once per open).
+    input.addEventListener('cancel', () => { clearBack(); refocus(); }, { once: true });
     input.click();
   };
 
   return (
-    <div ref={wrapRef} style={st.wrap}>
+    <div ref={wrapRef} style={st.wrap} onBlur={onFocusOut}>
       {OPTIONS.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
           {...(o.capture ? { capture: o.capture } : {})} tabIndex={-1} aria-hidden="true" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
-          onCancel={refocus} />
+          onChange={(e) => { clearBack(); const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
+        />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
         onClick={toggle} style={{ ...st.trigger, opacity: disabled ? 0.6 : 1 }}>

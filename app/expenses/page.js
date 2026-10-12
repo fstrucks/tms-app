@@ -542,7 +542,7 @@ function ExpensesInner() {
                   )}
                 </div>
               </fieldset>
-              <div style={s.sticky}>
+              <div style={s.sticky} data-upload-avoid>
               <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
                 style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
