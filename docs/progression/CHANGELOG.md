@@ -2,6 +2,9 @@
 
 Notable changes to PowerHaul TMS, newest first. Dates are merge dates (UTC) from GitHub.
 
+## Unreleased
+- [#26](https://github.com/fstrucks/tms-app/pull/26) Unified Upload menu (Take photo / Photo library / Files-PDF) on /documents and /expenses receipts (pending merge)
+
 ## 2026-10-11
 - [#24](https://github.com/fstrucks/tms-app/pull/24) Small UI fixes: manual Total miles Save button no longer wraps; dashboard label "Load miles" (no DB column names)
 - [#20](https://github.com/fstrucks/tms-app/pull/20) docs: name the app PowerHaul TMS

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import UploadMenu from '../components/UploadMenu';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
@@ -42,7 +43,6 @@ const s = {
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
   input: { width: '100%', fontSize: '1rem' },
-  pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   item: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
   error: { color: '#b91c1c' },
@@ -266,16 +266,7 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>
-              {/* Two pickers: camera-only, and a plain file picker with a SIMPLE accept and NO capture
-                  (a long MIME+extension accept list made some Android Chrome versions open only the camera). */}
-              <input key={`cam-${fileKey}`} id="rc-camera" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true"
-                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-              <input key={`file-${fileKey}`} id="rc-file" type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true"
-                onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <button type="button" onClick={() => document.getElementById('rc-camera')?.click()} style={s.pick}><span aria-hidden="true">📷 </span>Take photo</button>
-                <button type="button" onClick={() => document.getElementById('rc-file')?.click()} style={s.pick}><span aria-hidden="true">📎 </span>Choose file</button>
-              </div>
+              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>

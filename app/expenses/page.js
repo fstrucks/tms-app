@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
+import UploadMenu from '../components/UploadMenu';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
@@ -144,7 +145,6 @@ const s = {
   label: { display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem', color: '#374151' },
   input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid #d1d5db', marginTop: '0.2rem', background: '#fff' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
-  pick: { minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
   sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
   small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
@@ -175,8 +175,6 @@ function ExpensesInner() {
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0);
   const [preview, setPreview] = useState(null);
-  const cameraRef = useRef(null);
-  const uploadRef = useRef(null);
 
   // Cheap thumbnail for browser-renderable images (HEIC is converted at save time, so no preview).
   useEffect(() => {
@@ -521,13 +519,8 @@ function ExpensesInner() {
               </label>
               <fieldset style={{ border: 'none', padding: 0, margin: '0 0 0.6rem', minWidth: 0 }} disabled={saving}>
                 <legend style={{ ...s.label, padding: 0, marginBottom: 0 }}>Receipt (optional){form.document_id && !file ? ' · one attached, choose a file to replace' : ''}</legend>
-                {/* Both hidden inputs feed the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
-                <input key={`cam-${fileKey}`} ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <input key={`up-${fileKey}`} ref={uploadRef} type="file" accept="application/pdf,image/*" tabIndex={-1} aria-hidden="true" onChange={(e) => pickFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.3rem' }}>
-                  <button type="button" onClick={() => cameraRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📷 </span>Take photo</button>
-                  <button type="button" onClick={() => uploadRef.current?.click()} disabled={saving} style={{ ...s.pick, opacity: saving ? 0.6 : 1 }}><span aria-hidden="true">📎 </span>Upload file</button>
-                </div>
+                {/* One menu (Take photo / Photo library / Files-PDF) feeds the same file state and receipt flow (validate, HEIC conversion, downscale, 10 MB limit). */}
+                <div style={{ marginTop: '0.3rem' }}><UploadMenu key={`menu-${fileKey}`} onFile={pickFile} disabled={saving || ai.state === 'reading'} /></div>
                 <div aria-live="polite" aria-atomic="true">
                   {file && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
@@ -549,7 +542,7 @@ function ExpensesInner() {
                   )}
                 </div>
               </fieldset>
-              <div style={s.sticky}>
+              <div style={s.sticky} data-upload-avoid>
               <button type="submit" disabled={saving || ai.state === 'reading'} aria-describedby={ai.state === 'reading' ? 'save-hint' : undefined}
                 style={{ ...s.btn, opacity: saving || ai.state === 'reading' ? 0.6 : 1 }}>
                 {saving ? 'Saving…' : ai.state === 'reading' ? 'Reading receipt…' : form.id ? 'Save changes' : 'Add expense'}
