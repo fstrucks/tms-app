@@ -80,9 +80,9 @@ export function aggregate(weeks, { loads, entries, expenses }) {
     const w = find(loadDate(l));
     if (!w) continue;
     w.loads += 1;
-    const hasRate = l.rate !== null && l.rate !== undefined && l.rate !== '';
-    if (!hasRate) { w.missingRate += 1; continue; }
-    const rate = Number(l.rate) || 0;
+    // Missing = null/blank or not a finite number ("abc" is missing, not $0). "0" is a rate.
+    const rate = l.rate === null || l.rate === undefined || String(l.rate).trim() === '' ? NaN : Number(l.rate);
+    if (!Number.isFinite(rate)) { w.missingRate += 1; continue; }
     w.revenue += rate;
     const tm = Number(l.total_miles);
     if (tm > 0) { w.rpmRate += rate; w.rpmMiles += tm; }

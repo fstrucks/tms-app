@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "TZ=America/Los_Angeles node --import ./tests/js/register.mjs --test tests/js/",
+    "test:sql": "./tests/sql/run.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

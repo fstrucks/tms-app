@@ -51,7 +51,8 @@ function resolveCandidate({ y, m, d }, latest) {
 // Never substitutes today.
 export function parseReceiptDate(raw, latest) {
   if (typeof raw !== 'string') return null;
-  const s = raw.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
+  const s = raw.trim().toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ')
+    .replace(/\$\s*\d+(?:\.\d+)?/g, ' '); // money ("$3.15") is never a date
   const cands = [];
   const ymd = /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/g;
   const mdy = /\b(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{4}|\d{2}))?\b/g;
