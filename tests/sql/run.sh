@@ -9,6 +9,6 @@ M=../../supabase/migrations
 ext() { awk -v n="$2" '$0 ~ "create or replace function public\\."n"\\(" {p=1} p {print} p && /^\$\$;/ {exit}' "$1"; }
 { echo "drop schema if exists public cascade; create schema public;"
   ext $M/20261010000660_stop_timezones.sql us_state_tz
-  ext $M/20261012000730_address_parser_fixes.sql parse_us_address
+  ext $M/20261012000740_address_parser_fixes.sql parse_us_address
 } | PGOPTIONS="-c client_min_messages=warning" psql -q -X -v ON_ERROR_STOP=1
 psql -q -X -v ON_ERROR_STOP=1 -f test_address_tz.sql

@@ -43,7 +43,7 @@ select pg_temp.chk('state followed by other 2-letter uppercase', '5 Main St, Den
 select pg_temp.chk('empty', '', null,null,null,null);
 select pg_temp.chk('null', null, null,null,null,null);
 select pg_temp.chk('non-US-state code XX', '1 Main St, Somewhere, XX 12345', '1 Main St, Somewhere, XX 12345',null,null,null);
--- Fixed in 20261012000730
+-- Fixed in 20261012000740
 select pg_temp.chk('no-comma City ST zip', 'Atlanta GA 30303', null,'Atlanta','GA','30303');
 select pg_temp.chk('full state name', '123 Main St, Atlanta, Georgia 30303', '123 Main St','Atlanta','GA','30303');
 select pg_temp.chk('9-digit ZIP normalised to ZIP+4', '1 Rd, Chicago, IL 606011234', '1 Rd','Chicago','IL','60601-1234');
