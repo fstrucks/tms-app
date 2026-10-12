@@ -15,12 +15,13 @@ const OPTIONS = [
 const st = {
   wrap: { position: 'relative' },
   trigger: { width: '100%', minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
-  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 50, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
+  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 60, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
   item: { display: 'block', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
 export default function UploadMenu({ onFile, disabled = false, label = 'Upload' }) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
   const wrapRef = useRef(null);
   const triggerRef = useRef(null);
   const itemRefs = useRef([]);
@@ -47,21 +48,45 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
     else if (e.key === 'Tab') setOpen(false);
   };
 
-  const choose = (id) => { setOpen(false); inputRefs.current[id]?.click(); };
+  // Open upward when there isn't room below (bottom nav + safe area on short phones).
+  const toggle = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      const nav = document.querySelector('.appnav-bottom')?.getBoundingClientRect().height || 0;
+      const below = window.innerHeight - r.bottom - nav;
+      const need = OPTIONS.length * 48 + 16;
+      setUp(below < need && r.top > below);
+    }
+    setOpen((v) => !v);
+  };
+
+  const refocus = () => setTimeout(() => triggerRef.current?.focus(), 0);
+
+  const choose = (id) => {
+    setOpen(false);
+    const input = inputRefs.current[id];
+    if (!input) return;
+    // Return focus to the trigger after a pick or a cancel. 'cancel' isn't fired everywhere,
+    // so also catch the window regaining focus when the native picker closes.
+    const onBack = () => { window.removeEventListener('focus', onBack); refocus(); };
+    window.addEventListener('focus', onBack);
+    input.click();
+  };
 
   return (
     <div ref={wrapRef} style={st.wrap}>
       {OPTIONS.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
           {...(o.capture ? { capture: o.capture } : {})} tabIndex={-1} aria-hidden="true" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0] || null; e.target.value = ''; if (f) onFile(f); }} />
+          onChange={(e) => { const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
+          onCancel={refocus} />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
-        onClick={() => setOpen((v) => !v)} style={{ ...st.trigger, opacity: disabled ? 0.6 : 1 }}>
+        onClick={toggle} style={{ ...st.trigger, opacity: disabled ? 0.6 : 1 }}>
         <span aria-hidden="true">⬆️ </span>{label}
       </button>
       {open && (
-        <ul id={menuId} role="menu" aria-label="Upload from" style={st.menu} onKeyDown={onMenuKey}>
+        <ul id={menuId} role="menu" aria-label="Upload from" style={{ ...st.menu, ...(up ? { top: 'auto', bottom: 'calc(100% + 4px)' } : null) }} onKeyDown={onMenuKey}>
           {OPTIONS.map((o, i) => (
             <li key={o.id} role="none">
               <button ref={(el) => { itemRefs.current[i] = el; }} type="button" role="menuitem" onClick={() => choose(o.id)} style={st.item}>
