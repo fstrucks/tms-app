@@ -101,12 +101,13 @@ The trucks design below assumes nothing. It says **"add if missing"**, and the f
 | odometer, odometer_updated_at | int, timestamptz | current reading, `>= 0` |
 | engine_hours, engine_hours_updated_at | numeric(10,1), timestamptz | `>= 0` |
 | in_service_date | date | |
-| status | text not null default 'active' | `check (status in ('active','out_of_service','sold'))` |
+| status | text not null default 'active' | `check (status in ('active','out_of_service','sold'))` (§6.2) |
+| sold_at | date | set when sold; `check ((status = 'sold') = (sold_at is not null))` `not valid` |
 | dot_annual_due, registration_due, irp_due, plate_due | date | v1 due-date badges |
 | notes | text | |
 | created_at, updated_at | timestamptz | reuse `set_updated_at()` from `0400` |
 
-Indexes: `unique (user_id, unit_number)`, `unique (user_id, vin) where vin is not null`, `(user_id, status)`. New checks are added `not valid` so existing rows don't block the migration.
+Indexes: `unique (user_id, unit_number) where status <> 'sold'` (a sold unit's number can be reused), `unique (user_id, vin) where vin is not null`, `(user_id, status)`. New checks are added `not valid` so existing rows don't block the migration.
 
 ### 2.2 `trailers`: EXISTS. Add maintenance columns only (PROPOSED)
 
@@ -117,11 +118,11 @@ The table, its RLS and the base columns (`id, user_id, unit_number, year, make, 
 | odometer, odometer_updated_at | int, timestamptz | hub reading, optional, `>= 0` |
 | engine_hours, engine_hours_updated_at | numeric(10,1), timestamptz | reefer unit hours; null for non-reefers |
 | in_service_date | date | |
-| status | text not null default 'active' | same check as trucks |
+| status, sold_at | text not null default 'active', date | same checks as trucks |
 | dot_annual_due, registration_due, plate_due | date | v1 due badges. IRP applies to power units, so trailers have no `irp_due`. |
 
 - `trailer_type` stays free text as Marc created it. The UI offers presets (`dry_van, reefer, flatbed, step_deck, tanker, other`) and shows engine hours fields when it's `reefer`. No DB check is added, so existing values never block anything.
-- New checks (VIN format, year range, `license_state`) are added `not valid`, and the indexes `unique (user_id, unit_number)`, `unique (user_id, vin) where vin is not null` and `(user_id, status)` are created `if not exists`. If existing rows have duplicates, that index is skipped and flagged to Marc rather than failing.
+- New checks (VIN format, year range, `license_state`) are added `not valid`, and the indexes `unique (user_id, unit_number) where status <> 'sold'`, `unique (user_id, vin) where vin is not null` and `(user_id, status)` are created `if not exists`. If existing rows have duplicates, that index is skipped and flagged to Marc rather than failing.
 - **RLS is left as Marc set it.** We only verify (query 2 in §1) that it's `user_id = auth.uid()` for all commands. If `user_id` has no `default auth.uid()` or no FK to `profiles`, the migration adds them (`not valid` FK), and the `updated_at` trigger is added only if query 6 shows none.
 
 ### 2.2a How a record points at a truck or a trailer (decision)
@@ -259,6 +260,22 @@ Starting 30 days before the due date, a soft nudge shows a **live countdown** ("
 - **Accessible:** color is never the only signal. Each stage has distinct text and an icon, and the badge carries `aria-label` with the full label. Yellow and orange use dark text (#1f2937) on the fill, and red/strong red use white text, all meeting WCAG AA 4.5:1. On buttons (e.g. "Log DOT inspection"), the same tone is applied to the border and an icon.
 - Built mobile-first with the bottom tab bar, 44 px targets and the `DataState` loading/empty/error states. Amounts show two decimals.
 
+### 6.2 Vehicle status: active / out of service / sold (decision: Marc, Oct 11)
+
+Applies to trucks and trailers alike.
+
+| Status | Default lists & unit pickers | History | Due badges | Editable | Tag |
+|---|---|---|---|---|---|
+| `active` | shown | full | shown | yes | — |
+| `out_of_service` | **shown** (fully visible) | full | **shown**, still counting down | yes | automatic **"Out of Service"** tag, derived from `status` (never stored separately), grey with an icon and text |
+| `sold` | **hidden**; only in the **Archive** view | **read-only** | hidden (not computed) | no; only "Restore" | "Sold {sold_at}" in the Archive |
+
+- **Archive view:** `/maintenance?view=archive` (an "Archive (N)" link under the list) lists sold trucks and trailers. Opening one shows its details and history read-only: no add or edit of records, and no document upload.
+- **Mark as sold:** a "Mark as sold" action asks for the sale date (default today, local), then sets `status='sold'` and `sold_at`. **Restore** sets `status='active'` and clears `sold_at`. If an active unit now uses the same unit number, Restore asks for a new number (the partial unique index enforces this).
+- **Enforcement:** the RPC rejects saving or deleting service records on a sold vehicle (`22023 vehicle is sold`). Pickers query `status <> 'sold'`, so the "Load (optional)" picker is unaffected.
+- **Retention:** records for sold vehicles are kept **at least 2 years** after `sold_at`. **v1 never auto-deletes.** A vehicle with service records can't be deleted at all (`on delete restrict`, and the UI offers "Mark as sold" instead of Delete). Any purge policy is a later decision.
+- **Reports:** expenses from sold vehicles' service records **still count** in the dashboard, Expenses and per-load totals. Those sum `expenses`, which status never touches. Expense lines keep their "From service record" link, which opens the archived read-only record.
+
 ## 7. Scanner and extraction
 
 - v1 uses Alex's scanner for capture and upload only. It does **not** call `/api/extract`, so there's no `extraction_runs` change in v1.
@@ -291,6 +308,7 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 - **Isolation** (user A vs. B, SQL with `request.jwt.claims` plus API checks): B can't select, update or delete A's trucks, trailers or service records. B can't create a service record pointing at A's truck, trailer, document or expense. B can't set `documents.truck_id` / `trailer_id` to A's truck or trailer. The RPCs reject foreign ids.
 - **Multiple documents:** attach 3 pages and reorder (page_order 1–3 persists); remove one (unlinked and its file deleted); an 11th file is rejected by the UI and the RPC; a file over 10 MB is rejected; attaching user B's doc or a doc already on another record fails; a direct client update of `service_record_id` is denied; deleting a record cascades its document rows and the RPC returns the file paths; camera multi-capture on iPhone and Android; a multi-page PDF counts as one document.
 - **Multi-page extraction (v2):** a 3-page invoice uses exactly one slot and one run, and its totals come from the last page; a failure refunds the slot.
+- **Vehicle status:** an out-of-service unit appears in the list and pickers with the "Out of Service" tag, and its due badges still escalate. Marking a unit sold moves it to the Archive, hides it from pickers and makes its history read-only, while `sold_at` is required. The RPC rejects records on a sold unit. Restore returns the unit, prompting for a new number if it conflicts with an active unit. A unit number can be reused after a sale. Deleting a vehicle with records is blocked. Dashboard and Expenses totals are unchanged after marking a unit sold.
 - **Constraints:** a record with both or neither of truck/trailer fails (direct and via the RPC). Moving a record from a truck to a trailer clears `truck_id`. A trailer with records can't be deleted. Migration 2 runs cleanly on Marc's existing trailer rows and leaves his RLS policies unchanged. Bad VIN, negative amounts, and a duplicate unit number per user all fail.
 - **No double counting:**
   - Create a $500 record. Exactly one maintenance expense of $500 exists, and the dashboard's weekly maintenance total and expenseTotal go up by $500, not $1,000.
@@ -315,5 +333,4 @@ Each file is idempotent, like the existing ones, with a commented rollback block
 
 ## 11. Open questions for Marc
 1. **Trucks schema (§1), still unconfirmed:** please paste the output. Which truck columns already exist, and what are they named? (Trailers are confirmed. The same output also confirms the trailers `user_id` default/FK and `updated_at` trigger.)
-2. Should a sold or out-of-service vehicle's history stay visible?
-3. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
+2. OK to add `documents.trailer_id` (§2.4) so trailer docs can live in the vault without a service record?
