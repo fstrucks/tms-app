@@ -132,21 +132,26 @@ test('buildPdfWithinLimit: under the limit builds once, no compressing', async (
   const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i) => seen.push(i) });
   assert.equal(r.ok, true); assert.equal(r.attempts, 1); assert.deepEqual(seen, [0]); assert.equal(r.step, SIZE_STEPS[0]);
 });
-test('buildPdfWithinLimit: steps down until it fits (q0.55)', async () => {
-  const f = fakeSize((s) => (s.quality > 0.6 ? 2000 : 900));
+test('buildPdfWithinLimit: slightly over jumps straight to q0.55', async () => {
+  const f = fakeSize((s) => (s.quality > 0.6 ? 1100 : 900));
   const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000 });
-  assert.equal(r.ok, true); assert.equal(r.step.quality, 0.55); assert.deepEqual(r.sizes, [2000, 900]);
+  assert.equal(r.ok, true); assert.equal(r.step.quality, 0.55); assert.deepEqual(r.sizes, [1100, 900]);
+});
+test('buildPdfWithinLimit: estimate skips steps (1.3x over -> q0.45 directly)', async () => {
+  const seen = []; const f = fakeSize((s) => Math.round(1300 * s.factor));
+  const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i) => seen.push(i) });
+  assert.equal(r.ok, true); assert.deepEqual(seen, [0, 2]); assert.equal(r.attempts, 2);
 });
 test('buildPdfWithinLimit: reaches 1400px step', async () => {
   const seen = []; const f = fakeSize((s) => (s.maxW === 1400 ? 999 : 1500));
   const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 1000, onStep: (i, s) => seen.push([i, s.maxW]) });
-  assert.equal(r.ok, true); assert.equal(r.attempts, 4); assert.equal(r.step.maxW, 1400);
-  assert.deepEqual(seen.map((x) => x[0]), [0, 1, 2, 3]);
+  assert.equal(r.ok, true); assert.equal(r.attempts, 2); assert.equal(r.step.maxW, 1400);
+  assert.deepEqual(seen.map((x) => x[0]), [0, 3]);
 });
 test('buildPdfWithinLimit: nothing fits -> ok false, smallest attempt returned', async () => {
   const f = fakeSize((s) => Math.round(s.quality * 10000 + s.maxW));
   const r = await buildPdfWithinLimit(f.render, f.build, { maxBytes: 10 });
-  assert.equal(r.ok, false); assert.equal(r.attempts, 4); assert.equal(r.bytes.length, Math.min(...r.sizes)); assert.equal(r.step.maxW, 1400);
+  assert.equal(r.ok, false); assert.equal(r.attempts, 2); assert.equal(r.bytes.length, Math.min(...r.sizes)); assert.equal(r.step.maxW, 1400);
 });
 test('buildPdfWithinLimit: exactly at the limit counts as fitting', async () => {
   const f = fakeSize(() => 1000);
@@ -158,16 +163,47 @@ test('buildPdfWithinLimit: with real pdf-lib, smaller JPEGs make it fit', async 
   assert.equal(r.ok, true); assert.equal(r.step.quality, 0.45);
   assert.equal((await PDFDocument.load(r.bytes)).getPageCount(), 1);
 });
-test('decodeResize: long edge to 3000, no upscale, unknown dims width-first', () => {
+test('decodeResize: axis from the real size, no resize <= 3000, unknown -> null', () => {
   assert.deepEqual(decodeResize(8064, 6048), { resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
-  assert.deepEqual(decodeResize(6048, 8064), { resizeHeight: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+  assert.deepEqual(decodeResize(6000, 8000), { resizeHeight: 3000, resizeQuality: 'high' });
+  assert.deepEqual(decodeResize(3024, 4032), { resizeHeight: 3000, resizeQuality: 'high' });
+  assert.deepEqual(decodeResize(4000, 4000), { resizeWidth: 3000, resizeQuality: 'high' });
   assert.equal(decodeResize(2000, 1500), null);
-  assert.deepEqual(decodeResize(null, null), { resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+  assert.equal(decodeResize(3000, 2000), null);
+  assert.equal(decodeResize(null, null), null);
 });
 test('buildPdfWithinLimit: onProgress per page with the step index', async () => {
   const calls = [];
   const r = await buildPdfWithinLimit(async (s, progress) => { for (let x = 1; x <= 3; x++) progress(x, 3); return [s]; },
-    async ([s]) => new Uint8Array(s.quality > 0.6 ? 2000 : 900), { maxBytes: 1000, onProgress: (k, x, n) => calls.push(`${k}:${x}/${n}`) });
+    async ([s]) => new Uint8Array(s.quality > 0.6 ? 1100 : 900), { maxBytes: 1000, onProgress: (k, x, n) => calls.push(`${k}:${x}/${n}`) });
   assert.equal(r.ok, true);
   assert.deepEqual(calls, ['0:1/3', '0:2/3', '0:3/3', '1:1/3', '1:2/3', '1:3/3']);
+});
+
+import { probeImageSize, nextSizeStep } from '../../app/lib/scan.js';
+test('probeImageSize: JPEG SOF', () => { assert.deepEqual(probeImageSize(JPG), { width: 17, height: 22 }); });
+test('probeImageSize: JPEG EXIF orientation 6 swaps', () => {
+  const tiff = [0x4d,0x4d,0,0x2a,0,0,0,8, 0,1, 0x01,0x12,0,3,0,0,0,1,0,6,0,0, 0,0,0,0];
+  const app1 = [0xff,0xe1,0,2+6+tiff.length, 0x45,0x78,0x69,0x66,0,0, ...tiff];
+  const b = new Uint8Array([0xff,0xd8, ...app1, ...JPG.subarray(2)]);
+  assert.deepEqual(probeImageSize(b), { width: 22, height: 17 });
+});
+test('probeImageSize: PNG', () => {
+  const b = new Uint8Array(32); b.set([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a, 0,0,0,13, 0x49,0x48,0x44,0x52, 0,0,0x17,0x70, 0,0,0x1f,0x40]);
+  assert.deepEqual(probeImageSize(b), { width: 6000, height: 8000 });
+});
+test('probeImageSize: HEIC largest ispe + irot', () => {
+  const box = (w, h) => [0,0,0,20, 0x69,0x73,0x70,0x65, 0,0,0,0, (w>>>24)&255,(w>>>16)&255,(w>>>8)&255,w&255, (h>>>24)&255,(h>>>16)&255,(h>>>8)&255,h&255];
+  const head = [0,0,0,24, 0x66,0x74,0x79,0x70, 0x68,0x65,0x69,0x63];
+  const b1 = new Uint8Array([...head, ...box(512, 512), ...box(8064, 6048), 0,0,0,0,0,0,0,0]);
+  assert.deepEqual(probeImageSize(b1), { width: 8064, height: 6048 });
+  const b2 = new Uint8Array([...head, ...box(8064, 6048), 0,0,0,9, 0x69,0x72,0x6f,0x74, 1, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
+  assert.deepEqual(probeImageSize(b2), { width: 6048, height: 8064 });
+  assert.equal(probeImageSize(new Uint8Array(40)), null);
+});
+test('nextSizeStep: picks the first step estimated to fit, else the last, -1 when done', () => {
+  assert.equal(nextSizeStep(1050, 0, { maxBytes: 1000 }), 1);
+  assert.equal(nextSizeStep(1300, 0, { maxBytes: 1000 }), 2);
+  assert.equal(nextSizeStep(5000, 0, { maxBytes: 1000 }), 3);
+  assert.equal(nextSizeStep(5000, 3, { maxBytes: 1000 }), -1);
 });

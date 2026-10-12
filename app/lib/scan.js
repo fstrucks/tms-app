@@ -224,10 +224,11 @@ export async function buildPdf(pages, PDFDocument, { title = 'Scanned document' 
 // then a narrower page. The first step is the normal output.
 export const PDF_MAX_BYTES = 10 * 1024 * 1024;
 export const SIZE_STEPS = [
-  { quality: JPEG_QUALITY, maxW: PAGE_MAX_WIDTH },
-  { quality: 0.55, maxW: PAGE_MAX_WIDTH },
-  { quality: 0.45, maxW: PAGE_MAX_WIDTH },
-  { quality: 0.45, maxW: 1400 },
+  // factor: measured size relative to step 0 on a 20-page fake document
+  { quality: JPEG_QUALITY, maxW: PAGE_MAX_WIDTH, factor: 1 },
+  { quality: 0.55, maxW: PAGE_MAX_WIDTH, factor: 0.81 },
+  { quality: 0.45, maxW: PAGE_MAX_WIDTH, factor: 0.72 },
+  { quality: 0.45, maxW: 1400, factor: 0.5 },
 ];
 
 // render(step) -> pages for buildPdf; build(pages) -> PDF bytes. onStep(index, step) is called before
@@ -236,26 +237,86 @@ export const SIZE_STEPS = [
 // When no step fits, ok is false and bytes is the smallest attempt (nothing is uploaded).
 export async function buildPdfWithinLimit(render, build, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, onStep, onProgress } = {}) {
   const sizes = [];
-  let best = null;
-  for (let i = 0; i < steps.length; i++) {
+  let best = null, i = 0, attempts = 0, base = null;
+  while (i >= 0 && i < steps.length) {
     if (onStep) await onStep(i, steps[i]);
-    const progress = (x, n) => (onProgress ? onProgress(i, x, n) : undefined);
+    const idx = i;
+    const progress = (x, n) => (onProgress ? onProgress(idx, x, n) : undefined);
     let pages = await render(steps[i], progress);
     const bytes = await build(pages);
-    pages = null;
+    pages = null; attempts++;
     sizes.push(bytes.length);
-    if (bytes.length <= maxBytes) return { bytes, step: steps[i], attempts: i + 1, ok: true, sizes };
+    if (bytes.length <= maxBytes) return { bytes, step: steps[i], attempts, ok: true, sizes };
     if (!best || bytes.length < best.bytes.length) best = { bytes, step: steps[i] };
+    if (base === null) base = bytes.length / (steps[i].factor || 1);
+    i = nextSizeStep(bytes.length, i, { maxBytes, steps, base });
   }
-  return { ...best, attempts: steps.length, ok: false, sizes };
+  return { ...best, attempts, ok: false, sizes };
 }
 
-// createImageBitmap resize options that bring the long edge down to `max` without upscaling.
-// w/h may be unknown (null): then a width-only resize is tried first and checked afterwards.
+// createImageBitmap resize options from the REAL (oriented) size: the long edge goes to `max`,
+// portrait resizes by height, landscape by width. Returns null when no resize is needed (long edge
+// <= max) or when the size is unknown (the caller must then probe or fall back).
 export function decodeResize(w, h, max = SAVE_SOURCE_MAX) {
-  if (!w || !h) return { resizeWidth: max, resizeQuality: 'high' };
-  if (Math.max(w, h) <= max) return null;
-  return w >= h ? { resizeWidth: max, resizeQuality: 'high' } : { resizeHeight: max, resizeQuality: 'high' };
+  if (!w || !h || Math.max(w, h) <= max) return null;
+  return h > w ? { resizeHeight: max, resizeQuality: 'high' } : { resizeWidth: max, resizeQuality: 'high' };
+}
+
+// Cheap header probe: JPEG (SOFn + EXIF orientation), PNG (IHDR), HEIC/HEIF (largest ispe + irot).
+// bytes: Uint8Array of the start of the file (256 KB is plenty). Returns oriented { width, height } or null.
+export function probeImageSize(b) {
+  if (!b || b.length < 24) return null;
+  const u16 = (i, le) => (le ? b[i] | (b[i + 1] << 8) : (b[i] << 8) | b[i + 1]);
+  const u32 = (i, le) => (le ? (u16(i + 2, true) * 65536 + u16(i, true)) : (u16(i) * 65536 + u16(i + 2)));
+  // PNG
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { width: u32(16), height: u32(20) };
+  // JPEG
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2, orient = 1;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const m = b[i + 1];
+      if (m === 0xff) { i++; continue; }
+      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+      const len = u16(i + 2);
+      if (m === 0xe1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) {
+        const t = i + 10, le = b[t] === 0x49;
+        const ifd = t + u32(t + 4, le);
+        if (ifd + 2 < b.length) {
+          const n = u16(ifd, le);
+          for (let k = 0; k < n; k++) { const e = ifd + 2 + k * 12; if (e + 10 > b.length) break; if (u16(e, le) === 0x0112) { orient = u16(e + 8, le); break; } }
+        }
+      }
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        const h = u16(i + 5), w = u16(i + 7);
+        return orient >= 5 && orient <= 8 ? { width: h, height: w } : { width: w, height: h };
+      }
+      i += 2 + len;
+    }
+    return null;
+  }
+  // HEIC / HEIF / AVIF (ISO BMFF): ftyp then meta boxes
+  if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
+    let best = null, rot = 0;
+    for (let i = 8; i + 20 < b.length; i++) {
+      if (b[i] === 0x69 && b[i + 1] === 0x73 && b[i + 2] === 0x70 && b[i + 3] === 0x65) { // 'ispe'
+        const w = u32(i + 8), h = u32(i + 12);
+        if (w && h && (!best || w * h > best.width * best.height)) best = { width: w, height: h };
+      } else if (b[i] === 0x69 && b[i + 1] === 0x72 && b[i + 2] === 0x6f && b[i + 3] === 0x74) { // 'irot'
+        rot = b[i + 4] & 3;
+      }
+    }
+    if (!best) return null;
+    return rot % 2 ? { width: best.height, height: best.width } : best;
+  }
+  return null;
+}
+
+// Pick the next size step to try after attempt `from` produced `size` bytes, using each step's
+// estimated size factor (relative to step 0), with a 5% margin. Falls back to the next step.
+export function nextSizeStep(size, from, { maxBytes = PDF_MAX_BYTES, steps = SIZE_STEPS, base = size / (steps[from].factor || 1) } = {}) {
+  for (let j = from + 1; j < steps.length; j++) if (base * steps[j].factor <= maxBytes * 0.95) return j;
+  return steps.length - 1 > from ? steps.length - 1 : -1;
 }
 
 export function scanFileName(docType, date = new Date()) {

@@ -159,6 +159,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
           await new Promise((r) => setTimeout(r, 0)); // yield so the status paints and the UI stays responsive
           out.push(await renderPageJpeg(pages[i], mode, step.maxW, step.quality));
         }
+        setBusy('Finishing…');
+        await new Promise((r) => setTimeout(r, 0));
         return out;
       }, (out) => buildPdf(out, PDFDocument, { title: `${docType.toUpperCase()} scan` }), {
         maxBytes: MAX_BYTES,
@@ -214,7 +216,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             : msg ? <p role={msg.err ? 'alert' : undefined} style={{ margin: '0 0 0.5rem', color: msg.err ? '#b91c1c' : '#374151' }}>{msg.text}</p> : null}
         </div>
         <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 0.75rem' }}>
-          Tip: lay the page flat on a darker surface, fill most of the frame and avoid glare. Up to {MAX_PAGES} pages per scan.
+          Tip: hold the phone upright (portrait) so the page fills the photo, lay the page flat on a darker surface, fill most of the frame and avoid glare. Up to {MAX_PAGES} pages per scan.
         </p>
         {n === 0 && !busy && <p style={{ color: '#6b7280' }}>No pages yet.</p>}
         <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>

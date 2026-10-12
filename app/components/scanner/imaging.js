@@ -2,7 +2,7 @@
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
 // Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
 // Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
-import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
+import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
 const DETECT_MAX = 400; // edge detection runs on a small copy
 
@@ -30,30 +30,46 @@ export function revoke(url) { if (url) URL.revokeObjectURL(url); }
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
-// Decode a photo straight to a bitmap whose long edge is <= SAVE_SOURCE_MAX, so a 48 MP photo never
-// needs a full-size canvas (over iOS's canvas limit). Native decode first (Safari reads HEIC itself);
-// heic2any only if the browser can't decode the file. heic2any's output is resized the same way.
-async function resizedBitmap(blob) {
+// Real (oriented) size from the file header, without decoding. null if unknown.
+export async function probeSize(blob) {
+  try { return probeImageSize(new Uint8Array(await blob.slice(0, 256 * 1024).arrayBuffer())); } catch { return null; }
+}
+
+// Decode to a bitmap with the long edge <= SAVE_SOURCE_MAX, never building a full-size canvas
+// (iOS caps canvases at ~16.7 MP). The resize axis comes from the real size (header probe);
+// images with long edge <= 3000 are decoded as-is. If the size is unknown, decode width-first,
+// then redo by height if the result shows a portrait.
+export async function decodeBitmap(blob, size) {
   const base = { imageOrientation: 'from-image' };
-  let bmp = await createImageBitmap(blob, { ...base, ...decodeResize(null, null) });
-  if (bmp.height > SAVE_SOURCE_MAX) { // portrait: redo with the height as the long edge
+  if (size) {
+    const opts = decodeResize(size.width, size.height);
+    return createImageBitmap(blob, opts ? { ...base, ...opts } : base);
+  }
+  let bmp = await createImageBitmap(blob, { ...base, resizeWidth: SAVE_SOURCE_MAX, resizeQuality: 'high' });
+  if (bmp.height > SAVE_SOURCE_MAX) {
     release(bmp);
-    bmp = await createImageBitmap(blob, { ...base, ...decodeResize(1, 2) });
+    bmp = await createImageBitmap(blob, { ...base, resizeHeight: SAVE_SOURCE_MAX, resizeQuality: 'high' });
   }
   return bmp;
 }
 
-async function decodeOriginal(file) {
-  try { return await resizedBitmap(file); } catch (e) {
+// Native decode first (Safari reads HEIC itself); heic2any only if that fails. Returns
+// { src (Blob kept for save: the file itself, not a copy), size (real size of src), bmp (<= 3000px) }.
+async function openPhoto(file) {
+  const size = await probeSize(file);
+  try { const bmp = await decodeBitmap(file, size); return { src: file, size: size || { width: bmp.width, height: bmp.height }, bmp }; }
+  catch (e) {
     if (!isHeic(file)) {
-      // very old browsers without resize options: plain decode
-      const img = await decodeFile(file);
-      try { return await createImageBitmap(img); } finally { img.src = ''; }
+      const img = await decodeFile(file); // old browsers without resize options
+      try { const bmp = await createImageBitmap(img); return { src: file, size: { width: bmp.width, height: bmp.height }, bmp }; } finally { img.src = ''; }
     }
   }
   const { default: heic2any } = await import('heic2any');
   const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-  return resizedBitmap(Array.isArray(out) ? out[0] : out);
+  const jpg = Array.isArray(out) ? out[0] : out;
+  const jsize = await probeSize(jpg);
+  const bmp = await decodeBitmap(jpg, jsize);
+  return { src: jpg, size: jsize || { width: bmp.width, height: bmp.height }, bmp };
 }
 
 async function decodeFile(blob) {
@@ -90,24 +106,19 @@ function detectOn(drawable, w, h) {
   return { quad: q.map((p) => ({ x: p.x * kx, y: p.y * ky })), detected: true };
 }
 
-// File -> { orig (JPEG, long side <= SAVE_SOURCE_MAX), ow, oh, blob (preview JPEG, long side <= SOURCE_MAX), w, h, quad (preview px), detected }
-// No full-size copy is kept: the save path crops from `orig`.
+// File -> { orig (the original Blob, kept as-is: no re-encode), ow, oh (its real size), blob (preview JPEG,
+// long side <= SOURCE_MAX), w, h, quad (preview px), detected }. Save re-decodes orig straight to <= 3000px.
 export async function loadPhoto(file) {
-  const bmp = await decodeOriginal(file);
-  const ow = bmp.width, oh = bmp.height;
-  let big = canvas(ow, oh), c;
+  const { src, size, bmp } = await openPhoto(file);
+  const { width: w, height: h } = fitLongSide(bmp.width, bmp.height, SOURCE_MAX);
+  const c = canvas(w, h);
   try {
-    big.getContext('2d').drawImage(bmp, 0, 0);
+    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
     release(bmp);
-    const orig = await toBlob(big, 'image/jpeg', 0.92);
-    const { width: w, height: h } = fitLongSide(ow, oh, SOURCE_MAX);
-    c = canvas(w, h);
-    c.getContext('2d').drawImage(big, 0, 0, w, h);
-    release(big); big = null;
     const det = detectOn(c, w, h);
     const blob = await toBlob(c, 'image/jpeg', 0.9);
-    return { orig, ow, oh, blob, w, h, ...det };
-  } finally { release(bmp, big, c); }
+    return { orig: src, ow: size.width, oh: size.height, blob, w, h, ...det };
+  } finally { release(bmp, c); }
 }
 
 export async function bitmapOf(blob, opts) { return createImageBitmap(blob, opts); }
@@ -164,13 +175,11 @@ function warp(drawable, sw, sh, quad, mode, maxW) {
 export async function renderPageJpeg(page, mode, maxW, quality = JPEG_QUALITY) {
   if (!page.orig) return renderFrom(page.blob, page.w, page.h, page.quad, mode, maxW, quality);
   const plan = planSave(page.ow, page.oh, page.w, page.h, page.quad, { maxW });
-  const img = await decodeFile(page.orig);
-  const c = canvas(plan.source.width, plan.source.height);
+  const bmp = await decodeBitmap(page.orig, { width: page.ow, height: page.oh });
   try {
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    img.src = ''; // drop the full-resolution decode before the warp allocates
-    return await renderFrom(c, c.width, c.height, plan.quad, mode, maxW, quality);
-  } finally { release(c); }
+    const { width: sw, height: sh } = plan.source;
+    return await renderFrom(bmp, sw, sh, plan.quad, mode, maxW, quality); // warp draws it at sw x sh
+  } finally { release(bmp); }
 }
 
 async function renderFrom(src, sw, sh, quad, mode, maxW, quality = JPEG_QUALITY) {
