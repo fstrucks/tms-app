@@ -56,6 +56,19 @@ button { touch-action: manipulation; }
   body.kbd-open { --nav-h: 0px; }
   body.kbd-open .appnav-bottom { display: none !important; }
 }
+
+/* iOS Safari: a native-appearance date input keeps an intrinsic min width and ignores width:100%,
+   so it overflows its grid cell and sits under the next field. Drop native appearance so it fits its cell. */
+input[type=date] {
+  -webkit-appearance: none; appearance: none;
+  display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box;
+  min-height: 2.6rem; /* keeps its height once appearance is off (empty value collapses on iOS) */
+}
+/* iOS Safari centers date text by default */
+input[type=date]::-webkit-date-and-time-value { text-align: left; }
+/* Two-column form rows stay side by side on phones; stack only on very narrow screens. */
+@media (max-width: 339px) { .form-grid-2 { grid-template-columns: minmax(0, 1fr) !important; } }
+
 /* Account email next to the avatar only on wide screens. */
 @media (max-width: 1023.98px) { .account-email { display: none; } }
 
