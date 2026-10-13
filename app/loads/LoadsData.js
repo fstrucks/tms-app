@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { Loading, LoadError } from '../components/DataState';
+import SignInLink from '../components/SignInLink';
+import LoadsTabs from '../components/LoadsTabs';
+import { pickupStop, deliveryStop } from '../lib/loadTabs';
 
 // One fetch of the loads list, shared by the /loads page (all widths) and the desktop list pane
 // shown next to /loads/[id] at >= 1024px (pick 2A). Fetch/auth behaviour is unchanged from the old page.
@@ -69,7 +72,7 @@ export function LoadsList({ selectedId = null }) {
   const { user, checking, loads, error, loaded, reload } = useLoads();
   if (supabaseConfigError) return <p style={s.error}>{supabaseConfigError}</p>;
   if (checking) return <p style={s.muted}>Checking sign-in…</p>;
-  if (!user) return <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>;
+  if (!user) return <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your loads.</p>;
   return (
     <>
       {error && <LoadError message={error.text} subtle={error.subtle} onRetry={reload} />}
@@ -77,8 +80,8 @@ export function LoadsList({ selectedId = null }) {
       {loaded && loads.length === 0 && !error && (
         <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
       )}
-      {loads.map((l) => {
-        const stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+      {loaded && loads.length > 0 && <LoadsTabs loads={loads} renderLoad={(l) => {
+        const stops = [pickupStop(l), deliveryStop(l)];
         const sel = l.id === selectedId;
         return (
           <Link key={l.id} href={`/loads/${l.id}`} aria-current={sel ? 'page' : undefined}
@@ -99,7 +102,7 @@ export function LoadsList({ selectedId = null }) {
             </div>
           </Link>
         );
-      })}
+      }} />}
     </>
   );
 }

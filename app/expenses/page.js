@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import Link from 'next/link';
+import SignInLink from '../components/SignInLink';
 import { useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney, moneyInput } from '../lib/money';
@@ -488,7 +489,7 @@ function ExpensesInner() {
       <h1 style={{ fontSize: '1.5rem' }}>Expenses</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to track expenses.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to track expenses.</p>
         : (
           <>
             <form onSubmit={submit} style={s.card}>
