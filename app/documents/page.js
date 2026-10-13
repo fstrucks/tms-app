@@ -54,7 +54,6 @@ const s = {
 
 export default function DocumentsPage() {
   const supabase = getSupabase();
-  const [signingOut, setSigningOut] = useState(false);
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
@@ -239,18 +238,6 @@ export default function DocumentsPage() {
     if (inserted?.id) extract(inserted.id);
   }
 
-  async function handleSignOut() {
-    setSigningOut(true);
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) setStatus({ type: 'error', text: 'Sign out failed: ' + error.message });
-    } catch (err) {
-      setStatus({ type: 'error', text: 'Sign out failed: ' + err.message });
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
   async function view(doc) {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
     if (error) return setStatus({ type: 'error', text: 'Could not open file: ' + error.message });
@@ -272,10 +259,6 @@ export default function DocumentsPage() {
         </div>
       ) : (
         <>
-          <div style={{ ...s.item, borderBottom: 'none' }}>
-            <span style={{ ...s.muted, overflow: 'hidden', textOverflow: 'ellipsis' }}>Signed in as {user.email}</span>
-            <button onClick={handleSignOut} disabled={signingOut} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem', background: '#6b7280', opacity: signingOut ? 0.6 : 1 }}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
-          </div>
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload rate confirmation (PDF or image)</legend>

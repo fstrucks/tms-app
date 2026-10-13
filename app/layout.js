@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <AppNav />
-        {children}
+        <div className="app-container">{children}</div>
       </body>
     </html>
   );
