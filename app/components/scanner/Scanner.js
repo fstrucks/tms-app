@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { VISUALLY_HIDDEN } from '../UploadMenu';
 import { SCAN_DOC_TYPES, docTypeShort } from '../../lib/docTypes';
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
@@ -30,6 +31,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [msg, setMsg] = useState(null);
   const [editing, setEditing] = useState(null);
   const [askDiscard, setAskDiscard] = useState(false);
+  const uid = useId();
+  const ids = { camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake` };
   const cameraRef = useRef(null);
   const chooseRef = useRef(null);
   const retakeRef = useRef(null);
@@ -71,15 +74,22 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   useEffect(() => { if (askDiscard) keepRef.current?.focus(); }, [askDiscard]);
 
   // "Nothing captured" feedback: the input's cancel event, or focus returning with no change event.
-  function openInput(ref, kind) {
-    const input = ref.current; if (!input) return;
+  // Called from the input's own click (label activation), so iOS sees a direct user gesture:
+  // no programmatic input.click(), no display:none input.
+  function armInput(input, kind) {
+    if (!input) return;
     pending.current = kind;
     const nothing = () => { if (pending.current === kind && !loadingRef.current) { pending.current = null; setMsg({ err: true, text: NO_PHOTO }); } };
     // Primary signal: the input's cancel event. Fallback for browsers without it: ~4 s after focus
     // returns, only if no file arrived (change clears `pending`) and none is still loading.
     input.addEventListener('cancel', nothing, { once: true });
     window.addEventListener('focus', () => setTimeout(nothing, 4000), { once: true });
-    input.click();
+  }
+  // Keyboard only (Enter/Space on the label); taps use native label activation.
+  function keyOpen(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    document.getElementById(e.currentTarget.htmlFor)?.click();
   }
   function takeFiles(e) {
     pending.current = null;
@@ -232,7 +242,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
               </div>
               <button type="button" style={btn} disabled={!!busy} onClick={() => setEditing(i)}>Adjust corners</button>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button type="button" style={{ ...btn, flex: 1 }} disabled={!!busy} onClick={() => { retakeIdx.current = i; openInput(retakeRef, 'retake'); }}>Retake</button>
+                <label htmlFor={ids.retake} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={!!busy || undefined} style={{ ...btn, flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(!!busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }} onClick={() => { retakeIdx.current = i; }}>Retake</label>
                 <PageDelete disabled={!!busy} onDelete={() => deletePage(i)} n={i + 1} />
               </div>
             </li>
@@ -242,8 +252,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
       <footer style={{ borderTop: '1px solid #e5e7eb', background: '#fff', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <button type="button" style={btn} disabled={!!busy || full} onClick={() => openInput(cameraRef, 'camera')}>📷 Take photo</button>
-          <button type="button" style={btn} disabled={!!busy || full} onClick={() => openInput(chooseRef, 'choose')}>🖼️ Choose photos</button>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📷 Take photo</label>
+          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>🖼️ Choose photos</label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 200px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Type</span>
             <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!!busy} aria-label="Document type" style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
@@ -262,9 +272,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
       </footer>
 
       {/* Own inputs, never shared with the PDF-only picker (Android chooser bug). Camera = capture; Choose = no capture. */}
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => addFiles(takeFiles(e))} />
-      <input ref={chooseRef} type="file" accept="image/*" multiple hidden onChange={(e) => addFiles(takeFiles(e))} />
-      <input ref={retakeRef} type="file" accept="image/*" capture="environment" hidden
+      <input ref={cameraRef} id={ids.camera} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'camera')} onChange={(e) => addFiles(takeFiles(e))} />
+      <input ref={chooseRef} id={ids.choose} type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'choose')} onChange={(e) => addFiles(takeFiles(e))} />
+      <input ref={retakeRef} id={ids.retake} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onClick={(e) => armInput(e.currentTarget, 'retake')}
         onChange={(e) => { const f = takeFiles(e); if (f.length) addFiles(f.slice(0, 1), retakeIdx.current); }} />
 
       {editing != null && pages[editing] && (

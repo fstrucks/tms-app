@@ -78,9 +78,10 @@ export function LoadPicker({ value, onChange, style }) {
 }
 
 const st = {
-  input: { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #d1d5db' },
+  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' },
+  cell: { display: 'block', minWidth: 0 },
   label: { display: 'block', fontSize: '0.85rem', color: '#374151', marginBottom: '0.25rem' },
-  grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' },
+  grid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.6rem' },
   btn: { width: '100%', padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
   tab: (on) => ({ flex: 1, padding: '0.5rem', borderRadius: 8, border: '1px solid #d1d5db', background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111', fontSize: '0.9rem' }),
 };
@@ -133,18 +134,18 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
         <button type="button" style={st.tab(mode === 'odometer')} onClick={() => setMode('odometer')}>Odometer</button>
         <button type="button" style={st.tab(mode === 'miles')} onClick={() => setMode('miles')}>Miles</button>
       </div>
-      <div style={st.grid}>
-        <label><span style={st.label}>Date</span>
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={st.input} /></label>
-        <label><span style={st.label}>Type</span>
+      <div style={st.grid} className="form-grid-2">
+        <label style={st.cell}><span style={st.label}>Date</span>
+          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={{ ...st.input, textAlign: 'left' }} /></label>
+        <label style={st.cell}><span style={st.label}>Type</span>
           <select value={source} onChange={(e) => setSource(e.target.value)} style={st.input}>
             {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select></label>
         {mode === 'odometer' ? (
           <>
-            <label><span style={st.label}>Start odometer</span>
+            <label style={st.cell}><span style={st.label}>Start odometer</span>
               <input inputMode="numeric" pattern="[0-9]*" value={start} onChange={(e) => setStart(e.target.value.replace(/\D/g, ''))} style={st.input} /></label>
-            <label><span style={st.label}>End odometer</span>
+            <label style={st.cell}><span style={st.label}>End odometer</span>
               <input inputMode="numeric" pattern="[0-9]*" value={end} onChange={(e) => setEnd(e.target.value.replace(/\D/g, ''))} style={st.input} /></label>
           </>
         ) : (

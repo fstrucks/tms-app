@@ -1,14 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { uploadScan } from '../../lib/scanUpload';
+import { mergeFetchedLoad, settleStatus } from '../../lib/loadStatus';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import SignInLink from '../../components/SignInLink';
+import { useParams, useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
+import { useLoads } from '../LoadsData';
+import ConfirmButton from '../../components/ui/ConfirmButton';
+import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -28,6 +33,7 @@ const s = {
 export default function LoadDetailPage() {
   const { id } = useParams();
   const supabase = getSupabase();
+  const list = useLoads(); // shared list (desktop left pane); kept in sync on status change
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [load, setLoad] = useState(null);
@@ -36,9 +42,15 @@ export default function LoadDetailPage() {
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState(null);
+  const statusVer = useRef(0); // bumped on every status change; older fetches keep the newer status
+  const router = useRouter();
+  const [alsoDocs, setAlsoDocs] = useState(false);
+  const [delError, setDelError] = useState(null);
+  const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
 
   async function fetchAll() {
     setError(null);
+    const ver = statusVer.current;
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
@@ -47,7 +59,12 @@ export default function LoadDetailPage() {
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
     if (!l) return setError({ retry: false, text: 'Load not found.' });
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
-    setLoad(l);
+    setLoad((cur) => mergeFetchedLoad(cur, l, ver !== statusVer.current));
+    const [{ count: ec }, { count: mc }] = await Promise.all([
+      supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('load_id', id),
+      supabase.from('mileage_entries').select('id', { count: 'exact', head: true }).eq('load_id', id),
+    ]);
+    setLinked({ expenses: ec || 0, mileage: mc || 0 });
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
     else setDocs(d || []);
   }
@@ -66,11 +83,17 @@ export default function LoadDetailPage() {
 
   async function changeStatus(status) {
     const prev = load.status;
-    setLoad({ ...load, status });
+    statusVer.current += 1;
+    setLoad((l) => ({ ...l, status }));
+    list?.patchLoad(id, { status });
     setSaving(true);
     try {
-      const { error } = await supabase.from('loads').update({ status }).eq('id', id);
-      if (error) { setLoad((l) => ({ ...l, status: prev })); console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
+      const { data: saved, error } = await supabase.from('loads').update({ status }).eq('id', id).select('status').maybeSingle();
+      statusVer.current += 1;
+      const settled = settleStatus({ status }, { error, saved, prev }).status;
+      setLoad((l) => settleStatus(l, { error, saved, prev }));
+      list?.patchLoad(id, { status: settled });
+      if (error) { console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
     } finally {
       setSaving(false);
     }
@@ -82,6 +105,15 @@ export default function LoadDetailPage() {
     window.open(data.signedUrl, '_blank', 'noopener');
   }
 
+  async function removeLoad() {
+    setDelError(null);
+    const r = await deleteLoad(supabase, id, { docs, deleteDocs: alsoDocs });
+    if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
+    list?.reload(); // the shared list (layout) outlives this page; drop the deleted load
+    if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
+    router.replace('/loads');
+  }
+
   const hasStatus = load && Object.prototype.hasOwnProperty.call(load, 'status');
 
   return (
@@ -91,7 +123,7 @@ export default function LoadDetailPage() {
       </p>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to view this load.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to view this load.</p>
         : (
           <>
             {error && (error.retry ? <LoadError message={error.text} onRetry={fetchAll} /> : <p style={s.error}>{error.text}</p>)}
@@ -126,7 +158,7 @@ export default function LoadDetailPage() {
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>
                       <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
-                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #d1d5db' }}>
+                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' }}>
                         {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
                         {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
                       </select>
@@ -174,6 +206,19 @@ export default function LoadDetailPage() {
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>
                   ))}
+                </div>
+                <div style={{ ...s.card, borderColor: '#fecaca' }}>
+                  <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
+                  <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
+                  {docs.length > 0 && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
+                      <span>Also delete {docs.length} linked document{docs.length === 1 ? '' : 's'}</span>
+                    </label>
+                  )}
+                  {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(docs.length, alsoDocs, linked)} onConfirm={removeLoad} />
+                  {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>
               </>
             )}

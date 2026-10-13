@@ -6,6 +6,14 @@ import { useEffect, useId, useRef, useState } from 'react';
 // hidden input. Files / PDF uses a PDF-only accept with NO capture, which makes Android open
 // its file browser (including Google Drive) instead of the camera. Each pick calls onFile(file);
 // the input value is cleared afterwards so picking the same file again still fires.
+//
+// iOS Safari: each menu option is a <label htmlFor> for its input, so a tap opens the picker
+// natively (no programmatic input.click(), which iOS drops when it isn't a direct, synchronous
+// user activation or when the input is display:none). The inputs stay mounted outside the menu
+// and are visually hidden, not display:none. The menu is NOT closed by the option tap itself:
+// it closes only once the input has received its click (label activation reached it), or on
+// change/cancel/window focus. Android Chrome dispatches the click after touchend, so nothing on
+// the option's pointer/touch path may close the menu or call preventDefault.
 const OPTIONS = [
   { id: 'camera', icon: '📷', label: 'Take photo', accept: 'image/*', capture: 'environment' },
   { id: 'library', icon: '🖼️', label: 'Photo library', accept: 'image/*' },
@@ -15,11 +23,14 @@ const OPTIONS = [
 // never merged with the PDF-only picker. Desktop browsers ignore capture and show an image picker.
 const SCAN = { id: 'scan', icon: '🧾', label: 'Scan document', accept: 'image/*', capture: 'environment', multiple: true };
 
+// Visually hidden but still "rendered", so iOS honours label activation of the input.
+export const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0, opacity: 0 };
+
 const st = {
   wrap: { position: 'relative' },
   trigger: { width: '100%', minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
   menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 1000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
-  item: { display: 'block', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
+  item: { display: 'block', boxSizing: 'border-box', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
 export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {
@@ -84,33 +95,48 @@ export default function UploadMenu({ onFile, onScan, disabled = false, label = '
   };
 
   // Close when focus moves outside the menu/trigger (keyboard or screen-reader navigation).
+  // A tap on iOS can blur with relatedTarget = null before the click lands; outside taps are
+  // handled by the pointerdown listener, so only close here when focus really moved elsewhere.
   const onFocusOut = (e) => {
-    if (open && wrapRef.current && !wrapRef.current.contains(e.relatedTarget)) setOpen(false);
+    if (open && e.relatedTarget && wrapRef.current && !wrapRef.current.contains(e.relatedTarget)) setOpen(false);
   };
 
   const refocus = () => setTimeout(() => triggerRef.current?.focus(), 0);
 
-  const choose = (id) => {
-    setOpen(false);
+  // Close after the input's own click has dispatched (deferred so the current dispatch finishes).
+  const closeAfterInputClick = () => setTimeout(() => setOpen(false), 0);
+
+  // Runs synchronously inside the tap/keypress. Arms focus-return listeners only; it never
+  // closes the menu or changes state, so the label stays mounted for its native activation.
+  const arm = (id) => {
     const input = inputRefs.current[id];
-    if (!input) return;
+    if (!input) return null;
     // Return focus to the trigger after a pick or a cancel. 'cancel' isn't fired everywhere,
     // so also catch the window regaining focus when the native picker closes.
     clearBack();
-    const onBack = () => { backRef.current = null; refocus(); };
+    const onBack = () => { backRef.current = null; setOpen(false); refocus(); };
     backRef.current = onBack;
     window.addEventListener('focus', onBack, { once: true });
     // React 18 has no onCancel prop; use the native event (once per open).
-    input.addEventListener('cancel', () => { clearBack(); refocus(); }, { once: true });
-    input.click();
+    input.addEventListener('cancel', () => { clearBack(); setOpen(false); refocus(); }, { once: true });
+    return input;
+  };
+
+  // Keyboard: Enter/Space on a label doesn't activate it, so click the input directly
+  // (still synchronous inside the key event, and the input stays mounted).
+  const onItemKey = (e, id) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    arm(id)?.click();
   };
 
   return (
     <div ref={wrapRef} style={st.wrap} onBlur={onFocusOut}>
       {options.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
-          {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} tabIndex={-1} aria-hidden="true" style={{ display: 'none' }}
-          onChange={(e) => { clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
+          {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
+          onClick={closeAfterInputClick}
+          onChange={(e) => { setOpen(false); clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
         />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
@@ -121,9 +147,10 @@ export default function UploadMenu({ onFile, onScan, disabled = false, label = '
         <ul id={menuId} role="menu" aria-label="Upload from" style={{ ...st.menu, ...(up ? { top: 'auto', bottom: 'calc(100% + 4px)' } : null) }} onKeyDown={onMenuKey}>
           {options.map((o, i) => (
             <li key={o.id} role="none">
-              <button ref={(el) => { itemRefs.current[i] = el; }} type="button" role="menuitem" onClick={() => choose(o.id)} style={st.item}>
+              <label ref={(el) => { itemRefs.current[i] = el; }} htmlFor={`${menuId}-${o.id}`} role="menuitem" tabIndex={-1}
+                onClick={() => arm(o.id)} onKeyDown={(e) => onItemKey(e, o.id)} style={st.item}>
                 <span aria-hidden="true">{o.icon} </span>{o.label}
-              </button>
+              </label>
             </li>
           ))}
         </ul>
