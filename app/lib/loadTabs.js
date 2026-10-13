@@ -44,24 +44,31 @@ function loadDay(l, dateBy) {
 
 // Groups the tab's loads by day: [{ key: 'YYYY-MM-DD' | null, loads: [...] }].
 // Active/Booked: pickup date, soonest first. Pending/Past: delivery date, newest first. Undated last.
+// The day key is the stop's LOCAL date (its own time zone), so loads are ordered by day key first and
+// only then by exact time within that day, and grouped by key: each heading appears once even when
+// stops in different zones interleave by absolute time (e.g. a 1 AM ET pickup vs a 10 PM PT one).
+// Note: an appointment_start without a UTC offset is parsed by Date in the browser's time zone.
 export function groupLoads(loads, tabId) {
   const tab = TABS.find((t) => t.id === tabId) || TABS[0];
   const dir = tab.newestFirst ? -1 : 1;
   const rows = (loads || []).filter((l) => tabFor(l.status) === tab.id).map((l) => ({ l, ...loadDay(l, tab.dateBy) }));
   rows.sort((a, b) => {
     if (a.key === null || b.key === null) return (a.key === null) - (b.key === null);
+    if (a.key !== b.key) return dir * (a.key < b.key ? -1 : 1);
     if (a.at !== b.at) return dir * (a.at - b.at);
     return Date.parse(b.l.created_at || 0) - Date.parse(a.l.created_at || 0);
   });
-  const groups = [];
+  const byKey = new Map();
   for (const r of rows) {
-    const g = groups[groups.length - 1];
-    if (g && g.key === r.key) g.loads.push(r.l); else groups.push({ key: r.key, loads: [r.l] });
+    if (!byKey.has(r.key)) byKey.set(r.key, { key: r.key, loads: [] });
+    byKey.get(r.key).loads.push(r.l);
   }
-  return groups;
+  return [...byKey.values()];
 }
 
 // Header label for a group key, e.g. "Today", "Tomorrow", "Mon, Oct 12" (year added if not this year).
+// "Today"/"Tomorrow"/"Yesterday" compare the stop's local date (the key) with the DEVICE clock's date,
+// so near midnight a stop in another zone can read "Tomorrow" while it's already that date locally.
 export function groupLabel(key, now = new Date()) {
   if (!key) return 'No date';
   const [y, m, d] = key.split('-').map(Number);

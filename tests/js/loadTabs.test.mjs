@@ -87,3 +87,27 @@ test('currentInTransit picks the in_transit load only', () => {
   assert.equal(currentInTransit(loads).id, 't1');
   assert.equal(currentInTransit([L('d', 'dispatched')]), null);
 });
+
+test('mixed ET/PT stops: each date heading appears once, in order', () => {
+  const S = (id, status, ts, tz, type = 'pickup') => ({ id, status, created_at: '2026-10-01T00:00:00Z',
+    stops: [{ sequence: 1, stop_type: 'pickup', appointment_start: type === 'pickup' ? ts : null, timezone: tz },
+      { sequence: 2, stop_type: 'delivery', appointment_start: type === 'delivery' ? ts : null, timezone: tz }] });
+  const loads = [
+    S('pt-12-late', 'dispatched', '2026-10-13T04:30:00Z', 'America/Los_Angeles'), // Oct 12 9:30 PM PT
+    S('et-13-1am', 'dispatched', '2026-10-13T05:00:00Z', 'America/New_York'),      // Oct 13 1:00 AM ET
+    S('pt-12-11pm', 'in_transit', '2026-10-13T06:00:00Z', 'America/Los_Angeles'),  // Oct 12 11:00 PM PT
+    S('et-13-9am', 'dispatched', '2026-10-13T13:00:00Z', 'America/New_York'),      // Oct 13 9:00 AM ET
+    S('pt-13-am', 'dispatched', '2026-10-13T16:00:00Z', 'America/Los_Angeles'),    // Oct 13 9:00 AM PT
+  ];
+  const g = groupLoads(loads, 'active');
+  assert.deepEqual(g.map((x) => x.key), ['2026-10-12', '2026-10-13']);
+  assert.deepEqual(g.map((x) => x.loads.map((l) => l.id)), [['pt-12-late', 'pt-12-11pm'], ['et-13-1am', 'et-13-9am', 'pt-13-am']]);
+  const labels = g.map((x) => groupLabel(x.key, new Date(2026, 9, 12, 20)));
+  assert.deepEqual(labels, ['Today', 'Tomorrow']);
+  assert.equal(new Set(labels).size, labels.length);
+
+  const past = loads.map((l) => ({ ...l, status: 'paid', stops: l.stops.map((s) => ({ ...s, appointment_start: s.stop_type === 'delivery' ? l.stops[0].appointment_start : null })) }));
+  const gp = groupLoads(past, 'past');
+  assert.deepEqual(gp.map((x) => x.key), ['2026-10-13', '2026-10-12']);
+  assert.deepEqual(gp[0].loads.map((l) => l.id), ['pt-13-am', 'et-13-9am', 'et-13-1am']);
+});

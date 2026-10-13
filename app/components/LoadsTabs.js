@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { TABS, DEFAULT_TAB, parseTab, countByTab, groupLoads, groupLabel, currentInTransit, pickupStop, deliveryStop } from '../lib/loadTabs';
 import { stopSummary } from '../lib/loads';
@@ -20,7 +20,9 @@ const st = {
 };
 
 export default function LoadsTabs({ loads, renderLoad }) {
-  const [tab, setTab] = useState(DEFAULT_TAB);
+  // null until ?tab= is parsed on the client, so the default tab never flashes before the saved one.
+  const [tab, setTab] = useState(null);
+  const tabRefs = useRef({});
   useEffect(() => { setTab(parseTab(new URLSearchParams(window.location.search).get('tab'))); }, []);
 
   const pick = (id) => {
@@ -30,17 +32,31 @@ export default function LoadsTabs({ loads, renderLoad }) {
     window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash);
   };
 
+  // Roving tabindex: only the selected tab is in the Tab order; arrows/Home/End move and select.
+  const onTabKey = (e) => {
+    const i = TABS.findIndex((t) => t.id === tab);
+    const next = { ArrowRight: (i + 1) % TABS.length, ArrowLeft: (i - 1 + TABS.length) % TABS.length, Home: 0, End: TABS.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const id = TABS[next].id;
+    pick(id);
+    tabRefs.current[id]?.focus();
+  };
+
+  if (tab === null) return null;
+
   const counts = countByTab(loads);
   const groups = groupLoads(loads, tab);
   const onRoad = tab === 'active' ? currentInTransit(loads) : null;
 
   return (
     <>
-      <div role="tablist" aria-label="Load status" style={st.seg}>
+      <div role="tablist" aria-label="Load status" style={st.seg} onKeyDown={onTabKey}>
         {TABS.map((t) => {
           const on = t.id === tab;
           return (
-            <button key={t.id} type="button" role="tab" id={`loads-tab-${t.id}`} aria-selected={on} aria-controls="loads-tabpanel"
+            <button key={t.id} type="button" role="tab" id={`loads-tab-${t.id}`} aria-selected={on} tabIndex={on ? 0 : -1}
+              ref={(el) => { tabRefs.current[t.id] = el; }} aria-controls="loads-tabpanel"
               onClick={() => pick(t.id)} style={{ ...st.btn, ...(on ? st.on : null) }}>
               {t.label}<span style={{ ...st.count, ...(on ? { color: blue } : null) }}>{counts[t.id]}</span>
             </button>
