@@ -134,7 +134,7 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
         <button type="button" style={st.tab(mode === 'odometer')} onClick={() => setMode('odometer')}>Odometer</button>
         <button type="button" style={st.tab(mode === 'miles')} onClick={() => setMode('miles')}>Miles</button>
       </div>
-      <div style={st.grid}>
+      <div style={st.grid} className="form-grid-2">
         <label style={st.cell}><span style={st.label}>Date</span>
           <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={{ ...st.input, textAlign: 'left' }} /></label>
         <label style={st.cell}><span style={st.label}>Type</span>
