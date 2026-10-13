@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
+import { safeNext } from '../lib/safeNext';
+
+const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('next'));
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -18,6 +21,7 @@ export default function LoginPage() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
+  const pwRef = useRef(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -28,14 +32,18 @@ export default function LoginPage() {
     try {
       if (usePw) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : error.message);
-        else window.location.assign('/documents');
+        if (error) {
+          setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : error.message);
+          // back to the password field with its text selected, after the button re-enables
+          setTimeout(() => { const el = pwRef.current; if (el) { el.focus(); el.select(); } }, 0);
+        }
+        else window.location.assign(safeNext(nextParam()));
         return;
       }
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: window.location.origin + '/documents',
+          emailRedirectTo: window.location.origin + '/auth/callback?next=' + encodeURIComponent(safeNext(nextParam())),
           shouldCreateUser: false, // invite-only: no public signups
         },
       });
@@ -74,11 +82,11 @@ export default function LoginPage() {
             {usePw && (
               <>
                 <label htmlFor="password" style={{ display: 'block', margin: '0.75rem 0 0.5rem', fontWeight: 600 }}>Password</label>
-                <input id="password" type="password" required autoComplete="current-password" value={password}
+                <input id="password" ref={pwRef} type="password" aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required autoComplete="current-password" value={password}
                   onChange={(e) => setPassword(e.target.value)} style={s.input} />
               </>
             )}
-            {error && <p role="alert" style={{ color: '#b91c1c' }}>{error}</p>}
+            <p id="login-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || ''}</p>
             <button type="submit" disabled={sending || !email || (usePw && !password)} style={{ ...s.btn, opacity: sending || !email || (usePw && !password) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
             </button>
