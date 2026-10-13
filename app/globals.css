@@ -35,8 +35,10 @@ button { touch-action: manipulation; }
 /* Loads list + detail split at >= 1024px (pick 2A). Below 1024 the aside is hidden and pages behave as before. */
 .loads-aside { display: none; }
 @media (min-width: 1024px) {
-  .loads-split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; padding: 0 var(--gutter); align-items: start; }
-  .loads-aside { display: block; position: sticky; top: 56px; max-height: calc(100vh - 56px); overflow-y: auto; padding: 1rem 0; }
+  /* No horizontal padding here: .app-container already centers at 1120px (same as the top nav).
+     Extra gutter was shrinking the split to 1056px and misaligning its edges with the nav. */
+  .loads-split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .loads-aside { display: block; position: sticky; top: 56px; max-height: calc(100vh - 56px); overflow-y: auto; padding: 1rem; }
 }
 
 /* Shared nav: top nav at >= 768px; slim top bar + bottom tab bar below. --nav-h lets sticky
