@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { Loading, LoadError } from '../components/DataState';
+import LoadsTabs from '../components/LoadsTabs';
+import { pickupStop, deliveryStop } from '../lib/loadTabs';
 
 const s = {
-  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
+  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' },
   card: { display: 'block', border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
@@ -68,8 +70,8 @@ export default function LoadsPage() {
             {loaded && loads.length === 0 && !error && (
               <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
             )}
-            {loads.map((l) => {
-              const stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+            {loaded && loads.length > 0 && <LoadsTabs loads={loads} renderLoad={(l) => {
+              const stops = [pickupStop(l), deliveryStop(l)];
               return (
                 <Link key={l.id} href={`/loads/${l.id}`} style={s.card}>
                   <div style={s.row}>
@@ -87,7 +89,7 @@ export default function LoadsPage() {
                   </div>
                 </Link>
               );
-            })}
+            }} />}
           </>
         )}
     </main>
