@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import SignInLink from '../../components/SignInLink';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
+import ConfirmButton from '../../components/ui/ConfirmButton';
+import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 const s = {
@@ -30,6 +32,10 @@ export default function LoadDetailPage() {
   const [docs, setDocs] = useState([]);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const router = useRouter();
+  const [alsoDocs, setAlsoDocs] = useState(false);
+  const [delError, setDelError] = useState(null);
+  const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
 
   async function fetchAll() {
     setError(null);
@@ -42,6 +48,11 @@ export default function LoadDetailPage() {
     if (!l) return setError({ retry: false, text: 'Load not found.' });
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
     setLoad(l);
+    const [{ count: ec }, { count: mc }] = await Promise.all([
+      supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('load_id', id),
+      supabase.from('mileage_entries').select('id', { count: 'exact', head: true }).eq('load_id', id),
+    ]);
+    setLinked({ expenses: ec || 0, mileage: mc || 0 });
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
     else setDocs(d || []);
   }
@@ -74,6 +85,14 @@ export default function LoadDetailPage() {
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.file_path, 300);
     if (error) { console.error('[load] open file', error); return setError({ retry: false, text: "Couldn't open the file. Please try again." }); }
     window.open(data.signedUrl, '_blank', 'noopener');
+  }
+
+  async function removeLoad() {
+    setDelError(null);
+    const r = await deleteLoad(supabase, id, { docs, deleteDocs: alsoDocs });
+    if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
+    if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
+    router.replace('/loads');
   }
 
   const hasStatus = load && Object.prototype.hasOwnProperty.call(load, 'status');
@@ -164,6 +183,19 @@ export default function LoadDetailPage() {
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>
                   ))}
+                </div>
+                <div style={{ ...s.card, borderColor: '#fecaca' }}>
+                  <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
+                  <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
+                  {docs.length > 0 && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
+                      <span>Also delete {docs.length} linked document{docs.length === 1 ? '' : 's'}</span>
+                    </label>
+                  )}
+                  {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(docs.length, alsoDocs, linked)} onConfirm={removeLoad} />
+                  {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>
               </>
             )}
