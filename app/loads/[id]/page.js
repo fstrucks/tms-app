@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { mergeFetchedLoad, settleStatus } from '../../lib/loadStatus';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
@@ -31,6 +32,7 @@ export default function LoadDetailPage() {
   const [docs, setDocs] = useState([]);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const statusVer = useRef(0); // bumped on every status change; older fetches keep the newer status
   const router = useRouter();
   const [alsoDocs, setAlsoDocs] = useState(false);
   const [delError, setDelError] = useState(null);
@@ -38,6 +40,7 @@ export default function LoadDetailPage() {
 
   async function fetchAll() {
     setError(null);
+    const ver = statusVer.current;
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
@@ -46,7 +49,7 @@ export default function LoadDetailPage() {
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
     if (!l) return setError({ retry: false, text: 'Load not found.' });
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
-    setLoad(l);
+    setLoad((cur) => mergeFetchedLoad(cur, l, ver !== statusVer.current));
     const [{ count: ec }, { count: mc }] = await Promise.all([
       supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('load_id', id),
       supabase.from('mileage_entries').select('id', { count: 'exact', head: true }).eq('load_id', id),
@@ -70,11 +73,14 @@ export default function LoadDetailPage() {
 
   async function changeStatus(status) {
     const prev = load.status;
-    setLoad({ ...load, status });
+    statusVer.current += 1;
+    setLoad((l) => ({ ...l, status }));
     setSaving(true);
     try {
-      const { error } = await supabase.from('loads').update({ status }).eq('id', id);
-      if (error) { setLoad((l) => ({ ...l, status: prev })); console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
+      const { data: saved, error } = await supabase.from('loads').update({ status }).eq('id', id).select('status').maybeSingle();
+      statusVer.current += 1;
+      setLoad((l) => settleStatus(l, { error, saved, prev }));
+      if (error) { console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
     } finally {
       setSaving(false);
     }
