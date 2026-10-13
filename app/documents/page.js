@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney } from '../lib/money';
 import { Loading, LoadError } from '../components/DataState';
+import ConfirmButton from '../components/ui/ConfirmButton';
+import { deleteDocument, deletePrompt } from '../lib/documents';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -136,6 +138,16 @@ export default function DocumentsPage() {
     }
   }
 
+
+  const [deleteErr, setDeleteErr] = useState({});
+  async function removeDoc(doc) {
+    setDeleteErr((m) => ({ ...m, [doc.id]: null }));
+    const r = await deleteDocument(supabase, doc, BUCKET);
+    if (!r.ok) { setDeleteErr((m) => ({ ...m, [doc.id]: r.error })); return false; }
+    setDocs((list) => list.filter((x) => x.id !== doc.id));
+    if (r.fileError) setStatus({ type: 'error', text: r.fileError });
+    return true;
+  }
 
   async function loadDocs() {
     const req = ++docsReqRef.current;
@@ -294,14 +306,18 @@ export default function DocumentsPage() {
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
               : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
-              <div key={d.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
+              <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
-                  <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, padding: '0.5rem 0.9rem' }}>View</button>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+                    <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>
+                    <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />
+                  </div>
                 </div>
+                {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
                 {extracting[d.id] ? (
                   <p style={s.muted}>Extracting…</p>
                 ) : (
