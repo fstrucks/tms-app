@@ -16,8 +16,8 @@ test('every status (and unknown) is >= 4.5:1 in light and dark mode', () => {
 });
 test('every app status has its own entry; groups per pick 5A', () => {
   for (const st of STATUSES) assert.ok(STATUS_COLORS[st], st);
-  const exact = { booked: ['#dbeafe', '#1e40af'], dispatched: ['#e0e7ff', '#3730a3'], in_transit: ['#fef3c7', '#92400e'],
-    delivered: ['#dcfce7', '#166534'], invoiced: ['#ccfbf1', '#115e59'], paid: ['#15803d', '#ffffff'], cancelled: ['#f3f4f6', '#4b5563'] };
+  const exact = { booked: ['#fef9c3', '#854d0e'], dispatched: ['#e0e7ff', '#3730a3'], in_transit: ['#dbeafe', '#1e40af'],
+    delivered: ['#dcfce7', '#166534'], invoiced: ['#ccfbf1', '#115e59'], paid: ['#15803d', '#ffffff'], cancelled: ['#fee2e2', '#991b1b'] };
   for (const [k, v] of Object.entries(exact)) assert.deepEqual(STATUS_COLORS[k].light, v, k);
   for (const mode of ['light', 'dark']) {
     const bgs = STATUSES.map((k) => STATUS_COLORS[k][mode][0]);
