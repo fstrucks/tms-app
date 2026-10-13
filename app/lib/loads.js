@@ -1,23 +1,7 @@
 export const STATUSES = ['booked', 'dispatched', 'in_transit', 'delivered', 'invoiced', 'paid', 'cancelled'];
 
-const COLORS = {
-  booked: ['#e0e7ff', '#3730a3'],
-  dispatched: ['#fef3c7', '#92400e'],
-  in_transit: ['#dbeafe', '#1e40af'],
-  delivered: ['#dcfce7', '#166534'],
-  invoiced: ['#f3e8ff', '#6b21a8'],
-  paid: ['#d1fae5', '#065f46'],
-  cancelled: ['#f3f4f6', '#6b7280'],
-};
-
-export function StatusBadge({ status }) {
-  const [bg, fg] = COLORS[status] || ['#f3f4f6', '#374151'];
-  return (
-    <span style={{ background: bg, color: fg, borderRadius: 999, padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-      {(status || 'unknown').replaceAll('_', ' ')}
-    </span>
-  );
-}
+// Status pills now use the shared StatusTag (pick 5A). Kept under the old name so pages don't change.
+export { default as StatusBadge } from '../components/ui/StatusTag';
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 
