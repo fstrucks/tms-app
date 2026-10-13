@@ -18,7 +18,11 @@ let client = null;
 // Lazily create the client so a missing env var never breaks the build.
 export function getSupabase() {
   if (supabaseConfigError) return null;
-  if (!client) client = createClient(supabaseUrl, supabaseAnonKey);
+  if (!client) {
+    // /auth/callback exchanges the code/tokens itself, exactly once; auto-detection would do it twice.
+    const onCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth/callback');
+    client = createClient(supabaseUrl, supabaseAnonKey, { auth: { detectSessionInUrl: !onCallback } });
+  }
   return client;
 }
 

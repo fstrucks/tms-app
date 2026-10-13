@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { Loading, LoadError } from '../components/DataState';
+import LoadsTabs from '../components/LoadsTabs';
+import { pickupStop, deliveryStop } from '../lib/loadTabs';
 
 const s = {
-  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
+  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' },
   card: { display: 'block', border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
   muted: { color: '#6b7280', fontSize: '0.85rem' },
@@ -21,6 +24,7 @@ export default function LoadsPage() {
   const [checking, setChecking] = useState(true);
   const [loads, setLoads] = useState([]);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null); // e.g. from a load delete whose file removal failed
   const [loaded, setLoaded] = useState(false); // true once a fetch finished without error
   const reqRef = useRef(0);
   const loadedRef = useRef(false);
@@ -43,6 +47,11 @@ export default function LoadsPage() {
   }
 
   useEffect(() => {
+    const n = new URLSearchParams(window.location.search).get('notice');
+    if (n) { setNotice(n); window.history.replaceState(null, '', '/loads'); }
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return setChecking(false);
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null;
@@ -58,9 +67,10 @@ export default function LoadsPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
+      {notice && <p role="status" style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your loads.</p>
         : (
           <>
             {error && <LoadError message={error.text} subtle={error.subtle} onRetry={loadLoads} />}
@@ -68,8 +78,8 @@ export default function LoadsPage() {
             {loaded && loads.length === 0 && !error && (
               <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
             )}
-            {loads.map((l) => {
-              const stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+            {loaded && loads.length > 0 && <LoadsTabs loads={loads} renderLoad={(l) => {
+              const stops = [pickupStop(l), deliveryStop(l)];
               return (
                 <Link key={l.id} href={`/loads/${l.id}`} style={s.card}>
                   <div style={s.row}>
@@ -87,7 +97,7 @@ export default function LoadsPage() {
                   </div>
                 </Link>
               );
-            })}
+            }} />}
           </>
         )}
     </main>
