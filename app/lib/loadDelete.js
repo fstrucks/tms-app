@@ -13,7 +13,7 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
   }
   if (deleteDocs) {
     for (const d of docs) {
-      const r = await deleteDocument(supabase, d);
+      const r = await deleteDocument(supabase, d, 'documents', { missingOk: true });
       if (!r.ok) return { ok: false, error: r.error };
       if (r.fileError) warnings.push(r.fileError);
     }
@@ -29,9 +29,14 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
   return { ok: true, warnings };
 }
 
-export function loadDeletePrompt(n, deleteDocs) {
-  if (!n) return 'Delete this load and its stops?';
-  return deleteDocs
-    ? `Delete this load, its stops and ${n} document${n === 1 ? '' : 's'}?`
-    : `Delete this load and its stops? ${n} document${n === 1 ? '' : 's'} will be kept, unlinked.`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}) {
+  const kept = [];
+  if (n && !deleteDocs) kept.push(plural(n, 'document', 'documents'));
+  if (expenses) kept.push(plural(expenses, 'expense', 'expenses'));
+  if (mileage) kept.push(plural(mileage, 'mileage entry', 'mileage entries'));
+  const keptText = kept.length ? ` ${kept.length > 1 ? kept.slice(0, -1).join(', ') + ' and ' + kept.at(-1) : kept[0]} will be kept, unlinked.` : '';
+  const head = n && deleteDocs ? `Delete this load, its stops and ${plural(n, 'document', 'documents')}?` : 'Delete this load and its stops?';
+  return head + keptText;
 }

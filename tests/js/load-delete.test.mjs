@@ -51,3 +51,20 @@ test('prompt', () => {
   assert.match(loadDeletePrompt(2, false), /2 documents will be kept/);
   assert.match(loadDeletePrompt(1, true), /1 document\?/);
 });
+test('retry after partial doc delete: already-deleted doc counts as done', async () => {
+  const calls = [];
+  const sb = {
+    from: (t) => ({
+      update: () => ({ eq: async () => ({ error: null }) }),
+      delete: () => ({ eq: (c, v) => { const p = { select: async () => { calls.push([t, v]); return { data: t === 'documents' && v === 'd1' ? [] : [{ id: v }], error: null }; } }; p.then = (ok) => Promise.resolve({ error: null }).then(ok); return p; } }),
+    }),
+    storage: { from: () => ({ remove: async () => ({ error: null }) }) },
+  };
+  const r = await deleteLoad(sb, 'L1', { docs: [{ id: 'd1', file_path: 'a' }, { id: 'd2', file_path: 'b' }], deleteDocs: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls.map((c) => c.join(':')), ['documents:d1', 'documents:d2', 'loads:L1']);
+});
+test('prompt lists kept expenses and mileage', () => {
+  assert.equal(loadDeletePrompt(0, false, { expenses: 3, mileage: 2 }), 'Delete this load and its stops? 3 expenses and 2 mileage entries will be kept, unlinked.');
+  assert.match(loadDeletePrompt(1, false, { expenses: 1 }), /1 document and 1 expense will be kept/);
+});

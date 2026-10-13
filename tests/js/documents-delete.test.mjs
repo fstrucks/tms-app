@@ -36,3 +36,7 @@ test('prompt warns when linked to a load', () => {
   assert.match(deletePrompt({ load_id: 'l1' }), /load is kept/);
   assert.doesNotMatch(deletePrompt({}), /load/);
 });
+test('missingOk treats 0 rows as done (default still fails)', async () => {
+  const { sb } = fake({ rows: [] });
+  assert.deepEqual(await deleteDocument(sb, doc, 'documents', { missingOk: true }), { ok: true });
+});

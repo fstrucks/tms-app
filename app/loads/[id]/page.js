@@ -34,6 +34,7 @@ export default function LoadDetailPage() {
   const router = useRouter();
   const [alsoDocs, setAlsoDocs] = useState(false);
   const [delError, setDelError] = useState(null);
+  const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
 
   async function fetchAll() {
     setError(null);
@@ -46,6 +47,11 @@ export default function LoadDetailPage() {
     if (!l) return setError({ retry: false, text: 'Load not found.' });
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
     setLoad(l);
+    const [{ count: ec }, { count: mc }] = await Promise.all([
+      supabase.from('expenses').select('id', { count: 'exact', head: true }).eq('load_id', id),
+      supabase.from('mileage_entries').select('id', { count: 'exact', head: true }).eq('load_id', id),
+    ]);
+    setLinked({ expenses: ec || 0, mileage: mc || 0 });
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
     else setDocs(d || []);
   }
@@ -83,8 +89,8 @@ export default function LoadDetailPage() {
   async function removeLoad() {
     setDelError(null);
     const r = await deleteLoad(supabase, id, { docs, deleteDocs: alsoDocs });
-    if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); return false; }
-    if (r.warnings?.length) console.warn('[load] delete', r.warnings);
+    if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
+    if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
     router.replace('/loads');
   }
 
@@ -187,7 +193,7 @@ export default function LoadDetailPage() {
                     </label>
                   )}
                   {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(docs.length, alsoDocs)} onConfirm={removeLoad} />
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(docs.length, alsoDocs, linked)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>
               </>

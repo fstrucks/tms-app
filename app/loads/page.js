@@ -21,6 +21,7 @@ export default function LoadsPage() {
   const [checking, setChecking] = useState(true);
   const [loads, setLoads] = useState([]);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null); // e.g. from a load delete whose file removal failed
   const [loaded, setLoaded] = useState(false); // true once a fetch finished without error
   const reqRef = useRef(0);
   const loadedRef = useRef(false);
@@ -43,6 +44,11 @@ export default function LoadsPage() {
   }
 
   useEffect(() => {
+    const n = new URLSearchParams(window.location.search).get('notice');
+    if (n) { setNotice(n); window.history.replaceState(null, '', '/loads'); }
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return setChecking(false);
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null;
@@ -58,6 +64,7 @@ export default function LoadsPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
+      {notice && <p role="status" style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to see your loads.</p>
