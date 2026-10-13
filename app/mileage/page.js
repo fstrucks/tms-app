@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { Loading, LoadError } from '../components/DataState';
 import { MileageForm, EntryRow, sumBy, fmtMiles, todayISO } from '../lib/mileage';
@@ -91,7 +92,7 @@ export default function MileagePage() {
       <h1 style={{ fontSize: '1.5rem' }}>Mileage</h1>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <Link href="/login" style={s.link}>sign in</Link> to track mileage.</p>
+        : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to track mileage.</p>
         : (
           <>
             {error && listState === 'ready' && <LoadError subtle message={error} onRetry={() => { setError(null); fetchAll(); }} />}
