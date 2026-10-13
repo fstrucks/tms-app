@@ -9,6 +9,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import LoadMileage from '../../components/LoadMileage';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
+import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
@@ -27,6 +28,7 @@ const s = {
 export default function LoadDetailPage() {
   const { id } = useParams();
   const supabase = getSupabase();
+  const list = useLoads(); // shared list (desktop left pane); kept in sync on status change
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [load, setLoad] = useState(null);
@@ -76,11 +78,14 @@ export default function LoadDetailPage() {
     const prev = load.status;
     statusVer.current += 1;
     setLoad((l) => ({ ...l, status }));
+    list?.patchLoad(id, { status });
     setSaving(true);
     try {
       const { data: saved, error } = await supabase.from('loads').update({ status }).eq('id', id).select('status').maybeSingle();
       statusVer.current += 1;
+      const settled = settleStatus({ status }, { error, saved, prev }).status;
       setLoad((l) => settleStatus(l, { error, saved, prev }));
+      list?.patchLoad(id, { status: settled });
       if (error) { console.error('[load] status', error); setError({ retry: false, text: "Couldn't update the status. Please try again." }); }
     } finally {
       setSaving(false);
@@ -97,6 +102,7 @@ export default function LoadDetailPage() {
     setDelError(null);
     const r = await deleteLoad(supabase, id, { docs, deleteDocs: alsoDocs });
     if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
+    list?.reload(); // the shared list (layout) outlives this page; drop the deleted load
     if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
     router.replace('/loads');
   }
@@ -145,7 +151,7 @@ export default function LoadDetailPage() {
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>
                       <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
-                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #d1d5db' }}>
+                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' }}>
                         {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
                         {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
                       </select>
