@@ -1,6 +1,6 @@
 'use client';
 
-import { DOC_TYPE_LABEL } from '../lib/docTypes';
+import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import dynamic from 'next/dynamic';
@@ -35,7 +35,6 @@ function resolveType(file) {
 const BUCKET = 'documents';
 // Only rate confirmations are AI-extracted / turned into loads; scanned docs (BOL, POD, etc.) are stored as-is.
 const EXTRACTABLE = (t) => !t || t === 'rate_confirmation';
-const TYPE_LABEL = DOC_TYPE_LABEL;
 
 function isHeic(file, type) {
   return type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
@@ -345,7 +344,7 @@ export default function DocumentsPage() {
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                    <div style={s.muted}>{TYPE_LABEL[d.doc_type] || (d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>

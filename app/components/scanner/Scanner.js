@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { VISUALLY_HIDDEN } from '../UploadMenu';
-import { SCAN_DOC_TYPES, docTypeShort } from '../../lib/docTypes';
+import { SCAN_DOC_TYPES, docTypeShort, otherDocType, uploadButtonLabel, OTHER_MAX } from '../../lib/docTypes';
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
@@ -31,6 +31,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const typeOptions = allowRateCon ? [RATECON_TYPE, ...SCAN_DOC_TYPES] : SCAN_DOC_TYPES;
   const [docType, setDocType] = useState(allowRateCon ? RATECON_TYPE.id : 'bol');
   const rateCon = docType === RATECON_TYPE.id;
+  const [otherName, setOtherName] = useState('');
+  const isOther = docType === 'other';
   const [loadId, setLoadId] = useState(initialLoadId || '');
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -164,6 +166,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
   async function save() {
     if (!pages.length) return;
+    const savedType = isOther ? otherDocType(otherName) : docType;
+    if (!savedType) return setMsg({ err: true, text: 'Enter a document type for "Other".' });
     setMsg(null);
     try {
       setBusy('Building PDF…');
@@ -187,7 +191,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
       const file = new File([bytes], rateCon ? rateConScanFileName() : scanFileName(docType), { type: 'application/pdf' });
       setBusy(rateCon ? 'Preparing…' : 'Uploading…');
       // Rate-con mode: hand the PDF back to the caller's normal rate-con upload/extraction path.
-      const err = await onSave(rateCon ? { file, docType } : { file, docType, loadId: loadId || null });
+      const err = await onSave(rateCon ? { file, docType } : { file, docType: savedType, loadId: loadId || null });
       setBusy(null);
       if (err) setMsg({ err: true, text: err });
     } catch (e) {
@@ -267,6 +271,14 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
               {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
           </label>
+          {isOther && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
+            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>Document type</span>
+            <input type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)} maxLength={OTHER_MAX} required aria-required="true"
+              placeholder="e.g. Scale ticket" disabled={!!busy} autoFocus
+              style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.5rem', boxSizing: 'border-box' }} />
+          </label>
+          )}
           {!rateCon && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
@@ -276,7 +288,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             </select>
           </label>
           )}
-          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>{rateCon ? 'Use as Rate Confirmation' : 'Save PDF'}</button>
+          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy || (isOther && !otherDocType(otherName)) ? 0.6 : 1 }} disabled={!n || !!busy || (isOther && !otherDocType(otherName))} onClick={save}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 
