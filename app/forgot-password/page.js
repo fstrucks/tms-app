@@ -18,7 +18,15 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => { const e = new URLSearchParams(window.location.search).get('email'); if (e) setEmail(e); }, []);
+  useEffect(() => {
+    const e = new URLSearchParams(window.location.search).get('email'); if (e) setEmail(e);
+    // Back/forward cache: when the reset link was opened in this same tab, going Back (or a tool
+    // restoring history) brings this page back with the old "Check your email" state. Reset it so
+    // a restored page never looks like a fresh send. Nothing is re-sent; sending only happens on submit.
+    const onShow = (ev) => { if (ev.persisted) { setSent(false); setError(null); setSending(false); } };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();

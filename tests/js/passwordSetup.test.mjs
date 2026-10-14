@@ -47,3 +47,18 @@ test('pages wire the Supabase calls', () => {
   assert.match(cb, /callbackDestination/);
   assert.match(readFileSync('app/components/ui/AccountMenu.js', 'utf8'), /href="\/account\/password"/);
 });
+test('reset success: no redirect to forgot-password, no resend, Continue goes to next', () => {
+  const pw = readFileSync('app/account/password/page.js', 'utf8');
+  assert.doesNotMatch(pw, /resetPasswordForEmail|signOut|onAuthStateChange|router\.(push|replace)\(['"]\/forgot/);
+  assert.match(pw, /Password saved\./);
+  assert.match(pw, /window\.location\.replace\(next\)/);
+  assert.match(pw, /history\.replaceState/);
+  const fp = readFileSync('app/forgot-password/page.js', 'utf8');
+  assert.match(fp, /ev\.persisted\) \{ setSent\(false\)/);
+  assert.equal((fp.match(/resetPasswordForEmail/g) || []).length, 1);
+  assert.match(fp, /onSubmit=\{onSubmit\}/);
+});
+test('sign out clears header user immediately', () => {
+  const m = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
+  assert.match(m, /else \{ setUser\(null\); setOpen\(false\); router\.replace\('\/login'\)/);
+});

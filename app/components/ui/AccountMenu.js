@@ -43,7 +43,7 @@ export default function AccountMenu({ showEmail = false }) {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) { console.error('[account] sign out', error); setErr('Sign out failed, please try again.'); }
-      else { setOpen(false); router.replace('/login'); }
+      else { setUser(null); setOpen(false); router.replace('/login'); } // clear the header now, not on the next auth event
     } catch (e) {
       console.error('[account] sign out', e); setErr('Sign out failed, please try again.');
     } finally { setBusy(false); }

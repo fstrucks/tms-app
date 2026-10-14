@@ -53,7 +53,11 @@ export default function SetPasswordPage() {
     try {
       const { error } = await supabase.auth.updateUser({ password: pw, data: { password_set: true } });
       if (error) setError(friendly(error));
-      else { setDone(true); setPw(''); setConfirm(''); }
+      else {
+        setDone(true); setPw(''); setConfirm('');
+        // Drop mode=reset from the URL so a reload/restore shows "Change password", not the recovery form.
+        try { window.history.replaceState(null, '', `${PASSWORD_PATH}?next=${encodeURIComponent(next)}`); } catch {}
+      }
     } catch (err) { setError(friendly(err)); } finally { setBusy(false); }
   }
 
@@ -72,7 +76,7 @@ export default function SetPasswordPage() {
             <>
               <p role="status" style={{ color: '#15803d', fontWeight: 600 }}>Password saved.</p>
               <p>Next time, sign in with <strong>{user.email}</strong> and this password.</p>
-              <a href={next} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Continue</a>
+              <a href={next} onClick={(e) => { e.preventDefault(); window.location.replace(next); }} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Continue</a>
             </>
           ) : (
             <form onSubmit={onSubmit} noValidate>
