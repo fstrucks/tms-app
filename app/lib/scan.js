@@ -359,6 +359,10 @@ export function nextSizeStep(size, from, { maxBytes = PDF_MAX_BYTES, steps = SIZ
   return steps.length - 1 > from ? steps.length - 1 : -1;
 }
 
+export const RATECON_SCAN_PREFIX = 'RateCon';
+export function rateConScanFileName(date = new Date()) {
+  return scanFileName(null, date).replace(/^[^_]*_/, `${RATECON_SCAN_PREFIX}_`);
+}
 export function scanFileName(docType, date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;

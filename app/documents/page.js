@@ -66,6 +66,7 @@ export default function DocumentsPage() {
   const [user, setUser] = useState(null);
   const [scanFiles, setScanFiles] = useState(null); // photos that opened the scanner
   const [scanLoads, setScanLoads] = useState([]);
+  const [rateConScanFiles, setRateConScanFiles] = useState(null); // photos for a scanned rate con
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0); // remounts the hidden inputs to clear them
@@ -257,6 +258,13 @@ export default function DocumentsPage() {
     setScanLoads((data || []).map((l) => ({ id: l.id, label: [l.broker_load_number ? `#${l.broker_load_number}` : 'Load', l.broker_name].filter(Boolean).join(' · ') + ` (${new Date(l.created_at).toLocaleDateString()})` })));
   }
 
+  // Scanned rate con: the scanner's PDF goes through pickFile, exactly like a PDF from Files / PDF.
+  function applyRateConScan({ file: pdf }) {
+    setRateConScanFiles(null);
+    pickFile(pdf);
+    return null;
+  }
+
   async function saveScan(scan) {
     const err = await uploadScan(supabase, user?.id, scan);
     if (err) return err;
@@ -290,7 +298,7 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a BOL/POD</legend>
-              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
+              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} onRateConScan={setRateConScanFiles} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
@@ -356,6 +364,7 @@ export default function DocumentsPage() {
         </>
       )}
       {scanFiles && <Scanner initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
+      {rateConScanFiles && <Scanner rateCon initialFiles={rateConScanFiles} onClose={() => setRateConScanFiles(null)} onSave={applyRateConScan} />}
     </main>
   );
 }
