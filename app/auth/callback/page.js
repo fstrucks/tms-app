@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSupabase } from '../../lib/supabase';
 import { safeNext, loginHref } from '../../lib/safeNext';
+import { callbackDestination, otpType } from '../../lib/passwordSetup';
 
 // Magic-link landing page. The Supabase client has detectSessionInUrl off on this route, so the
 // session is set here exactly once: ?code (PKCE) via exchangeCodeForSession, or #access_token
@@ -21,7 +22,10 @@ export default function AuthCallback() {
     let alive = true;
     const fail = (why) => { if (why) console.error('[auth] callback', why); if (alive) setFailed(true); };
     const t = setTimeout(() => fail('timeout'), 8000);
-    const finish = () => { clearTimeout(t); if (alive) window.location.replace(n); };
+    // type=recovery|invite|magiclink comes from our redirectTo (?type=) or Supabase's implicit hash (#type=).
+    const type = otpType(q.get('type')) || otpType(h.get('type'));
+    let dest = n;
+    const finish = () => { clearTimeout(t); if (alive) window.location.replace(dest); };
     if (q.get('error') || q.get('error_code') || h.get('error') || h.get('error_code')) {
       clearTimeout(t); fail(q.get('error_description') || h.get('error_description') || 'link error');
       return () => { alive = false; };
@@ -32,7 +36,12 @@ export default function AuthCallback() {
       run = (async () => {
         const code = q.get('code');
         const at = h.get('access_token'), rt = h.get('refresh_token');
-        if (code) {
+        const tokenHash = q.get('token_hash');
+        if (tokenHash && type) {
+          // Email templates that link straight here with {{ .TokenHash }} (works across devices, no PKCE verifier needed).
+          const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: type === 'magiclink' ? 'email' : type });
+          if (error) throw error;
+        } else if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
         } else if (at && rt) {
@@ -41,9 +50,10 @@ export default function AuthCallback() {
         }
         const { data } = await supabase.auth.getSession();
         if (!data?.session) throw new Error('no code, token or session');
+        return data.session;
       })();
     }
-    run.then(finish, (e) => { clearTimeout(t); fail(e); });
+    run.then((session) => { dest = callbackDestination({ type, next: q.get('next'), user: session?.user, session }); finish(); }, (e) => { clearTimeout(t); fail(e); });
     return () => { alive = false; };
   }, []);
   return (

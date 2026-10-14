@@ -81,8 +81,11 @@ export default function AccountMenu({ showEmail = false }) {
         <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey}
           style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem' }}>
           <div style={{ padding: '0.6rem 0.8rem', color: '#6b7280', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{email}</div>
-          {/* TODO: Settings item (hidden until there is a settings page). */}
-          <button ref={(el) => { itemRefs.current[0] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
+          <Link ref={(el) => { itemRefs.current[0] = el; }} href="/account/password" role="menuitem" onClick={() => setOpen(false)}
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+            {user.user_metadata?.password_set ? 'Change password' : 'Set password'}
+          </Link>
+          <button ref={(el) => { itemRefs.current[1] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
             style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>
             {busy ? 'Signing out…' : 'Sign out'}
           </button>
