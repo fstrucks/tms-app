@@ -19,7 +19,7 @@ const NO_PHOTO = "No photo was captured. If the camera didn't open, allow camera
 const btn = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#111827', fontSize: '0.95rem', cursor: 'pointer' };
 const primary = { ...btn, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600 };
 let nextId = 1;
-export const RATECON_TYPE = { id: 'ratecon', label: 'Rate con' };
+export const RATECON_TYPE = { id: 'ratecon', label: 'Rate Confirmation' };
 
 export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', allowRateCon = false, onClose, onSave }) {
   const [pages, setPages] = useState([]);
@@ -276,7 +276,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             </select>
           </label>
           )}
-          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>{rateCon ? 'Use as rate con' : 'Save PDF'}</button>
+          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>{rateCon ? 'Use as Rate Confirmation' : 'Save PDF'}</button>
         </div>
       </footer>
 

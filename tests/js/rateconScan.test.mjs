@@ -23,11 +23,11 @@ test('UploadMenu: one scan option, Scan document, 4th after Take photo / Photo l
 });
 
 test('Scanner: Rate con is first + default only with allowRateCon; hides Load picker; Use as rate con', () => {
-  assert.match(scanner, /RATECON_TYPE = \{ id: 'ratecon', label: 'Rate con' \}/);
+  assert.match(scanner, /RATECON_TYPE = \{ id: 'ratecon', label: 'Rate Confirmation' \}/);
   assert.match(scanner, /typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.SCAN_DOC_TYPES\] : SCAN_DOC_TYPES/);
   assert.match(scanner, /useState\(allowRateCon \? RATECON_TYPE\.id : 'bol'\)/);
   assert.match(scanner, /\{!rateCon && \(\s*<label[\s\S]*?No load/);
-  assert.match(scanner, /\{rateCon \? 'Use as rate con' : 'Save PDF'\}/);
+  assert.match(scanner, /\{rateCon \? 'Use as Rate Confirmation' : 'Save PDF'\}/);
   assert.match(scanner, /rateCon \? rateConScanFileName\(\) : scanFileName\(docType\)/);
 });
 
@@ -62,6 +62,6 @@ test('Scanner footer: prominent "＋ Add page" (camera, label-for mounted input)
   // footer order: Add page / Choose, then Type (+Load), then full-width primary
   const footer = scanner.slice(scanner.indexOf('<footer'), scanner.indexOf('</footer>'));
   assert.ok(footer.indexOf('ids.camera') < footer.indexOf('Document type'));
-  assert.ok(footer.indexOf('Document type') < footer.indexOf("'Use as rate con'"));
+  assert.ok(footer.indexOf('Document type') < footer.indexOf("'Use as Rate Confirmation'"));
   assert.match(footer, /\.\.\.primary, flex: '1 1 100%'/);
 });
