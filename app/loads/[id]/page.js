@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { uploadScan } from '../../lib/scanUpload';
 import { mergeFetchedLoad, settleStatus } from '../../lib/loadStatus';
 import Link from 'next/link';
 import SignInLink from '../../components/SignInLink';
@@ -13,6 +15,9 @@ import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
+
+// Loaded only when "Scan BOL/POD" is tapped.
+const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
@@ -35,6 +40,8 @@ export default function LoadDetailPage() {
   const [docs, setDocs] = useState([]);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState(null);
   const statusVer = useRef(0); // bumped on every status change; older fetches keep the newer status
   const router = useRouter();
   const [alsoDocs, setAlsoDocs] = useState(false);
@@ -185,7 +192,11 @@ export default function LoadDetailPage() {
                 <LoadMileage load={load} userId={user.id} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
-                  <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Documents</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Documents</h2>
+                    <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: '#fff', color: '#1d4ed8', border: '1px solid #2563eb' }}>🧾 Scan BOL/POD</button>
+                  </div>
+                  {scanMsg && <p role="status" style={{ color: '#15803d', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
                   {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (
                     <div key={d.id} style={s.row}>
                       <div style={{ minWidth: 0 }}>
@@ -213,6 +224,20 @@ export default function LoadDetailPage() {
             )}
           </>
         )}
+      {scanning && load && (
+        <Scanner
+          loads={[{ id: load.id, label: [load.broker_load_number ? `#${load.broker_load_number}` : 'This load', load.broker_name].filter(Boolean).join(' · ') }]}
+          initialLoadId={load.id}
+          onClose={() => setScanning(false)}
+          onSave={async (scan) => {
+            const err = await uploadScan(supabase, user?.id, scan);
+            if (err) return err;
+            setScanning(false);
+            setScanMsg(`Saved ${scan.file.name}.`);
+            await fetchAll();
+            return null;
+          }} />
+      )}
     </main>
   );
 }

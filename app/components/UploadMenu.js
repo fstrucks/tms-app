@@ -19,6 +19,9 @@ const OPTIONS = [
   { id: 'library', icon: '🖼️', label: 'Photo library', accept: 'image/*' },
   { id: 'files', icon: '📄', label: 'Files / PDF', accept: 'application/pdf' },
 ];
+// Optional "Scan document" (only when the caller passes onScan): its own image-only camera input,
+// never merged with the PDF-only picker. Desktop browsers ignore capture and show an image picker.
+const SCAN = { id: 'scan', icon: '🧾', label: 'Scan document', accept: 'image/*', capture: 'environment', multiple: true };
 
 // Visually hidden but still "rendered", so iOS honours label activation of the input.
 export const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0, opacity: 0 };
@@ -30,7 +33,8 @@ const st = {
   item: { display: 'block', boxSizing: 'border-box', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
-export default function UploadMenu({ onFile, disabled = false, label = 'Upload' }) {
+export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {
+  const options = onScan ? [SCAN, ...OPTIONS] : OPTIONS;
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const wrapRef = useRef(null);
@@ -54,7 +58,7 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
       if (b.height && b.top > r.bottom && b.top < limit) limit = b.top;
     });
     const below = limit - r.bottom;
-    const need = OPTIONS.length * 48 + 16;
+    const need = options.length * 48 + 16;
     setUp(below < need && r.top > below);
   };
 
@@ -128,11 +132,11 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
 
   return (
     <div ref={wrapRef} style={st.wrap} onBlur={onFocusOut}>
-      {OPTIONS.map((o) => (
+      {options.map((o) => (
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
-          {...(o.capture ? { capture: o.capture } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
+          {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
           onClick={closeAfterInputClick}
-          onChange={(e) => { setOpen(false); clearBack(); const f = e.target.files?.[0] || null; e.target.value = ''; refocus(); if (f) onFile(f); }}
+          onChange={(e) => { setOpen(false); clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
         />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
@@ -141,7 +145,7 @@ export default function UploadMenu({ onFile, disabled = false, label = 'Upload' 
       </button>
       {open && (
         <ul id={menuId} role="menu" aria-label="Upload from" style={{ ...st.menu, ...(up ? { top: 'auto', bottom: 'calc(100% + 4px)' } : null) }} onKeyDown={onMenuKey}>
-          {OPTIONS.map((o, i) => (
+          {options.map((o, i) => (
             <li key={o.id} role="none">
               <label ref={(el) => { itemRefs.current[i] = el; }} htmlFor={`${menuId}-${o.id}`} role="menuitem" tabIndex={-1}
                 onClick={() => arm(o.id)} onKeyDown={(e) => onItemKey(e, o.id)} style={st.item}>
