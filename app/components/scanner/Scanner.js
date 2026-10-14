@@ -259,16 +259,16 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
       <footer style={{ borderTop: '1px solid #e5e7eb', background: '#fff', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📷 Take photo</label>
-          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>🖼️ Choose photos</label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 200px', minWidth: 0 }}>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '2 1 60%', minHeight: 48, fontWeight: 600, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
+          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 30%', minHeight: 48 } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Type</span>
             <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!!busy} aria-label="Document type" style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
               {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
           </label>
           {!rateCon && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 180px', minWidth: 0 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
             <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
               <option value="">No load</option>
@@ -276,7 +276,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             </select>
           </label>
           )}
-          <button type="button" style={{ ...primary, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>{rateCon ? 'Use as rate con' : 'Save PDF'}</button>
+          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>{rateCon ? 'Use as rate con' : 'Save PDF'}</button>
         </div>
       </footer>
 

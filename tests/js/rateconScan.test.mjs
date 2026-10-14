@@ -52,3 +52,15 @@ test('Scanner header: one line with ellipsis; colour toggle hidden during discar
   assert.match(scanner, /minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' \}\}>Scan document/);
   assert.match(scanner, /aria-label="Colour" style=\{\{ display: askDiscard \? 'none' : 'inline-flex'/);
 });
+
+test('Scanner footer: prominent "＋ Add page" (camera, label-for mounted input) after the first page, appends', () => {
+  assert.match(scanner, /<label htmlFor=\{ids\.camera\}[^>]*>\{n \? '＋ Add page' : '📷 Take photo'\}<\/label>/);
+  assert.match(scanner, /<label htmlFor=\{ids\.choose\}[^>]*>\{n \? '🖼️ Choose photo' : '🖼️ Choose photos'\}<\/label>/);
+  // camera input appends (no replaceAt) and is visually hidden, not display:none
+  assert.match(scanner, /id=\{ids\.camera\}[^\n]*style=\{VISUALLY_HIDDEN\}[^\n]*onChange=\{\(e\) => addFiles\(takeFiles\(e\)\)\}/);
+  // footer order: Add page / Choose, then Type (+Load), then full-width primary
+  const footer = scanner.slice(scanner.indexOf('<footer'), scanner.indexOf('</footer>'));
+  assert.ok(footer.indexOf('ids.camera') < footer.indexOf('Document type'));
+  assert.ok(footer.indexOf('Document type') < footer.indexOf("'Use as rate con'"));
+  assert.match(footer, /\.\.\.primary, flex: '1 1 100%'/);
+});
