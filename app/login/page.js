@@ -31,13 +31,19 @@ export default function LoginPage() {
     setError(null);
     try {
       if (usePw) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : error.message);
           // back to the password field with its text selected, after the button re-enables
           setTimeout(() => { const el = pwRef.current; if (el) { el.focus(); el.select(); } }, 0);
         }
-        else window.location.assign(safeNext(nextParam()));
+        else {
+          // Backfill the password_set flag for accounts that had a password before it existed.
+          if (data?.user && data.user.user_metadata?.password_set !== true) {
+            try { await supabase.auth.updateUser({ data: { password_set: true } }); } catch (e) { console.error('[auth] flag', e); }
+          }
+          window.location.assign(safeNext(nextParam()));
+        }
         return;
       }
       const { error } = await supabase.auth.signInWithOtp({
@@ -90,6 +96,12 @@ export default function LoginPage() {
             <button type="submit" disabled={sending || !email || (usePw && !password)} style={{ ...s.btn, opacity: sending || !email || (usePw && !password) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
             </button>
+            {usePw && (
+              <p style={{ margin: '0.5rem 0 0' }}>
+                <Link href={'/forgot-password' + (email ? '?email=' + encodeURIComponent(email) : '')}
+                  style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Forgot password?</Link>
+              </p>
+            )}
             <button type="button" onClick={() => { setUsePw(!usePw); setError(null); }}
               style={{ background: 'none', border: 'none', color: '#2563eb', marginTop: '0.75rem', padding: '0.5rem 0', minHeight: 44 }}>
               {usePw ? 'Email me a sign-in link instead' : 'Sign in with a password instead'}
