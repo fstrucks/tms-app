@@ -38,7 +38,8 @@ test('Documents: one scanner; ratecon -> uploadRateCon path, BOL/POD -> uploadSc
   const fn = docs.slice(docs.indexOf('function applyRateConScan'), docs.indexOf('async function saveScan'));
   assert.match(fn, /pickFile\(pdf\);\s*uploadRateCon\(pdf\);/);
   assert.doesNotMatch(fn, /uploadScan/);
-  assert.match(docs, />Upload a rate confirmation, or scan a rate con, BOL or POD</);
+  assert.match(docs, />Upload Rate Confirmations, POD, BOL and other documents</);
+  assert.match(docs, /<h1[^>]*>Document Upload<\/h1>/);
 });
 
 test('Load page scanner stays BOL/POD (no allowRateCon); Expenses has no scan', () => {

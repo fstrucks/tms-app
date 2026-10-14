@@ -297,7 +297,7 @@ export default function DocumentsPage() {
 
   return (
     <main style={s.main}>
-      <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
+      <h1 style={{ fontSize: '1.5rem' }}>Document Upload</h1>
 
       {supabaseConfigError ? (
         <p style={s.error}>{supabaseConfigError}</p>
@@ -312,7 +312,7 @@ export default function DocumentsPage() {
         <>
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
-              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a rate con, BOL or POD</legend>
+              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload Rate Confirmations, POD, BOL and other documents</legend>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
