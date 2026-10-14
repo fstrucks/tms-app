@@ -198,7 +198,14 @@ export default function DocumentsPage() {
 
   async function handleUpload(e) {
     e.preventDefault();
-    if (!file || !user) return;
+    const form = e.target;
+    if (await uploadRateCon(file)) form.reset();
+  }
+
+  // Upload + AI extraction for a rate con. Used by the Upload button and, directly, by "Scan rate con".
+  // Returns true on success; failures set the page status.
+  async function uploadRateCon(file) {
+    if (!file || !user) return false;
     let contentType = resolveType(file);
     if (!ALLOWED_TYPES.includes(contentType)) {
       return setStatus({ type: 'error', text: `Unsupported file type (${contentType || file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC/HEIF.` });
@@ -245,9 +252,9 @@ export default function DocumentsPage() {
     }
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
-    e.target.reset();
     await loadDocs();
     if (inserted?.id) extract(inserted.id);
+    return true;
   }
 
   async function openScanner(files) {
@@ -259,9 +266,11 @@ export default function DocumentsPage() {
   }
 
   // Scanned rate con: the scanner's PDF goes through pickFile, exactly like a PDF from Files / PDF.
+  // Uploads and extracts immediately (same as pressing Upload); on failure the PDF stays selected so Upload can retry.
   function applyRateConScan({ file: pdf }) {
     setRateConScanFiles(null);
     pickFile(pdf);
+    uploadRateCon(pdf);
     return null;
   }
 
@@ -386,6 +395,7 @@ function Summary({ x }) {
     ['Load #', x.load_number],
     ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
     ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
+    ['Equipment', x.equipment_type],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],

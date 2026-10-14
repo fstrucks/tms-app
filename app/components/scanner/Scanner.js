@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { VISUALLY_HIDDEN } from '../UploadMenu';
 import { SCAN_DOC_TYPES, docTypeShort } from '../../lib/docTypes';
-import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
+import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
@@ -134,7 +134,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
       setPages(next);
     }
     const notes = [];
-    if (added.length) notes.push(`${added.length} page${added.length > 1 ? 's' : ''} ${replaceAt != null ? 'replaced' : 'added'}.`);
+    if (added.length) notes.push(pagesAddedNote(added.length, next.length, replaceAt));
     if (capped) notes.push(`Limit reached: a scan can have at most ${MAX_PAGES} pages, so ${capped} photo${capped > 1 ? 's were' : ' was'} not added. Save this PDF and start another scan for the rest.`);
     if (failed.length) notes.push(`Couldn't read ${failed.join(', ')}.`);
     if (tooLarge.length) notes.push(`${tooLarge.length > 1 ? `${tooLarge.join(', ')}: these photos are too large.` : 'This photo is too large.'} Set the camera to 12 MP or take a screenshot.`);
