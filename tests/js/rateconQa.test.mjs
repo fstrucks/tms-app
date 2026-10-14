@@ -36,3 +36,9 @@ test('Extraction asks for equipment_type; card shows Equipment', () => {
   assert.match(docs, /\['Equipment', x\.equipment_type\]/);
   assert.match(docs, /\['Shipper', fmtParty\(x\.shipper\)\]/);
 });
+
+test('createLoad copies extracted equipment_type onto the new load (no SQL change)', () => {
+  const fn = docs.slice(docs.indexOf('async function createLoad'), docs.indexOf('const [status, setStatus]'));
+  assert.match(fn, /from\('loads'\)\.update\(\{ equipment_type: equip \}\)\.eq\('id', loadId\)\.is\('equipment_type', null\)/);
+  assert.ok(fn.indexOf('equipment_type') < fn.indexOf('router.push'));
+});

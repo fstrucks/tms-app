@@ -111,6 +111,12 @@ export default function DocumentsPage() {
         if (code === 'already_linked') loadDocs();
         throw new Error(LOAD_ERRORS[code] || 'Could not create the load, please try again.');
       }
+      // The RPC doesn't copy equipment yet; fill loads.equipment_type (user-updatable column). Best effort.
+      const equip = (doc.ai_extracted_data?.equipment_type || '').trim();
+      if (equip) {
+        const { error: eqErr } = await supabase.from('loads').update({ equipment_type: equip }).eq('id', loadId).is('equipment_type', null);
+        if (eqErr) console.error('[createLoad] equipment_type', eqErr);
+      }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
       router.push(`/loads/${loadId}`);
     } catch (err) {
