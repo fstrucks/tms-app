@@ -22,9 +22,6 @@ const OPTIONS = [
 // Optional "Scan document" (only when the caller passes onScan): its own image-only camera input,
 // never merged with the PDF-only picker. Desktop browsers ignore capture and show an image picker.
 const SCAN = { id: 'scan', icon: '🧾', label: 'Scan document', accept: 'image/*', capture: 'environment', multiple: true };
-// Optional "Scan rate con" (only when the caller passes onRateConScan), listed last. Same mounted,
-// visually hidden, label-for input pattern; the scanner then builds a PDF for the rate-con upload path.
-const RATECON_SCAN = { id: 'ratecon-scan', icon: '📑', label: 'Scan rate con', accept: 'image/*', capture: 'environment', multiple: true };
 
 // Visually hidden but still "rendered", so iOS honours label activation of the input.
 export const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0, opacity: 0 };
@@ -36,8 +33,8 @@ const st = {
   item: { display: 'block', boxSizing: 'border-box', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
 };
 
-export default function UploadMenu({ onFile, onScan, onRateConScan, disabled = false, label = 'Upload' }) {
-  const options = [...(onScan ? [SCAN] : []), ...OPTIONS, ...(onRateConScan ? [RATECON_SCAN] : [])];
+export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {
+  const options = onScan ? [...OPTIONS, SCAN] : OPTIONS; // Scan document is the 4th item
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const wrapRef = useRef(null);
@@ -139,7 +136,7 @@ export default function UploadMenu({ onFile, onScan, onRateConScan, disabled = f
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
           {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
           onClick={closeAfterInputClick}
-          onChange={(e) => { setOpen(false); clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (o.id === 'ratecon-scan') { if (all.length) onRateConScan(all); } else if (all[0]) onFile(all[0]); }}
+          onChange={(e) => { setOpen(false); clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
         />
       ))}
       <button ref={triggerRef} type="button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}

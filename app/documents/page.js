@@ -66,7 +66,6 @@ export default function DocumentsPage() {
   const [user, setUser] = useState(null);
   const [scanFiles, setScanFiles] = useState(null); // photos that opened the scanner
   const [scanLoads, setScanLoads] = useState([]);
-  const [rateConScanFiles, setRateConScanFiles] = useState(null); // photos for a scanned rate con
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0); // remounts the hidden inputs to clear them
@@ -274,13 +273,14 @@ export default function DocumentsPage() {
   // Scanned rate con: the scanner's PDF goes through pickFile, exactly like a PDF from Files / PDF.
   // Uploads and extracts immediately (same as pressing Upload); on failure the PDF stays selected so Upload can retry.
   function applyRateConScan({ file: pdf }) {
-    setRateConScanFiles(null);
+    setScanFiles(null);
     pickFile(pdf);
     uploadRateCon(pdf);
     return null;
   }
 
   async function saveScan(scan) {
+    if (scan.docType === 'ratecon') return applyRateConScan(scan);
     const err = await uploadScan(supabase, user?.id, scan);
     if (err) return err;
     setScanFiles(null);
@@ -312,8 +312,8 @@ export default function DocumentsPage() {
         <>
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
-              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a BOL/POD</legend>
-              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} onRateConScan={setRateConScanFiles} disabled={uploading || converting} />
+              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a rate con, BOL or POD</legend>
+              <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
@@ -378,8 +378,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
-      {scanFiles && <Scanner initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
-      {rateConScanFiles && <Scanner rateCon initialFiles={rateConScanFiles} onClose={() => setRateConScanFiles(null)} onSave={applyRateConScan} />}
+      {scanFiles && <Scanner allowRateCon initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }

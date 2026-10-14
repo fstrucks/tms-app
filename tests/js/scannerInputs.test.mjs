@@ -31,7 +31,7 @@ test('Scanner: Take photo keeps capture; Choose photos has no capture', () => {
 
 test('UploadMenu: Scan document uses the same label-for-mounted-input path', () => {
   assert.match(menu, /const SCAN = \{ id: 'scan'[^}]*capture: 'environment'[^}]*multiple: true/);
-  assert.match(menu, /const options = \[\.\.\.\(onScan \? \[SCAN\] : \[\]\), \.\.\.OPTIONS/);
+  assert.match(menu, /const options = onScan \? \[\.\.\.OPTIONS, SCAN\] : OPTIONS/);
   // inputs and labels are both rendered from `options`, so scan gets an id'd, visually hidden input
   assert.match(menu, /\{options\.map\(\(o\) => \(\s*<input[\s\S]*?id=\{`\$\{menuId\}-\$\{o\.id\}`\}[\s\S]*?style=\{VISUALLY_HIDDEN\}/);
   assert.match(menu, /\{options\.map\(\(o, i\) => \([\s\S]*?<label[\s\S]*?htmlFor=\{`\$\{menuId\}-\$\{o\.id\}`\}/);
