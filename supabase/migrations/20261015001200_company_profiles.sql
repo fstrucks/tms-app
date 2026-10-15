@@ -21,6 +21,9 @@ create table if not exists public.company_profiles (
   email text,
   signer_name text,
   signer_title text,
+  signature_path text,       -- private Storage path (documents bucket, {uid}/company/...)
+  signed_by uuid null references auth.users(id),
+  signed_at timestamptz,
   ein_ciphertext text,       -- "v1:<iv>:<tag>:<data>" base64, AES-256-GCM
   ein_last4 text check (ein_last4 is null or ein_last4 ~ '^[0-9]{4}$'),
   enc_key_version smallint not null default 1,

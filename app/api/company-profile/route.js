@@ -37,6 +37,14 @@ export async function PUT(req) {
   let key = null;
   if (body.ein) { try { key = loadKey(); } catch (e) { if (e instanceof PacketKeyError) { console.error('[company-profile]', e.message); return json({ error: 'EIN/TIN cannot be saved yet: server encryption key is not configured.' }, 503); } throw e; } }
   const row = buildRow(body, key);
+  if (body.sign) {
+    // Signing is a separate permission (drivers never; owner/dispatcher/management yes).
+    if (!canSign(c.role)) return json({ error: 'Only the owner, dispatcher or management can sign.' }, 403);
+    const path = String(body.signature_path || '');
+    if (!path.startsWith(`${c.user.id}/company/`) || path.includes('..')) return json({ error: 'Bad signature file.' }, 400);
+    if (!String(body.signer_name ?? c.profile?.signer_name ?? '').trim()) return json({ error: 'Enter the authorized signer name first.', errors: { signer_name: 'Required to sign.' } }, 422);
+    Object.assign(row, { signature_path: path, signed_by: c.user.id, signed_at: new Date().toISOString() });
+  }
   const q = c.profile
     ? c.sb.from('company_profiles').update(row).eq('id', c.profile.id).select('*').single()
     : c.sb.from('company_profiles').insert({ ...row, owner_id: c.user.id }).select('*').single();

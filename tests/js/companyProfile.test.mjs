@@ -84,3 +84,9 @@ test('crypto module is not imported by client code', () => {
   assert.match(route, /runtime = 'nodejs'/);
   assert.ok(!/NEXT_PUBLIC_PACKET/.test(route));
 });
+test('route gates signing on canSign and pins signature path to the signer', () => {
+  const route = readFileSync(new URL('../../app/api/company-profile/route.js', import.meta.url), 'utf8');
+  assert.match(route, /if \(!canSign\(c\.role\)\)/);
+  assert.match(route, /if \(!canEdit\(c\.role\)\)/);
+  assert.match(route, /startsWith\(`\$\{c\.user\.id\}\/company\/`\)/);
+});
