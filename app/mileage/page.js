@@ -89,7 +89,10 @@ export default function MileagePage() {
 
   return (
     <main style={s.main}>
-      <h1 style={{ fontSize: '1.5rem' }}>Mileage</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <h1 style={{ fontSize: '1.5rem' }}>Mileage</h1>
+        {user && <Link href="/mileage/import" style={{ ...s.link, fontSize: '0.95rem', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>Import ELD CSV</Link>}
+      </div>
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to track mileage.</p>
