@@ -85,7 +85,11 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             {user.user_metadata?.password_set ? 'Change password' : 'Set password'}
           </Link>
-          <button ref={(el) => { itemRefs.current[1] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
+          <Link ref={(el) => { itemRefs.current[1] = el; }} href="/company" role="menuitem" onClick={() => setOpen(false)}
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+            Company profile
+          </Link>
+          <button ref={(el) => { itemRefs.current[2] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
             style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>
             {busy ? 'Signing out…' : 'Sign out'}
           </button>
