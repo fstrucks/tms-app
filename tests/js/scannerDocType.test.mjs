@@ -54,7 +54,7 @@ test('tap Upload without a type: no upload, red selector + message, focus', () =
   assert.ok(fn.indexOf('!docType') < fn.indexOf('save()'), 'checks before save');
   assert.match(footer, /\{typeErr && <p id=\{ids\.typeErr\} role="alert"[^>]*>Pick a document type first<\/p>\}/);
   assert.match(footer, /aria-invalid=\{typeErr \|\| undefined\} aria-describedby=\{typeErr \? ids\.typeErr : undefined\}/);
-  assert.match(footer, /onChange=\{\(e\) => \{ setDocType\(e\.target\.value\); setTypeErr\(false\); \}\}/);
+  assert.match(footer, /onChange=\{\(e\) => \{ const v = e\.target\.value; setDocType\(v\); setTypeErr\(false\);/);
 });
 
 test('Other keeps its custom name and is validated on tap', () => {

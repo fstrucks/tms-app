@@ -24,7 +24,7 @@ test('UploadMenu: one scan option, Scan document, 4th after Take photo / Photo l
 
 test('Scanner: Rate con is first only with allowRateCon (no default type); hides Load picker; Use as rate con', () => {
   assert.match(scanner, /RATECON_TYPE = \{ id: 'ratecon', label: 'Rate Confirmation' \}/);
-  assert.match(scanner, /typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.SCAN_DOC_TYPES\] : SCAN_DOC_TYPES/);
+  assert.match(scanner, /typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.baseTypes\] : baseTypes/);
   assert.match(scanner, /const \[docType, setDocType\] = useState\(''\);/);
   assert.match(scanner, /\{!rateCon && \(\s*<label[\s\S]*?No load/);
   assert.match(scanner, /onClick=\{tryUpload\}>\{uploadButtonLabel\(docType\)\}<\/button>/);

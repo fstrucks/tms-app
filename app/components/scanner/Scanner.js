@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { VISUALLY_HIDDEN } from '../UploadMenu';
-import { SCAN_DOC_TYPES, docTypeShort, otherDocType, uploadButtonLabel, OTHER_MAX } from '../../lib/docTypes';
+import { SCAN_DOC_TYPES, isCompanyDocType, docTypeShort, otherDocType, uploadButtonLabel, OTHER_MAX } from '../../lib/docTypes';
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
@@ -21,7 +21,7 @@ const primary = { ...btn, border: 'none', background: '#2563eb', color: '#fff', 
 let nextId = 1;
 export const RATECON_TYPE = { id: 'ratecon', label: 'Rate Confirmation' };
 
-export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', allowRateCon = false, onClose, onSave }) {
+export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', allowRateCon = false, typeIds = null, onClose, onSave }) {
   const [pages, setPages] = useState([]);
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [mode, setMode] = useState('bw');
@@ -29,7 +29,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   // allowRateCon (Documents page): "Rate con" is offered first and sends the PDF down the
   // rate-con upload/extraction path (no load picker). Load page scanner stays BOL/POD-only.
   // No default type (Marc, 10/15): the user must pick one; Upload looks disabled until then.
-  const typeOptions = allowRateCon ? [RATECON_TYPE, ...SCAN_DOC_TYPES] : SCAN_DOC_TYPES;
+  // typeIds (load page): limit the list, e.g. LOAD_SCAN_TYPE_IDS = BOL/POD only.
+  const baseTypes = typeIds ? SCAN_DOC_TYPES.filter((t) => typeIds.includes(t.id)) : SCAN_DOC_TYPES;
+  const typeOptions = allowRateCon ? [RATECON_TYPE, ...baseTypes] : baseTypes;
   const [docType, setDocType] = useState('');
   const [typeErr, setTypeErr] = useState(false);
   const typeRef = useRef(null);
@@ -280,7 +282,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
           <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label htmlFor={ids.type} style={{ fontSize: 15, fontWeight: 700, color: typeErr ? '#b91c1c' : '#111827' }}>Document type</label>
             <select ref={typeRef} id={ids.type} value={docType} disabled={!!busy}
-              onChange={(e) => { setDocType(e.target.value); setTypeErr(false); }}
+              onChange={(e) => { const v = e.target.value; setDocType(v); setTypeErr(false); if (isCompanyDocType(v)) setLoadId(''); }}
               aria-invalid={typeErr || undefined} aria-describedby={typeErr ? ids.typeErr : undefined}
               style={{ width: '100%', minHeight: 56, fontSize: 17, fontWeight: docType ? 600 : 400, boxSizing: 'border-box', borderRadius: 10, padding: '0 0.75rem',
                 border: typeErr ? '2px solid #dc2626' : '2px solid #1d4ed8', background: typeErr ? '#fef2f2' : '#eff6ff', color: docType ? '#111827' : '#374151',
