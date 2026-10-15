@@ -1,0 +1,8 @@
+"Trip Date";"Unit #";"Jurisdiction";"Odometer Begin";"Odometer End";"Distance (mi)";"Gallons Purchased"
+09/01/2026;Truck 101;California;412,850;413,162;312.0;
+09/01/2026;Truck 101;Nevada;413162;413201;39;
+9/2/26;Truck 101;NV;413201;413486;285;118.4
+2026-09-31;Truck 101;UT;413486;413612;126;
+09/03/2026;Truck 101;ZZ;413612;413700;88;
+09/03/2026;Truck 101;AZ;413800;413700;;
+09/01/2026;Truck 101;California;412,850;413,162;312.0;
