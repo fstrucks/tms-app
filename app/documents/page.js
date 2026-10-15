@@ -1,6 +1,6 @@
 'use client';
 
-import { DOC_TYPE_LABEL } from '../lib/docTypes';
+import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import dynamic from 'next/dynamic';
@@ -35,7 +35,6 @@ function resolveType(file) {
 const BUCKET = 'documents';
 // Only rate confirmations are AI-extracted / turned into loads; scanned docs (BOL, POD, etc.) are stored as-is.
 const EXTRACTABLE = (t) => !t || t === 'rate_confirmation';
-const TYPE_LABEL = DOC_TYPE_LABEL;
 
 function isHeic(file, type) {
   return type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(file.name);
@@ -109,6 +108,12 @@ export default function DocumentsPage() {
         console.error('create_load_from_document', error);
         if (code === 'already_linked') loadDocs();
         throw new Error(LOAD_ERRORS[code] || 'Could not create the load, please try again.');
+      }
+      // The RPC doesn't copy equipment yet; fill loads.equipment_type (user-updatable column). Best effort.
+      const equip = (doc.ai_extracted_data?.equipment_type || '').trim();
+      if (equip) {
+        const { error: eqErr } = await supabase.from('loads').update({ equipment_type: equip }).eq('id', loadId).is('equipment_type', null);
+        if (eqErr) console.error('[createLoad] equipment_type', eqErr);
       }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
       router.push(`/loads/${loadId}`);
@@ -197,7 +202,14 @@ export default function DocumentsPage() {
 
   async function handleUpload(e) {
     e.preventDefault();
-    if (!file || !user) return;
+    const form = e.target;
+    if (await uploadRateCon(file)) form.reset();
+  }
+
+  // Upload + AI extraction for a rate con. Used by the Upload button and, directly, by "Scan rate con".
+  // Returns true on success; failures set the page status.
+  async function uploadRateCon(file) {
+    if (!file || !user) return false;
     let contentType = resolveType(file);
     if (!ALLOWED_TYPES.includes(contentType)) {
       return setStatus({ type: 'error', text: `Unsupported file type (${contentType || file.type || 'unknown'}). Use PDF, JPEG, PNG, WebP or HEIC/HEIF.` });
@@ -244,9 +256,9 @@ export default function DocumentsPage() {
     }
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
-    e.target.reset();
     await loadDocs();
     if (inserted?.id) extract(inserted.id);
+    return true;
   }
 
   async function openScanner(files) {
@@ -257,7 +269,17 @@ export default function DocumentsPage() {
     setScanLoads((data || []).map((l) => ({ id: l.id, label: [l.broker_load_number ? `#${l.broker_load_number}` : 'Load', l.broker_name].filter(Boolean).join(' · ') + ` (${new Date(l.created_at).toLocaleDateString()})` })));
   }
 
+  // Scanned rate con: the scanner's PDF goes through pickFile, exactly like a PDF from Files / PDF.
+  // Uploads and extracts immediately (same as pressing Upload); on failure the PDF stays selected so Upload can retry.
+  function applyRateConScan({ file: pdf }) {
+    setScanFiles(null);
+    pickFile(pdf);
+    uploadRateCon(pdf);
+    return null;
+  }
+
   async function saveScan(scan) {
+    if (scan.docType === 'ratecon') return applyRateConScan(scan);
     const err = await uploadScan(supabase, user?.id, scan);
     if (err) return err;
     setScanFiles(null);
@@ -274,7 +296,7 @@ export default function DocumentsPage() {
 
   return (
     <main style={s.main}>
-      <h1 style={{ fontSize: '1.5rem' }}>Rate Confirmations</h1>
+      <h1 style={{ fontSize: '1.5rem' }}>Document Upload</h1>
 
       {supabaseConfigError ? (
         <p style={s.error}>{supabaseConfigError}</p>
@@ -289,7 +311,7 @@ export default function DocumentsPage() {
         <>
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
-              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload a rate confirmation, or scan a BOL/POD</legend>
+              <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload Rate Confirmations, POD, BOL and other documents</legend>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
@@ -322,7 +344,7 @@ export default function DocumentsPage() {
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                    <div style={s.muted}>{TYPE_LABEL[d.doc_type] || (d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>
@@ -355,7 +377,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
-      {scanFiles && <Scanner initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
+      {scanFiles && <Scanner allowRateCon initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }
@@ -377,6 +399,7 @@ function Summary({ x }) {
     ['Load #', x.load_number],
     ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
     ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
+    ['Equipment', x.equipment_type],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],

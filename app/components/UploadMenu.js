@@ -34,7 +34,7 @@ const st = {
 };
 
 export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {
-  const options = onScan ? [SCAN, ...OPTIONS] : OPTIONS;
+  const options = onScan ? [...OPTIONS, SCAN] : OPTIONS; // Scan document is the 4th item
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const wrapRef = useRef(null);

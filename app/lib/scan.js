@@ -359,6 +359,19 @@ export function nextSizeStep(size, from, { maxBytes = PDF_MAX_BYTES, steps = SIZ
   return steps.length - 1 > from ? steps.length - 1 : -1;
 }
 
+// Status after adding/replacing photos: names the page numbers and the running total, so adding
+// page 2 reads "Page 2 added (2 pages total)." instead of "1 page added."
+export function pagesAddedNote(count, total, replacedIndex = null) {
+  if (!count) return '';
+  if (replacedIndex != null) return `Page ${replacedIndex + 1} replaced.`;
+  const first = total - count + 1;
+  const which = count === 1 ? `Page ${total}` : `Pages ${first}–${total}`;
+  return `${which} added (${total} page${total === 1 ? '' : 's'} total).`;
+}
+export const RATECON_SCAN_PREFIX = 'RateCon';
+export function rateConScanFileName(date = new Date()) {
+  return scanFileName(null, date).replace(/^[^_]*_/, `${RATECON_SCAN_PREFIX}_`);
+}
 export function scanFileName(docType, date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;

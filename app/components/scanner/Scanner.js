@@ -2,8 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { VISUALLY_HIDDEN } from '../UploadMenu';
-import { SCAN_DOC_TYPES, docTypeShort } from '../../lib/docTypes';
-import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
+import { SCAN_DOC_TYPES, docTypeShort, otherDocType, uploadButtonLabel, OTHER_MAX } from '../../lib/docTypes';
+import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
@@ -19,13 +19,20 @@ const NO_PHOTO = "No photo was captured. If the camera didn't open, allow camera
 const btn = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#111827', fontSize: '0.95rem', cursor: 'pointer' };
 const primary = { ...btn, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600 };
 let nextId = 1;
+export const RATECON_TYPE = { id: 'ratecon', label: 'Rate Confirmation' };
 
-export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', onClose, onSave }) {
+export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', allowRateCon = false, onClose, onSave }) {
   const [pages, setPages] = useState([]);
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [mode, setMode] = useState('bw');
   const modeRef = useRef(mode); modeRef.current = mode;
-  const [docType, setDocType] = useState('bol');
+  // allowRateCon (Documents page): "Rate con" is the first, default type and sends the PDF down the
+  // rate-con upload/extraction path (no load picker). Load page scanner stays BOL/POD-only.
+  const typeOptions = allowRateCon ? [RATECON_TYPE, ...SCAN_DOC_TYPES] : SCAN_DOC_TYPES;
+  const [docType, setDocType] = useState(allowRateCon ? RATECON_TYPE.id : 'bol');
+  const rateCon = docType === RATECON_TYPE.id;
+  const [otherName, setOtherName] = useState('');
+  const isOther = docType === 'other';
   const [loadId, setLoadId] = useState(initialLoadId || '');
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -134,7 +141,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
       setPages(next);
     }
     const notes = [];
-    if (added.length) notes.push(`${added.length} page${added.length > 1 ? 's' : ''} ${replaceAt != null ? 'replaced' : 'added'}.`);
+    if (added.length) notes.push(pagesAddedNote(added.length, next.length, replaceAt));
     if (capped) notes.push(`Limit reached: a scan can have at most ${MAX_PAGES} pages, so ${capped} photo${capped > 1 ? 's were' : ' was'} not added. Save this PDF and start another scan for the rest.`);
     if (failed.length) notes.push(`Couldn't read ${failed.join(', ')}.`);
     if (tooLarge.length) notes.push(`${tooLarge.length > 1 ? `${tooLarge.join(', ')}: these photos are too large.` : 'This photo is too large.'} Set the camera to 12 MP or take a screenshot.`);
@@ -159,6 +166,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
   async function save() {
     if (!pages.length) return;
+    const savedType = isOther ? otherDocType(otherName) : docType;
+    if (!savedType) return setMsg({ err: true, text: 'Enter a document type for "Other".' });
     setMsg(null);
     try {
       setBusy('Building PDF…');
@@ -173,15 +182,16 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         setBusy('Finishing…');
         await new Promise((r) => setTimeout(r, 0));
         return out;
-      }, (out) => buildPdf(out, PDFDocument, { title: `${docTypeShort(docType)} scan` }), {
+      }, (out) => buildPdf(out, PDFDocument, { title: rateCon ? 'Rate confirmation scan' : `${docTypeShort(docType)} scan` }), {
         maxBytes: MAX_BYTES,
         onProgress: (k, x, total) => setBusy(k === 0 ? `Building PDF… page ${x} of ${total}` : `Compressing… try ${k} of ${SIZE_STEPS.length - 1}, page ${x} of ${total}`),
       });
       if (!res.ok) { setBusy(null); return setMsg({ err: true, text: `Even compressed, the PDF is ${(res.bytes.length / 1048576).toFixed(1)} MB (max 10 MB). Your pages are kept: remove a few or switch to B&W, then save again.` }); }
       const bytes = res.bytes;
-      const file = new File([bytes], scanFileName(docType), { type: 'application/pdf' });
-      setBusy('Uploading…');
-      const err = await onSave({ file, docType, loadId: loadId || null });
+      const file = new File([bytes], rateCon ? rateConScanFileName() : scanFileName(docType), { type: 'application/pdf' });
+      setBusy(rateCon ? 'Preparing…' : 'Uploading…');
+      // Rate-con mode: hand the PDF back to the caller's normal rate-con upload/extraction path.
+      const err = await onSave(rateCon ? { file, docType } : { file, docType: savedType, loadId: loadId || null });
       setBusy(null);
       if (err) setMsg({ err: true, text: err });
     } catch (e) {
@@ -201,19 +211,20 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 2000, background: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui', outline: 'none' }}>
-      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid #e5e7eb', background: '#fff', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
+      <header style={{ display: 'flex', flexWrap: 'nowrap', minWidth: 0, alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid #e5e7eb', background: '#fff', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         {askDiscard ? (
-          <span role="group" aria-label="Discard this scan?" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          <span role="group" aria-label="Discard this scan?" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setAskDiscard(false); } }}>
-            <span style={{ fontSize: 14 }}>Discard {n} page{n > 1 ? 's' : ''}?</span>
+            <span style={{ fontSize: 14, whiteSpace: 'nowrap' }}>Discard {n} page{n > 1 ? 's' : ''}?</span>
             <button ref={keepRef} type="button" style={btn} onClick={() => setAskDiscard(false)}>Keep</button>
             <button type="button" style={{ ...btn, border: 'none', background: '#b91c1c', color: '#fff' }} onClick={onClose}>Discard</button>
           </span>
         ) : (
           <button type="button" onClick={close} disabled={!!busy} style={btn} aria-label="Close scanner">✕</button>
         )}
-        <h2 style={{ fontSize: '1.1rem', margin: 0, flex: 1 }}>Scan document{n ? ` · ${n} page${n > 1 ? 's' : ''}` : ''}</h2>
-        <div role="group" aria-label="Colour" style={{ display: 'inline-flex' }}>
+        {/* One line at phone width: title truncates with an ellipsis; colour toggle hides while the discard prompt shows. */}
+        <h2 style={{ fontSize: askDiscard ? '0.95rem' : '1.1rem', margin: 0, flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Scan document{n ? ` · ${n} page${n > 1 ? 's' : ''}` : ''}</h2>
+        <div role="group" aria-label="Colour" style={{ display: askDiscard ? 'none' : 'inline-flex', flexShrink: 0 }}>
           {[['bw', 'B&W'], ['color', 'Color']].map(([m, l]) => (
             <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} disabled={!!busy}
               style={{ ...btn, borderRadius: m === 'bw' ? '8px 0 0 8px' : '0 8px 8px 0', background: mode === m ? '#1d4ed8' : '#fff', color: mode === m ? '#fff' : '#111827' }}>{l}</button>
@@ -252,22 +263,32 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
       <footer style={{ borderTop: '1px solid #e5e7eb', background: '#fff', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📷 Take photo</label>
-          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>🖼️ Choose photos</label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 200px', minWidth: 0 }}>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '2 1 60%', minHeight: 48, fontWeight: 600, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
+          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 30%', minHeight: 48 } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Type</span>
             <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!!busy} aria-label="Document type" style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
-              {SCAN_DOC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
           </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 180px', minWidth: 0 }}>
+          {isOther && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
+            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>Document type</span>
+            <input type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)} maxLength={OTHER_MAX} required aria-required="true"
+              placeholder="e.g. Scale ticket" disabled={!!busy} autoFocus
+              style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.5rem', boxSizing: 'border-box' }} />
+          </label>
+          )}
+          {!rateCon && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
             <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
               <option value="">No load</option>
               {loads.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           </label>
-          <button type="button" style={{ ...primary, opacity: !n || busy ? 0.6 : 1 }} disabled={!n || !!busy} onClick={save}>Save PDF</button>
+          )}
+          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy || (isOther && !otherDocType(otherName)) ? 0.6 : 1 }} disabled={!n || !!busy || (isOther && !otherDocType(otherName))} onClick={save}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 

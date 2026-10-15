@@ -14,6 +14,7 @@ import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
+import { docTypeLabel } from '../../lib/docTypes';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -201,7 +202,7 @@ export default function LoadDetailPage() {
                     <div key={d.id} style={s.row}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                        <div style={s.muted}>{(d.doc_type || '').replaceAll('_', ' ')} · {new Date(d.created_at).toLocaleDateString()}</div>
+                        <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
                       </div>
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>

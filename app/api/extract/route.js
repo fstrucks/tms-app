@@ -17,12 +17,12 @@ const SUPPORTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
 
 const str = { type: ['string', 'null'] };
-const party = { type: ['object', 'null'], additionalProperties: false, required: ['name', 'address'], properties: { name: str, address: str } };
+const party = { type: ['object', 'null'], additionalProperties: false, required: ['name', 'address'], properties: { name: { ...str, description: 'Facility / company name (e.g. "Acme Foods DC"), not the address' }, address: str } };
 const stop = { type: ['object', 'null'], additionalProperties: false, required: ['date', 'time', 'address'], properties: { date: str, time: str, address: str } };
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'notes'],
+  required: ['broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'notes'],
   properties: {
     broker_name: str,
     load_number: str,
@@ -32,6 +32,7 @@ const schema = {
     pickup: stop,
     delivery: stop,
     rate: { type: ['number', 'null'], description: 'Total linehaul/all-in rate in USD' },
+    equipment_type: { ...str, description: 'Trailer/equipment required, as written, e.g. "53\' Dry Van", "Reefer", "Flatbed"' },
     notes: str,
   },
 };
