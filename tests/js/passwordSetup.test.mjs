@@ -62,3 +62,18 @@ test('sign out clears header user immediately', () => {
   const m = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
   assert.match(m, /else \{ setUser\(null\); setOpen\(false\); router\.replace\('\/login'\)/);
 });
+import { pageMode } from '../../app/lib/passwordSetup.js';
+test('invite with next=/account/password opens setup mode', () => {
+  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: { password_set: true } } }), '/account/password?mode=setup&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: 'magiclink', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: 'magiclink', next: '/account/password', user: { user_metadata: { password_set: true } } }), '/account/password');
+});
+test('pageMode: no mode param still shows setup when password_set is not true', () => {
+  assert.equal(pageMode(null, { user_metadata: {} }), 'setup');
+  assert.equal(pageMode(null, { user_metadata: { password_set: true } }), 'change');
+  assert.equal(pageMode('reset', { user_metadata: {} }), 'reset');
+  assert.equal(pageMode('setup', { user_metadata: { password_set: true } }), 'setup');
+  assert.equal(pageMode(null, undefined), 'setup'); // no 'Change password' flash while loading
+  assert.match(readFileSync('app/account/password/page.js', 'utf8'), /pageMode\(qMode, user\)/);
+});

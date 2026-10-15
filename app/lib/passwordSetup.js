@@ -28,12 +28,21 @@ export function otpType(raw) { return OTP_TYPES.includes(raw) ? raw : null; }
 export function callbackDestination({ type, next, user, session }) {
   const n = safeNext(next);
   if (type === 'recovery') return `${PASSWORD_PATH}?mode=reset&next=${encodeURIComponent(n === PASSWORD_PATH ? '/documents' : n)}`;
-  if (n.startsWith(PASSWORD_PATH)) return n;
-  if (!hasPassword(user)) return `${PASSWORD_PATH}?mode=setup&next=${encodeURIComponent(n)}`;
+  const onPw = n === PASSWORD_PATH || n.startsWith(PASSWORD_PATH + '?') || n.startsWith(PASSWORD_PATH + '#');
+  // Invite template links use next=/account/password: that must still open setup mode.
+  if (type === 'invite' || !hasPassword(user)) return `${PASSWORD_PATH}?mode=setup&next=${encodeURIComponent(onPw ? '/documents' : n)}`;
+  if (onPw) return n;
   return n;
 }
 
 // redirectTo for resetPasswordForEmail.
 export function recoveryRedirect(origin) {
   return `${origin}/auth/callback?type=recovery&next=${encodeURIComponent(PASSWORD_PATH)}`;
+}
+
+// Page mode: ?mode=reset wins; otherwise anyone without password_set is setting one for the first time.
+export function pageMode(qMode, user) {
+  if (qMode === 'reset') return 'reset';
+  if (qMode === 'setup' || !hasPassword(user)) return 'setup';
+  return 'change';
 }
