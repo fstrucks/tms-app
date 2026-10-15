@@ -26,10 +26,14 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [mode, setMode] = useState('bw');
   const modeRef = useRef(mode); modeRef.current = mode;
-  // allowRateCon (Documents page): "Rate con" is the first, default type and sends the PDF down the
+  // allowRateCon (Documents page): "Rate con" is offered first and sends the PDF down the
   // rate-con upload/extraction path (no load picker). Load page scanner stays BOL/POD-only.
+  // No default type (Marc, 10/15): the user must pick one; Upload looks disabled until then.
   const typeOptions = allowRateCon ? [RATECON_TYPE, ...SCAN_DOC_TYPES] : SCAN_DOC_TYPES;
-  const [docType, setDocType] = useState(allowRateCon ? RATECON_TYPE.id : 'bol');
+  const [docType, setDocType] = useState('');
+  const [typeErr, setTypeErr] = useState(false);
+  const typeRef = useRef(null);
+  const otherRef = useRef(null);
   const rateCon = docType === RATECON_TYPE.id;
   const [otherName, setOtherName] = useState('');
   const isOther = docType === 'other';
@@ -39,7 +43,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [editing, setEditing] = useState(null);
   const [askDiscard, setAskDiscard] = useState(false);
   const uid = useId();
-  const ids = { camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake` };
+  const ids = { camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err` };
   const cameraRef = useRef(null);
   const chooseRef = useRef(null);
   const retakeRef = useRef(null);
@@ -200,6 +204,14 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     }
   }
 
+  // Upload stays tappable (aria-disabled, not disabled) so a tap without a type can explain itself.
+  function tryUpload() {
+    if (busy || !pages.length) return;
+    if (!docType) { setTypeErr(true); typeRef.current?.focus(); return; }
+    if (isOther && !otherDocType(otherName)) { setMsg({ err: true, text: 'Enter a document type for "Other".' }); otherRef.current?.focus(); return; }
+    save();
+  }
+
   function close() {
     if (pagesRef.current.length) return setAskDiscard(true); // inline confirm (pick 4A), no window.confirm
     onClose();
@@ -207,6 +219,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
   const n = pages.length;
   const full = n >= MAX_PAGES;
+  const uploadOff = !n || !!busy || !docType || (isOther && !otherDocType(otherName));
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
@@ -263,24 +276,30 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
       <footer style={{ borderTop: '1px solid #e5e7eb', background: '#fff', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '2 1 60%', minHeight: 48, fontWeight: 600, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
-          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 30%', minHeight: 48 } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
-            <span style={{ fontSize: 14, color: '#374151' }}>Type</span>
-            <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={!!busy} aria-label="Document type" style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
+          {/* Document type first, full width and tall, so it can't be missed (Marc, 10/15). */}
+          <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label htmlFor={ids.type} style={{ fontSize: 15, fontWeight: 700, color: typeErr ? '#b91c1c' : '#111827' }}>Document type</label>
+            <select ref={typeRef} id={ids.type} value={docType} disabled={!!busy}
+              onChange={(e) => { setDocType(e.target.value); setTypeErr(false); }}
+              aria-invalid={typeErr || undefined} aria-describedby={typeErr ? ids.typeErr : undefined}
+              style={{ width: '100%', minHeight: 56, fontSize: 17, fontWeight: docType ? 600 : 400, boxSizing: 'border-box', borderRadius: 10, padding: '0 0.75rem',
+                border: typeErr ? '2px solid #dc2626' : '2px solid #1d4ed8', background: typeErr ? '#fef2f2' : '#eff6ff', color: docType ? '#111827' : '#374151',
+                boxShadow: typeErr ? '0 0 0 3px rgba(220,38,38,0.25)' : 'none' }}>
+              <option value="" disabled>Choose document type…</option>
               {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-          </label>
+            {typeErr && <p id={ids.typeErr} role="alert" style={{ margin: 0, color: '#b91c1c', fontSize: 14, fontWeight: 600 }}>Pick a document type first</p>}
+          </div>
           {isOther && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
-            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>Document type</span>
-            <input type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)} maxLength={OTHER_MAX} required aria-required="true"
-              placeholder="e.g. Scale ticket" disabled={!!busy} autoFocus
+            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>Name</span>
+            <input ref={otherRef} type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)} maxLength={OTHER_MAX} required aria-required="true"
+              aria-label="Other document type name" placeholder="e.g. Scale ticket" disabled={!!busy} autoFocus
               style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.5rem', boxSizing: 'border-box' }} />
           </label>
           )}
           {!rateCon && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 150px', minWidth: 0 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
             <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
             <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
               <option value="">No load</option>
@@ -288,7 +307,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             </select>
           </label>
           )}
-          <button type="button" style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: !n || busy || (isOther && !otherDocType(otherName)) ? 0.6 : 1 }} disabled={!n || !!busy || (isOther && !otherDocType(otherName))} onClick={save}>{uploadButtonLabel(docType)}</button>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid #2563eb', color: '#1d4ed8', background: '#fff' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
+          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
+          <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? '#93c5fd' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 

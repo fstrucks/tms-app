@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { safeNext, loginHref } from '../../lib/safeNext';
-import { validatePassword, MIN_PASSWORD, PASSWORD_PATH } from '../../lib/passwordSetup';
+import { validatePassword, MIN_PASSWORD, PASSWORD_PATH, pageMode } from '../../lib/passwordSetup';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -25,7 +25,7 @@ function friendly(err) {
 
 export default function SetPasswordPage() {
   const [user, setUser] = useState(undefined); // undefined = loading, null = signed out
-  const [mode, setMode] = useState('change');
+  const [qMode, setQMode] = useState(null);
   const [next, setNext] = useState('/documents');
   const [pw, setPw] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -36,7 +36,7 @@ export default function SetPasswordPage() {
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    setMode(['setup', 'reset'].includes(q.get('mode')) ? q.get('mode') : 'change');
+    setQMode(q.get('mode'));
     setNext(safeNext(q.get('next')));
     const supabase = getSupabase();
     if (!supabase) { setUser(null); return; }
@@ -61,6 +61,7 @@ export default function SetPasswordPage() {
     } catch (err) { setError(friendly(err)); } finally { setBusy(false); }
   }
 
+  const mode = pageMode(qMode, user);
   const title = mode === 'reset' ? 'Choose a new password' : mode === 'setup' ? 'Set your password' : 'Change password';
   const ready = pw.length >= MIN_PASSWORD && confirm.length > 0;
 
