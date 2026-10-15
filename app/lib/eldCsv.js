@@ -16,7 +16,7 @@ const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').tr
 
 // Normalized header synonyms, most specific first.
 export const SYNONYMS = {
-  date: ['date', 'trip date', 'log date', 'day', 'entry date', 'report date', 'travel date', 'start date'],
+  date: ['date', 'trip date', 'log date', 'day', 'entry date', 'report date', 'travel date', 'start date', 'month', 'period', 'report month'],
   truck: ['vehicle', 'truck', 'truck number', 'truck no', 'truck', 'unit', 'unit number', 'unit no', 'vehicle name', 'vehicle id', 'vehicle number', 'asset', 'tractor', 'power unit'],
   state: ['state', 'jurisdiction', 'juris', 'state province', 'province', 'region', 'state code', 'ifta state', 'st'],
   miles: ['miles', 'total miles', 'distance', 'distance mi', 'distance miles', 'mileage', 'miles driven', 'total distance', 'taxable miles', 'state miles', 'jurisdiction miles'],
@@ -105,12 +105,16 @@ export function parseState(v) {
   return STATE_NAMES[s.toLowerCase().replace(/\s+/g, ' ')] || null;
 }
 
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// Also YYYY-MM and 'Sep 2026' (month-only reports, mapped to the 1st).
 // Accepts YYYY-MM-DD, YYYY/MM/DD, MM/DD/YYYY, M/D/YY, MM-DD-YYYY, ISO datetimes. Returns YYYY-MM-DD or null.
 export function parseDate(v) {
   const s = String(v || '').trim();
   let y, m, d, r;
   if ((r = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s].*)?$/))) [, y, m, d] = r;
   else if ((r = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})(?:\s.*)?$/))) { [, m, d, y] = r; if (y.length === 2) y = '20' + y; }
+  else if ((r = s.match(/^(\d{4})[-/](\d{1,2})$/))) { [, y, m] = r; d = 1; } // month-only (e.g. Samsara monthly) -> 1st
+  else if ((r = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{4})$/)) && MONTHS[r[1].slice(0, 3).toLowerCase()]) { y = r[2]; m = MONTHS[r[1].slice(0, 3).toLowerCase()]; d = 1; }
   else return null;
   y = +y; m = +m; d = +d;
   const dt = new Date(Date.UTC(y, m - 1, d));

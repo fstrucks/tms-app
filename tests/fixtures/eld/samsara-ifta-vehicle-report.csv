@@ -1,0 +1,5 @@
+Month,Vehicle,Jurisdiction,Total Distance (mi),Taxable Distance (mi),Tax Paid Gallons
+2026-09,DEMO-TRUCK-A,TX,1820.4,1820.4,286.1
+2026-09,DEMO-TRUCK-A,OK,412.9,412.9,0
+2026-09,DEMO-TRUCK-A,NM,655.0,655.0,104.7
+2026-09,DEMO-TRUCK-B,TX,940.2,940.2,151.0
