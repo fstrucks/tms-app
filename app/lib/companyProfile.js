@@ -1,27 +1,8 @@
 // Shared field list + server-side payload builder for company_profiles.
-import { encryptField, normalizeEin, last4 } from './packetCrypto';
-
-export const PROFILE_FIELDS = [
-  ['legal_name', 'Legal company name'], ['dba_name', 'DBA (if any)'],
-  ['mc_number', 'MC number'], ['dot_number', 'USDOT number'],
-  ['address_line1', 'Street address'], ['address_line2', 'Suite / unit'],
-  ['city', 'City'], ['state', 'State'], ['postal_code', 'ZIP'],
-  ['phone', 'Phone'], ['email', 'Email'],
-  ['signer_name', 'Authorized signer name'], ['signer_title', 'Signer title'],
-];
+import { encryptField } from './packetCrypto';
+import { normalizeEin, last4, PROFILE_FIELDS } from './companyFields';
+export { PROFILE_FIELDS, validateProfile } from './companyFields';
 const KEYS = new Set(PROFILE_FIELDS.map(([k]) => k));
-
-export function validateProfile(input = {}) {
-  const errs = {};
-  if (!String(input.legal_name || '').trim()) errs.legal_name = 'Legal company name is required.';
-  if (input.state && !/^[A-Za-z]{2}$/.test(String(input.state).trim())) errs.state = 'Use the 2-letter state code.';
-  if (input.postal_code && !/^\d{5}(-\d{4})?$/.test(String(input.postal_code).trim())) errs.postal_code = 'ZIP must be 5 digits.';
-  if (input.dot_number && !/^\d{1,8}$/.test(String(input.dot_number).trim())) errs.dot_number = 'USDOT is digits only.';
-  if (input.mc_number && !/^(MC-?)?\d{1,8}$/i.test(String(input.mc_number).trim())) errs.mc_number = 'MC is digits only (MC- prefix optional).';
-  if (input.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(input.email).trim())) errs.email = 'Enter a valid email.';
-  try { normalizeEin(input.ein); } catch (e) { errs.ein = e.message; }
-  return errs;
-}
 
 // Builds the DB row. EIN is encrypted here (server only); omitted ein = keep existing value.
 export function buildRow(input, key) {

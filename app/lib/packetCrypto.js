@@ -32,12 +32,4 @@ export function decryptField(blob, key = loadKey()) {
   return Buffer.concat([d.update(Buffer.from(data, 'base64')), d.final()]).toString('utf8');
 }
 
-// EIN: 9 digits, shown as XX-XXXXXXX. Returns digits or null; throws on bad input.
-export function normalizeEin(v) {
-  if (v == null || String(v).trim() === '') return null;
-  const d = String(v).replace(/[\s-]/g, '');
-  if (!/^\d{9}$/.test(d)) throw new Error('EIN/TIN must be 9 digits (e.g. 12-3456789).');
-  return d;
-}
-export const last4 = (d) => (d ? String(d).slice(-4) : null);
-export const maskEin = (l4) => (l4 ? `•••••${l4}` : '');
+export { normalizeEin, last4, maskEin } from './companyFields';
