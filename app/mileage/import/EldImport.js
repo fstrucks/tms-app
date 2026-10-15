@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { VISUALLY_HIDDEN } from '../../components/UploadMenu';
 import { FIELDS, parseCsv, detectMapping, buildRows, missingRequired, toInsertRows,
-  mappingToNames, mappingFromNames, mappingFits } from '../../lib/eldCsv';
+  mappingToNames, mappingFromNames, mappingFits, importedUrl } from '../../lib/eldCsv';
 
 const st = {
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', minWidth: 0 },
@@ -21,6 +22,7 @@ const st = {
 
 // supabase/userId may be null (signed-out demo): everything works except saving.
 export default function EldImport({ supabase, userId, onImported }) {
+  const router = useRouter();
   const fileId = useId();
   const [fileName, setFileName] = useState('');
   const [csv, setCsv] = useState(null); // { headers, rows }
@@ -96,9 +98,10 @@ export default function EldImport({ supabase, userId, onImported }) {
       if (error) { console.error('eld import', error); return setMsg({ err: true, text: 'Import failed, nothing was saved. Please try again.' }); }
       if (sourceName.trim() && !saved.some((s) => s.name === sourceName.trim())) await saveMapping();
       const n = data?.length ?? payload.length;
-      setMsg({ text: `Imported ${n} row${n === 1 ? '' : 's'}${payload.length - n ? ` (${payload.length - n} already imported)` : ''}.` });
-      setCsv(null); setFileName('');
+      // skipped = rows the preview already flagged as in the DB + any the upsert ignored (race).
+      const skipped = rows.filter((b) => b.duplicate && b.errors[0] === 'Already imported').length + (payload.length - n);
       onImported?.();
+      router.replace(importedUrl(n, skipped));
     } finally { setBusy(false); }
   }
 

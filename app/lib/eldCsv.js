@@ -196,3 +196,18 @@ export const toInsertRows = (built, { userId, sourceName }) => built.filter((b) 
   import_hash: value.import_hash, import_source: sourceName || null, source: 'eld',
   notes: `ELD import${sourceName ? ` (${sourceName})` : ''} · ${[value.truck_label, value.jurisdiction].filter(Boolean).join(' · ')}`,
 }));
+
+// After an import: /mileage?imported=N&skipped=M, read once by the Mileage page banner.
+export function importedUrl(imported, skipped = 0) {
+  const q = new URLSearchParams({ imported: String(Math.max(0, imported | 0)) });
+  if (skipped > 0) q.set('skipped', String(skipped | 0));
+  return `/mileage?${q}`;
+}
+const plural = (n) => `${n} row${n === 1 ? '' : 's'}`;
+export function importedMessage(search) {
+  const q = new URLSearchParams(search || '');
+  if (!q.has('imported')) return null;
+  const n = Number(q.get('imported')), s = Number(q.get('skipped') || 0);
+  if (!Number.isInteger(n) || n < 0 || !Number.isInteger(s) || s < 0) return null;
+  return `Imported ${plural(n)}.${s > 0 ? ` ${s} skipped as already imported.` : ''}`;
+}

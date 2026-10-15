@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { importedMessage } from '../lib/eldCsv';
 import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { Loading, LoadError } from '../components/DataState';
@@ -26,6 +28,14 @@ const monthStartISO = () => todayISO().slice(0, 8) + '01';
 
 export default function MileagePage() {
   const supabase = getSupabase();
+  const router = useRouter();
+  const [importNote, setImportNote] = useState(null);
+  // One-shot banner from the ELD import; strip the params so a reload doesn't repeat it.
+  useEffect(() => {
+    const m = importedMessage(window.location.search);
+    if (m) setImportNote(m);
+    if (new URLSearchParams(window.location.search).has('imported')) router.replace('/mileage', { scroll: false });
+  }, []);
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [entries, setEntries] = useState([]);
@@ -93,6 +103,13 @@ export default function MileagePage() {
         <h1 style={{ fontSize: '1.5rem' }}>Mileage</h1>
         {user && <Link href="/mileage/import" style={{ ...s.link, fontSize: '0.95rem', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>Import ELD CSV</Link>}
       </div>
+      {importNote && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', borderRadius: 10, padding: '0.4rem 0.4rem 0.4rem 0.75rem', marginBottom: '0.75rem' }}>
+          <span>{importNote}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setImportNote(null)}
+            style={{ background: 'none', border: 'none', color: '#166534', fontSize: '1.2rem', minWidth: 44, minHeight: 44 }}>×</button>
+        </div>
+      )}
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to track mileage.</p>

@@ -89,3 +89,24 @@ test('import UI: iOS-safe file input + upsert ignoring duplicates', () => {
   assert.match(sql, /unique index if not exists mileage_entries_user_import_hash_key\s+on public\.mileage_entries \(user_id, import_hash\);/);
   assert.match(sql, /eld_import_mappings[\s\S]*enable row level security/);
 });
+
+test('post-import redirect URL + banner message', async () => {
+  const { importedUrl, importedMessage } = await import('../../app/lib/eldCsv.js');
+  assert.equal(importedUrl(14), '/mileage?imported=14');
+  assert.equal(importedUrl(14, 2), '/mileage?imported=14&skipped=2');
+  assert.equal(importedMessage('?imported=14'), 'Imported 14 rows.');
+  assert.equal(importedMessage('?imported=1&skipped=3'), 'Imported 1 row. 3 skipped as already imported.');
+  assert.equal(importedMessage('?imported=0&skipped=5'), 'Imported 0 rows. 5 skipped as already imported.');
+  assert.equal(importedMessage(''), null);
+  assert.equal(importedMessage('?imported=abc'), null);
+  assert.equal(importedMessage('?imported=-1'), null);
+});
+
+test('import -> router.replace to Mileage; banner is dismissible and params are cleared', () => {
+  const ui = strip(readFileSync(new URL('../../app/mileage/import/EldImport.js', import.meta.url), 'utf8'));
+  assert.match(ui, /router\.replace\(importedUrl\(n, skipped\)\)/);
+  const page = strip(readFileSync(new URL('../../app/mileage/page.js', import.meta.url), 'utf8'));
+  assert.match(page, /importedMessage\(window\.location\.search\)/);
+  assert.match(page, /router\.replace\('\/mileage', \{ scroll: false \}\)/);
+  assert.match(page, /aria-label="Dismiss" onClick=\{\(\) => setImportNote\(null\)\}/);
+});
