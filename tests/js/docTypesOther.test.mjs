@@ -30,7 +30,7 @@ test('docTypeLabel shows custom names and known labels', () => {
 
 test('Scanner Other input + validation; list pages use docTypeLabel', () => {
   const sc = read('../../app/components/scanner/Scanner.js');
-  assert.match(sc, /\{isOther && \(\s*<label[\s\S]*?Document type<\/span>\s*<input type="text"[^\n]*maxLength=\{OTHER_MAX\} required/);
+  assert.match(sc, /\{isOther && \(\s*<label[\s\S]*?Name<\/span>\s*<input ref=\{otherRef\} type="text"[^\n]*maxLength=\{OTHER_MAX\} required/);
   assert.match(sc, /const savedType = isOther \? otherDocType\(otherName\) : docType;\s*if \(!savedType\) return setMsg/);
   assert.match(sc, /docType: savedType, loadId/);
   assert.match(read('../../app/documents/page.js'), /\{docTypeLabel\(d\.doc_type\)\}/);
