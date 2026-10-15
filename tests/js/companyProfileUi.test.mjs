@@ -24,5 +24,5 @@ test('edit and sign are role-gated; drivers get read-only', () => {
 test('account menu links to the company profile', () => {
   const m = readFileSync(new URL('../../app/components/ui/AccountMenu.js', import.meta.url), 'utf8');
   assert.match(m, /href="\/company"/);
-  assert.match(m, /itemRefs\.current\[2\]/);
+  assert.match(m, /itemRefs\.current\[3\]/);
 });
