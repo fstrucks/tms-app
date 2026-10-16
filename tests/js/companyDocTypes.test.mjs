@@ -1,4 +1,4 @@
-// Marc 10/15: load-page scans offer BOL/POD/Lumper; W-9 / COI / MC Authority are company docs -> Load defaults to "No load". Other stays off the load page.
+// Marc 10/15: load-page scans offer BOL/POD/Lumper/Other; W-9 / COI / MC Authority are company docs -> Load defaults to "No load".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,12 +26,16 @@ test('upload label still follows the type', () => {
   assert.equal(uploadButtonLabel('bol'), 'Upload BOL');
 });
 
-test('load page Scan offers BOL, POD and Lumper receipt (Other stays off)', () => {
-  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod', 'lumper_receipt']);
-  assert.ok(!LOAD_SCAN_TYPE_IDS.includes('other'));
+test('load page Scan offers BOL, POD, Lumper receipt and Other', () => {
+  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod', 'lumper_receipt', 'other']);
+  assert.equal(LOAD_SCAN_TYPE_IDS.at(-1), 'other');
   assert.match(load, /<Scanner[\s\S]*?initialLoadId=\{load\.id\}\s*typeIds=\{LOAD_SCAN_TYPE_IDS\}/);
   assert.match(sc, /const baseTypes = typeIds \? SCAN_DOC_TYPES\.filter\(\(t\) => typeIds\.includes\(t\.id\)\) : SCAN_DOC_TYPES;/);
   assert.match(sc, /const typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.baseTypes\] : baseTypes;/);
+  // Other custom name + Upload Document label work via shared Scanner (same as Documents).
+  assert.equal(uploadButtonLabel('other'), 'Upload Document');
+  assert.match(sc, /const isOther = docType === 'other';/);
+  assert.match(sc, /\{isOther && \(\s*<label[\s\S]*?Name<\/span>\s*<input ref=\{otherRef\} type="text"/);
 });
 
 test('picking a company type sets Load to No load; Load stays editable; #54 behaviour kept', () => {
