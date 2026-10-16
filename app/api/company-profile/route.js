@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadKey, PacketKeyError } from '../../lib/packetCrypto';
 import { buildRow, validateProfile, publicProfile } from '../../lib/companyProfile';
+import { saveProfile, saveErrorMessage } from '../../lib/companyProfileSave';
 import { roleFor, canEdit, canSign } from '../../lib/companyRoles';
 
 export const runtime = 'nodejs';
@@ -45,10 +46,11 @@ export async function PUT(req) {
     if (!String(body.signer_name ?? c.profile?.signer_name ?? '').trim()) return json({ error: 'Enter the authorized signer name first.', errors: { signer_name: 'Required to sign.' } }, 422);
     Object.assign(row, { signature_path: path, signed_by: c.user.id, signed_at: new Date().toISOString() });
   }
-  const q = c.profile
-    ? c.sb.from('company_profiles').update(row).eq('id', c.profile.id).select('*').single()
-    : c.sb.from('company_profiles').insert({ ...row, owner_id: c.user.id }).select('*').single();
-  const { data, error } = await q;
-  if (error) { console.error('[company-profile] save', error.code); return json({ error: 'Could not save the company profile.' }, 500); }
+  const { data, error } = await saveProfile(c, row);
+  if (error) {
+    console.error('[company-profile] save', error.code, error.message);
+    return json({ error: saveErrorMessage(error) }, error.code === '42501' ? 403 : 500);
+  }
   return json({ profile: publicProfile(data), role: c.role, canEdit: true, canSign: canSign(c.role) });
 }
+
