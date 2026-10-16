@@ -1,4 +1,4 @@
-import { serviceClient, packetAccess } from '../../../../lib/packetServer';
+import { serviceClient, packetAccess, isMissingSchema, MISSING_MSG, MIGRATION } from '../../../../lib/packetServer';
 import { applyEdit, toClient, MAX_FIELDS } from '../../../../lib/packetFieldEdits';
 import { encryptField, loadKey, PacketKeyError } from '../../../../lib/packetCrypto';
 
@@ -8,17 +8,23 @@ const json = (b, s = 200) => Response.json(b, { status: s });
 const COLS = 'id,field_key,page,kind,label,box,dpi,profile_key,confidence,source,needs_confirm,confirmed_at,value_text,value_ciphertext,value_last4,page_w,page_h';
 
 async function list(sb, packetId) {
-  const { data } = await sb.from('packet_fields').select(COLS).eq('packet_id', packetId).order('page').order('field_key');
+  const { data, error } = await sb.from('packet_fields').select(COLS).eq('packet_id', packetId).order('page').order('field_key');
+  if (error) { const e = new Error(error.message); e.db = error; throw e; }
   return data || [];
 }
-const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count, has_text_layer: p.has_text_layer, manual_reason: p.manual_reason, process_error: p.process_error, created_at: p.created_at });
+const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at });
 
 export async function GET(req, { params, deps } = {}) {
   const sb = deps?.sb || serviceClient();
   if (!sb) return json({ error: 'Storage not configured' }, 503);
   const a = await packetAccess(req, params?.id, { sb, ...(deps || {}) });
   if (a.error) return json({ error: a.error }, a.status);
-  return json({ packet: pkt(a.packet), role: a.role, canEdit: a.canEdit, fields: (await list(sb, a.packet.id)).map(toClient) });
+  let rows;
+  try { rows = await list(sb, a.packet.id); } catch (e) {
+    if (isMissingSchema(e.db)) return json({ packet: pkt(a.packet), role: a.role, canEdit: false, fields: [], setupNeeded: true, error: MISSING_MSG, migration: MIGRATION }, 200);
+    console.error('[packets] fields', e.db?.code); return json({ error: 'Could not load fields.' }, 500);
+  }
+  return json({ packet: pkt(a.packet), role: a.role, canEdit: a.canEdit, fields: rows.map(toClient) });
 }
 
 // Body: { upserts: [edit], deletes: [id] }. Editors only. Bank values encrypted here; confirmation enforced.
@@ -30,7 +36,10 @@ export async function PATCH(req, { params, deps } = {}) {
   if (!a.canEdit) return json({ error: 'Drivers can view packets but not edit fields.' }, 403);
   let body; try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
   const upserts = Array.isArray(body?.upserts) ? body.upserts : [], deletes = Array.isArray(body?.deletes) ? body.deletes.map(String) : [];
-  const existing = await list(sb, a.packet.id);
+  let existing;
+  try { existing = await list(sb, a.packet.id); } catch (e) {
+    return isMissingSchema(e.db) ? json({ error: MISSING_MSG, migration: MIGRATION }, 503) : json({ error: 'Could not load fields.' }, 500);
+  }
   const byId = new Map(existing.map((r) => [r.id, r]));
   if (existing.length - deletes.length + upserts.filter((u) => !u.id).length > MAX_FIELDS) return json({ error: 'Too many fields' }, 400);
   let key = null;

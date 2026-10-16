@@ -3,6 +3,7 @@
 import { extractPdf, MAX_PAGES } from './packetPdfText.js';
 import { buildPacketFields } from './packetFields.js';
 import { createPacketReader } from './packetReader.js';
+import { isMissingSchema, MISSING_MSG, MIGRATION } from './packetServer.js';
 
 export const BUDGET_MS = 45_000; // leaves headroom under maxDuration 60
 export const STALE_MS = 5 * 60_000; // a 'processing' claim older than this can be retried
@@ -12,13 +13,18 @@ export async function claimPacket(sb, packetId, { force = false, now = Date.now(
   let q = sb.from('packets').update({ status: 'processing', processing_started_at: iso, process_error: null, updated_at: iso }).eq('id', packetId);
   q = force ? q.in('status', ['received', 'error', 'review', 'processing']) : q.or(`status.in.(received,error),and(status.eq.processing,processing_started_at.lt.${new Date(now - STALE_MS).toISOString()})`);
   const { data, error } = await q.select('id,owner_id,file_path').maybeSingle();
+  if (error && isMissingSchema(error)) { const e = new Error(MISSING_MSG); e.setupNeeded = true; throw e; }
   if (error) throw new Error('claim failed: ' + (error.code || error.message));
   return data; // null = someone else has it, or already processed
 }
 
 export async function processPacket({ sb, packetId, force = false, reader = createPacketReader(), extract = extractPdf, budgetMs = BUDGET_MS, now = Date.now }) {
   const start = now();
-  const pk = await claimPacket(sb, packetId, { force, now: start });
+  let pk;
+  try { pk = await claimPacket(sb, packetId, { force, now: start }); } catch (e) {
+    if (e.setupNeeded) { console.error('[packets] process skipped: migration missing', MIGRATION); return { setupNeeded: true, error: e.message, migration: MIGRATION }; } // packet stays 'received'
+    throw e;
+  }
   if (!pk) return { skipped: true };
   const finish = (patch) => sb.from('packets').update({ ...patch, processed_at: new Date(now()).toISOString(), updated_at: new Date(now()).toISOString() }).eq('id', packetId);
   try {

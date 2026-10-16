@@ -166,3 +166,29 @@ test('routes: dispatcher saves an encrypted bank value and a new field; bad edit
   assert.equal(sb.tbl.packet_fields.find((x) => x.profile_key === 'legal_name').value_text, 'Test Co (FAKE)');
   assert.equal(JSON.stringify(j).includes('v1:'), false);
 });
+
+// ---- migration 20261015001500 not applied yet: no false 404, clear message, packet left 'received'
+test('missing migration: GET degrades (setupNeeded), PATCH/process 503, claim leaves packet received', async () => {
+  const missing = { code: '42703', message: 'column packet_fields.value_text does not exist' };
+  const sb = fakeSb({ packet: pkt(), fields: [] });
+  const from = sb.from;
+  sb.from = (name) => {
+    const b = from(name);
+    if (name === 'packet_fields') { b.order = () => ({ order: async () => ({ data: null, error: missing }) }); }
+    if (name === 'packets') { const up = b.update; b.update = (p) => { if ('processing_started_at' in p) return { eq: () => ({ or: () => ({ select: () => ({ maybeSingle: async () => ({ data: null, error: { code: '42703', message: 'column "processing_started_at" does not exist' } }) }) }) }) }; return up(p); }; }
+    return b;
+  };
+  const g = await GET(req('GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner') } });
+  const j = await g.json();
+  assert.equal(g.status, 200); assert.equal(j.setupNeeded, true); assert.equal(j.packet.id, PID); assert.equal(j.canEdit, false);
+  assert.equal((await PATCH(req('PATCH', { upserts: [] }), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner') } })).status, 503);
+  const o = await processPacket({ sb, packetId: PID, reader: createPacketReader({ apiKey: '' }) });
+  assert.equal(o.setupNeeded, true); assert.equal(sb.tbl.packets[0].status, 'received');
+  const r = await PROCESS(req('POST', null, 't', `http://x/api/packets/${PID}/process`), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner') } });
+  assert.equal(r.status, 503);
+});
+test('packet lookup DB error → 500, not 404', async () => {
+  const sb = fakeSb({ packet: pkt() });
+  const from = sb.from; sb.from = (n) => { const b = from(n); if (n === 'packets') b.maybeSingle = async () => ({ data: null, error: { code: 'XX000' } }); return b; };
+  assert.equal((await GET(req('GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner') } })).status, 500);
+});

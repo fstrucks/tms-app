@@ -20,6 +20,7 @@ export default function PacketPage({ params }) {
   const load = useCallback(async () => {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
     let d = await api(`/api/packets/${id}/fields`);
+    if (d.setupNeeded) return setSt({ error: d.error, setup: true });
     if (d.error) return setSt({ error: d.error, signedOut: d.status === 401 });
     if (d.packet.status === 'received' || (d.packet.status === 'processing')) { // kick (idempotent) and refresh
       setSt({ ...d, loading: false });

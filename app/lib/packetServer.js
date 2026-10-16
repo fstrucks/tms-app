@@ -19,9 +19,16 @@ export async function packetAccess(req, packetId, { sb, mkUserClient = userClien
   const { data: u } = await uc.auth.getUser(token);
   if (!u?.user) return { status: 401, error: 'Sign in again.' };
   if (!/^[0-9a-f-]{36}$/i.test(packetId || '')) return { status: 404, error: 'Packet not found.' };
-  const { data: packet } = await sb.from('packets').select('id,owner_id,status,subject,original_filename,source,file_path,page_count,has_text_layer,manual_reason,process_error,created_at').eq('id', packetId).maybeSingle();
+  // select('*') so a missing optional column (migration not applied yet) can't make a packet look missing.
+  const { data: packet, error: pErr } = await sb.from('packets').select('*').eq('id', packetId).maybeSingle();
+  if (pErr) { console.error('[packets] load', pErr.code); return { status: 500, error: 'Could not load the packet. Please try again.' }; }
   if (!packet) return { status: 404, error: 'Packet not found.' };
   const { data: role } = await uc.rpc('packet_role', { p_owner: packet.owner_id });
   if (!isRole(role)) return { status: 404, error: 'Packet not found.' };
   return { user: u.user, role, packet, canEdit: canEdit(role) };
 }
+
+// Postgres "undefined column/table" → the 20261015001500 migration hasn't been applied.
+export const MIGRATION = '20261015001500_packet_processing.sql';
+export const isMissingSchema = (e) => !!e && (e.code === '42703' || e.code === '42P01' || e.code === 'PGRST204' || /column .* does not exist|Could not find the .* column/i.test(e.message || ''));
+export const MISSING_MSG = 'Packet field detection needs a database update that hasn’t been applied yet. The packet itself is saved.';

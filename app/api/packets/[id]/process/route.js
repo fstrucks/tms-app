@@ -15,5 +15,5 @@ export async function POST(req, { params, deps } = {}) {
   const force = new URL(req.url).searchParams.get('force') === '1';
   if (force && !a.canEdit) return json({ error: 'Only the owner, dispatcher or management can re-run detection.' }, 403);
   const out = await (deps?.process || processPacket)({ sb, packetId: a.packet.id, force });
-  return json(out);
+  return json(out, out?.setupNeeded ? 503 : 200);
 }
