@@ -27,9 +27,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [mode, setMode] = useState('bw');
   const modeRef = useRef(mode); modeRef.current = mode;
   // allowRateCon (Documents page): "Rate con" is offered first and sends the PDF down the
-  // rate-con upload/extraction path (no load picker). Load page scanner is limited by typeIds (BOL/POD/Lumper).
+  // rate-con upload/extraction path (no load picker). Load page scanner is limited by typeIds (BOL/POD/Lumper/Other).
   // No default type (Marc, 10/15): the user must pick one; Upload looks disabled until then.
-  // typeIds (load page): limit the list, e.g. LOAD_SCAN_TYPE_IDS = BOL/POD/Lumper.
+  // typeIds (load page): limit the list, e.g. LOAD_SCAN_TYPE_IDS = BOL/POD/Lumper/Other.
   const baseTypes = typeIds ? SCAN_DOC_TYPES.filter((t) => typeIds.includes(t.id)) : SCAN_DOC_TYPES;
   const typeOptions = allowRateCon ? [RATECON_TYPE, ...baseTypes] : baseTypes;
   const [docType, setDocType] = useState('');
