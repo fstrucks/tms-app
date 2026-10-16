@@ -13,7 +13,7 @@ async function list(sb, packetId) {
   if (error) { const e = new Error(error.message); e.db = error; throw e; }
   return data || [];
 }
-const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at, filled_at: p.filled_at ?? null });
+const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at, filled_at: p.filled_at ?? null, sent_at: p.sent_at ?? null });
 
 export async function GET(req, { params, deps } = {}) {
   const sb = deps?.sb || serviceClient();

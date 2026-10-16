@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import PacketMapper from '../PacketMapper';
+import PacketSendBroker from '../PacketSendBroker';
 import { loadPacketPdf } from '../../lib/packetPdfLoad';
 import { makeApi } from '../../lib/packetApi';
 
@@ -55,9 +56,14 @@ export default function PacketPage({ params }) {
   const onSign = useCallback((body) => api(`/api/packets/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }), [id]);
   const onFill = useCallback(() => api(`/api/packets/${id}/fill`, { method: 'POST' }), [id]);
   const onClearSig = useCallback((fieldId) => api(`/api/packets/${id}/sign`, { method: 'DELETE', body: JSON.stringify(fieldId ? { fieldId } : {}) }), [id]);
+  const [filledAt, setFilledAt] = useState(null);
+  const onFillTracked = useCallback(async () => { const r = await onFill(); if (r?.ok) setFilledAt(new Date().toISOString()); return r; }, [onFill]);
+  const loadSend = useCallback(() => api(`/api/packets/${id}/send`), [id]);
+  const onSend = useCallback((body) => api(`/api/packets/${id}/send`, { method: 'POST', body: JSON.stringify(body) }), [id]);
   const loadSignatures = useCallback(() => api(`/api/packets/${id}/signatures`), [id]);
 
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
   if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}</main>;
-  return <PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFill} onClearSig={onClearSig} loadSignatures={loadSignatures} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />;
+  return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
+    <div style={{ padding: '0 0.75rem 140px' }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} /></div></>;
 }

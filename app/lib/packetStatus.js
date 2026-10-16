@@ -3,6 +3,7 @@ export const PACKET_STATUS_LABELS = {
   received: 'Waiting to start',
   processing: 'Finding fields…',
   review: 'Ready to fill out',
+  sent: 'Sent to broker',
   error: 'Needs attention',
 };
 export const packetStatusLabel = (status) => PACKET_STATUS_LABELS[status] || String(status || '');
