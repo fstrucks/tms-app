@@ -5,7 +5,8 @@ import { PROFILE_KEYS } from '../lib/packetReader';
 import SignaturePad from '../components/PacketSignaturePad';
 import { dragBox, isTap } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
-import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, MANUAL_REASONS, unconfirmedBank } from '../lib/packetMapperModel';
+import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { packetStatusLabel } from '../lib/packetStatus';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -124,8 +125,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     <main style={s.main}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
-      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packet.status}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
-      {packet.manual_reason && <p role="status" style={s.banner}>{MANUAL_REASONS[packet.manual_reason]}</p>}
+      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
+      {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
       {packet.status === 'error' && <p role="alert" style={s.banner}>Field detection failed. {canEdit ? 'You can add fields by hand or try again.' : ''}</p>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}

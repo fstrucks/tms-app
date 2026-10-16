@@ -9,6 +9,7 @@ import { resolveFillValues } from '../../app/lib/packetFillValues.js';
 import { fillPacket } from '../../app/lib/packetFill.js';
 import { signTarget } from '../../app/lib/packetSignFlow.js';
 import { encryptField, decryptField } from '../../app/lib/packetCrypto.js';
+import { buildSignaturePayload } from '../../app/lib/signature.js';
 import { POST as SIGN } from '../../app/api/packets/[id]/sign/route.js';
 import { POST as FILL } from '../../app/api/packets/[id]/fill/route.js';
 
@@ -146,12 +147,21 @@ test('fill route: blocks unconfirmed bank + unsigned, then writes a new filled P
   assert.ok(!JSON.stringify(j).includes('000123456789'));
 });
 
-test('adapter is a one-line swap and matches the pad contract; mapper drags with Pointer Events, editors only', () => {
+test('adapter re-exports Casey\'s pad (real props); mapper drags with Pointer Events, editors only', () => {
   const ad = readFileSync(new URL('../../app/components/PacketSignaturePad.js', import.meta.url), 'utf8');
   assert.equal(ad.split('\n').filter((l) => /^export /.test(l)).length, 1);
-  const stub = readFileSync(new URL('../../app/components/SignaturePadStub.js', import.meta.url), 'utf8');
-  assert.match(stub, /onDone\(\{ dataUrl: .*signerName: .*signedAt: .*method: /);
-  assert.match(stub, /\{ onDone, onCancel, initialName = '', title = 'Sign here' \}/);
+  assert.match(ad, /^export \{ default \} from '\.\/SignaturePad';$/m);
+  const pad = readFileSync(new URL('../../app/components/SignaturePad.js', import.meta.url), 'utf8');
+  assert.match(pad, /export default function SignaturePad\(\{ onDone, onCancel, initialName = '', title = 'Sign here' \}\)/);
   const m = readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
   assert.match(m, /onPointerDown=\{canEdit \? /); assert.match(m, /touchAction: canEdit \? 'none' : 'auto'/); assert.match(m, /canEdit && sel === f\.id && <span role="presentation" data-resize/);
+});
+
+test('Casey\'s pad payload is accepted as-is by the sign route parser', () => {
+  for (const method of ['draw', 'type']) {
+    const p = buildSignaturePayload({ dataUrl: DATA_URL, signerName: 'Test Signer (FAKE)', method });
+    assert.deepEqual(Object.keys(p).sort(), ['dataUrl', 'method', 'signedAt', 'signerName']);
+    const r = parseSignature(p);
+    assert.equal(r.error, undefined); assert.equal(r.method, method); assert.equal(r.signedAt, p.signedAt); assert.equal(r.signerName, 'Test Signer (FAKE)');
+  }
 });

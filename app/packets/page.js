@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { uploadPacket, validatePacketFile } from '../lib/packetUpload';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
+import { packetStatusLabel, isPendingStatus, POLL_MS, POLL_MAX_TICKS } from '../lib/packetStatus';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
@@ -31,11 +32,11 @@ export default function PacketsPage() {
     setSt({ user, ownerId, rows: rows || [] });
   }
   useEffect(() => { load(); }, []);
-  // Poll while detection is pending (every 4s, up to ~3 min) so status updates without a reload.
-  const pending = (st.rows || []).some((r) => r.status === 'received' || r.status === 'processing');
+  // Poll while detection is pending (every 2s, up to ~3 min; stops once nothing is pending) so status updates without a reload.
+  const pending = (st.rows || []).some((r) => isPendingStatus(r.status));
   useEffect(() => {
     if (!pending) return;
-    let n = 0; const t = setInterval(() => { if (++n > 45 || document.hidden) return n > 45 && clearInterval(t); load(); }, 4000);
+    let n = 0; const t = setInterval(() => { if (++n > POLL_MAX_TICKS || document.hidden) return n > POLL_MAX_TICKS && clearInterval(t); load(); }, POLL_MS);
     return () => clearInterval(t);
   }, [pending]);
 
@@ -48,7 +49,7 @@ export default function PacketsPage() {
     const err = await uploadPacket(getSupabase(), { userId: st.user.id, ownerId: st.ownerId, file: f, onCreated: (id) => { newId = id; } });
     if (!err && newId) { // start field detection in the background; the packet page also retries it
       const { data } = await getSupabase().auth.getSession();
-      fetch(`/api/packets/${newId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${data?.session?.access_token}` } }).catch(() => {});
+      fetch(`/api/packets/${newId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${data?.session?.access_token}` } }).then(() => load(), () => {}); // refresh as soon as detection finishes
     }
     setBusy(false);
     if (err) setMsg(err); else { setMsg('Packet uploaded.'); load(); }
@@ -69,7 +70,7 @@ export default function PacketsPage() {
       {st.rows.length === 0 ? <p style={s.muted}>No packets yet.</p> : st.rows.map((r) => (
         <a key={r.id} href={`/packets/${r.id}`} style={{ ...s.card, display: 'block', color: 'inherit', textDecoration: 'none' }}>
           <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{r.subject || r.original_filename}</div>
-          <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {new Date(r.created_at).toLocaleString()} · {r.status === 'review' ? 'ready to fill out' : r.status}</p>
+          <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {new Date(r.created_at).toLocaleString()} · {packetStatusLabel(r.status)}</p>
         </a>
       ))}
     </main>
