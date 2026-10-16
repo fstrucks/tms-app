@@ -7,8 +7,11 @@ const right = (r) => r.left + r.width;
 export function detectPage({ page, size: [W] = [0], words = [], lines = [], squares = [] }) {
   const ws = words.filter((r) => String(r.text || '').trim() && (r.conf ?? 100) > 30);
   const fields = [];
+  const kept = [];
   for (const l of lines) {
     if (l.h > 6 || (W && l.w > 0.9 * W)) continue;
+    if (kept.some((k) => Math.abs(k.x - l.x) < 6 && Math.abs(k.y - l.y) < 6 && Math.abs(k.w - l.w) < 10)) continue; // same rule drawn twice
+    kept.push(l);
     // Skip text underlines: words sitting on the line covering most of its width.
     const cov = ws.filter((r) => Math.abs(r.top + r.height - l.y) < 6 && r.left >= l.x - 5 && right(r) <= l.x + l.w + 5).reduce((s, r) => s + r.width, 0);
     if (cov > 0.6 * l.w) continue;
