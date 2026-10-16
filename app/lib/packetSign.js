@@ -19,8 +19,5 @@ export function parseSignature(body, { now = Date.now() } = {}) {
 }
 export const signaturePath = (ownerId, packetId, fieldId, ts = Date.now()) => `${ownerId}/packets/signatures/${packetId}/${fieldId}-${ts}.png`;
 export const filledPath = (ownerId, packetId, ts = Date.now()) => `${ownerId}/packets/filled/${packetId}-${ts}.pdf`;
-// Dates print as MM/DD/YYYY in the user's time zone.
-export function formatPacketDate(d = new Date(), tz = 'America/Los_Angeles') {
-  return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: '2-digit', day: '2-digit', year: 'numeric' }).format(new Date(d));
-}
+export { formatPacketDate } from './packetDate.js';
 export const SIGN_MIGRATION = '20261016001600_packet_signatures.sql';

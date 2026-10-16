@@ -27,6 +27,7 @@ export async function POST(req, { params, deps } = {}) {
   const field = (rows || []).find((r) => r.id === String(body.fieldId || ''));
   if (!field) return json({ error: 'Field not found.' }, 404);
   if (field.kind !== 'signature' && field.profile_key !== 'signature') return json({ error: 'That field is not a signature field.' }, 400);
+  const oldPath = field.signature_path;
   const path = signaturePath(a.packet.owner_id, a.packet.id, field.id, deps?.ts);
   const { error: upErr } = await sb.storage.from('documents').upload(path, sig.png, { contentType: 'image/png', upsert: false });
   if (upErr) { console.error('[packets] sign upload', upErr.message); return json({ error: 'Could not save the signature.' }, 500); }
@@ -36,10 +37,35 @@ export async function POST(req, { params, deps } = {}) {
     await sb.storage.from('documents').remove([path]);
     return isMissingSchema(uErr) ? json(SETUP, 503) : json({ error: 'Could not save the signature.' }, 500);
   }
+  if (oldPath && oldPath !== path) await sb.storage.from('documents').remove([oldPath]); // re-sign replaces the old PNG
   const date = formatPacketDate(sig.signedAt);
   for (const r of (rows || []).filter((r) => (r.kind === 'date' || r.profile_key === 'date') && !r.value_text)) {
     await sb.from('packet_fields').update({ value_text: date, updated_by: a.user.id }).eq('id', r.id).eq('packet_id', a.packet.id);
   }
   const { data: after } = await sb.from('packet_fields').select('*').eq('packet_id', a.packet.id).order('page').order('field_key');
   return json({ ok: true, date, fields: (after || []).map(toClient) });
+}
+
+// Clear signature(s). Body: { fieldId } for one field, or {} for every signed field on the packet.
+// Editors only. Removes the stored PNG(s) and the signer/name/date on the field(s).
+export async function DELETE(req, { params, deps } = {}) {
+  const sb = deps?.sb || serviceClient();
+  if (!sb) return json({ error: 'Storage not configured.' }, 503);
+  const a = await packetAccess(req, params?.id, { sb, ...(deps || {}) });
+  if (a.error) return json({ error: a.error }, a.status);
+  if (!canSign(a.role)) return json({ error: 'Only the owner, dispatcher or management can clear signatures.' }, 403);
+  let body = {}; try { body = await req.json(); } catch { /* empty body = all */ }
+  const { data: rows, error } = await sb.from('packet_fields').select('*').eq('packet_id', a.packet.id);
+  if (error) return json({ error: 'Could not load fields.' }, 500);
+  const targets = (rows || []).filter((r) => r.signature_path && (!body?.fieldId || r.id === String(body.fieldId)));
+  if (body?.fieldId && !targets.length) return json({ error: 'That field isn’t signed.' }, 404);
+  const paths = targets.map((r) => r.signature_path);
+  for (const r of targets) {
+    const { error: uErr } = await sb.from('packet_fields').update({ signature_path: null, signer_name: null, signed_at: null, signed_by: null, updated_by: a.user.id, updated_at: new Date().toISOString() })
+      .eq('id', r.id).eq('packet_id', a.packet.id);
+    if (uErr) return isMissingSchema(uErr) ? json(SETUP, 503) : json({ error: 'Could not clear the signature.' }, 500);
+  }
+  if (paths.length) await sb.storage.from('documents').remove(paths);
+  const { data: after } = await sb.from('packet_fields').select('*').eq('packet_id', a.packet.id).order('page').order('field_key');
+  return json({ ok: true, cleared: targets.length, fields: (after || []).map(toClient) });
 }

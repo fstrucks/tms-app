@@ -3,14 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import PacketMapper from '../PacketMapper';
 import { loadPacketPdf } from '../../lib/packetPdfLoad';
+import { makeApi } from '../../lib/packetApi';
 
 const DPI = 200;
-async function token() { const { data } = await getSupabase().auth.getSession(); return data?.session?.access_token || null; }
-async function api(path, opts = {}) {
-  const t = await token(); if (!t) return { error: 'Sign in again.', status: 401 };
-  const r = await fetch(path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${t}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
-  const j = await r.json().catch(() => ({})); return r.ok ? j : { ...j, error: j.error || 'Something went wrong.', status: r.status };
-}
+const packetApi = makeApi(() => getSupabase()?.auth);
+const api = packetApi.call;
+const token = packetApi.token;
 
 export default function PacketPage({ params }) {
   const id = params.id;
@@ -56,8 +54,10 @@ export default function PacketPage({ params }) {
   const onSave = useCallback((body) => api(`/api/packets/${id}/fields`, { method: 'PATCH', body: JSON.stringify(body) }), [id]);
   const onSign = useCallback((body) => api(`/api/packets/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }), [id]);
   const onFill = useCallback(() => api(`/api/packets/${id}/fill`, { method: 'POST' }), [id]);
+  const onClearSig = useCallback((fieldId) => api(`/api/packets/${id}/sign`, { method: 'DELETE', body: JSON.stringify(fieldId ? { fieldId } : {}) }), [id]);
+  const loadSignatures = useCallback(() => api(`/api/packets/${id}/signatures`), [id]);
 
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
   if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}</main>;
-  return <PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFill} />;
+  return <PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFill} onClearSig={onClearSig} loadSignatures={loadSignatures} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />;
 }

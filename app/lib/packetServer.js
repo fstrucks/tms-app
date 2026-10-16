@@ -10,6 +10,7 @@ export function serviceClient() {
 export function userClient(token) {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
 }
+export const isAuthRejection = (e) => !!e && (e.status === 401 || e.status === 403 || /jwt|token|expired|invalid claim|not authenticated/i.test(e.message || '') && !(e.status >= 500));
 export const bearer = (req) => (/^Bearer\s+(.+)$/i.exec(req.headers.get('authorization') || '') || [])[1] || null;
 
 // → { user, role, packet } | { status, error }. Role via public.packet_role (runs as the caller).
@@ -17,7 +18,10 @@ export async function packetAccess(req, packetId, { sb, mkUserClient = userClien
   const token = bearer(req);
   if (!token) return { status: 401, error: 'Sign in again.' };
   const uc = mkUserClient(token);
-  const { data: u } = await uc.auth.getUser(token);
+  const { data: u, error: uErr } = await uc.auth.getUser(token);
+  // Only a rejected token means "signed out". A network blip / 5xx / rate limit from Supabase Auth used to be
+  // reported as 401 too, which the page treated as a sign-out mid-edit.
+  if (uErr && !isAuthRejection(uErr)) { console.error('[packets] auth check', uErr.status, uErr.message); return { status: 503, error: 'Couldn’t check your sign-in just now. Try again.', retry: true }; }
   if (!u?.user) return { status: 401, error: 'Sign in again.' };
   if (!/^[0-9a-f-]{36}$/i.test(packetId || '')) return { status: 404, error: 'Packet not found.' };
   // select('*') so a missing optional column (migration not applied yet) can't make a packet look missing.

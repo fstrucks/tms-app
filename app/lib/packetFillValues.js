@@ -1,6 +1,6 @@
 // Server: packet_fields rows (+ owner's company profile) → values for fillPacket. Decrypts bank/EIN here only.
 // Precedence: the field's own value, then the company profile, then (date fields) the signing/fill date.
-import { formatPacketDate } from './packetSign.js';
+import { formatPacketDate } from './packetDate.js';
 const PROFILE_TEXT = new Set(['legal_name', 'dba_name', 'mc_number', 'dot_number', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'phone', 'email', 'signer_name', 'signer_title']);
 
 export function resolveFillValues(rows, profile, { decrypt, images = {}, today = new Date() }) {
