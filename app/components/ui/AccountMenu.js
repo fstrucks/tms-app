@@ -2,8 +2,11 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { getSupabase } from '../../lib/supabase';
+import { loginHref } from '../../lib/safeNext';
+// Back to this page after signing in (header Sign in, and after Sign out).
+const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
 // Account button + menu (email, Sign out). Used in the slim mobile top bar and the desktop top nav.
 // Keyboard: Enter/Space opens, arrows/Home/End move, Esc closes and returns focus, closes on focus-out.
@@ -15,6 +18,9 @@ export default function AccountMenu({ showEmail = false }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const pathname = usePathname();
+  const [loginHrefState, setLoginHref] = useState('/login');
+  useEffect(() => { setLoginHref(hereLogin()); }, [pathname, user]);
   const wrapRef = useRef(null);
   const btnRef = useRef(null);
   const itemRefs = useRef([]);
@@ -43,7 +49,7 @@ export default function AccountMenu({ showEmail = false }) {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) { console.error('[account] sign out', error); setErr('Sign out failed, please try again.'); }
-      else { setUser(null); setOpen(false); router.replace('/login'); } // clear the header now, not on the next auth event
+      else { setUser(null); setOpen(false); router.replace(hereLogin()); } // clear the header now, not on the next auth event
     } catch (e) {
       console.error('[account] sign out', e); setErr('Sign out failed, please try again.');
     } finally { setBusy(false); }
@@ -51,7 +57,7 @@ export default function AccountMenu({ showEmail = false }) {
 
   if (!ready) return <span style={{ width: 44, height: 44, display: 'inline-block' }} aria-hidden="true" />;
   if (!user) {
-    return <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.75rem', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Sign in</Link>;
+    return <Link href={loginHrefState} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.75rem', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Sign in</Link>;
   }
 
   const email = user.email || 'Account';

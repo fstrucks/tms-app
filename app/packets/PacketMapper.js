@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
 import SignaturePad from '../components/PacketSignaturePad';
-import { dragBox, isTap } from '../lib/packetDrag';
+import { dragBox, isTap, pxPerCss, parseInch } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
@@ -32,7 +32,18 @@ export function boxText(f) {
   if (f.value && !SENSITIVE.has(f.profile_key)) return f.value;
   return KEY_LABELS[f.profile_key] || '';
 }
-const STATE_TEXT = { unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
+// Inch box: free typing (empty allowed); applies valid numbers as typed, restores the real value on blur.
+function InchInput({ label, aria, step, px, onApply }) {
+  const real = String(inches(px));
+  const [txt, setTxt] = useState(real);
+  const [focus, setFocus] = useState(false);
+  useEffect(() => { if (!focus) setTxt(real); }, [real, focus]);
+  return <label style={{ gridColumn: 'span 2', fontSize: 13 }}>{label}<input type="text" inputMode="decimal" style={s.input} aria-label={aria} data-step={step} value={txt}
+    onFocus={() => setFocus(true)}
+    onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
+    onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
+}
+const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
 
 export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
@@ -84,8 +95,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
   function tapPage(e) {
     if (!placing || !canEdit || !img) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - r.left) / scale, y = (e.clientY - r.top) / scale;
+    const r = e.currentTarget.getBoundingClientRect(), k = img.w / r.width;
+    const x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
     const id = `tmp-${Date.now().toString(36)}`;
     const f = { id, field_key: `u-${id.slice(4)}`, page, kind: 'text', label: '', box: placeBox(x, y, img.w, img.h), profile_key: null, value: '', confirmed: false, page_w: img.w, page_h: img.h, dirty: true, source: 'user' };
     setFields((fs) => [...fs, f]); setSel(id); setPlacing(false);
@@ -96,7 +107,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (placing) return;
     if (!canEdit) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { id: f.id, mode, x: e.clientX, y: e.clientY, box: f.box, moved: false };
+    drag.current = { id: f.id, mode, x: e.clientX, y: e.clientY, box: f.box, moved: false, k: pxPerCss(wrap.current, img) };
     setDragging(true);
   }
   function moveDrag(e) {
@@ -106,13 +117,13 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     d.moved = true; d.dx = dx; d.dy = dy;
     if (!raf.current) raf.current = requestAnimationFrame(() => { // one state update per frame: smooth on phones
       raf.current = 0; const c = drag.current; if (!c) return;
-      set(c.id, { box: dragBox(c.box, c.mode, c.dx / scale, c.dy / scale, img.w, img.h) });
+      set(c.id, { box: dragBox(c.box, c.mode, c.dx * c.k, c.dy * c.k, img.w, img.h) });
     });
   }
   function stopDrag() {
     const d = drag.current; drag.current = null; setDragging(false);
     if (raf.current) { cancelAnimationFrame(raf.current); raf.current = 0; }
-    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx / scale, d.dy / scale, img.w, img.h) }); // final position
+    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx * d.k, d.dy * d.k, img.w, img.h) }); // final position
     return d;
   }
   function endDrag(e, f) {
@@ -125,6 +136,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setSel(f.id);
     if (!canEdit || !onSign) return;
     if (isSigField(f) && f.signed) return setSigMenu(f.id);
+    startSign(f);
+  }
+  function startSign(f) {
     const t = signTarget(fields, f);
     if (!t) return;
     if (t.error) return setMsg(t.error);
@@ -132,7 +146,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setSigning(t.id);
   }
   async function doSign(r) {
-    const id = signing; setSigning(null); setBusy(true); setMsg(null);
+    const id = signing; setSigning(null); setSel(null); setBusy(true); setMsg(null); // no edit panel popping up after Done
     const res = await onSign({ fieldId: id, ...r });
     setBusy(false);
     if (handle(res)) return;
@@ -193,6 +207,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
         <span style={s.chip('#374151')}>{sum.total} fields</span>
+        {sum.sign > 0 && <span style={s.chip(STATE_COLORS.sign)}>{sum.sign} to sign</span>}
         {sum.unmapped > 0 && <span style={s.chip(STATE_COLORS.unmapped)}>{sum.unmapped} need a name</span>}
         {sum.confirm > 0 && <span style={s.chip(STATE_COLORS.confirm)}>{sum.confirm} bank # to confirm</span>}
         {sum.check > 0 && <span style={s.chip(STATE_COLORS.check)}>{sum.check} to check</span>}
@@ -212,7 +227,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
             onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
             onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
             onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => stopDrag()}
-            style={{ zIndex: sel === f.id ? 2 : 1, touchAction: canEdit ? 'none' : 'auto', cursor: canEdit ? 'move' : 'pointer', overflow: 'visible', position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            style={{ zIndex: sel === f.id ? 2 : 1, touchAction: canEdit ? 'none' : 'auto', cursor: canEdit ? 'move' : 'pointer', overflow: 'visible', position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', whiteSpace: 'nowrap' }}>
             {f.signed && sigUrls[f.id]
               ? <img src={sigUrls[f.id]} alt={`Signature of ${f.signer_name || 'signer'}`} draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
               : <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: '100%' }}>{boxText(f)}</span>}
@@ -237,7 +252,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
           <button style={{ ...s.btn, flex: 1, color: '#b91c1c', borderColor: '#fca5a5' }} onClick={() => clearSig(f.id)} disabled={busy}>Clear signature</button>
           <button style={s.btn} onClick={() => setSigMenu(null)} aria-label="Close signature options">✕</button>
         </div></section>; })()}
-      {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => setSigning(null)} />}
+      {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => { setSigning(null); setSel(null); }} />}
       {cur && !(isSigField(cur) && (sigMenu === cur.id || signing)) && <FieldEditor f={cur} canEdit={canEdit} onChange={(p) => set(cur.id, p)} onClose={() => setSel(null)} img={img}
         onDelete={() => { setDeleted((d) => [...d, cur.id]); setFields((fs) => fs.filter((x) => x.id !== cur.id)); setSel(null); }} />}
 
@@ -257,7 +272,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
-              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
+              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
               <button style={{ ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : 'Fill & download PDF'}</button>
             </>}
         </div>
@@ -312,8 +327,8 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => mv(0, 0, 40)}>Wider</button>
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => rs(0, -8)}>Shorter</button>
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => rs(0, 8)}>Taller</button>
-          <label style={{ gridColumn: 'span 2', fontSize: 13 }}>Width (in)<input type="number" inputMode="decimal" step="0.1" min="0.1" style={s.input} aria-label="Width in inches" value={inches(f.box[2] - f.box[0])} onChange={(e) => setIn(e.target.value, null)} /></label>
-          <label style={{ gridColumn: 'span 2', fontSize: 13 }}>Height (in)<input type="number" inputMode="decimal" step="0.05" min="0.05" style={s.input} aria-label="Height in inches" value={inches(f.box[3] - f.box[1])} onChange={(e) => setIn(null, e.target.value)} /></label>
+          <InchInput label="Width (in)" aria="Width in inches" step="0.1" px={f.box[2] - f.box[0]} onApply={(v) => setIn(v, null)} />
+          <InchInput label="Height (in)" aria="Height in inches" step="0.05" px={f.box[3] - f.box[1]} onApply={(v) => setIn(null, v)} />
         </div>
         <button style={{ ...s.btn, width: '100%', marginTop: '0.75rem', color: '#b91c1c', borderColor: '#fca5a5' }} onClick={onDelete}>Remove field</button>
       </>}
