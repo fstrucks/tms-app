@@ -1,13 +1,14 @@
 // Server helpers for /api/packets/*: service client, caller identity, caller's role on the packet.
 import { createClient } from '@supabase/supabase-js';
 import { canEdit, isRole } from './companyRoles.js';
+import { noStoreFetch } from './noStoreFetch.js';
 
 export function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
+  return url && key ? createClient(url, key, { auth: { persistSession: false }, global: { fetch: noStoreFetch } }) : null;
 }
 export function userClient(token) {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
 }
 export const bearer = (req) => (/^Bearer\s+(.+)$/i.exec(req.headers.get('authorization') || '') || [])[1] || null;
 

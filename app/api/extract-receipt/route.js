@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { noStoreFetch } from '../../lib/noStoreFetch';
 import { runExtraction, RECEIPT_RATE_LIMIT } from '../../lib/ai-extract';
 
 export const runtime = 'nodejs';
@@ -67,8 +68,8 @@ export async function POST(req) {
   if (!lenHeader || !/^\d+$/.test(lenHeader)) return fail(411, 'Content-Length is required.');
   if (Number(lenHeader) > MAX_BYTES) return fail(413, TOO_LARGE);
 
-  const opts = { auth: { persistSession: false, autoRefreshToken: false } };
-  const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` } } });
+  const opts = { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: noStoreFetch } };
+  const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
   const { data: userData, error: userErr } = await userDb.auth.getUser(token);
   const user = userData?.user;
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);

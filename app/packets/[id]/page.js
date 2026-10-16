@@ -2,12 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import PacketMapper from '../PacketMapper';
+import { loadPacketPdf } from '../../lib/packetPdfLoad';
 
 const DPI = 200;
 async function token() { const { data } = await getSupabase().auth.getSession(); return data?.session?.access_token || null; }
 async function api(path, opts = {}) {
   const t = await token(); if (!t) return { error: 'Sign in again.', status: 401 };
-  const r = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${t}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
+  const r = await fetch(path, { cache: 'no-store', ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${t}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
   const j = await r.json().catch(() => ({})); return r.ok ? j : { ...j, error: j.error || 'Something went wrong.', status: r.status };
 }
 
@@ -29,15 +30,17 @@ export default function PacketPage({ params }) {
       if (d.error) return setSt({ error: d.error });
     }
     if (!pdf.current) {
-      const f = await api(`/api/packets/${id}/file`);
-      if (f.error) return setSt({ error: f.error });
-      const lib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-      lib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs'; // copied from pdfjs-dist 4.10.38 (keep versions in sync)
-      pdf.current = await lib.getDocument({ url: f.url, isEvalSupported: false }).promise;
+      const bytes = await loadPacketPdf(id, { call: api, getToken: token });
+      if (bytes.error) return setSt({ error: bytes.error });
+      try {
+        const lib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        lib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs'; // copied from pdfjs-dist 4.10.38 (keep versions in sync)
+        pdf.current = await lib.getDocument({ data: bytes.data, isEvalSupported: false }).promise;
+      } catch (e) { console.error('[packet] pdf', e); return setSt({ error: 'Could not open the packet PDF. Reload to try again.' }); }
     }
     setSt({ ...d, pageCount: pdf.current.numPages, loading: false });
   }, [id]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch((e) => { console.error('[packet] load', e); setSt({ error: 'Could not load the packet. Reload to try again.' }); }); }, [load]);
 
   // Render at 200 dpi-equivalent px so boxes line up with server coordinates; displayed scaled to width.
   const renderPage = useCallback(async (n) => {

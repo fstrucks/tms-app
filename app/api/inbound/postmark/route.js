@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { noStoreFetch } from '../../../lib/noStoreFetch';
 import { waitUntil } from '@vercel/functions';
 import { processPacket } from '../../../lib/packetProcess';
 import { checkBasicAuth, parseInbound, packetPath } from '../../../lib/postmarkInbound';
@@ -16,7 +17,7 @@ export async function POST(req, { deps } = {}) {
   if (!auth.ok) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="inbound"' } });
 
   const sb = deps?.supabase || (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) : null);
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false }, global: { fetch: noStoreFetch } }) : null);
   if (!sb) { console.error('[inbound] SUPABASE_SERVICE_ROLE_KEY not set'); return json({ error: 'Storage not configured' }, 503); }
 
   let mail;

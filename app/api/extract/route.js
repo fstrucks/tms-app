@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { noStoreFetch } from '../../lib/noStoreFetch';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,9 +67,9 @@ export async function POST(req) {
   try { ({ documentId, force = false } = await req.json()); } catch {}
   if (!documentId) return fail(400, 'documentId is required.');
 
-  const opts = { auth: { persistSession: false, autoRefreshToken: false } };
+  const opts = { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: noStoreFetch } };
   // User-scoped client: RLS applies, used to verify identity and ownership.
-  const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` } } });
+  const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
   const { data: userData, error: userErr } = await userDb.auth.getUser(token);
   const user = userData?.user;
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);

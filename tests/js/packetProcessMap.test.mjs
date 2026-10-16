@@ -223,3 +223,29 @@ test('mapper: unconfirmed bank numbers block save; confirmed or empty do not', (
   assert.equal(unconfirmedBank(fs).length, 1);
   assert.equal(unconfirmedBank([{ profile_key: 'bank_routing', has_value: true, value: '•••0015', confirmed: false }]).length, 1);
 });
+
+// ---- packet PDF for company members (owner-folder files; storage RLS is owner-path only)
+import { GET as FILE } from '../../app/api/packets/[id]/file/route.js';
+import { loadPacketPdf } from '../../app/lib/packetPdfLoad.js';
+test('file route: driver member gets a server-signed URL; outsider 404; raw streams bytes', async () => {
+  const fileReq = (q = '') => req('GET', null, 't', `http://x/api/packets/${PID}/file${q}`);
+  const sb = fakeSb({ packet: pkt(), pdf: Buffer.from('%PDF-1.4 fake') });
+  const ok = await FILE(fileReq(), { params: { id: PID }, deps: { sb, mkUserClient: uc('driver') } });
+  assert.equal(ok.status, 200); assert.equal((await ok.json()).url, 'https://x/signed'); assert.equal(ok.headers.get('cache-control'), 'no-store');
+  assert.equal((await FILE(fileReq(), { params: { id: PID }, deps: { sb, mkUserClient: uc(null) } })).status, 404);
+  const raw = await FILE(fileReq('?raw=1'), { params: { id: PID }, deps: { sb, mkUserClient: uc('driver') } });
+  assert.equal(raw.headers.get('content-type'), 'application/pdf'); assert.match(Buffer.from(await raw.arrayBuffer()).toString(), /^%PDF/);
+});
+test('loadPacketPdf: signed URL 400 → raw fallback; both fail → error (never hangs)', async () => {
+  const bytes = new Uint8Array([37, 80, 68, 70]);
+  const call = async () => ({ url: 'https://x/signed' }); const getToken = async () => 't';
+  const seen = [];
+  const r1 = await loadPacketPdf('p', { call, getToken, get: async (u) => { seen.push(u); return u.includes('raw=1') ? new Response(bytes) : new Response('{}', { status: 400 }); } });
+  assert.deepEqual([...r1.data], [...bytes]); assert.deepEqual(seen, ['https://x/signed', '/api/packets/p/file?raw=1']);
+  const r2 = await loadPacketPdf('p', { call, getToken, get: async () => new Response(JSON.stringify({ error: 'Could not open the PDF (file missing in storage).' }), { status: 404 }) });
+  assert.match(r2.error, /file missing/);
+  const r3 = await loadPacketPdf('p', { call: async () => ({ error: 'Packet not found.', status: 404 }), getToken, get: async () => { throw new Error('no'); } });
+  assert.equal(r3.error, 'Packet not found.');
+  const r4 = await loadPacketPdf('p', { call, getToken, get: async () => { throw new TypeError('network'); } });
+  assert.match(r4.error, /connection/);
+});
