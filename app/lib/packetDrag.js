@@ -14,3 +14,27 @@ export function dragBox(box, mode, dx, dy, pageW, pageH) {
   return [x0, y0, x1, y1].map((v) => Math.round(v));
 }
 export const isTap = (dxPx, dyPx) => Math.hypot(dxPx, dyPx) < TAP_SLOP;
+
+// Page px per CSS px from the page as actually rendered (getBoundingClientRect): pointer clientX/Y deltas
+// are CSS px, boxes are page px@200dpi. Independent of devicePixelRatio and of stale layout measurements.
+export function pxPerCss(el, img) {
+  const w = el?.getBoundingClientRect?.().width || 0;
+  return w > 0 && img?.w ? img.w / w : 1;
+}
+// Inch box text → inches, or null while incomplete/invalid ('' '.', '0', >20in).
+export function parseInch(v) {
+  const t = String(v ?? '').trim();
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
+  const n = Number(t); return n > 0 && n <= 20 ? n : null;
+}
+
+// Drag tracking in PAGE coordinates. start = { x, y, left, top } at pointerdown (client px + the page's
+// rendered rect); cur = same at a later event. The delta is always measured from the ORIGINAL pointerdown
+// point, in page px, so crossing the tap threshold never "eats" the first few px, and scrolling the
+// page/zoom container mid-drag doesn't change how far the box moves relative to the PDF.
+export function dragDelta(start, cur, k) {
+  const sx = start.x - start.left, sy = start.y - start.top;
+  const cx = cur.x - cur.left, cy = cur.y - cur.top;
+  const dxCss = cx - sx, dyCss = cy - sy;
+  return { moved: !isTap(cur.x - start.x, cur.y - start.y) || !isTap(dxCss, dyCss), dx: dxCss * k, dy: dyCss * k };
+}
