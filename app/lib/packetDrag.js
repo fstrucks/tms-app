@@ -27,3 +27,14 @@ export function parseInch(v) {
   if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
   const n = Number(t); return n > 0 && n <= 20 ? n : null;
 }
+
+// Drag tracking in PAGE coordinates. start = { x, y, left, top } at pointerdown (client px + the page's
+// rendered rect); cur = same at a later event. The delta is always measured from the ORIGINAL pointerdown
+// point, in page px, so crossing the tap threshold never "eats" the first few px, and scrolling the
+// page/zoom container mid-drag doesn't change how far the box moves relative to the PDF.
+export function dragDelta(start, cur, k) {
+  const sx = start.x - start.left, sy = start.y - start.top;
+  const cx = cur.x - cur.left, cy = cur.y - cur.top;
+  const dxCss = cx - sx, dyCss = cy - sy;
+  return { moved: !isTap(cur.x - start.x, cur.y - start.y) || !isTap(dxCss, dyCss), dx: dxCss * k, dy: dyCss * k };
+}

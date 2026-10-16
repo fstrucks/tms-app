@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
 import SignaturePad from '../components/PacketSignaturePad';
-import { dragBox, isTap, pxPerCss, parseInch } from '../lib/packetDrag';
+import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
@@ -57,6 +57,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const [signing, setSigning] = useState(null); // signature field id being signed
   const [filled, setFilled] = useState(null); // { url, filename }
   const drag = useRef(null);
+  const base = useRef(initial); // last server copy of the fields (for Discard)
   const raf = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [sigUrls, setSigUrls] = useState({});
@@ -72,6 +73,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     return () => ro.disconnect();
   }, []);
   useEffect(() => { // restore unsaved edits kept from before a sign-out / reload
+    base.current = initial;
     const r = applyDraft(initial, store && loadDraft(store, packet.id));
     setFields(r.fields); setDeleted(r.deleted);
     if (r.restored) setMsg(`Restored ${r.restored} unsaved change${r.restored === 1 ? '' : 's'}.${r.secretsDropped ? ' Re-type bank/EIN numbers (they are never stored in the browser).' : ''} Tap Save to keep them.`);
@@ -107,27 +109,35 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (placing) return;
     if (!canEdit) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { id: f.id, mode, x: e.clientX, y: e.clientY, box: f.box, moved: false, k: pxPerCss(wrap.current, img) };
+    const r = wrap.current.getBoundingClientRect();
+    drag.current = { id: f.id, mode, start: { x: e.clientX, y: e.clientY, left: r.left, top: r.top }, box: f.box, moved: false, dx: 0, dy: 0, k: pxPerCss(wrap.current, img) };
     setDragging(true);
   }
   function moveDrag(e) {
     const d = drag.current; if (!d || !img) return;
-    const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (!d.moved && isTap(dx, dy)) return;
-    d.moved = true; d.dx = dx; d.dy = dy;
+    track(d, e);
+    if (!d.moved) return;
     if (!raf.current) raf.current = requestAnimationFrame(() => { // one state update per frame: smooth on phones
       raf.current = 0; const c = drag.current; if (!c) return;
-      set(c.id, { box: dragBox(c.box, c.mode, c.dx * c.k, c.dy * c.k, img.w, img.h) });
+      set(c.id, { box: dragBox(c.box, c.mode, c.dx, c.dy, img.w, img.h) });
     });
   }
-  function stopDrag() {
+  // Offset from the ORIGINAL pointerdown point (never from where the tap threshold was crossed).
+  function track(d, e) {
+    const r = wrap.current.getBoundingClientRect();
+    const m = dragDelta(d.start, { x: e.clientX, y: e.clientY, left: r.left, top: r.top }, d.k);
+    if (!d.moved && !m.moved) return;
+    d.moved = true; d.dx = m.dx; d.dy = m.dy;
+  }
+  function stopDrag(e) {
     const d = drag.current; drag.current = null; setDragging(false);
     if (raf.current) { cancelAnimationFrame(raf.current); raf.current = 0; }
-    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx * d.k, d.dy * d.k, img.w, img.h) }); // final position
+    if (d && e && Number.isFinite(e.clientX) && e.type === 'pointerup') track(d, e); // final position = where the finger lifted
+    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx, d.dy, img.w, img.h) });
     return d;
   }
   function endDrag(e, f) {
-    const d = stopDrag();
+    const d = stopDrag(e);
     if (d && d.moved) { e.stopPropagation(); return; }
     tapField(f);
   }
@@ -151,7 +161,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setBusy(false);
     if (handle(res)) return;
     if (res?.error) return setMsg(res.error);
-    if (res?.fields) setFields(res.fields);
+    if (res?.fields) { base.current = res.fields; setFields(res.fields); }
     setMsg(`Signed by ${r.signerName}. Date filled: ${res.date}.`);
   }
   async function doFill() {
@@ -163,18 +173,27 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setFilled({ url: res.url, filename: res.filename }); setMsg('Filled PDF saved.');
   }
   async function clearSig(id) {
-    setSigMenu(null); setBusy(true); setMsg(null);
+    setSigMenu(null); setSel(null); setBusy(true); setMsg(null); // clear only; no edit panel
     const r = await onClearSig(id);
     setBusy(false);
     if (handle(r)) return;
     if (r?.error) return setMsg(r.error);
+    if (r?.fields) base.current = r.fields;
     if (r?.fields) setFields((fs) => r.fields.map((n) => { const local = fs.find((x) => x.id === n.id && x.dirty); return local ? { ...local, signed: false, signer_name: null, signed_at: null } : n; }));
-    setFilled(null); setMsg('Signature cleared.');
+    setFilled(null);
+    const pending = fields.some((x) => x.dirty && x.id !== id) || deleted.length;
+    setMsg(pending ? 'Signature cleared. Your other changes are still unsaved: tap Save changes to keep them, or Discard.' : 'Signature cleared.');
   }
   function reSign(id) {
     setSigMenu(null);
     if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save your changes first, then re-sign.');
     setSigning(id);
+  }
+  function discard() {
+    if (typeof window !== 'undefined' && !window.confirm('Discard your unsaved changes on this packet?')) return;
+    if (store) clearDraft(store, packet.id);
+    setFields(base.current); setDeleted([]); setSel(null); setSigMenu(null); setSigning(null); setPlacing(false);
+    setMsg('Unsaved changes discarded.');
   }
   const blockers = unconfirmedBank(fields);
   const fillWhy = fillBlockers(fields, { dirty });
@@ -193,7 +212,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (store) clearDraft(store, packet.id);
     if (r?.errors?.length) setMsg(r.errors.map((x) => x.error).join(' · '));
     else setMsg('Saved.');
-    if (r?.fields) { setFields(r.fields); setDeleted([]); setSel(null); }
+    if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); }
   }
 
   return (
@@ -232,7 +251,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
               ? <img src={sigUrls[f.id]} alt={`Signature of ${f.signer_name || 'signer'}`} draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
               : <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: '100%' }}>{boxText(f)}</span>}
             {canEdit && sel === f.id && <span role="presentation" data-resize={f.id} onPointerDown={(e) => startDrag(e, f, 'resize')} onPointerMove={moveDrag}
-              onPointerUp={(e) => { e.stopPropagation(); stopDrag(); }} onPointerCancel={(e) => { e.stopPropagation(); stopDrag(); }}
+              onPointerUp={(e) => { e.stopPropagation(); stopDrag(e); }} onPointerCancel={(e) => { e.stopPropagation(); stopDrag(); }}
               style={{ position: 'absolute', right: -22, bottom: -22, width: 44, height: 44, zIndex: 3, touchAction: 'none', cursor: 'nwse-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ width: 16, height: 16, background: STATE_COLORS[st], border: '2px solid #fff', borderRadius: 4, boxShadow: '0 0 0 1px rgba(0,0,0,.3)', pointerEvents: 'none' }} />
             </span>}
@@ -269,6 +288,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
           {filled?.url && <p style={{ margin: '0 0 0.4rem', fontSize: 15 }}><a href={filled.url} download={filled.filename}>⬇ Download filled PDF</a></p>}
+          {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={discard}>Discard changes</button>}
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>

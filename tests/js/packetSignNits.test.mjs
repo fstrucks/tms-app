@@ -11,7 +11,7 @@ test('drag/tap convert pointer deltas with the rendered page rect (getBoundingCl
   const m = src('app/packets/PacketMapper.js');
   assert.match(src('app/lib/packetDrag.js'), /export function pxPerCss\(el, img\)[\s\S]*getBoundingClientRect/);
   assert.match(m, /k: pxPerCss\(wrap\.current, img\)/);
-  assert.match(m, /dragBox\(c\.box, c\.mode, c\.dx \* c\.k, c\.dy \* c\.k/);
+  assert.match(src('app/lib/packetDrag.js'), /dx: dxCss \* k, dy: dyCss \* k/);
   assert.doesNotMatch(m, /c\.dx \/ scale|d\.dx \/ scale/);
   // the box's own style must not clip the 44px resize target
   const boxStyle = m.slice(m.indexOf("overflow: 'visible', position: 'absolute'"), m.indexOf("whiteSpace: 'nowrap' }}>"));
@@ -51,4 +51,27 @@ test('sign-in returns to the packet: header link + sign-out carry a safe same-or
   const login = src('app/login/page.js');
   assert.match(login, /window\.location\.assign\(safeNext\(nextParam\(\)\)\)/);
   assert.match(login, /auth\/callback\?next=' \+ encodeURIComponent\(safeNext\(nextParam\(\)\)\)/);
+});
+
+import { dragDelta } from '../../app/lib/packetDrag.js';
+test('drag: 50px finger move after crossing the threshold moves exactly 50px (scaled), measured from pointerdown', () => {
+  const k = 1700 / 366; // page px per css px
+  const start = { x: 100, y: 200, left: 12, top: 300 };
+  assert.equal(dragDelta(start, { x: 104, y: 200, left: 12, top: 300 }, k).moved, false); // under threshold
+  const m = dragDelta(start, { x: 150, y: 200, left: 12, top: 300 }, k); // threshold crossed long ago
+  assert.equal(m.moved, true); assert.equal(m.dx, 50 * k); assert.equal(m.dy, 0);
+  assert.equal(dragDelta(start, { x: 140, y: 200, left: 12, top: 300 }, k).dx, 40 * k);
+  // page scrolled up 16px mid-drag while the finger moved 50px down: the box still tracks the finger on the page
+  assert.equal(dragDelta(start, { x: 100, y: 250, left: 12, top: 284 }, k).dy, 66 * k);
+  const m2 = PM();
+  assert.match(m2, /track\(d, e\)/); assert.match(m2, /e\.type === 'pointerup'\) track\(d, e\)/);
+  assert.doesNotMatch(m2, /isTap\(dx, dy\)/);
+});
+const PM = () => readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
+test('clear signature: no edit panel, says when other edits are still unsaved; Discard drops edits + draft', () => {
+  const m = PM();
+  assert.match(m, /setSigMenu\(null\); setSel\(null\); setBusy\(true\); setMsg\(null\); \/\/ clear only/);
+  assert.match(m, /Your other changes are still unsaved/);
+  assert.match(m, />Discard changes</);
+  assert.match(m, /clearDraft\(store, packet\.id\);\n\s*setFields\(base\.current\)/);
 });
