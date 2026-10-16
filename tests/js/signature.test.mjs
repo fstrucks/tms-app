@@ -71,3 +71,12 @@ test('SignaturePad component: client, pointer events, touch-action none, 44px ta
     assert.ok(!readFileSync(new URL(f, import.meta.url), 'utf8').includes('SignaturePad'), f);
   }
 });
+
+test('/dev/signature QA route exists and is gated off in production', () => {
+  const page = readFileSync(new URL('../../app/dev/signature/page.js', import.meta.url), 'utf8');
+  assert.match(page, /process\.env\.VERCEL_ENV === 'production'/);
+  assert.match(page, /notFound\(\)/);
+  assert.doesNotMatch(page, /^'use client'/);
+  const qa = readFileSync(new URL('../../app/dev/signature/SignatureQA.js', import.meta.url), 'utf8');
+  for (const s of ['SignaturePad', 'onCancel', 'Cancelled', 'signedAt', '<img']) assert.ok(qa.includes(s), s);
+});
