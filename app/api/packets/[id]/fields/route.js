@@ -5,14 +5,15 @@ import { encryptField, loadKey, PacketKeyError } from '../../../../lib/packetCry
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const json = (b, s = 200) => Response.json(b, { status: s });
-const COLS = 'id,field_key,page,kind,label,box,dpi,profile_key,confidence,source,needs_confirm,confirmed_at,value_text,value_ciphertext,value_last4,page_w,page_h';
+// '*' so signature columns (20261016001600) show up once applied without breaking the page before then; toClient strips secrets.
+const COLS = '*';
 
 async function list(sb, packetId) {
   const { data, error } = await sb.from('packet_fields').select(COLS).eq('packet_id', packetId).order('page').order('field_key');
   if (error) { const e = new Error(error.message); e.db = error; throw e; }
   return data || [];
 }
-const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at });
+const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at, filled_at: p.filled_at ?? null });
 
 export async function GET(req, { params, deps } = {}) {
   const sb = deps?.sb || serviceClient();

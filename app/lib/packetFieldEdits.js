@@ -16,6 +16,7 @@ export function toClient(r) {
     id: r.id, field_key: r.field_key, page: r.page, kind: r.kind, label: r.label || '', box: r.box, dpi: r.dpi,
     profile_key: r.profile_key, confidence: r.confidence, source: r.source, needs_confirm: r.needs_confirm,
     confirmed: !!r.confirmed_at, sensitive, has_value: sensitive ? !!r.value_ciphertext : r.value_text != null && r.value_text !== '',
+    signed: !!r.signature_path, signer_name: r.signer_name || null, signed_at: r.signed_at || null,
     value: sensitive ? mask(r.value_last4) : (r.value_text ?? ''), check: sensitive ? null : (r.profile_key && r.value_text ? checkValue(r.profile_key, r.value_text) : null),
   };
 }

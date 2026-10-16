@@ -18,6 +18,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
 <text x="1060" y="1150">Date:</text><line x1="1170" y1="1155" x2="1500" y2="1155" stroke="#000" stroke-width="3"/></g></svg>`;
 const URL_ = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 const F = (id, label, box, kind, key, extra = {}) => ({ id, field_key: id, page: 1, kind, label, box, profile_key: key, confidence: 0.9, source: 'model', needs_confirm: key === 'bank_routing' || key === 'bank_account', confirmed: false, value: '', check: null, ...extra });
+const SIG_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="120"><path d="M10 90 C 60 10, 110 10, 140 80 S 220 120, 260 40 S 360 20, 380 90 S 470 100, 520 50 L 620 60" fill="none" stroke="#111827" stroke-width="7" stroke-linecap="round"/></svg>`;
+const SIG_URL = `data:image/svg+xml;utf8,${encodeURIComponent(SIG_SVG)}`;
 const FIELDS = [
   F('f1', 'Legal Name:', [380, 305, 1500, 337], 'text', 'legal_name', { value: 'Test Trucking Co (FAKE)', check: { ok: true } }),
   F('f2', 'MC Number:', [380, 405, 900, 437], 'text', 'mc_number', { value: 'MC-000000', check: { ok: true } }),
@@ -35,6 +37,10 @@ function Preview() {
   const renderPage = useCallback(() => ({ url: URL_, w: W, h: H }), []);
   const role = q.get('role') || 'owner';
   const packet = { subject: 'TEST carrier packet - fake data', source: 'email', status: 'review', page_count: 1, manual_reason: q.get('manual') || null };
-  return <PacketMapper packet={packet} fields={q.get('manual') ? [] : FIELDS} canEdit={role !== 'driver'} pageCount={1} renderPage={renderPage} onSave={async () => ({ error: 'Preview only (fake data).' })} />;
+  const signed = q.get('signed') === '1';
+  const fields = q.get('manual') ? [] : FIELDS.map((f) => (signed && f.id === 'f8' ? { ...f, signed: true, signer_name: 'Test Owner (FAKE)', signed_at: '2026-10-16T19:00:00Z' } : signed && f.id === 'f9' ? { ...f, value: '10/16/2026' } : f));
+  const loadSignatures = useCallback(async () => ({ urls: { f8: SIG_URL } }), []);
+  const fake = async () => ({ error: 'Preview only (fake data).' });
+  return <PacketMapper packet={{ ...packet, id: 'preview' }} fields={fields} initialSel={q.get('sel')} initialSigMenu={q.get('menu')} loadSignatures={loadSignatures} onSign={fake} onFill={fake} onClearSig={fake} canEdit={role !== 'driver'} pageCount={1} renderPage={renderPage} onSave={async () => ({ error: 'Preview only (fake data).' })} />;
 }
 export default function Page() { return <Suspense><Preview /></Suspense>; }

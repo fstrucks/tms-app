@@ -11,7 +11,8 @@ export function fitSize(font, text, maxW, start = 11, min = 6) {
   while (size > min && font.widthOfTextAtSize(text, size) > maxW) size -= 0.5;
   return size;
 }
-// fields: [{page, kind, box, value}]; signature fields are skipped here (Sign all is PR E).
+// fields: [{page, kind, box, value, image?}]; signature fields draw `image` (PNG bytes), scaled to fit
+// the box and keeping aspect ratio; a signature without an image is skipped.
 // Refuses unconfirmed bank fields so they can't be filled without the user's OK.
 export async function fillPacket(pdfBytes, fields, { dpi = 200 } = {}) {
   const doc = await PDFDocument.load(pdfBytes);
@@ -21,6 +22,15 @@ export async function fillPacket(pdfBytes, fields, { dpi = 200 } = {}) {
   for (const f of fields) {
     if (f.needs_confirm && !f.confirmed) throw new Error(`Field ${f.id} needs user confirmation before filling`);
     const p = pages[(f.page || 1) - 1];
+    if (p && f.kind === 'signature') {
+      if (!f.image) continue;
+      const img = await doc.embedPng(f.image);
+      const b = boxToPdf(f.box, p.getHeight(), dpi);
+      const k = Math.min(b.w / img.width, b.h / img.height);
+      const w = img.width * k, h = img.height * k;
+      p.drawImage(img, { x: b.x + (b.w - w) / 2, y: b.y + (b.h - h) / 2, width: w, height: h });
+      drawn++; continue;
+    }
     if (!p || f.kind === 'signature' || f.value == null || f.value === '' || f.value === false) continue;
     const b = boxToPdf(f.box, p.getHeight(), dpi);
     const text = f.kind === 'checkbox' ? 'X' : String(f.value);

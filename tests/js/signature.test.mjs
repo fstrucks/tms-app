@@ -63,13 +63,14 @@ test('canFinish gating', () => {
 
 test('midpoint', () => { assert.deepEqual(midpoint({ x: 0, y: 0 }, { x: 4, y: 10 }), { x: 2, y: 5 }); });
 
-test('SignaturePad component: client, pointer events, touch-action none, 44px targets, not wired in', () => {
+test('SignaturePad component: client, pointer events, touch-action none, 44px targets, wired into packets only via the adapter', () => {
   const src = readFileSync(new URL('../../app/components/SignaturePad.js', import.meta.url), 'utf8');
   assert.match(src, /^'use client';/);
   for (const s of ['onPointerDown', 'touchAction: \'none\'', 'devicePixelRatio', 'minHeight: 44', 'cursive', 'onCancel']) assert.ok(src.includes(s), s);
-  for (const f of ['../../app/packets/page.js', '../../app/packets/[id]/page.js', '../../app/packets/PacketMapper.js']) {
+  for (const f of ['../../app/packets/page.js', '../../app/packets/[id]/page.js']) {
     assert.ok(!readFileSync(new URL(f, import.meta.url), 'utf8').includes('SignaturePad'), f);
   }
+  assert.match(readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8'), /from '\.\.\/components\/PacketSignaturePad'/);
 });
 
 test('/dev/signature QA route exists and is gated off in production', () => {
