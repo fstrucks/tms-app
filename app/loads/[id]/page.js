@@ -14,7 +14,7 @@ import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
-import { docTypeLabel } from '../../lib/docTypes';
+import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -229,6 +229,7 @@ export default function LoadDetailPage() {
         <Scanner
           loads={[{ id: load.id, label: [load.broker_load_number ? `#${load.broker_load_number}` : 'This load', load.broker_name].filter(Boolean).join(' · ') }]}
           initialLoadId={load.id}
+          typeIds={LOAD_SCAN_TYPE_IDS}
           onClose={() => setScanning(false)}
           onSave={async (scan) => {
             const err = await uploadScan(supabase, user?.id, scan);

@@ -4,12 +4,18 @@ export const SCAN_DOC_TYPES = [
   { id: 'bol', label: 'Bill of lading', short: 'BOL', button: 'BOL' },
   { id: 'pod', label: 'Proof of delivery', short: 'POD', button: 'POD' },
   { id: 'lumper_receipt', label: 'Lumper receipt', short: 'LUMPER', button: 'Lumper Receipt' },
-  { id: 'w9', label: 'W-9', short: 'W9', button: 'W-9' },
-  { id: 'coi', label: 'Certificate of insurance', short: 'COI', button: 'COI' },
-  { id: 'mc_authority', label: 'MC authority letter', short: 'MC_AUTHORITY', button: 'MC Authority' },
+  { id: 'w9', label: 'W-9', short: 'W9', button: 'W-9', company: true },
+  { id: 'coi', label: 'Certificate of Insurance (COI)', short: 'COI', button: 'COI', company: true },
+  { id: 'mc_authority', label: 'MC Authority', short: 'MC_AUTHORITY', button: 'MC Authority', company: true },
   // Free-text type (Marc): stored as doc_type 'other:<name>' (no migration; doc_type is plain text).
   { id: 'other', label: 'Other', short: 'OTHER', button: null },
 ];
+
+// Marc 10/15: company documents (not tied to a load). Picking one defaults Load to "No load".
+export const COMPANY_DOC_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => t.company).map((t) => t.id);
+export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id); }
+// Marc 10/15 (updated via Sam): load-page Scan offers BOL, POD, and Lumper receipt. Other stays off the load page.
+export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt'];
 
 export const OTHER_PREFIX = 'other:';
 export const OTHER_MAX = 40;
