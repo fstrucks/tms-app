@@ -4,7 +4,18 @@
 export const MAX_PAGES = 15;
 const MIN_CHARS = 20; // fewer text chars than this across the doc = treat as a scan
 
-async function loadPdfjs() { return import('pdfjs-dist/legacy/build/pdf.mjs'); }
+// Serverless: pdfjs's Node "fake worker" does a dynamic import of ./pdf.worker.mjs that Vercel's file tracing
+// can't see, so the worker file was missing in the deployed function and every getDocument() failed.
+// Importing the worker ourselves (a static specifier, so it's traced) and exposing it as globalThis.pdfjsWorker
+// makes pdfjs use it in-process. No canvas/DOM is needed: we only read text + operator lists.
+let libP = null;
+export function loadPdfjs() {
+  if (!libP) libP = (async () => {
+    if (!globalThis.pdfjsWorker) globalThis.pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    return import('pdfjs-dist/legacy/build/pdf.mjs');
+  })().catch((e) => { libP = null; throw e; });
+  return libP;
+}
 
 const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
 const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];

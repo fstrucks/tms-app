@@ -133,10 +133,13 @@ test('process: scan → manual no_text_layer; already claimed → skipped; reade
   const o3 = await processPacket({ sb: s3, packetId: PID, reader: slow, budgetMs: 1200 });
   assert.equal(o3.manual, 'timeout'); assert.ok(s3.tbl.packet_fields.every((r) => r.source === 'local'));
 });
-test('process: bad file → status error (no crash)', async () => {
+test('process: unreadable file → manual mapping; failed download → error', async () => {
   const sb = fakeSb({ packet: pkt(), pdf: Buffer.from('not a pdf') });
   const o = await processPacket({ sb, packetId: PID, reader: createPacketReader({ apiKey: '' }) });
-  assert.ok(o.error); assert.equal(sb.tbl.packets[0].status, 'error');
+  assert.equal(o.manual, 'read_failed'); assert.equal(sb.tbl.packets[0].status, 'review');
+  const sb2 = fakeSb({ packet: pkt() }); sb2.storage = { from: () => ({ download: async () => ({ data: null, error: { message: 'Object not found' } }) }) };
+  const o2 = await processPacket({ sb: sb2, packetId: PID });
+  assert.match(o2.error, /download failed: Object not found/); assert.equal(sb2.tbl.packets[0].status, 'error');
 });
 
 // ---- routes: auth + role gate
@@ -191,4 +194,32 @@ test('packet lookup DB error → 500, not 404', async () => {
   const sb = fakeSb({ packet: pkt() });
   const from = sb.from; sb.from = (n) => { const b = from(n); if (n === 'packets') b.maybeSingle = async () => ({ data: null, error: { code: 'XX000' } }); return b; };
   assert.equal((await GET(req('GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner') } })).status, 500);
+});
+
+// ---- retest fixes (Taylor, 4317c6a)
+import { loadPdfjs } from '../../app/lib/packetPdfText.js';
+import { unconfirmedBank } from '../../app/lib/packetMapperModel.js';
+test('pdfjs runs with the in-process worker (no worker file lookup)', async () => {
+  await loadPdfjs();
+  assert.equal(typeof globalThis.pdfjsWorker?.WorkerMessageHandler, 'function');
+  assert.equal((await extractPdf(await fakePdf())).hasText, true);
+});
+test('process: reader throws → manual mapping (read_failed), never error', async () => {
+  const sb = fakeSb({ packet: pkt(), pdf: await fakePdf() });
+  const o = await processPacket({ sb, packetId: PID, reader: createPacketReader({ apiKey: '' }), extract: async () => { throw new Error('Setting up fake worker failed'); } });
+  assert.deepEqual(o, { manual: 'read_failed', fields: 0 });
+  assert.equal(sb.tbl.packets[0].status, 'review'); assert.equal(sb.tbl.packets[0].manual_reason, 'read_failed');
+});
+test('mapper: DOT "12AB" flagged on edit and colours the box; fixing it clears', () => {
+  let f = { id: 'd', page: 1, kind: 'text', box: [0, 0, 9, 9], profile_key: 'dot_number', value: '', check: null };
+  f = updateField(f, { value: '12AB' }); assert.equal(f.check.ok, false); assert.equal(fieldState(f), 'check');
+  f = updateField(f, { value: '1234567' }); assert.equal(fieldState(f), 'ok');
+  f = updateField({ ...f, profile_key: null, value: '12AB' }, { profile_key: 'dot_number' }); assert.equal(fieldState(f), 'check');
+  let b = updateField({ id: 'r', page: 1, kind: 'text', box: [0, 0, 9, 9], profile_key: 'bank_routing', value: '' }, { value: '011000016' });
+  assert.equal(fieldState(b), 'check');
+});
+test('mapper: unconfirmed bank numbers block save; confirmed or empty do not', () => {
+  const fs = [{ profile_key: 'bank_routing', value: '011000015', confirmed: false }, { profile_key: 'bank_account', has_value: true, value: '•••0000', confirmed: true }, { profile_key: 'bank_account', value: '', confirmed: false }, { profile_key: 'legal_name', value: 'x' }];
+  assert.equal(unconfirmedBank(fs).length, 1);
+  assert.equal(unconfirmedBank([{ profile_key: 'bank_routing', has_value: true, value: '•••0015', confirmed: false }]).length, 1);
 });

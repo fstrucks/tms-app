@@ -4,7 +4,7 @@ alter table public.packets add column if not exists processing_started_at timest
 alter table public.packets add column if not exists page_count int;
 alter table public.packets add column if not exists has_text_layer boolean;
 alter table public.packets add column if not exists manual_reason text
-  check (manual_reason is null or manual_reason in ('no_text_layer', 'too_many_pages', 'timeout', 'reader_error', 'no_fields'));
+  check (manual_reason is null or manual_reason in ('no_text_layer', 'too_many_pages', 'timeout', 'reader_error', 'no_fields', 'read_failed'));
 alter table public.packets add column if not exists process_error text;
 
 -- Values the user enters or confirms. Bank/EIN values are AES-256-GCM ciphertext (server-side key); never plaintext.

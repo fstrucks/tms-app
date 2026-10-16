@@ -1,3 +1,4 @@
+import { checkValue } from './packetValues.js';
 // Pure state helpers for the manual-mapping screen (unit-tested; no React).
 export const KEY_LABELS = {
   legal_name: 'Legal name', dba_name: 'DBA name', mc_number: 'MC number', dot_number: 'USDOT number', address_line1: 'Address', address_line2: 'Address line 2',
@@ -10,6 +11,7 @@ export const NEW_BOX = [0, 0, 560, 36]; // px at 200 dpi (~2.8in × 0.18in)
 
 export function fieldState(f) {
   if (!f.profile_key) return 'unmapped';
+  if (f.check && !f.check.ok && BANK.has(f.profile_key)) return 'check';
   if (BANK.has(f.profile_key) && !f.confirmed) return 'confirm';
   if (f.check && !f.check.ok) return 'check';
   return 'ok';
@@ -51,12 +53,21 @@ export function updateField(f, patch) {
   if ('profile_key' in patch && patch.profile_key !== f.profile_key) { n.confirmed = false; if (SENSITIVE.has(patch.profile_key) !== SENSITIVE.has(f.profile_key)) { n.value = ''; n.valueDirty = false; } }
   if ('confirmed' in patch) n.confirmDirty = true;
   n.needs_confirm = BANK.has(n.profile_key);
+  // Re-run the format check on every value/name edit so the box colour follows what's typed.
+  if ('value' in patch || 'profile_key' in patch) n.check = n.profile_key && !SENSITIVE.has(n.profile_key) && n.value ? checkValue(n.profile_key, n.value) : null;
+  if (BANK.has(n.profile_key) && n.valueDirty && n.value) { const c = checkValue(n.profile_key, String(n.value).replace(/[\s-]/g, '')); n.check = c.ok ? null : c; }
   return n;
 }
 export const MANUAL_REASONS = {
   no_text_layer: 'This looks like a scanned packet (no text layer), so fields weren’t found automatically. Tap “Add field” to place them.',
   too_many_pages: 'Only the first pages were scanned for fields. Add any missing fields by hand.',
+  read_failed: 'This PDF couldn’t be read automatically. Tap “Add field” to place fields by hand.',
   timeout: 'Field naming took too long, so fields are unnamed. Pick a name for each one.',
   reader_error: 'Automatic naming failed, so fields are unnamed. Pick a name for each one.',
   no_fields: 'No blank fields were found. Tap “Add field” to place them.',
 };
+
+// Bank fields with a number (typed now or saved before) that aren't confirmed block Save.
+export function unconfirmedBank(fields) {
+  return fields.filter((f) => BANK.has(f.profile_key) && (f.value || f.has_value) && !f.confirmed);
+}

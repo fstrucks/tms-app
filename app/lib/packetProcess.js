@@ -29,9 +29,15 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
   const finish = (patch) => sb.from('packets').update({ ...patch, processed_at: new Date(now()).toISOString(), updated_at: new Date(now()).toISOString() }).eq('id', packetId);
   try {
     const { data: file, error: dErr } = await sb.storage.from('documents').download(pk.file_path);
-    if (dErr || !file) throw new Error('download failed');
+    if (dErr || !file) throw new Error('download failed: ' + (dErr?.message || 'no file').slice(0, 120));
     const bytes = Buffer.from(await file.arrayBuffer());
-    const ex = await extract(bytes, { deadline: start + budgetMs * 0.5 });
+    let ex;
+    try { ex = await extract(bytes, { deadline: start + budgetMs * 0.5 }); } catch (e) {
+      // Couldn't read the PDF (damaged, encrypted, or a reader problem): never dead-end the user — manual mapping.
+      console.error('[packets] read failed', String(e?.message || e).slice(0, 200));
+      await finish({ status: 'review', manual_reason: 'read_failed', process_error: String(e?.message || e).slice(0, 200) });
+      return { manual: 'read_failed', fields: 0 };
+    }
     const base = { page_count: ex.pageCount, has_text_layer: ex.hasText };
     if (!ex.hasText) { await finish({ ...base, status: 'review', manual_reason: 'no_text_layer' }); return { manual: 'no_text_layer', fields: 0 }; }
     // Naming gets what's left of the budget; on timeout we keep the unnamed local fields.

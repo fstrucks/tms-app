@@ -2,7 +2,7 @@
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
-import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, MANUAL_REASONS } from '../lib/packetMapperModel';
+import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, MANUAL_REASONS, unconfirmedBank } from '../lib/packetMapperModel';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -52,14 +52,20 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     const f = { id, field_key: `u-${id.slice(4)}`, page, kind: 'text', label: '', box: placeBox(x, y, img.w, img.h), profile_key: null, value: '', confirmed: false, page_w: img.w, page_h: img.h, dirty: true, source: 'user' };
     setFields((fs) => [...fs, f]); setSel(id); setPlacing(false);
   }
+  const blockers = unconfirmedBank(fields);
   async function save() {
-    const unconfirmed = fields.filter((f) => BANK.has(f.profile_key) && f.valueDirty && f.value && !f.confirmed);
+    if (blockers.length) { // bank numbers must be confirmed before anything is saved
+      const b = blockers[0]; setPage(b.page); setSel(b.id);
+      return setMsg(`Confirm the ${KEY_LABELS[b.profile_key].toLowerCase()} first: tick “I checked this number” (or clear the number).`);
+    }
+    const bad = fields.find((f) => f.dirty && BANK.has(f.profile_key) && f.check && !f.check.ok);
+    if (bad) { setPage(bad.page); setSel(bad.id); return setMsg(bad.check.message); }
     setBusy(true); setMsg(null);
     const r = await onSave(buildPatch(fields, deleted));
     setBusy(false);
     if (r?.error) return setMsg(r.error);
     if (r?.errors?.length) setMsg(r.errors.map((x) => x.error).join(' · '));
-    else setMsg(unconfirmed.length ? 'Saved. Bank numbers still need your confirmation.' : 'Saved.');
+    else setMsg('Saved.');
     if (r?.fields) { setFields(r.fields); setDeleted([]); setSel(null); }
   }
 
@@ -113,8 +119,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
       {canEdit && <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
-          {msg && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>}
-          <button style={{ ...s.primary, opacity: dirty && !busy ? 1 : 0.5 }} disabled={!dirty || busy} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
+          {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
+            : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
+          <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
         </div>
       </div>}
     </main>

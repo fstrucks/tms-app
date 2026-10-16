@@ -31,6 +31,13 @@ export default function PacketsPage() {
     setSt({ user, ownerId, rows: rows || [] });
   }
   useEffect(() => { load(); }, []);
+  // Poll while detection is pending (every 4s, up to ~3 min) so status updates without a reload.
+  const pending = (st.rows || []).some((r) => r.status === 'received' || r.status === 'processing');
+  useEffect(() => {
+    if (!pending) return;
+    let n = 0; const t = setInterval(() => { if (++n > 45 || document.hidden) return n > 45 && clearInterval(t); load(); }, 4000);
+    return () => clearInterval(t);
+  }, [pending]);
 
   async function onFile(e) {
     const f = e.target.files?.[0]; e.target.value = '';
