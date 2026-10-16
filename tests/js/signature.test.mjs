@@ -80,3 +80,26 @@ test('/dev/signature QA route exists and is gated off in production', () => {
   const qa = readFileSync(new URL('../../app/dev/signature/SignatureQA.js', import.meta.url), 'utf8');
   for (const s of ['SignaturePad', 'onCancel', 'Cancelled', 'signedAt', '<img']) assert.ok(qa.includes(s), s);
 });
+
+test('script font is self-hosted Dancing Script (OFL) with no external font URL', () => {
+  const dir = new URL('../../app/fonts/dancing-script/', import.meta.url);
+  const woff2 = readFileSync(new URL('DancingScript-Variable.woff2', dir));
+  assert.equal(woff2.subarray(0, 4).toString('latin1'), 'wOF2');
+  assert.ok(woff2.length > 10000);
+  const ofl = readFileSync(new URL('OFL.txt', dir), 'utf8');
+  assert.match(ofl, /SIL OPEN FONT LICENSE Version 1\.1/i);
+  assert.match(ofl, /Dancing Script/);
+  const src = readFileSync(new URL('../../app/components/SignaturePad.js', import.meta.url), 'utf8');
+  assert.match(src, /from 'next\/font\/local'/);
+  assert.ok(src.includes('DancingScript-Variable.woff2'));
+  assert.ok(src.includes('cursive'));
+  assert.match(src, /document\.fonts\??\.load\(/);
+  assert.doesNotMatch(src, /fonts\.googleapis|fonts\.gstatic|next\/font\/google|https?:\/\//);
+});
+
+test('Taylor nits: willReadFrequently and resize notice only after drawing', () => {
+  const src = readFileSync(new URL('../../app/components/SignaturePad.js', import.meta.url), 'utf8');
+  assert.ok(src.includes("getContext('2d', { willReadFrequently: true })"));
+  assert.ok(!/getContext\('2d'\)\s*[;.]/.test(src.replace(/out\.getContext\('2d'\)/g, '')));
+  assert.match(src, /if \(resized && drawnRef\.current\) setNotice\('Pad resized/);
+});

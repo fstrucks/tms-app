@@ -7,9 +7,18 @@
 // Not wired into packets/PDF yet (Alex integrates).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import localFont from 'next/font/local';
 import { buildSignaturePayload, canFinish, cleanSignerName, findInkBounds, midpoint, SIGNER_NAME_MAX } from '../lib/signature.js';
 
-const SCRIPT_FONT = '"Segoe Script", "Brush Script MT", "Snell Roundhand", "Apple Chancery", "Lucida Handwriting", cursive';
+// Dancing Script (SIL OFL 1.1, app/fonts/dancing-script/OFL.txt), self-hosted via next/font/local; no CDN at runtime.
+const dancing = localFont({
+  src: '../fonts/dancing-script/DancingScript-Variable.woff2',
+  weight: '400 700',
+  display: 'swap',
+  fallback: ['Segoe Script', 'Brush Script MT', 'Snell Roundhand', 'Apple Chancery', 'Lucida Handwriting', 'cursive'],
+});
+// Canvas font string; dancing.style.fontFamily already includes the cursive fallbacks above.
+const scriptFont = (size) => `500 ${size}px ${dancing.style.fontFamily}`;
 const PAD_HEIGHT = 180;
 const INK = '#111827';
 const btn = { minHeight: 44, minWidth: 44, padding: '0 1rem', borderRadius: 10, fontSize: 16, fontWeight: 600, cursor: 'pointer' };
@@ -23,10 +32,17 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
   const [signerName, setSignerName] = useState(initialName);
   const [hasInk, setHasInk] = useState(false);
   const [notice, setNotice] = useState('');
+  const drawnRef = useRef(false); // true only when ink was drawn by hand (not typed)
+  const renderSeq = useRef(0);
 
-  const ctx = () => canvasRef.current?.getContext('2d');
+  // willReadFrequently: Done reads pixels back with getImageData.
+  const ctx = () => canvasRef.current?.getContext('2d', { willReadFrequently: true });
 
-  const renderTyped = useCallback(() => {
+  // Waits for the bundled script font before drawing (falls back to cursive if it fails to load).
+  const renderTyped = useCallback(async () => {
+    const seq = ++renderSeq.current;
+    try { await document.fonts?.load(scriptFont(56), cleanSignerName(signerName) || 'Signature'); } catch {}
+    if (seq !== renderSeq.current) return;
     const c = canvasRef.current, g = ctx();
     if (!c || !g) return;
     const w = c.width / (window.devicePixelRatio || 1);
@@ -34,8 +50,8 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
     const text = cleanSignerName(signerName);
     if (!text) return;
     let size = 56;
-    g.font = `${size}px ${SCRIPT_FONT}`;
-    while (size > 18 && g.measureText(text).width > w - 32) { size -= 2; g.font = `${size}px ${SCRIPT_FONT}`; }
+    g.font = scriptFont(size);
+    while (size > 18 && g.measureText(text).width > w - 32) { size -= 2; g.font = scriptFont(size); }
     g.fillStyle = INK;
     g.textBaseline = 'middle';
     g.textAlign = 'center';
@@ -57,7 +73,10 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
     const g = ctx();
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = 2.5; g.strokeStyle = INK;
-    setHasInk((had) => { if (had && resized) setNotice('Pad resized — please sign again.'); return false; });
+    // Only tell the user to re-sign if they had actually drawn something; typed signatures re-render.
+    if (resized && drawnRef.current) setNotice('Pad resized — please sign again.');
+    drawnRef.current = false;
+    setHasInk(false);
   }, []);
 
   useEffect(() => {
@@ -83,6 +102,7 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
     const g = ctx();
     g.beginPath(); g.arc(p.x, p.y, g.lineWidth / 2, 0, Math.PI * 2); g.fillStyle = INK; g.fill();
     drawing.current = { last: p, mid: p, id: e.pointerId };
+    drawnRef.current = true;
     setNotice('');
     setHasInk(true);
   };
@@ -111,6 +131,7 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
     const c = canvasRef.current;
     ctx()?.clearRect(0, 0, c.width, c.height);
     drawing.current = null;
+    drawnRef.current = false;
     setHasInk(false); setNotice('');
     if (method === 'type') setSignerName('');
   };
@@ -119,14 +140,15 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
     if (m === method) return;
     const c = canvasRef.current;
     ctx()?.clearRect(0, 0, c.width, c.height);
+    drawnRef.current = false;
     setHasInk(false); setNotice(''); setMethod(m);
   };
 
   const ready = canFinish({ signerName, method, hasInk });
 
-  const done = () => {
+  const done = async () => {
     if (!ready) return;
-    if (method === 'type') renderTyped();
+    if (method === 'type') await renderTyped();
     const c = canvasRef.current;
     const img = ctx().getImageData(0, 0, c.width, c.height);
     const dpr = window.devicePixelRatio || 1;
