@@ -65,6 +65,13 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const [signedOut, setSignedOut] = useState(false);
   const store = typeof window !== 'undefined' ? window.sessionStorage : null;
   const wrap = useRef(null);
+  const bar = useRef(null);
+  const [barH, setBarH] = useState(0); // live height of the sticky Discard/Save bar, so content never ends up under it
+  useEffect(() => {
+    const el = bar.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight)); ro.observe(el); setBarH(el.offsetHeight);
+    return () => ro.disconnect();
+  });
   const [dispW, setDispW] = useState(0);
   const [zoom, setZoom] = useState(1);
   useEffect(() => { // track the page's displayed width so boxes scale with it (rotation, resize)
@@ -216,7 +223,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   }
 
   return (
-    <main style={s.main}>
+    <main style={{ ...s.main, paddingBottom: `calc(${Math.max(110, barH + 16)}px + var(--nav-h, 0px) + env(safe-area-inset-bottom))` }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
       <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
@@ -264,7 +271,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       </div>
 
       {signedOut && <p role="alert" style={{ ...s.banner, background: '#fef2f2', borderColor: '#fca5a5' }}>You were signed out. <a href={loginHref}>Sign in again</a>. Your unsaved changes are kept on this device and come back after you sign in.</p>}
-      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section aria-label="Signature options" style={{ border: '2px solid #059669', borderRadius: 12, padding: '0.75rem', margin: '0.75rem 0', background: '#f0fdf4' }}>
+      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section role="dialog" aria-label="Signature options" data-testid="sig-sheet" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 60, maxWidth: 560, margin: '0 auto', boxSizing: 'border-box', border: '2px solid #059669', borderBottom: 'none', borderRadius: '12px 12px 0 0', padding: '0.75rem', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))', background: '#f0fdf4', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
         <p style={{ margin: '0 0 0.5rem' }}>Signed by <strong>{f.signer_name || 'signer'}</strong>{f.signed_at ? ` on ${formatPacketDate(f.signed_at)}` : ''}.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={{ ...s.btn, flex: 1 }} onClick={() => reSign(f.id)} disabled={busy}>Re-sign</button>
@@ -283,7 +290,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
           <span style={s.chip(STATE_COLORS[st])}>{STATE_TEXT[st]}</span></button>;
       })}
 
-      {canEdit && <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
+      {canEdit && <div ref={bar} style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
