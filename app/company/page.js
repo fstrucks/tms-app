@@ -36,7 +36,7 @@ export default function CompanyProfilePage() {
     const { data } = await sb.auth.getSession();
     const token = data?.session?.access_token;
     if (!token) { const e = new Error('Sign in to see your company profile.'); e.signedOut = true; throw e; }
-    const r = await fetch('/api/company-profile', { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch('/api/company-profile', { method, cache: 'no-store', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { const e = new Error(j.error || 'Something went wrong.'); e.errors = j.errors; throw e; }
     return j;

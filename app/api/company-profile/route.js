@@ -1,11 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadKey, PacketKeyError } from '../../lib/packetCrypto';
 import { buildRow, validateProfile, publicProfile } from '../../lib/companyProfile';
+import { saveProfile, saveErrorMessage } from '../../lib/companyProfileSave';
 import { roleFor, canEdit, canSign } from '../../lib/companyRoles';
+import { noStoreFetch } from '../../lib/noStoreFetch';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const json = (body, status = 200) => Response.json(body, { status });
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 
 // Uses the caller's own token so RLS applies; no service role here.
 async function ctx(req) {
@@ -13,7 +17,7 @@ async function ctx(req) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return { err: json({ error: 'Supabase is not configured.' }, 500) };
   if (!token) return { err: json({ error: 'Sign in first.' }, 401) };
-  const sb = createClient(url, anon, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } });
+  const sb = createClient(url, anon, { global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch }, auth: { persistSession: false } });
   const { data: u } = await sb.auth.getUser(token);
   if (!u?.user) return { err: json({ error: 'Your sign-in expired. Please sign in again.' }, 401) };
   const { data: members } = await sb.from('company_members').select('profile_id,user_id,role').eq('user_id', u.user.id);
@@ -45,10 +49,11 @@ export async function PUT(req) {
     if (!String(body.signer_name ?? c.profile?.signer_name ?? '').trim()) return json({ error: 'Enter the authorized signer name first.', errors: { signer_name: 'Required to sign.' } }, 422);
     Object.assign(row, { signature_path: path, signed_by: c.user.id, signed_at: new Date().toISOString() });
   }
-  const q = c.profile
-    ? c.sb.from('company_profiles').update(row).eq('id', c.profile.id).select('*').single()
-    : c.sb.from('company_profiles').insert({ ...row, owner_id: c.user.id }).select('*').single();
-  const { data, error } = await q;
-  if (error) { console.error('[company-profile] save', error.code); return json({ error: 'Could not save the company profile.' }, 500); }
+  const { data, error } = await saveProfile(c, row);
+  if (error) {
+    console.error('[company-profile] save', error.code, error.message);
+    return json({ error: saveErrorMessage(error) }, error.code === '42501' ? 403 : 500);
+  }
   return json({ profile: publicProfile(data), role: c.role, canEdit: true, canSign: canSign(c.role) });
 }
+
