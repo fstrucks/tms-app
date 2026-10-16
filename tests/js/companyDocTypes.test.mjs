@@ -1,4 +1,4 @@
-// Marc 10/15: load-page scans offer BOL/POD only; W-9 / COI / MC Authority are company docs -> Load defaults to "No load".
+// Marc 10/15: load-page scans offer BOL/POD/Lumper; W-9 / COI / MC Authority are company docs -> Load defaults to "No load". Other stays off the load page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,8 +26,9 @@ test('upload label still follows the type', () => {
   assert.equal(uploadButtonLabel('bol'), 'Upload BOL');
 });
 
-test('load page Scan BOL/POD offers BOL and POD only', () => {
-  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod']);
+test('load page Scan offers BOL, POD and Lumper receipt (Other stays off)', () => {
+  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod', 'lumper_receipt']);
+  assert.ok(!LOAD_SCAN_TYPE_IDS.includes('other'));
   assert.match(load, /<Scanner[\s\S]*?initialLoadId=\{load\.id\}\s*typeIds=\{LOAD_SCAN_TYPE_IDS\}/);
   assert.match(sc, /const baseTypes = typeIds \? SCAN_DOC_TYPES\.filter\(\(t\) => typeIds\.includes\(t\.id\)\) : SCAN_DOC_TYPES;/);
   assert.match(sc, /const typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.baseTypes\] : baseTypes;/);

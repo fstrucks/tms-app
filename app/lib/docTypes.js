@@ -14,8 +14,8 @@ export const SCAN_DOC_TYPES = [
 // Marc 10/15: company documents (not tied to a load). Picking one defaults Load to "No load".
 export const COMPANY_DOC_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => t.company).map((t) => t.id);
 export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id); }
-// Marc 10/15: a scan started from a load page (Scan BOL/POD) offers only BOL and POD.
-export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod'];
+// Marc 10/15 (updated via Sam): load-page Scan offers BOL, POD, and Lumper receipt. Other stays off the load page.
+export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt'];
 
 export const OTHER_PREFIX = 'other:';
 export const OTHER_MAX = 40;
