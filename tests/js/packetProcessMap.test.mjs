@@ -136,7 +136,7 @@ test('process: scan → manual no_text_layer; already claimed → skipped; reade
 test('process: unreadable file → manual mapping; failed download → error', async () => {
   const sb = fakeSb({ packet: pkt(), pdf: Buffer.from('not a pdf') });
   const o = await processPacket({ sb, packetId: PID, reader: createPacketReader({ apiKey: '' }) });
-  assert.equal(o.manual, 'read_failed'); assert.equal(sb.tbl.packets[0].status, 'review');
+  assert.equal(o.manual, 'reader_error'); assert.equal(sb.tbl.packets[0].status, 'review');
   const sb2 = fakeSb({ packet: pkt() }); sb2.storage = { from: () => ({ download: async () => ({ data: null, error: { message: 'Object not found' } }) }) };
   const o2 = await processPacket({ sb: sb2, packetId: PID });
   assert.match(o2.error, /download failed: Object not found/); assert.equal(sb2.tbl.packets[0].status, 'error');
@@ -204,11 +204,11 @@ test('pdfjs runs with the in-process worker (no worker file lookup)', async () =
   assert.equal(typeof globalThis.pdfjsWorker?.WorkerMessageHandler, 'function');
   assert.equal((await extractPdf(await fakePdf())).hasText, true);
 });
-test('process: reader throws → manual mapping (read_failed), never error', async () => {
+test('process: reader throws → manual mapping (reader_error), never error', async () => {
   const sb = fakeSb({ packet: pkt(), pdf: await fakePdf() });
   const o = await processPacket({ sb, packetId: PID, reader: createPacketReader({ apiKey: '' }), extract: async () => { throw new Error('Setting up fake worker failed'); } });
-  assert.deepEqual(o, { manual: 'read_failed', fields: 0 });
-  assert.equal(sb.tbl.packets[0].status, 'review'); assert.equal(sb.tbl.packets[0].manual_reason, 'read_failed');
+  assert.deepEqual(o, { manual: 'reader_error', fields: 0 });
+  assert.equal(sb.tbl.packets[0].status, 'review'); assert.equal(sb.tbl.packets[0].manual_reason, 'reader_error');
 });
 test('mapper: DOT "12AB" flagged on edit and colours the box; fixing it clears', () => {
   let f = { id: 'd', page: 1, kind: 'text', box: [0, 0, 9, 9], profile_key: 'dot_number', value: '', check: null };

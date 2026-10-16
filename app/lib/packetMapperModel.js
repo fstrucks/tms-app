@@ -63,7 +63,7 @@ export const MANUAL_REASONS = {
   too_many_pages: 'Only the first pages were scanned for fields. Add any missing fields by hand.',
   read_failed: 'This PDF couldn’t be read automatically. Tap “Add field” to place fields by hand.',
   timeout: 'Field naming took too long, so fields are unnamed. Pick a name for each one.',
-  reader_error: 'Automatic naming failed, so fields are unnamed. Pick a name for each one.',
+  reader_error: 'This PDF couldn’t be read or named automatically. Add fields or pick names by hand.',
   no_fields: 'No blank fields were found. Tap “Add field” to place them.',
 };
 

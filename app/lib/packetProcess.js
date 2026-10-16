@@ -35,8 +35,8 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
     try { ex = await extract(bytes, { deadline: start + budgetMs * 0.5 }); } catch (e) {
       // Couldn't read the PDF (damaged, encrypted, or a reader problem): never dead-end the user — manual mapping.
       console.error('[packets] read failed', String(e?.message || e).slice(0, 200));
-      await finish({ status: 'review', manual_reason: 'read_failed', process_error: String(e?.message || e).slice(0, 200) });
-      return { manual: 'read_failed', fields: 0 };
+      await finish({ status: 'review', manual_reason: 'reader_error', process_error: String(e?.message || e).slice(0, 200) });
+      return { manual: 'reader_error', fields: 0 };
     }
     const base = { page_count: ex.pageCount, has_text_layer: ex.hasText };
     if (!ex.hasText) { await finish({ ...base, status: 'review', manual_reason: 'no_text_layer' }); return { manual: 'no_text_layer', fields: 0 }; }
