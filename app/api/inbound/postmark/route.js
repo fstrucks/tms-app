@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
+import { processPacket } from '../../../lib/packetProcess';
 import { checkBasicAuth, parseInbound, packetPath } from '../../../lib/postmarkInbound';
 
 export const runtime = 'nodejs';
@@ -41,9 +43,11 @@ export async function POST(req, { deps } = {}) {
     const path = packetPath(ownerId, pdf.name, now, i);
     const { error: upErr } = await sb.storage.from('documents').upload(path, pdf.bytes, { contentType: 'application/pdf' });
     if (upErr) { console.error('[inbound] upload', upErr.message); continue; }
-    const { error: pErr } = await sb.from('packets').insert({ owner_id: ownerId, source: 'email', inbound_email_id: email.id, subject: mail.subject, file_path: path, original_filename: pdf.name, size_bytes: pdf.size, status: 'received' });
+    const { data: pRow, error: pErr } = await sb.from('packets').insert({ owner_id: ownerId, source: 'email', inbound_email_id: email.id, subject: mail.subject, file_path: path, original_filename: pdf.name, size_bytes: pdf.size, status: 'received' }).select('id').single();
     if (pErr) { await sb.storage.from('documents').remove([path]); console.error('[inbound] packet insert', pErr.code); continue; }
     created++;
+    // Detection runs after we answer Postmark (waitUntil keeps the function alive, within maxDuration).
+    if (pRow?.id) (deps?.waitUntil || waitUntil)((deps?.process || processPacket)({ sb, packetId: pRow.id }).catch(() => {}));
   }
   return json({ ok: true, matched: true, packets: created, rejected: mail.rejected.length });
 }
