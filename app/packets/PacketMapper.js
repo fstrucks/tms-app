@@ -2,6 +2,9 @@
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
+import SignaturePad from '../components/PacketSignaturePad';
+import { dragBox, isTap } from '../lib/packetDrag';
+import { signTarget } from '../lib/packetSignFlow';
 import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, MANUAL_REASONS, unconfirmedBank } from '../lib/packetMapperModel';
 
 const s = {
@@ -17,7 +20,7 @@ const s = {
 };
 const STATE_TEXT = { unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, signerName = '' }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -26,6 +29,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const [placing, setPlacing] = useState(false);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [signing, setSigning] = useState(null); // signature field id being signed
+  const [filled, setFilled] = useState(null); // { url, filename }
+  const drag = useRef(null);
   const wrap = useRef(null);
   const [dispW, setDispW] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -51,6 +57,51 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     const id = `tmp-${Date.now().toString(36)}`;
     const f = { id, field_key: `u-${id.slice(4)}`, page, kind: 'text', label: '', box: placeBox(x, y, img.w, img.h), profile_key: null, value: '', confirmed: false, page_w: img.w, page_h: img.h, dirty: true, source: 'user' };
     setFields((fs) => [...fs, f]); setSel(id); setPlacing(false);
+  }
+  // Drag to move / drag the corner handle to resize (mouse + touch via Pointer Events). Editors only.
+  function startDrag(e, f, mode) {
+    e.stopPropagation();
+    if (placing) return;
+    if (!canEdit) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { id: f.id, mode, x: e.clientX, y: e.clientY, box: f.box, moved: false };
+  }
+  function moveDrag(e) {
+    const d = drag.current; if (!d || !img) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && isTap(dx, dy)) return;
+    d.moved = true;
+    set(d.id, { box: dragBox(d.box, d.mode, dx / scale, dy / scale, img.w, img.h) });
+  }
+  function endDrag(e, f) {
+    const d = drag.current; drag.current = null;
+    if (d && d.moved) { e.stopPropagation(); return; }
+    tapField(f);
+  }
+  function tapField(f) {
+    if (placing) return;
+    setSel(f.id);
+    if (!canEdit || !onSign) return;
+    const t = signTarget(fields, f);
+    if (!t) return;
+    if (t.error) return setMsg(t.error);
+    if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save your changes first, then tap the signature field to sign.');
+    setSigning(t.id);
+  }
+  async function doSign(r) {
+    const id = signing; setSigning(null); setBusy(true); setMsg(null);
+    const res = await onSign({ fieldId: id, ...r });
+    setBusy(false);
+    if (res?.error) return setMsg(res.error);
+    if (res?.fields) setFields(res.fields);
+    setMsg(`Signed by ${r.signerName}. Date filled: ${res.date}.`);
+  }
+  async function doFill() {
+    setBusy(true); setMsg(null); setFilled(null);
+    const res = await onFill();
+    setBusy(false);
+    if (res?.error) { if (res.missing?.[0]) { setPage(res.missing[0].page); setSel(res.missing[0].id); } return setMsg(res.error); }
+    setFilled({ url: res.url, filename: res.filename }); setMsg('Filled PDF saved.');
   }
   const blockers = unconfirmedBank(fields);
   async function save() {
@@ -95,9 +146,15 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
-          return <button key={f.id} aria-label={`${KEY_LABELS[f.profile_key] || f.label || 'Field'}: ${STATE_TEXT[st]}`} onClick={(e) => { e.stopPropagation(); if (!placing) setSel(f.id); }}
-            style={{ position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-            {f.kind === 'checkbox' ? '' : (f.value && !SENSITIVE.has(f.profile_key) ? f.value : KEY_LABELS[f.profile_key] || '')}
+          return <button key={f.id} data-field={f.id} aria-label={`${KEY_LABELS[f.profile_key] || f.label || 'Field'}: ${STATE_TEXT[st]}`}
+            onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
+            onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
+            onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => { drag.current = null; }}
+            style={{ touchAction: canEdit ? 'none' : 'auto', cursor: canEdit ? 'move' : 'pointer', position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            {f.kind === 'checkbox' ? '' : f.signed ? `✓ ${f.signer_name || 'Signed'}` : (f.value && !SENSITIVE.has(f.profile_key) ? f.value : KEY_LABELS[f.profile_key] || '')}
+            {canEdit && sel === f.id && <span role="presentation" data-resize={f.id} onPointerDown={(e) => startDrag(e, f, 'resize')} onPointerMove={moveDrag}
+              onPointerUp={(e) => { e.stopPropagation(); drag.current = null; }}
+              style={{ position: 'absolute', right: -2, bottom: -2, width: 18, height: 18, background: STATE_COLORS[st], borderRadius: 3, touchAction: 'none', cursor: 'nwse-resize' }} />}
           </button>;
         })}
       </div>
@@ -106,6 +163,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <button style={{ ...s.btn, minHeight: 36, fontSize: 14 }} onClick={() => setZoom((z) => (z === 1 ? 2.5 : 1))}>{zoom === 1 ? '🔍 Zoom in' : 'Fit to width'}</button>
       </div>
 
+      {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => setSigning(null)} />}
       {cur && <FieldEditor f={cur} canEdit={canEdit} onChange={(p) => set(cur.id, p)} onClose={() => setSel(null)} img={img}
         onDelete={() => { setDeleted((d) => [...d, cur.id]); setFields((fs) => fs.filter((x) => x.id !== cur.id)); setSel(null); }} />}
 
@@ -121,7 +179,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
-          <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
+          {filled?.url && <p style={{ margin: '0 0 0.4rem', fontSize: 15 }}><a href={filled.url} download={filled.filename}>⬇ Download filled PDF</a></p>}
+          {dirty || !onFill
+            ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
+            : <button style={{ ...s.primary, background: '#059669', opacity: busy || blockers.length ? 0.5 : 1 }} disabled={busy || blockers.length > 0} onClick={doFill}>{busy ? 'Working…' : 'Fill & download PDF'}</button>}
         </div>
       </div>}
     </main>
