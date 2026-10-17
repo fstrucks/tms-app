@@ -29,4 +29,7 @@ export function layoutBanner(info, { canEdit = false, placed = 0, tz } = {}) {
   }
   return null;
 }
-export const placedCount = (fields = []) => fields.filter((f) => f.source === 'layout').length;
+// Fields that came from the saved layout, including ones edited since (an edit, e.g. "Left blank", turns the row's
+// source into 'user' but keeps its lay-… key), so the banner count matches the field summary (QA r2 C).
+export const isLayoutPlaced = (f) => !!f && (f.source === 'layout' || /^lay-p\d+-\d+$/.test(String(f.field_key || '')));
+export const placedCount = (fields = []) => fields.filter(isLayoutPlaced).length;

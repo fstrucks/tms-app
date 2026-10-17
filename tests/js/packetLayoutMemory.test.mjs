@@ -611,3 +611,111 @@ test('QA D: banner re-read when processing finishes (no reload); upload starts p
   assert.equal(res.status, 202); assert.deepEqual(await res.json(), { started: true });
   assert.equal(jobs.length, 1); await jobs[0]; assert.equal(ran, true);
 });
+
+// ===================== Taylor's round-2 retest on #68 (2026-10-17). FAKE data only. =====================
+import { detectPage, LABEL_REACH_PX } from '../../app/lib/packetDetect.js';
+import { GET as FIELDS_GET, pkt as fieldsPacket } from '../../app/api/packets/[id]/fields/route.js';
+import { fillReusable, findReusableFill, fillWithRetry, lastFieldChange, RECENT_FILL_MS } from '../../app/lib/packetFillRetry.js';
+import { isLayoutPlaced } from '../../app/lib/packetLayoutBanner.js';
+
+// Taylor's rev-2 PDF: labels at the left margin, blanks starting ~2 in. to the right (556 px at 200 dpi).
+async function acmeWidePdf({ labels = V2_LABELS } = {}) {
+  const d = await PDFDocument.create(); const f = await d.embedFont(StandardFonts.Helvetica); const b = await d.embedFont(StandardFonts.HelveticaBold);
+  const p = d.addPage([612, 792]);
+  p.drawText('TEST ONLY - FAKE BROKER "Acme Test Logistics" - NOT A REAL PACKET', { x: 60, y: 750, size: 10, font: b });
+  p.drawText('Carrier Setup Form (rev 2)', { x: 60, y: 724, size: 16, font: b });
+  labels.forEach((lab, i) => { p.drawText(lab, { x: 60, y: 660 - i * 40, size: 9, font: f }); p.drawText('_'.repeat(40), { x: 200, y: 660 - i * 40, size: 9, font: f }); });
+  return Buffer.from(await d.save());
+}
+
+test('QA r2 A root cause: labels more than 300 px left of the blank were cut to "" / "agent:" → no label could match last time', async () => {
+  const ex = await extractPdf(await acmeWidePdf());
+  const { detectPacket } = await import('../../app/lib/packetDetect.js');
+  const labels = detectPacket(ex.pages).map((x) => x.label);
+  assert.deepEqual(labels, V2_LABELS); // before the fix: ['', 'agent:', '', '', 'name:', '', '', '', 'contact:']
+  // Reach stops at the end of another blank on the same row (two-column forms keep their own labels).
+  const words = [{ text: 'Name:', left: 100, top: 190, width: 80, height: 20 }, { text: 'Phone:', left: 900, top: 190, width: 90, height: 20 }];
+  const lines = [{ x: 200, y: 210, w: 600, h: 2 }, { x: 1000, y: 210, w: 500, h: 2 }];
+  assert.deepEqual(detectPage({ page: 1, size: [1700, 2200], words, lines }).map((x) => x.label), ['Name:', 'Phone:']);
+  const far = detectPage({ page: 1, size: [1700, 2200], words: [{ text: 'Far:', left: 100, top: 190, width: 50, height: 20 }], lines: [{ x: 100 + LABEL_REACH_PX + 60, y: 210, w: 400, h: 2 }] });
+  assert.equal(far[0].label, ''); // beyond 3.5 in: not a label
+});
+
+test('QA r2 A: end to end — v1 learned, wide-gap rev 2 → "changed" + "Use 6 names from last time"; Find fields again recovers an old packet', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmeWidePdf());
+  const o = await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  assert.equal(o.layout.decision, 'changed');
+  const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(g.names, 6);
+  assert.equal(layoutBanner(g, { canEdit: true }).button, 'Use 6 names from last time');
+  // An old packet processed with the short labels (a919090e): its fields had no usable labels → no offer; a forced
+  // re-run (the new "Find fields again" button: POST /process?force=1&background=1, editors only) fixes it.
+  for (const r of sb.t.packet_fields.filter((x) => x.packet_id === pid(2))) r.label = r.label === 'Insurance agent:' ? 'agent:' : '';
+  assert.equal((await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json()).names, 0);
+  const jobs = [];
+  const pr = (role) => PROCESS_POST(new Request(`http://x/api/packets/${pid(2)}/process?force=1&background=1`, { method: 'POST', headers: { authorization: 'Bearer t' } }),
+    { params: { id: pid(2) }, deps: { sb, mkUserClient: uc(role), waitUntil: (p) => jobs.push(p), process: (args) => processPacket({ ...args, reader: spyReader() }) } });
+  assert.equal((await pr('driver')).status, 403);
+  assert.equal((await pr('dispatcher')).status, 202); await Promise.all(jobs);
+  assert.equal((await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json()).names, 6);
+  const m = readFileSync('app/packets/PacketMapper.js', 'utf8');
+  assert.match(m, />Find fields again<\/button>/); assert.match(m, /process\?force=1&background=1/);
+});
+
+test('QA r2 B root cause: GET /fields dropped broker_name from the packet, so the Broker field always opened empty', async () => {
+  const sb = await acmeLearned();
+  assert.equal(sb.t.packets[0].broker_name, 'Acme Test Logistics');
+  const r = await FIELDS_GET(new Request(`http://x/api/packets/${pid(1)}/fields`, { headers: { authorization: 'Bearer t' } }), { params: { id: pid(1) }, deps: { sb, mkUserClient: uc('owner') } });
+  const j = await r.json();
+  assert.equal(j.packet.broker_name, 'Acme Test Logistics');
+  for (const k of ['processed_at', 'layout_id', 'layout_applied_at', 'layout_dismissed_at']) assert.ok(k in j.packet, k);
+  assert.equal(fieldsPacket({ id: 'x' }).broker_name, null); // column absent → null, never undefined
+  // Saved names survive a reopen: PATCH writes packets.broker_name, GET /fields returns it.
+  const preq = new Request('http://x/api/packets/x', { method: 'PATCH', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify({ broker_name: 'Typed Fake Broker' }) });
+  await PACKET_PATCH(preq, { params: { id: pid(1) }, deps: { sb, mkUserClient: uc('owner'), rematch: async () => null } });
+  const j2 = await (await FIELDS_GET(new Request(`http://x/api/packets/${pid(1)}/fields`, { headers: { authorization: 'Bearer t' } }), { params: { id: pid(1) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(j2.packet.broker_name, 'Typed Fake Broker');
+});
+
+test('QA r2 C: a placed field edited to "Left blank" still counts as placed (banner 8 = summary 8)', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmePdf());
+  await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  const rows = sb.t.packet_fields.filter((x) => x.packet_id === pid(2));
+  rows.find((x) => x.label === 'Trailer number:').source = 'user'; // edit keeps the lay-… key
+  assert.equal(placedCount(rows), 8); assert.equal(rows.length, 8);
+  assert.match(layoutBanner({ available: true, state: 'applied', layout: { broker_name: 'Acme Test Logistics' } }, { canEdit: true, placed: placedCount(rows) }).text, /8 fields placed/);
+  assert.equal(isLayoutPlaced({ source: 'user', field_key: 'u-abc' }), false); // fields the user added aren't "placed"
+});
+
+test('QA r2 D: Fill retry — one automatic retry on a dropped connection, reusing a fill that just finished (no double fill)', async () => {
+  const now = Date.parse('2026-10-17T19:00:00Z');
+  const iso = (dt) => new Date(now + dt).toISOString();
+  const rows = [{ updated_at: iso(-60_000) }, { signed_at: iso(-30_000) }];
+  assert.equal(lastFieldChange(rows), now - 30_000);
+  assert.equal(fillReusable({ filled_path: 'f.pdf', filled_at: iso(-5_000) }, rows, now), true);
+  assert.equal(fillReusable({ filled_path: 'f.pdf', filled_at: iso(-40_000) }, rows, now), false); // signed after that fill
+  assert.equal(fillReusable({ filled_path: 'f.pdf', filled_at: iso(-RECENT_FILL_MS - 1) }, [], now), false);
+  assert.equal(fillReusable({ filled_path: null, filled_at: iso(-1000) }, [], now), false);
+  // The first attempt is still running when the retry arrives: the retry waits for it instead of filling again.
+  let t = now, reads = 0;
+  const sb = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => { reads++; return { data: reads >= 3 ? { id: 'p', filled_path: 'f2.pdf', filled_at: new Date(t).toISOString() } : { id: 'p' } }; } }) }) }) };
+  const got = await findReusableFill(sb, { id: 'p' }, rows, { now: () => t, sleep: async (ms) => { t += ms; } });
+  assert.equal(got.filled_path, 'f2.pdf');
+  t = now; reads = -100; // nothing ever lands → fill normally after the wait
+  assert.equal(await findReusableFill(sb, { id: 'p' }, rows, { now: () => t, sleep: async (ms) => { t += ms; } }), null);
+  // Client: retries only a network drop (status 0), once, with ?retry=1.
+  const seen = [];
+  const res = await fillWithRetry(async (retry) => { seen.push(retry); return retry ? { ok: true, url: 'u' } : { error: 'Network problem.', status: 0 }; }, { sleep: async () => {} });
+  assert.deepEqual(seen, [false, true]); assert.equal(res.ok, true);
+  const seen2 = [];
+  await fillWithRetry(async (r) => { seen2.push(r); return { error: 'Sign the signature field first.', status: 409 }; }, { sleep: async () => {} });
+  assert.deepEqual(seen2, [false]);
+  const both = await fillWithRetry(async () => ({ error: 'x', status: 0 }), { sleep: async () => {} });
+  assert.match(both.error, /tap Fill again/);
+  const page = readFileSync('app/packets/[id]/page.js', 'utf8');
+  assert.match(page, /fillWithRetry\(\(retry\) => api\(`\/api\/packets\/\$\{id\}\/fill\$\{retry \? '\?retry=1' : ''\}`/);
+  const route = readFileSync('app/api/packets/[id]/fill/route.js', 'utf8');
+  assert.match(route, /searchParams\.get\('retry'\) === '1'/); assert.match(route, /reused: true/);
+});

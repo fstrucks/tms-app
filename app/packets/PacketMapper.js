@@ -29,6 +29,7 @@ const s = {
 };
 let defaultLayoutApi = null; // lazy: GET/POST /api/packets/[id]/layout with the signed-in session
 const layoutCall = (...a) => (defaultLayoutApi || (defaultLayoutApi = makeApi(() => getSupabase()?.auth))).call(...a);
+export const REDETECT_POLL_MS = [1500, 1500, 2000, 2000, 3000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 10000, 10000]; // ~75 s
 const DPI_PX = 200; // field boxes are px at 200 dpi
 const inches = (px) => Math.round((px / DPI_PX) * 100) / 100;
 // Text inside a box. Date fields with no value preview today's date (display only; fills on signing),
@@ -152,6 +153,29 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.')
       : action === 'names' ? `${r.named ?? 0} field name${r.named === 1 ? '' : 's'} copied from last time. Review them before filling.`
       : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
+  }
+  // "Find fields again" (editors): re-run detection + layout matching. User-made/edited fields are kept.
+  async function redetect() {
+    if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save or discard your changes first.');
+    if (typeof window !== 'undefined' && !window.confirm('Find fields again? Fields found automatically are replaced. Fields you added or edited are kept.')) return;
+    setBusy(true); setMsg('Finding fields…');
+    const before = (await layoutApi(`/api/packets/${packet.id}/fields`))?.packet?.processed_at || packet.processed_at || null;
+    // Runs on the server after the reply (a slow request can't be dropped mid-way); we poll until it's done.
+    const r = await layoutApi(`/api/packets/${packet.id}/process?force=1&background=1`, { method: 'POST' });
+    if (handle(r)) { setBusy(false); return; }
+    if (r?.error) { setBusy(false); return setMsg(r.error); }
+    let d = null;
+    for (const ms of REDETECT_POLL_MS) {
+      await new Promise((ok) => setTimeout(ok, ms));
+      d = await layoutApi(`/api/packets/${packet.id}/fields`);
+      if (d?.error || (d?.packet && d.packet.status !== 'processing' && d.packet.processed_at && d.packet.processed_at !== before)) break;
+    }
+    setBusy(false);
+    if (d?.error) return setMsg(d.error);
+    if (d?.fields) { base.current = d.fields; setFields(d.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
+    if (d?.packet && 'broker_name' in d.packet) setBrokerName(d.packet.broker_name || null);
+    setLayoutTick((n) => n + 1);
+    setMsg(d?.packet?.processed_at && d.packet.processed_at !== before ? `Fields found again: ${d?.fields?.length ?? 0}.` : 'Still finding fields. Reload in a minute to see them.');
   }
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
   useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
@@ -305,6 +329,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
       {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}
       {packet.status === 'error' && <p role="alert" style={s.banner}>Field detection failed. {canEdit ? 'You can add fields by hand or try again.' : ''}</p>}
+      {canEdit && packet.status !== 'processing' && packet.status !== 'received' && packet.status !== 'archived' && layoutApi
+        && <button type="button" data-testid="redetect" style={{ ...s.btn, minHeight: 40, fontSize: 14, margin: '0.25rem 0' }} disabled={busy} onClick={redetect}>Find fields again</button>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
         <span style={s.chip('#374151')}>{sum.total} fields</span>

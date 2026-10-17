@@ -7,6 +7,7 @@ import PacketSendBroker from '../PacketSendBroker';
 import PacketCoiRequest, { COI_FLAG } from '../PacketCoiRequest';
 import { loadPacketPdf } from '../../lib/packetPdfLoad';
 import { makeApi } from '../../lib/packetApi';
+import { fillWithRetry } from '../../lib/packetFillRetry';
 
 const DPI = 200;
 const PROCESS_POLL_MS = [1500, 2000, 3000, 3000, 5000, 5000, 8000, 8000, 10000, 10000, 10000, 10000, 15000, 15000]; // ~2 min
@@ -66,7 +67,9 @@ export default function PacketPage({ params }) {
   }, []);
   const onSave = useCallback((body) => api(`/api/packets/${id}/fields`, { method: 'PATCH', body: JSON.stringify(body) }), [id]);
   const onSign = useCallback((body) => api(`/api/packets/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }), [id]);
-  const onFill = useCallback(() => api(`/api/packets/${id}/fill`, { method: 'POST' }), [id]);
+  // One automatic retry if the connection drops (cold start / slow fill); the server reuses a fill that already
+  // finished, so a retry never fills twice.
+  const onFill = useCallback(() => fillWithRetry((retry) => api(`/api/packets/${id}/fill${retry ? '?retry=1' : ''}`, { method: 'POST' })), [id]);
   const onClearSig = useCallback((fieldId) => api(`/api/packets/${id}/sign`, { method: 'DELETE', body: JSON.stringify(fieldId ? { fieldId } : {}) }), [id]);
   const [filledAt, setFilledAt] = useState(null);
   const onFillTracked = useCallback(async () => { const r = await onFill(); if (r?.ok) setFilledAt(new Date().toISOString()); return r; }, [onFill]);
