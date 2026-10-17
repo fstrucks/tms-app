@@ -39,7 +39,7 @@ export async function POST(req, { params, deps } = {}) {
   }
   if (oldPath && oldPath !== path) await sb.storage.from('documents').remove([oldPath]); // re-sign replaces the old PNG
   const date = formatPacketDate(sig.signedAt);
-  for (const r of (rows || []).filter((r) => (r.kind === 'date' || r.profile_key === 'date') && !r.value_text)) {
+  for (const r of (rows || []).filter((r) => (r.kind === 'date' || r.profile_key === 'date') && r.profile_key !== 'skip' && !r.value_text)) {
     await sb.from('packet_fields').update({ value_text: date, updated_by: a.user.id }).eq('id', r.id).eq('packet_id', a.packet.id);
   }
   const { data: after } = await sb.from('packet_fields').select('*').eq('packet_id', a.packet.id).order('page').order('field_key');

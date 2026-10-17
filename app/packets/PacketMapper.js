@@ -1,14 +1,14 @@
 'use client';
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PROFILE_KEYS } from '../lib/packetReader';
+import { nameOptions, selectValue, keyFromSelect, isCustomKey, customName, customKey, CUSTOM_LABEL, SKIP_KEY } from '../lib/packetFieldNames';
 import SignaturePad from '../components/PacketSignaturePad';
 import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
-import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { KEY_LABELS, fieldName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
 
@@ -31,7 +31,8 @@ export function boxText(f) {
   if (f.kind === 'checkbox') return '';
   if ((f.kind === 'date' || f.profile_key === 'date') && !f.value) return `${formatPacketDate()} (on signing)`;
   if (f.value && !SENSITIVE.has(f.profile_key)) return f.value;
-  return KEY_LABELS[f.profile_key] || '';
+  if (f.profile_key === SKIP_KEY) return '';
+  return fieldName(f.profile_key);
 }
 // Inch box: free typing (empty allowed); applies valid numbers as typed, restores the real value on blur.
 function InchInput({ label, aria, step, px, onApply }) {
@@ -44,7 +45,7 @@ function InchInput({ label, aria, step, px, onApply }) {
     onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
     onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
 }
-const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
+const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
 export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
@@ -212,6 +213,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       const b = blockers[0]; setPage(b.page); setSel(b.id);
       return setMsg(`Confirm the ${KEY_LABELS[b.profile_key].toLowerCase()} first: tick “I checked this number” (or clear the number).`);
     }
+    const noName = fields.find((f) => f.dirty && isCustomKey(f.profile_key) && !customName(f.profile_key));
+    if (noName) { setPage(noName.page); setSel(noName.id); return setMsg('Type a name for the custom field (or pick another name) before saving.'); }
     const bad = fields.find((f) => f.dirty && BANK.has(f.profile_key) && f.check && !f.check.ok);
     if (bad) { setPage(bad.page); setSel(bad.id); return setMsg(bad.check.message); }
     setBusy(true); setMsg(null);
@@ -256,7 +259,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
-          return <button key={f.id} data-field={f.id} aria-label={`${KEY_LABELS[f.profile_key] || f.label || 'Field'}: ${STATE_TEXT[st]}`}
+          return <button key={f.id} data-field={f.id} aria-label={`${fieldName(f.profile_key) || f.label || 'Field'}: ${STATE_TEXT[st]}`}
             onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
             onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
             onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => stopDrag()}
@@ -293,7 +296,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       {onPage.length === 0 ? <p style={s.muted}>None yet.{canEdit && fields.length === 0 ? ` ${ADD_FIELD_HINT}` : ''}</p> : onPage.map((f) => {
         const st = fieldState(f);
         return <button key={f.id} onClick={() => setSel(f.id)} style={{ ...s.btn, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, textAlign: 'left' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{KEY_LABELS[f.profile_key] || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fieldName(f.profile_key) || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
           <span style={s.chip(STATE_COLORS[st])}>{STATE_TEXT[st]}</span></button>;
       })}
 
@@ -329,19 +332,26 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
         <strong>{f.label ? `“${f.label}”` : 'New field'}</strong>
         {(canEdit || !(f.kind === 'signature' || f.profile_key === 'signature')) && <button style={s.btn} onClick={onClose}>Done</button>}
       </div>
+      {canEdit && <p data-testid="editor-save-hint" style={{ ...s.muted, fontSize: 13, color: f.dirty ? '#92400e' : '#6b7280' }}>{f.dirty ? 'Changed. Tap Save changes at the bottom to keep it.' : 'Done closes this panel. Tap Save changes at the bottom to keep edits.'}</p>}
       {f.source === 'model' && f.confidence < 0.6 && <p style={{ ...s.muted, color: '#b45309' }}>Low confidence name. Please check it.</p>}
       <label style={s.lab} htmlFor="pf-key">Name</label>
-      <select id="pf-key" style={s.input} disabled={dis} value={f.profile_key || ''} onChange={(e) => onChange({ profile_key: e.target.value || null })}>
+      <select id="pf-key" style={s.input} disabled={dis} value={selectValue(f.profile_key)} onChange={(e) => onChange({ profile_key: keyFromSelect(e.target.value, f) })}>
         <option value="">Choose…</option>
-        {PROFILE_KEYS.filter((k) => k !== 'unknown').map((k) => <option key={k} value={k}>{KEY_LABELS[k]}</option>)}
+        {nameOptions(KEY_LABELS, f.kind).map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)}
       </select>
+      {isCustomKey(f.profile_key) && <>
+        <label style={s.lab} htmlFor="pf-custom">{CUSTOM_LABEL}</label>
+        <input id="pf-custom" style={s.input} disabled={dis} maxLength={60} placeholder="e.g. Dispatcher name" value={f.profile_key.slice(7)} onChange={(e) => onChange({ profile_key: customKey(e.target.value) })} />
+        {!customName(f.profile_key) && <p style={{ ...s.muted, color: '#b45309' }}>Type a name for this field.</p>}
+      </>}
+      {f.profile_key === SKIP_KEY && <p style={s.muted}>This field will be left blank on the filled PDF.</p>}
       <label style={s.lab} htmlFor="pf-kind">Type</label>
       <select id="pf-kind" style={s.input} disabled={dis} value={f.kind} onChange={(e) => onChange({ kind: e.target.value })}>
         <option value="text">Text</option><option value="date">Date</option><option value="checkbox">Checkbox</option><option value="signature">Signature</option>
       </select>
       <label style={s.lab} htmlFor="pf-label">Label on the form</label>
       <input id="pf-label" style={s.input} disabled={dis} value={f.label || ''} onChange={(e) => onChange({ label: e.target.value })} />
-      {f.kind !== 'signature' && f.kind !== 'checkbox' && <>
+      {f.kind !== 'signature' && f.kind !== 'checkbox' && f.profile_key !== SKIP_KEY && <>
         <label style={s.lab} htmlFor="pf-val">Value{sensitive ? ' (stored encrypted)' : ''}</label>
         <input id="pf-val" style={s.input} disabled={dis} value={f.value || ''} autoComplete="off" inputMode={bank ? 'numeric' : undefined}
           placeholder={sensitive && f.has_value ? 'Saved. Type to replace' : ''} onFocus={(e) => { if (sensitive && /^•/.test(e.target.value)) onChange({ value: '' }); }}

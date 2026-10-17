@@ -1,3 +1,4 @@
+import { isUnnamedKey } from './packetFieldNames.js';
 // One user-facing status per packet, shared by the /packets list and the packet page so they always agree.
 // The DB `status` column only tracks the pipeline (received → processing → review → sent / archived / error);
 // what the user sees also depends on the packet's fields (none yet? unsigned signatures?) and filled/sent times.
@@ -15,7 +16,7 @@ export const isPendingStatus = (status) => status === 'received' || status === '
 
 export const isSigFieldRow = (f) => f.kind === 'signature' || f.profile_key === 'signature';
 // Same rule as the packet page's orange "N need a name" badge (packetMapperModel fieldState → 'unmapped').
-export const isUnnamedField = (f) => !f.profile_key;
+export const isUnnamedField = (f) => isUnnamedKey(f.profile_key);
 // Field rows (DB rows with signature_path, or client fields with `signed`) → the counts the status needs.
 export function fieldSummary(fields = []) {
   const s = { fieldCount: 0, sigTotal: 0, sigSigned: 0, unnamed: 0 };
