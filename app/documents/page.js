@@ -3,6 +3,7 @@
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
+import { extractedWeightLb } from '../lib/loadWeight';
 import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
@@ -143,6 +144,13 @@ export default function DocumentsPage() {
       if (equip) {
         const { error: eqErr } = await supabase.from('loads').update({ equipment_type: equip }).eq('id', loadId).is('equipment_type', null);
         if (eqErr) console.error('[createLoad] equipment_type', eqErr);
+      }
+      // Same for the rate con weight → loads.weight (user-updatable column; no SQL needed). The Truck tab compares
+      // scale tickets with it. Best effort: a failure here never blocks the new load.
+      const wt = extractedWeightLb(doc.ai_extracted_data);
+      if (wt) {
+        const { error: wErr } = await supabase.from('loads').update({ weight: wt }).eq('id', loadId).is('weight', null);
+        if (wErr) console.error('[createLoad] weight', wErr);
       }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
       router.push(`/loads/${loadId}`);
@@ -457,6 +465,7 @@ function Summary({ x }) {
     ['Refs', x.reference_numbers?.length ? x.reference_numbers.join(', ') : null],
     ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
     ['Equipment', x.equipment_type],
+    ['Weight', extractedWeightLb(x) ? `${extractedWeightLb(x).toLocaleString('en-US')} lb` : null],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],

@@ -7,7 +7,7 @@ import AccountMenu from './ui/AccountMenu';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
-  { href: '/dashboard', label: 'Dashboard', short: 'Stats', icon: '📊', match: (p) => p.startsWith('/dashboard') || p.startsWith('/mileage') }, // Mileage lives inside Stats
+  { href: '/dashboard', label: 'Stats', icon: '📊', match: (p) => p.startsWith('/dashboard') || p.startsWith('/mileage') }, // Mileage lives inside Stats
   { href: '/loads', label: 'Loads', icon: '🚚', match: (p) => p.startsWith('/loads') },
   // Pick 6A (Marc): "Documents" in the desktop nav, "Docs" in the mobile bottom tabs.
   { href: '/documents', label: 'Documents', short: 'Docs', icon: '📄', match: (p) => p.startsWith('/documents') },

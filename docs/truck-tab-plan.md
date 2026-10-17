@@ -91,6 +91,13 @@ maintenance lands.
   member) sees only his truck.
 - Team drivers would mean relaxing the one-active-driver-per-truck index (open question).
 
+### 7a. Known limitation: which truck a driver sees (Taylor QA, Oct 17)
+
+A driver's Truck tab shows the truck whose `drivers.auth_user_id` is linked to his login. **If no driver row is linked to
+his login, he currently sees the company's first truck and its driver anyway.** That's fine while there is one truck.
+**Revisit this when there are more trucks:** link each driver login to its driver row (and so to its truck), and show
+"No truck assigned" instead of falling back to the first truck.
+
 ## 8. Files (build PR)
 
 `app/truck/page.js` (tab), `app/truck/TruckCard.js`, `DriverCard.js`, `ScaleHistory.js`, `app/api/truck/route.js` (GET/PATCH

@@ -83,8 +83,9 @@ export async function POST(req, { deps } = {}) {
 
   if (b.action === 'delete') {
     if (!UUID.test(b.id || '')) return json({ error: 'Ticket not found.' }, 404);
-    const r = await c.db.from('scale_tickets').delete().eq('id', b.id).eq('user_id', c.ownerId).eq('truck_id', truck.id);
+    const r = await c.db.from('scale_tickets').delete().eq('id', b.id).eq('user_id', c.ownerId).eq('truck_id', truck.id).select('id');
     if (r.error) return fail(r.error, 'Could not remove the ticket.');
+    if (!r.data?.length) return json({ error: 'Ticket not found.' }, 404);
     return done();
   }
   return json({ error: 'Bad request.' }, 400);

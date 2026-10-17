@@ -1,3 +1,5 @@
+import { parseWeightLb } from './loadWeight.js';
+
 // Truck tab field keys ↔ existing DB columns. Keys match the packet field names from PR #67
 // (app/lib/packetFieldNames.js EXTRA_KEYS) so packets can auto-fill from the Truck tab later.
 // Columns are NOT renamed: trucks.unit_number stays unit_number, etc. Pure module (no I/O).
@@ -88,7 +90,7 @@ export function weightChecks({ ticket = {}, truckEmpty = null, trailerEmpty = nu
   }
   const net = netCargo(gross, truckEmpty, trailerEmpty);
   if (net != null && net < -NET_TOLERANCE_LB) warnings.push({ code: 'net_negative', text: 'Net cargo is below zero. Check the truck and trailer empty weights.' });
-  const lw = num(loadWeight);
+  const lw = parseWeightLb(loadWeight); // loads.weight is integer, but tolerate text like "38,500 lb"
   if (net != null && net > 0 && lw != null && lw > 0) {
     const pct = (Math.abs(net - lw) / lw) * 100;
     if (pct > LOAD_DIFF_PCT) warnings.push({ code: 'load_mismatch', text: `Net cargo ${lbs(net)} is ${Math.round(pct)}% ${net > lw ? 'over' : 'under'} the rate con weight (${lbs(lw)}).` });

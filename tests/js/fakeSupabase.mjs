@@ -11,10 +11,10 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
   const violates = (t, row, selfId) => (unique[t] || []).some(({ cols, where }) => (!where || where(row)) &&
     (db[t] || []).some((o) => o.id !== selfId && (!where || where(o)) && cols.every((c) => o[c] != null && o[c] === row[c])));
   function q(t) {
-    const st = { t, filters: [], op: 'select', order: [], lim: null, payload: null, wantRow: false };
+    const st = { t, filters: [], eqs: [], ins: [], op: 'select', order: [], lim: null, payload: null, wantRow: false };
     const match = (r) => st.filters.every((f) => f(r));
     const run = () => {
-      calls.push({ t, op: st.op });
+      calls.push({ t, op: st.op, eqs: st.eqs, ins: st.ins, payload: st.payload });
       if (missing.includes(t)) return { data: null, error: { code: '42P01', message: `relation "${t}" does not exist` } };
       db[t] = db[t] || [];
       if (st.op === 'insert') {
@@ -29,7 +29,7 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
         hit.forEach((r) => Object.assign(r, st.payload));
         return { data: hit, error: null };
       }
-      if (st.op === 'delete') { const keep = db[t].filter((r) => !match(r)); const gone = db[t].length - keep.length; db[t] = keep; return { data: gone, error: null }; }
+      if (st.op === 'delete') { const gone = db[t].filter(match); db[t] = db[t].filter((r) => !match(r)); return { data: gone, error: null }; }
       let rows = db[t].filter(match);
       for (const [col, asc] of [...st.order].reverse()) rows = [...rows].sort((a, b) => (String(a[col] ?? '') < String(b[col] ?? '') ? -1 : String(a[col] ?? '') > String(b[col] ?? '') ? 1 : 0) * (asc ? 1 : -1));
       if (st.lim != null) rows = rows.slice(0, st.lim);
@@ -37,8 +37,8 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
     };
     const api = {
       select() { if (st.op !== 'select') st.wantRow = true; return api; },
-      eq(c, v) { st.filters.push((r) => r[c] === v); return api; },
-      in(c, vs) { st.filters.push((r) => vs.includes(r[c])); return api; },
+      eq(c, v) { st.eqs.push([c, v]); st.filters.push((r) => r[c] === v); return api; },
+      in(c, vs) { st.ins.push([c, vs]); st.filters.push((r) => vs.includes(r[c])); return api; },
       order(c, o = {}) { st.order.push([c, o.ascending !== false]); return api; },
       limit(n) { st.lim = n; return api; },
       insert(p) { st.op = 'insert'; st.payload = p; return api; },
