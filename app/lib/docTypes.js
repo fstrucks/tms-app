@@ -53,10 +53,12 @@ export function docTypeShort(id) {
 // Documents page "Document type" for the Upload button. Rate confirmation keeps AI extraction (and COI auto-detect);
 // the rest are saved as-is. 'other' needs a name, so it stays in the scanner only.
 export const UPLOAD_TYPES = [
-  { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)' },
-  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other').map((t) => ({ id: t.id, label: t.label })),
+  { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)', short: 'Rate confirmation' },
+  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other').map((t) => ({ id: t.id, label: t.label, short: t.label })),
 ];
 export function uploadTypeFromQuery(search) {
   const t = new URLSearchParams(search || '').get('type');
   return UPLOAD_TYPES.some((x) => x.id === t) ? t : null;
 }
+// Change type on saved documents (server enforces the same in /api/documents/[id]/type).
+export const canChangeDocType = (role) => role === 'owner' || role === 'management';

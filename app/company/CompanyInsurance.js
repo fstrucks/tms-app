@@ -2,10 +2,12 @@
 // Company page → Insurance: agent (one per company), coverage minimums, and policy lines.
 // Policies typed in by owner/management are confirmed; AI suggestions from an uploaded COI stay
 // unconfirmed until confirmed here. Upload COI / declarations docs with the existing Scan/Upload (type "COI").
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
-import { COVERAGES, COVERAGE_LABELS } from '../lib/coiGaps';
+import { COVERAGES, COVERAGE_LABELS, coiGaps } from '../lib/coiGaps';
+import { companyGapNotes, suggestMessage } from '../lib/coiRequest';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -28,6 +30,8 @@ export default function CompanyInsurance() {
   const [msg, setMsg] = useState(null);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(null); // document id being read by Suggest
+  const inFlight = useRef(false); // sync guard: blocks double taps / repeat submits before React re-renders
   const apply = useCallback((j) => {
     if (j.error && !j.setupNeeded) return setSt({ error: j.error });
     setSt({ ...j, loading: false });
@@ -37,7 +41,12 @@ export default function CompanyInsurance() {
   const reload = useCallback(() => api('/api/company/insurance').then(apply), [apply]);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { getSupabase()?.from('documents').select('id,original_filename,created_at').eq('doc_type', 'coi').order('created_at', { ascending: false }).limit(10).then(({ data }) => setDocs(data || [])); }, []);
-  const run = async (fn, ok) => { setBusy(true); setMsg(null); setErrors({}); const r = await fn(); setBusy(false); if (r.error) { setErrors(r.errors || {}); setMsg(r.error); return null; } if (ok) setMsg(ok); return r; };
+  const run = async (fn, ok) => {
+    if (inFlight.current) return null;
+    inFlight.current = true;
+    try { return await runInner(fn, ok); } finally { inFlight.current = false; }
+  };
+  const runInner = async (fn, ok) => { setBusy(true); setMsg(null); setErrors({}); const r = await fn(); setBusy(false); if (r.error) { setErrors(r.errors || {}); setMsg(r.error); return null; } if (ok) setMsg(ok); return r; };
 
   if (st.loading) return <section style={s.card}><p>Loading insurance…</p></section>;
   if (st.error) return <section style={s.card}><h2 style={{ margin: 0, fontSize: '1.1rem' }}>Insurance</h2><p role="alert" style={s.err}>{st.error}</p></section>;
@@ -62,13 +71,14 @@ export default function CompanyInsurance() {
         onClick={() => run(() => api('/api/company/insurance', { method: 'PUT', body: JSON.stringify({ agent, minimums: mins }) }), 'Insurance info saved.').then((r) => r && apply(r))}>Save agent and minimums</button>}
 
       <h3 style={{ fontSize: '1rem', margin: '1.25rem 0 0.25rem' }}>Policies</h3>
+      {(() => { const notes = companyGapNotes(coiGaps({ policies: st.policies || [], profile: { min_auto_liability: st.minimums?.auto_liability, min_cargo: st.minimums?.cargo }, certHolder: { name: '-', address: '-' } })); return notes.length > 0 && <ul data-testid="company-gaps" style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>{notes.map((g, i) => <li key={g.code + i} style={{ color: g.severity === 'error' ? '#b91c1c' : '#92400e' }}>{g.text}</li>)}</ul>; })()}
       {!(st.policies || []).length && <p style={{ color: '#6b7280', fontSize: 14 }}>No policies yet.</p>}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {(st.policies || []).map((p) => <li key={p.id} data-testid="policy-row" style={{ borderTop: '1px solid #f1f5f9', padding: '0.5rem 0', fontSize: 14 }}>
           <strong>{COVERAGE_LABELS[p.coverage] || p.coverage}</strong> {usd(p.limit_amount)} · {p.insurer || 'insurer ?'} {p.policy_number ? `#${p.policy_number}` : ''} · {p.effective_date || '?'} → {p.expiry_date || '?'}
           {!p.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600 }}>Suggested – check it</span>}
           {ed && <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            {!p.confirmed && <button type="button" style={{ ...s.small, borderColor: '#059669', color: '#065f46' }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'PATCH', body: JSON.stringify({ id: p.id, confirm: true }) }), 'Policy confirmed.').then((r) => r && reload())}>Confirm</button>}
+            {!p.confirmed && <button type="button" style={{ ...s.small, borderColor: '#059669', color: '#065f46' }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'PATCH', body: JSON.stringify({ id: p.id, confirm: true }) }), 'Policy confirmed.').then((r) => r?.policy && setSt((x) => ({ ...x, policies: (x.policies || []).map((q) => (q.id === r.policy.id ? r.policy : q)) })))}>Confirm</button>}
             <button type="button" style={{ ...s.small, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'DELETE', body: JSON.stringify({ id: p.id }) }), 'Policy removed.').then((r) => r && reload())}>Remove</button>
           </div>}
         </li>)}
@@ -84,11 +94,18 @@ export default function CompanyInsurance() {
         {field(np, setNp, 'expiry_date', 'Expiry date', { type: 'date' })}
         <button type="button" style={{ ...s.btn, ...(busy ? { opacity: 0.6 } : null) }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'POST', body: JSON.stringify(np) }), 'Policy added.').then((r) => { if (r) { setNp(BLANK); reload(); } })}>Add policy</button>
         <h4 style={{ fontSize: 15, margin: '1rem 0 0.25rem' }}>Read a COI you uploaded</h4>
-        <a href="/documents?type=coi" data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</a>
+        <Link href="/documents?type=coi" prefetch={false} data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</Link>
         {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI or declarations page (Document type is set to COI for you), then come back here.</p>
-          : docs.map((d) => <button key={d.id} type="button" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left' }} disabled={busy}
-            onClick={() => run(() => api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) })).then((r) => { if (r) { setMsg(r.policies?.length ? `${r.policies.length} suggested polic${r.policies.length === 1 ? 'y' : 'ies'} added. Check and confirm each one.` : (r.note || 'Nothing found.')); reload(); } })}>
-            Suggest policies from {d.original_filename || 'COI'}</button>)}
+          : docs.map((d) => <button key={d.id} type="button" data-testid="suggest-btn" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left', ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : null) }} disabled={busy} aria-busy={reading === d.id}
+            onClick={async () => {
+              setReading(d.id);
+              const r = await run(() => api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) }));
+              setReading(null);
+              if (!r) return;
+              if (Array.isArray(r.policies)) setSt((x) => ({ ...x, policies: r.policies })); // refresh the list in place
+              setMsg(suggestMessage(r));
+            }}>
+            {reading === d.id ? 'Reading COI…' : `Suggest policies from ${d.original_filename || 'COI'}`}</button>)}
       </>}
       {msg && <p role="status" style={{ marginTop: '0.75rem', fontSize: 14 }}>{msg}</p>}
     </section>

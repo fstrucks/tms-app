@@ -50,3 +50,50 @@ export function suggestionsToPolicies(data, documentId = null) {
     .filter((r) => !r.errors.coverage)
     .map(({ row }) => ({ ...row, source: 'ai', confirmed: false }));
 }
+
+// Suggest idempotency: one row per document + coverage + (policy number, else insurer).
+export function policyKey(p) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return `${p?.coverage || ''}|${norm(p?.policy_number) ? 'n:' + norm(p.policy_number) : 'i:' + norm(p?.insurer)}`;
+}
+const SUGGEST_FIELDS = ['insurer', 'policy_number', 'limit_amount', 'effective_date', 'expiry_date'];
+// → { insert: [rows], update: [{ id, patch }], skipped: n }. Confirmed rows (on any document) are never touched;
+// existing unconfirmed rows from the SAME document are updated in place; repeats within one reading collapse.
+export function planSuggestions(suggested, existing, documentId) {
+  const confirmed = new Set(existing.filter((r) => r.confirmed).map(policyKey));
+  const mine = new Map(existing.filter((r) => !r.confirmed && r.document_id === documentId).map((r) => [policyKey(r), r]));
+  const seen = new Set(); const insert = [], update = []; let skipped = 0;
+  for (const s of suggested) {
+    const k = policyKey(s);
+    if (seen.has(k) || confirmed.has(k)) { skipped++; continue; }
+    seen.add(k);
+    const cur = mine.get(k);
+    if (!cur) { insert.push(s); continue; }
+    const patch = Object.fromEntries(SUGGEST_FIELDS.filter((f) => s[f] != null && s[f] !== cur[f]).map((f) => [f, s[f]]));
+    if (Object.keys(patch).length) update.push({ id: cur.id, patch }); else skipped++;
+  }
+  return { insert, update, skipped };
+}
+
+// Ids of duplicate UNCONFIRMED rows for one document (same key), keeping the earliest-created row.
+// Lets two simultaneous Suggest calls converge to one row each without a DB unique index.
+export function duplicateSuggestionIds(rows, documentId) {
+  const keep = new Map(), drop = [];
+  const sorted = rows.filter((r) => r.document_id === documentId && !r.confirmed)
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)));
+  for (const r of sorted) { const k = policyKey(r); if (keep.has(k)) drop.push(r.id); else keep.set(k, r.id); }
+  return drop;
+}
+
+// /company gap notes: coverage gaps + "needs your confirmation", without packet-only items (holder, load date).
+export function companyGapNotes(gaps) { return (gaps || []).filter((g) => !String(g.code).startsWith('cert_holder')); }
+
+// Status line after Suggest.
+export function suggestMessage(r) {
+  if (!r.found) return r.note || 'No coverage lines found on that document.';
+  const parts = [];
+  if (r.added) parts.push(`${r.added} suggested polic${r.added === 1 ? 'y' : 'ies'} added`);
+  if (r.updated) parts.push(`${r.updated} updated`);
+  if (r.skipped) parts.push(`${r.skipped} already on file`);
+  return `${parts.join(', ')}.${r.added || r.updated ? ' Check and confirm each one.' : ''}`;
+}

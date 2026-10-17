@@ -34,7 +34,9 @@ export async function GET(req, { params, deps } = {}) {
   ]);
   const setupNeeded = [ag.error, pol.error, hist.error].some(missing);
   const cfg = senderConfig(env);
-  const certHolder = { name: a.packet.broker_name || '', address: '' };
+  // Prefill the holder from this packet's last COI request (name + address), else the packet's broker name.
+  const lastReq = (hist.data || [])[0];
+  const certHolder = { name: lastReq?.cert_holder_name || a.packet.broker_name || '', address: lastReq?.cert_holder_address || a.packet.broker_address || '' };
   return json({
     enabled: coiEnabled(env), canSend: canSend(a.role), setupNeeded, ...(setupNeeded ? { migration: COI_MIGRATION } : {}),
     agent: ag.data || null, policies: pol.data || [], minimums: minimumsFrom(profile), certHolder,

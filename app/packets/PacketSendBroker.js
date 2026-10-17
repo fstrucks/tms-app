@@ -27,6 +27,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
+  const capFull = !!info.sendCap && info.sendCap.used >= info.sendCap.cap;
   const confirmedSends = (info.sends || []).filter((x) => x.confirmed || x.postmark_message_id);
   const lastSend = confirmedSends[0] || info.sends?.[0];
   const finish = (r) => { setInfo((i) => ({ ...i, sends: r.sends || i.sends, sent_at: r.sent_at, sendCap: r.sendCap || i.sendCap })); setWarn(r.warning || null); setStep('done'); setOk(false); setAgain(false); setKey(null); };
@@ -91,7 +92,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
             <dt style={{ fontWeight: 600 }}>Attachment</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.filename}{filledAt ? ` (filled ${formatPacketDate(filledAt)})` : ''}</dd>
           </dl>
-          {info.sendCap && <p data-testid="send-cap" style={{ fontSize: 13, color: info.sendCap.used >= info.sendCap.cap ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>Monthly emails: {capLabel(info.sendCap)}</p>}
+          {info.sendCap && <p data-testid="send-cap" style={{ fontSize: 13, color: info.sendCap.used >= info.sendCap.cap ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, margin: '0.5rem 0', minHeight: 44 }}>
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} style={{ width: 22, height: 22 }} /> I reviewed this email and the attached PDF.
@@ -105,7 +106,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             </div></div>
           : <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={{ ...primary, flex: 2, background: '#059669', opacity: ok && !busy ? 1 : 0.5 }} disabled={!ok || busy} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div>}
         </div>}
     </section>

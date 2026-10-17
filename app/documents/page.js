@@ -3,7 +3,7 @@
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
-import { UPLOAD_TYPES, uploadTypeFromQuery } from '../lib/docTypes';
+import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
@@ -75,6 +75,27 @@ export default function DocumentsPage() {
   // Upload type: rate confirmation (default; AI extraction, and COIs are auto-detected) or a fixed type.
   // /documents?type=coi presets COI (Company → Insurance → Upload COI).
   const [uploadType, setUploadType] = useState('rate_confirmation');
+  // Change type on saved documents: owner/management only (server enforces). Never re-runs extraction by itself.
+  const [canChangeType, setCanChangeType] = useState(false);
+  const [typeBusy, setTypeBusy] = useState({});
+  const [typeChanged, setTypeChanged] = useState({}); // id → true after a change to rate con ("Read as rate con" offered)
+  useEffect(() => { (async () => {
+    const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
+    const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
+    setCanChangeType(canChangeDocType(j.role));
+  })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function changeType(d, docType) {
+    if (typeBusy[d.id] || docType === d.doc_type) return;
+    setTypeBusy((m) => ({ ...m, [d.id]: true }));
+    const t = (await supabase.auth.getSession())?.data?.session?.access_token;
+    const res = await fetch(`/api/documents/${d.id}/type`, { method: 'PATCH', cache: 'no-store', headers: { Authorization: `Bearer ${t || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ docType }) });
+    const j = await res.json().catch(() => ({}));
+    setTypeBusy((m) => ({ ...m, [d.id]: false }));
+    if (!res.ok) return setStatus({ type: 'error', text: j.error || 'Could not change the type.' });
+    setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: j.docType } : x)));
+    setTypeChanged((m) => ({ ...m, [d.id]: !!j.offerRead }));
+    setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(j.docType)}.${j.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
+  }
   useEffect(() => { const t = uploadTypeFromQuery(window.location.search); if (t) setUploadType(t); }, []);
 
   function pickFile(f) {
@@ -362,6 +383,16 @@ export default function DocumentsPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    {canChangeType && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
+                        Change type
+                        <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={UPLOAD_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
+                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: 200 }}>
+                          {!UPLOAD_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
+                          {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
+                        </select>
+                      </label>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>
@@ -378,7 +409,7 @@ export default function DocumentsPage() {
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
                     {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
                     <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
-                      {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
+                      {d.ai_extracted_data ? 'Re-run extraction' : typeChanged[d.id] ? 'Read as rate con' : 'Run extraction'}
                     </button>
                     {d.load_id ? (
                       <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: '#059669', marginTop: '0.25rem' }}>View load</Link>

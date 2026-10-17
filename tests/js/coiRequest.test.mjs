@@ -68,7 +68,7 @@ test('cap: counts packet_sends + coi_requests this month only; missing coi table
   const old = '2026-01-15T12:00:00.000Z';
   const sb = fakeSb({ packet_sends: [{ id: 'a', sent_at: thisMonth() }, { id: 'b', sent_at: old }], coi_requests: [{ id: 'c', sent_at: thisMonth() }, { id: 'd', sent_at: thisMonth(), postmark_message_id: null }] });
   const u = await monthlyUsage(sb, { EMAIL_MONTHLY_CAP: '3' });
-  assert.equal(u.used, 3); assert.equal(u.cap, 3); assert.equal(capReached(u), true); assert.equal(capLabel(u), '3 of 3 used this month');
+  assert.equal(u.used, 3); assert.equal(u.cap, 3); assert.equal(capReached(u), true); assert.equal(capLabel(u), 'Monthly limit reached'); assert.equal(capLabel({ used: 2, cap: 3 }), '2 of 3 used this month');
   const u2 = await monthlyUsage(fakeSb({ packet_sends: [{ id: 'a', sent_at: thisMonth() }] }, { missing: ['coi_requests'] }), {});
   assert.equal(u2.used, 1); assert.equal(capReached(u2), false);
 });

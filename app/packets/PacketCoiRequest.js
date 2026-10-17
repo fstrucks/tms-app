@@ -31,7 +31,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
     load().then((j) => {
       if (j.error) return;
       setInfo(j);
-      setD((x) => ({ ...x, to: x.to || j.agent?.email || '', subject: x.subject || j.draft.subject, body: x.body || j.draft.body, holderName: x.holderName || j.certHolder?.name || '' }));
+      setD((x) => ({ ...x, to: x.to || j.agent?.email || '', subject: x.subject || j.draft.subject, body: x.body || j.draft.body, holderName: x.holderName || j.certHolder?.name || '', holderAddress: x.holderAddress || j.certHolder?.address || '' }));
     });
   }, [load, enabled]);
   const gaps = useMemo(() => (info ? coiGaps({ policies: info.policies, profile: { min_auto_liability: info.minimums?.auto_liability, min_cargo: info.minimums?.cargo }, loadDate: d.loadDate || null, certHolder: { name: d.holderName, address: d.holderAddress } }) : []), [info, d.loadDate, d.holderName, d.holderAddress]);
@@ -104,7 +104,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
           </dl>
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
-          {info.sendCap && <p data-testid="coi-cap" style={{ fontSize: 13, color: capFull ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>Monthly emails: {capLabel(info.sendCap)}</p>}
+          {info.sendCap && <p data-testid="coi-cap" style={{ fontSize: 13, color: capFull ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, margin: '0.5rem 0', minHeight: 44 }}>
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} style={{ width: 22, height: 22 }} /> I reviewed this email.
           </label>
@@ -117,7 +117,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           : <>{err && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={{ ...primary, flex: 2, background: '#059669', opacity: ok && !busy && !capFull ? 1 : 0.5 }} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div></>}
         </div>}
     </section>
