@@ -3,6 +3,7 @@
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
+import { UPLOAD_TYPES, uploadTypeFromQuery } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
@@ -71,6 +72,11 @@ export default function DocumentsPage() {
 
   // Both pickers feed the same state. Validate the real type/extension right away (the simple
   // accept list no longer filters, so unsupported files are caught here).
+  // Upload type: rate confirmation (default; AI extraction, and COIs are auto-detected) or a fixed type.
+  // /documents?type=coi presets COI (Company → Insurance → Upload COI).
+  const [uploadType, setUploadType] = useState('rate_confirmation');
+  useEffect(() => { const t = uploadTypeFromQuery(window.location.search); if (t) setUploadType(t); }, []);
+
   function pickFile(f) {
     if (!f) return;
     const type = resolveType(f);
@@ -146,6 +152,11 @@ export default function DocumentsPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
+      if (body.reclassified === 'coi') {
+        setDocs((list) => list.map((d) => (d.id === id ? { ...d, doc_type: 'coi', ai_extracted_data: null } : d)));
+        setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI. Open Company → Insurance to read it.' });
+        return;
+      }
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
     } catch (err) {
       setExtractErr((m) => ({ ...m, [id]: err.message }));
@@ -241,9 +252,10 @@ export default function DocumentsPage() {
       setUploading(false);
       return setStatus({ type: 'error', text: 'Upload failed: ' + upErr.message });
     }
+    const docType = uploadType || 'rate_confirmation';
     const { data: inserted, error: dbErr } = await supabase.from('documents').insert({
       user_id: user.id,
-      doc_type: 'rate_confirmation',
+      doc_type: docType,
       file_path: path,
       original_filename: uploadFile.name, // converted HEIC is saved as .jpg
       load_id: null,
@@ -257,7 +269,7 @@ export default function DocumentsPage() {
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
     await loadDocs();
-    if (inserted?.id) extract(inserted.id);
+    if (inserted?.id && docType === 'rate_confirmation') extract(inserted.id);
     return true;
   }
 
@@ -312,6 +324,11 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload Rate Confirmations, POD, BOL and other documents</legend>
+              <label htmlFor="upload-type" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '0 0 0.3rem' }}>Document type</label>
+              <select id="upload-type" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
+                style={{ width: '100%', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.6rem', marginBottom: '0.5rem', background: '#fff' }}>
+                {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (

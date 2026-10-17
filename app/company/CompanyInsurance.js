@@ -84,7 +84,8 @@ export default function CompanyInsurance() {
         {field(np, setNp, 'expiry_date', 'Expiry date', { type: 'date' })}
         <button type="button" style={{ ...s.btn, ...(busy ? { opacity: 0.6 } : null) }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'POST', body: JSON.stringify(np) }), 'Policy added.').then((r) => { if (r) { setNp(BLANK); reload(); } })}>Add policy</button>
         <h4 style={{ fontSize: 15, margin: '1rem 0 0.25rem' }}>Read a COI you uploaded</h4>
-        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI or declarations page with Scan/Upload (type “COI”), then come back here.</p>
+        <a href="/documents?type=coi" data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</a>
+        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI or declarations page (Document type is set to COI for you), then come back here.</p>
           : docs.map((d) => <button key={d.id} type="button" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left' }} disabled={busy}
             onClick={() => run(() => api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) })).then((r) => { if (r) { setMsg(r.policies?.length ? `${r.policies.length} suggested polic${r.policies.length === 1 ? 'y' : 'ies'} added. Check and confirm each one.` : (r.note || 'Nothing found.')); reload(); } })}>
             Suggest policies from {d.original_filename || 'COI'}</button>)}

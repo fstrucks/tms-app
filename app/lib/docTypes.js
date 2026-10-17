@@ -49,3 +49,14 @@ export const DOC_TYPE_LABEL = Object.fromEntries([
 export function docTypeShort(id) {
   return SCAN_DOC_TYPES.find((t) => t.id === id)?.short || (id || 'scan').toUpperCase();
 }
+
+// Documents page "Document type" for the Upload button. Rate confirmation keeps AI extraction (and COI auto-detect);
+// the rest are saved as-is. 'other' needs a name, so it stays in the scanner only.
+export const UPLOAD_TYPES = [
+  { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)' },
+  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other').map((t) => ({ id: t.id, label: t.label })),
+];
+export function uploadTypeFromQuery(search) {
+  const t = new URLSearchParams(search || '').get('type');
+  return UPLOAD_TYPES.some((x) => x.id === t) ? t : null;
+}
