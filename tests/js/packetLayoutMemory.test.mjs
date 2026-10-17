@@ -365,7 +365,7 @@ test('inbound: the forwarded broker From: is saved as broker_email (not our forw
 test('banner (PacketMapper only): applied with "Don’t use this layout", suggestion with "Use layout", drivers view-only', () => {
   const info = { available: true, state: 'applied', layout: { broker_name: 'Acme Test Logistics', last_used_at: '2026-10-12T18:00:00Z' } };
   const b = layoutBanner(info, { canEdit: true, placed: 6, tz: 'America/Los_Angeles' });
-  assert.equal(b.text, 'Layout from Acme Test Logistics, last used Oct 12. 6 fields placed. Review them before filling.');
+  assert.equal(b.text, 'Layout from Acme Test Logistics, last used Oct 12. 6 fields placed from the saved layout. Review them before filling.');
   assert.equal(b.button, 'Don’t use this layout'); assert.equal(b.action, 'dismiss');
   assert.equal(layoutBanner(info, { canEdit: false, placed: 1 }).button, null);
   const s = layoutBanner({ ...info, state: 'suggested' }, { canEdit: true, tz: 'America/Los_Angeles' });
@@ -436,14 +436,14 @@ test('QA A: changed rev-2 packet from the same fake broker → "looks different"
   assert.equal(layoutState(p2, lay), 'changed');
   // GET: banner state + how many fresh fields share a label with last time (Carrier name, MC, DOT, Phone, Email, Truck number).
   const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
-  assert.equal(g.state, 'changed'); assert.equal(g.names, 6); assert.equal(g.broker_name, 'Acme Test Logistics');
+  assert.equal(g.state, 'changed'); assert.equal(g.matched, 6); assert.equal(g.total, 9); assert.equal(g.names, 5); assert.equal(g.broker_name, 'Acme Test Logistics'); // Truck number already named by its label (r3)
   const b = layoutBanner(g, { canEdit: true });
-  assert.equal(b.kind, 'changed'); assert.equal(b.action, 'names'); assert.equal(b.button, 'Use 6 names from last time');
-  assert.match(b.text, /^Acme Test Logistics’s packet looks different from last time, so fields were found fresh\. 6 fields have the same label as last time\.$/);
+  assert.equal(b.kind, 'changed'); assert.equal(b.action, 'names'); assert.equal(b.button, 'Use 5 names from last time');
+  assert.equal(b.text, 'Acme Test Logistics’s packet looks different from last time, so fields were found fresh. 6 of 9 fields matched last time. 1 already has the same name; 5 can use last time’s name.');
   assert.equal(layoutBanner(g, { canEdit: false }).action, null); // drivers: view-only text
   // POST names: copies them onto the matching fresh fields only.
   const pr = await (await LAYOUT_POST(req('POST', { action: 'names' }), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('dispatcher') } })).json();
-  assert.equal(pr.ok, true); assert.equal(pr.named, 6);
+  assert.equal(pr.ok, true); assert.equal(pr.named, 5); assert.equal(pr.matched, 6);
   const by = Object.fromEntries(sb.t.packet_fields.filter((x) => x.packet_id === pid(2)).map((x) => [x.label, x.profile_key]));
   for (const l of ['Carrier name:', 'MC number:', 'DOT number:', 'Phone:', 'Email:', 'Truck number:']) assert.equal(by[l], V1_NAMES[l], l);
   for (const l of ['Insurance agent:', 'Dispatcher name:', 'Emergency contact:']) assert.equal(by[l], null, l); // new labels: still need a name
@@ -647,8 +647,8 @@ test('QA r2 A: end to end — v1 learned, wide-gap rev 2 → "changed" + "Use 6 
   const o = await processPacket({ sb, packetId: pid(2), reader: spyReader() });
   assert.equal(o.layout.decision, 'changed');
   const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
-  assert.equal(g.names, 6);
-  assert.equal(layoutBanner(g, { canEdit: true }).button, 'Use 6 names from last time');
+  assert.equal(g.names, 5); assert.equal(g.matched, 6);
+  assert.equal(layoutBanner(g, { canEdit: true }).button, 'Use 5 names from last time');
   // An old packet processed with the short labels (a919090e): its fields had no usable labels → no offer; a forced
   // re-run (the new "Find fields again" button: POST /process?force=1&background=1, editors only) fixes it.
   for (const r of sb.t.packet_fields.filter((x) => x.packet_id === pid(2))) r.label = r.label === 'Insurance agent:' ? 'agent:' : '';
@@ -658,7 +658,7 @@ test('QA r2 A: end to end — v1 learned, wide-gap rev 2 → "changed" + "Use 6 
     { params: { id: pid(2) }, deps: { sb, mkUserClient: uc(role), waitUntil: (p) => jobs.push(p), process: (args) => processPacket({ ...args, reader: spyReader() }) } });
   assert.equal((await pr('driver')).status, 403);
   assert.equal((await pr('dispatcher')).status, 202); await Promise.all(jobs);
-  assert.equal((await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json()).names, 6);
+  assert.equal((await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json()).matched, 6);
   const m = readFileSync('app/packets/PacketMapper.js', 'utf8');
   assert.match(m, />Find fields again<\/button>/); assert.match(m, /process\?force=1&background=1/);
 });
@@ -718,4 +718,109 @@ test('QA r2 D: Fill retry — one automatic retry on a dropped connection, reusi
   assert.match(page, /fillWithRetry\(\(retry\) => api\(`\/api\/packets\/\$\{id\}\/fill\$\{retry \? '\?retry=1' : ''\}`/);
   const route = readFileSync('app/api/packets/[id]/fill/route.js', 'utf8');
   assert.match(route, /searchParams\.get\('retry'\) === '1'/); assert.match(route, /reused: true/);
+});
+
+// ===================== Taylor's round-3 retest on #68 (2026-10-17). FAKE data only. =====================
+import { canonicalLabel, labelSimilarity, applyLabelRules, ruleKeyFor } from '../../app/lib/packetLabelRules.js';
+import { labelMatches } from '../../app/lib/packetLayoutApply.js';
+import { buildPacketFields } from '../../app/lib/packetFields.js';
+import { byPosition } from '../../app/lib/packetMapperModel.js';
+import { resolveFillValues } from '../../app/lib/packetFillValues.js';
+import { fillBlockers } from '../../app/lib/packetFillReady.js';
+
+// The prod AI names the fields it understands (company-profile keys) and leaves the rest unnamed.
+const aiReader = (map) => ({ enabled: true, nameFields: async (fs) => ({ fields: fs.map((f) => ({ ...f, profile_key: map[f.label] ?? null, confidence: map[f.label] ? 0.95 : 0 })) }) });
+const AI = { 'Carrier name:': 'legal_name', 'MC number:': 'mc_number', 'DOT number:': 'dot_number', 'Phone:': 'phone', 'Email:': 'email', 'Owner name:': 'signer_name' };
+
+test('QA r3 A root cause: 6 labels DID match, but the AI had already named 5 the same way, so only 1 name could change', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmeWidePdf());
+  await processPacket({ sb, packetId: pid(2), reader: aiReader(AI) });
+  const rows = sb.t.packet_fields.filter((x) => x.packet_id === pid(2));
+  const lm = labelMatches(rows, sb.t.packet_layouts[0]);
+  assert.equal(lm.matched.length, 6); // Carrier name, MC, DOT, Phone, Email, Truck number
+  assert.equal(lm.toCopy.length, 0); // AI got 5; Truck number is now named from its label (r3), so nothing left to copy
+  // Old behavior for comparison (no label rule): only Truck number differed → "Use 1 name".
+  const old = rows.map((r) => (r.label === 'Truck number:' ? { ...r, profile_key: null } : r));
+  assert.equal(labelMatches(old, sb.t.packet_layouts[0]).toCopy.length, 1);
+  const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.deepEqual([g.matched, g.total, g.names], [6, 9, 0]);
+  const b = layoutBanner(g, { canEdit: true });
+  assert.equal(b.text, 'Acme Test Logistics’s packet looks different from last time, so fields were found fresh. 6 of 9 fields matched last time. They already have the same names.');
+  assert.equal(b.action, null);
+});
+
+test('QA r3 A: label normalizing + fuzzy + meaning; ambiguous labels never guessed', () => {
+  assert.equal(canonicalLabel('Truck #:'), 'truck'); assert.equal(canonicalLabel('TRUCK NUMBER'), 'truck'); assert.equal(canonicalLabel('Truck No.'), 'truck');
+  assert.equal(canonicalLabel('E-mail:'), 'email'); assert.equal(canonicalLabel('Tel.'), 'phone'); assert.equal(canonicalLabel('MC Number:'), 'mc');
+  assert.equal(canonicalLabel('Insurance Agents'), 'insurance agent'); assert.equal(canonicalLabel(':'), null);
+  assert.ok(labelSimilarity('Carier name', 'Carrier name:') >= 0.6); // typo
+  assert.equal(labelSimilarity('Phone', 'Email'), 0);
+  const layout = { fields: [
+    { kind: 'text', label: 'Carrier name:', profile_key: 'legal_name' }, { kind: 'text', label: 'Contact name:', profile_key: 'contact_name' },
+    { kind: 'text', label: 'Truck number:', profile_key: 'truck_number' }, { kind: 'text', label: 'E-mail', profile_key: 'email' },
+    { kind: 'text', label: 'Phone #', profile_key: 'phone' }, { kind: 'text', label: 'Phone number', profile_key: 'contact_phone' }] };
+  const f = (id, label) => ({ id, field_key: id, kind: 'text', label, source: 'model', profile_key: null });
+  const m = labelMatches([f('a', 'CARRIER NAME'), f('b', 'Truck unit #'), f('c', 'Email:'), f('d', 'Name:'), f('e', 'Phone:'), f('g', 'Carier Name')], layout);
+  const by = Object.fromEntries(m.matched.map((x) => [x.id, [x.profile_key, x.how]]));
+  assert.deepEqual(by.a, ['legal_name', 'label']);
+  assert.deepEqual(by.b, ['truck_number', 'label']); // "Truck unit #" and "Truck number:" both normalize to "truck"
+  const mm = labelMatches([f('t', 'Tractor #:')], layout).matched;
+  assert.deepEqual(mm.map((x) => [x.profile_key, x.how]), [['truck_number', 'meaning']]); // different words, same meaning
+  assert.deepEqual(by.c, ['email', 'label']);
+  assert.equal(by.d, undefined); // "Name" fits Carrier name and Contact name equally → no guess
+  assert.equal(by.e, undefined); // "Phone" was used for two different names last time → ambiguous
+  assert.equal(by.g, undefined); // the only Carrier name was already used by a (each old field once)
+  assert.equal(ruleKeyFor('Truck unit #:'), 'truck_number'); assert.equal(ruleKeyFor('Trailer unit #:'), 'trailer_number');
+});
+
+test('QA r3 A: refilling v1 refreshes the stored labels (new version) when only labels changed', () => {
+  const fp = { v: 2, pages: [{ w: 612, h: 792, text_hash: 'a'.repeat(16), simhash: '0'.repeat(16), has_text: true, head: 'x' }] };
+  const row = (label, key, y) => ({ page: 1, kind: 'text', label, box: [100, y, 500, y + 30], profile_key: key, page_w: 1700, page_h: 2200 });
+  const target = { version: 1, fields: layoutFieldsFromRows([row('name:', 'legal_name', 100), row('', 'phone', 200)], fp) };
+  const plan = planLearn({ packet: { fingerprint: fp }, rows: [row('Carrier name:', 'legal_name', 100), row('Phone:', 'phone', 200)], target });
+  assert.equal(plan.action, 'version'); assert.equal(plan.version, 2);
+  assert.deepEqual(plan.fields.map((x) => x.label), ['Carrier name:', 'Phone:']);
+});
+
+test('QA r3 C: banner counts state "N of M" and agree with the field summary', () => {
+  const info = { available: true, state: 'applied', layout: { broker_name: 'Acme Test Logistics' } };
+  assert.match(layoutBanner(info, { canEdit: true, placed: 8, total: 8 }).text, / 8 fields placed from the saved layout\./);
+  assert.match(layoutBanner(info, { canEdit: true, placed: 7, total: 9 }).text, / 7 of 9 fields placed from the saved layout\./);
+  const ch = { available: true, state: 'changed', layout: { broker_name: 'Acme Test Logistics' }, matched: 1, names: 1, total: 9 };
+  assert.equal(layoutBanner(ch, { canEdit: true }).text, 'Acme Test Logistics’s packet looks different from last time, so fields were found fresh. 1 of 9 fields matched last time. 1 can use last time’s name.');
+  assert.equal(layoutBanner({ ...ch, matched: 0, names: 0 }, { canEdit: true }).text, 'Acme Test Logistics’s packet looks different from last time, so fields were found fresh.');
+  assert.match(readFileSync('app/packets/PacketMapper.js', 'utf8'), /\{ canEdit, placed: placedCount\(fields\), total: fields\.length \}/);
+});
+
+test('QA r3 D: big Download button after filling; unnamed fields are left blank BY DESIGN (never blocked, never drawn)', () => {
+  const m = readFileSync('app/packets/PacketMapper.js', 'utf8');
+  assert.match(m, /data-testid="download-filled" role="button"/);
+  assert.match(m, /filled\?\.url \? 'Fill again' : 'Fill & download PDF'/);
+  assert.match(m, /unnamed field\$\{blank === 1 \? ' was' : 's were'\} left blank/);
+  // Evidence: fillBlockers (since #62) only blocks on no fields / unsaved / bank confirm / unsigned — never on names.
+  const fields = [{ id: 'a', kind: 'text', profile_key: null }, { id: 'b', kind: 'text', profile_key: 'legal_name' }];
+  assert.deepEqual(fillBlockers(fields), []);
+  // resolveFillValues keeps the unnamed box with no value; packetFill skips empty values (nothing drawn).
+  const r = resolveFillValues([{ id: 'a', page: 1, kind: 'text', box: [0, 0, 10, 10], profile_key: null }, { id: 'b', page: 1, kind: 'text', box: [0, 20, 10, 30], profile_key: 'legal_name' }], { legal_name: 'Fake Carrier LLC' }, { decrypt: () => '' });
+  assert.equal(r.fields.find((x) => x.id === 'a').value, undefined); assert.equal(r.fields.find((x) => x.id === 'b').value, 'Fake Carrier LLC');
+  assert.match(readFileSync('app/lib/packetFill.js', 'utf8'), /f\.value == null \|\| f\.value === ''/);
+});
+
+test('QA r3 E: "Owner name" → Owner name (not Signer name); other labels keep the AI’s pick; side list in reading order', async () => {
+  const out = applyLabelRules([{ kind: 'text', label: 'Owner name:', profile_key: 'signer_name', confidence: 0.8 }, { kind: 'text', label: 'Authorized signer name:', profile_key: 'signer_name', confidence: 0.9 },
+    { kind: 'text', label: 'Contact name:', profile_key: 'legal_name', confidence: 0.5 }, { kind: 'text', label: 'Contact name:', profile_key: null }, { kind: 'checkbox', label: 'Owner name', profile_key: null }]);
+  assert.deepEqual(out.map((x) => x.profile_key), ['owner_name', 'signer_name', 'legal_name', 'contact_name', null]);
+  // End to end through naming: the AI says signer_name for "Owner name:".
+  const d = await PDFDocument.create(); const fnt = await d.embedFont(StandardFonts.Helvetica); const p = d.addPage([612, 792]);
+  ['Company legal name:', 'Owner name:', 'Truck unit #:'].forEach((l, i) => { p.drawText(l, { x: 60, y: 700 - i * 30, size: 9, font: fnt }); p.drawText('_'.repeat(40), { x: 200, y: 700 - i * 30, size: 9, font: fnt }); });
+  const ex = await extractPdf(Buffer.from(await d.save()));
+  const { rows } = await buildPacketFields({ packetId: 'p', ownerId: 'o', pages: ex.pages, reader: aiReader({ 'Company legal name:': 'legal_name', 'Owner name:': 'signer_name' }) });
+  assert.deepEqual(rows.map((r) => [r.label, r.profile_key]), [['Company legal name:', 'legal_name'], ['Owner name:', 'owner_name'], ['Truck unit #:', 'truck_number']]);
+  const { KEY_LABELS } = await import('../../app/lib/packetMapperModel.js');
+  assert.equal(KEY_LABELS.owner_name, 'Owner name');
+  // Reading order: page, then top to bottom (same row within 12 px), then left to right.
+  const f = (id, page, x, y) => ({ id, page, box: [x, y, x + 50, y + 20] });
+  assert.deepEqual(byPosition([f('d', 2, 10, 10), f('c', 1, 10, 300), f('b', 1, 600, 105), f('a', 1, 100, 100)]).map((x) => x.id), ['a', 'b', 'c', 'd']);
+  assert.match(readFileSync('app/packets/PacketMapper.js', 'utf8'), /const onPage = byPosition\(fields\.filter\(\(f\) => f\.page === page\)\)/);
 });

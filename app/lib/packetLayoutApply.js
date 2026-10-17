@@ -2,6 +2,7 @@
 // a layout's `fields`. Server only (imports packetFingerprint → node:crypto). See docs/design/packet-layout-memory.md.
 import { mapPages, layoutKey, normalizeMc, matchDomain, normalizeText } from './packetFingerprint.js';
 import { validateNameKey } from './packetFieldNames.js';
+import { canonicalLabel, labelSimilarity, FUZZY_LABEL, ruleKeyFor } from './packetLabelRules.js';
 
 export const LAYOUT_DPI = 200;
 export const MAX_LAYOUT_FIELDS = 400;
@@ -49,27 +50,50 @@ export function isCovered(row, kept = [], { iou = IOU_COVERED, cover = COVER_COV
 // Fresh detection / layout rows minus every spot a kept (user-made or edited, incl. "Left blank") field covers.
 export const dropCovered = (rows = [], kept = [], opts) => (kept.length ? rows.filter((r) => !isCovered(r, kept, opts)) : rows);
 
-// ---------- names from last time (QA A) ----------
+// ---------- names from last time (QA A, r3) ----------
 // "Carrier name:" → "carrier name". Labels that normalize to nothing never match.
 export const labelKey = (s) => normalizeText(s) || null;
-// When a broker's form changed: for machine-found fields whose label matches a field label in the old layout
-// (same kind), the name used last time. User-made/edited rows are never touched. → [{ id, field_key, profile_key, label }]
-export function nameSuggestions(fields = [], layout = null) {
-  const old = new Map();
+// Match the fresh fields of a changed form to the old layout's named fields, in three passes:
+//   1. same label after normalizing (case, punctuation, trailing colon, "#"/"No."/"Number", plurals, E-mail/Tel.);
+//   2. fuzzy label (word overlap / near-identical spelling ≥ 0.6, one clear best match);
+//   3. meaning: the label clearly means a name the old layout used ("Truck unit #" → truck_number).
+// Same field kind only; an old label used for two different names is ambiguous and skipped; each old field is used
+// once. User-made/edited rows are never touched. → { matched:[{ id, field_key, label, profile_key, current, how }], toCopy }
+export function labelMatches(fields = [], layout = null) {
+  const old = [];
+  const byCanon = new Map();
   for (const f of Array.isArray(layout?.fields) ? layout.fields : []) {
-    const k = labelKey(f?.label); const nk = f?.profile_key ? validateNameKey(f.profile_key, f.kind) : null;
-    if (!k || !nk || nk.error || !nk.key) continue;
-    const key = `${f.kind}|${k}`;
-    if (!old.has(key)) old.set(key, nk.key); else if (old.get(key) !== nk.key) old.set(key, null); // ambiguous label: no offer
+    const nk = f?.profile_key ? validateNameKey(f.profile_key, f.kind) : null;
+    if (!nk || nk.error || !nk.key) continue;
+    const c = canonicalLabel(f.label);
+    const o = { kind: f.kind, label: f.label || '', canon: c, key: nk.key };
+    old.push(o);
+    if (c) { const k = `${f.kind}|${c}`; byCanon.set(k, byCanon.has(k) && byCanon.get(k) !== nk.key ? null : nk.key); }
   }
-  const out = [];
-  for (const r of fields) {
-    if (!r || r.source === 'user' || r.source === 'layout') continue;
-    const k = labelKey(r.label); const want = k ? old.get(`${r.kind}|${k}`) : null;
-    if (want && want !== (r.profile_key || null)) out.push({ id: r.id, field_key: r.field_key, profile_key: want, label: r.label });
+  const usable = old.filter((o) => !o.canon || byCanon.get(`${o.kind}|${o.canon}`) !== null);
+  const fresh = (fields || []).filter((r) => r && r.source !== 'user' && r.source !== 'layout');
+  const used = new Set(), done = new Set(), matched = [];
+  const take = (r, o, how) => { used.add(o); done.add(r); matched.push({ id: r.id, field_key: r.field_key, label: r.label, profile_key: o.key, current: r.profile_key || null, how }); };
+  for (const r of fresh) { // 1. exact (normalized)
+    const c = canonicalLabel(r.label); if (!c) continue;
+    const o = usable.find((x) => !used.has(x) && x.kind === r.kind && x.canon === c);
+    if (o) take(r, o, 'label');
   }
-  return out;
+  for (const r of fresh) { // 2. fuzzy, one clear best
+    if (done.has(r) || !canonicalLabel(r.label)) continue;
+    const sc = usable.filter((x) => !used.has(x) && x.kind === r.kind && x.canon).map((x) => ({ x, s: labelSimilarity(r.label, x.label) })).filter((y) => y.s >= FUZZY_LABEL).sort((a, b) => b.s - a.s);
+    if (sc.length && (sc.length === 1 || sc[0].s - sc[1].s >= 0.15)) take(r, sc[0].x, 'fuzzy');
+  }
+  for (const r of fresh) { // 3. meaning
+    if (done.has(r)) continue;
+    const k = ruleKeyFor(r.label); if (!k) continue;
+    const os = usable.filter((x) => !used.has(x) && x.kind === r.kind && x.key === k);
+    if (os.length >= 1) take(r, os[0], 'meaning');
+  }
+  return { matched, toCopy: matched.filter((m) => m.profile_key !== m.current) };
 }
+// Back-compat: just the fields whose name would change.
+export const nameSuggestions = (fields = [], layout = null) => labelMatches(fields, layout).toCopy;
 
 // Layout → packet_fields rows on the packet pages the template maps to (exact text hash, then simhash).
 // Boxes are scaled when the packet page size differs slightly. Returns { rows, pages:Set(packet page numbers) }.

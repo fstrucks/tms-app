@@ -2,7 +2,7 @@ import { serviceClient, packetAccess } from '../../../../lib/packetServer';
 import { toClient } from '../../../../lib/packetFieldEdits';
 import { processPacket } from '../../../../lib/packetProcess';
 import { scoreLayout } from '../../../../lib/packetFingerprint';
-import { packetIdentity, nameSuggestions, BANK_KEYS } from '../../../../lib/packetLayoutApply';
+import { packetIdentity, nameSuggestions, labelMatches, BANK_KEYS } from '../../../../lib/packetLayoutApply';
 import { getLayout, savePacketLayout, applyLayoutToPacket, packetHasLayoutColumns, isLayoutSchemaMissing, LAYOUT_MIGRATION, LAYOUT_MISSING_MSG } from '../../../../lib/packetLayouts';
 
 export const runtime = 'nodejs';
@@ -35,8 +35,12 @@ export async function GET(req, { params, deps } = {}) {
   if (got.error) return json({ available: true, state: null, broker_name, canEdit: a.canEdit });
   const state = layoutState(a.packet, got.layout);
   // Changed form: how many fresh fields have a label the old layout named (offered as "Use N names from last time").
-  const names = state === 'changed' ? nameSuggestions(await rawFields(sb, a.packet.id), got.layout).length : 0;
-  return json({ available: true, state, score: a.packet.layout_score ?? null, layout: publicLayout(got.layout), broker_name, names, canEdit: a.canEdit });
+  // matched: fields that line up with last time (label, fuzzy label or meaning); names: how many of those would
+  // change name (the rest already have last time's name); total: every field on the packet (same as the summary).
+  const all = state ? await rawFields(sb, a.packet.id) : [];
+  const lm = state === 'changed' ? labelMatches(all, got.layout) : { matched: [], toCopy: [] };
+  return json({ available: true, state, score: a.packet.layout_score ?? null, layout: publicLayout(got.layout), broker_name,
+    names: lm.toCopy.length, matched: lm.matched.length, total: all.length, canEdit: a.canEdit });
 }
 
 async function rawFields(sb, packetId) {
@@ -88,7 +92,8 @@ export async function POST(req, { params, deps } = {}) {
       if (error) { console.error('[packets] layout names', error.code); return json({ error: 'Could not copy the names. Please try again.', named, fields: await fieldsOf(sb, p.id) }, 500); }
       named++;
     }
-    return json({ ok: true, state: 'changed', named, names: 0, fields: await fieldsOf(sb, p.id) });
+    const after = await rawFields(sb, p.id);
+    return json({ ok: true, state: 'changed', named, names: 0, matched: labelMatches(after, got.layout).matched.length, total: after.length, fields: await fieldsOf(sb, p.id) });
   }
   if (p.layout_applied_at) return json({ ok: true, state: 'applied', fields: await fieldsOf(sb, p.id) });
   const got = await getLayout(sb, p.layout_id);

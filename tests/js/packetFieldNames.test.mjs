@@ -15,7 +15,7 @@ const enc = (v) => `enc(${v})`;
 const BOX = [10, 10, 200, 40];
 
 test('extra names: exact keys + labels, offered in the editor, not sent to the reader model', () => {
-  assert.deepEqual(EXTRA_KEYS, ['contact_name', 'contact_phone', 'contact_email', 'driver_name', 'truck_number', 'trailer_number', 'truck_plate', 'truck_plate_state', 'trailer_plate', 'trailer_plate_state']);
+  assert.deepEqual(EXTRA_KEYS, ['owner_name', 'contact_name', 'contact_phone', 'contact_email', 'driver_name', 'truck_number', 'trailer_number', 'truck_plate', 'truck_plate_state', 'trailer_plate', 'trailer_plate_state']);
   assert.equal(EXTRA_KEY_LABELS.contact_name, 'Contact name');
   assert.equal(EXTRA_KEY_LABELS.driver_name, 'Driver name');
   for (const k of EXTRA_KEYS) { assert.ok(KEY_LABELS[k]); assert.ok(!PROFILE_KEYS.includes(k)); }

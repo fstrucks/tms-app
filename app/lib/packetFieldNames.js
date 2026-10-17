@@ -6,7 +6,7 @@
 import { PROFILE_KEYS } from './packetReader.js';
 
 export const EXTRA_KEY_LABELS = {
-  contact_name: 'Contact name', contact_phone: 'Contact phone', contact_email: 'Contact email',
+  owner_name: 'Owner name', contact_name: 'Contact name', contact_phone: 'Contact phone', contact_email: 'Contact email',
   driver_name: 'Driver name', truck_number: 'Truck number', trailer_number: 'Trailer number',
   truck_plate: 'Truck plate', truck_plate_state: 'Truck plate state', trailer_plate: 'Trailer plate', trailer_plate_state: 'Trailer plate state',
 };

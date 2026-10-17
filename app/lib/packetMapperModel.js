@@ -104,3 +104,15 @@ export function manualReasonText(reason, canEdit) {
 export function unconfirmedBank(fields) {
   return fields.filter((f) => BANK.has(f.profile_key) && (f.value || f.has_value) && !f.confirmed);
 }
+
+// Reading order: page, then rows top to bottom (boxes within 12 px of each other share a row), then left to right.
+export function byPosition(list = []) {
+  const top = (f) => Number(f?.box?.[1]) || 0, left = (f) => Number(f?.box?.[0]) || 0;
+  const sorted = [...list].sort((a, b) => (Number(a.page) || 0) - (Number(b.page) || 0) || top(a) - top(b) || left(a) - left(b));
+  const rows = [];
+  for (const f of sorted) {
+    const r = rows[rows.length - 1];
+    if (r && r.page === (Number(f.page) || 0) && top(f) - r.top <= 12) r.items.push(f); else rows.push({ page: Number(f.page) || 0, top: top(f), items: [f] });
+  }
+  return rows.flatMap((r) => r.items.sort((a, b) => left(a) - left(b) || top(a) - top(b)));
+}

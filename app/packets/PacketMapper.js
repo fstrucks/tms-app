@@ -9,7 +9,7 @@ import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
-import { KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { byPosition, KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
 import { layoutBanner, placedCount } from '../lib/packetLayoutBanner';
@@ -149,7 +149,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (handle(r)) return;
     if (r?.error) return setMsg(r.error);
     if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
-    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}) } : li));
+    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}), ...(r.matched != null ? { matched: r.matched } : {}) } : li));
     setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.')
       : action === 'names' ? `${r.named ?? 0} field name${r.named === 1 ? '' : 's'} copied from last time. Review them before filling.`
       : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
@@ -180,7 +180,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
   useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
 
-  const onPage = fields.filter((f) => f.page === page);
+  const onPage = byPosition(fields.filter((f) => f.page === page)); // top to bottom, then left to right
   const sum = useMemo(() => summarize(fields), [fields]);
   const status = packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields));
   const dirty = fields.some((f) => f.dirty) || deleted.length > 0;
@@ -265,7 +265,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setBusy(false);
     if (handle(res)) return;
     if (res?.error) { if (res.missing?.[0]) { setPage(res.missing[0].page); setSel(res.missing[0].id); } return setMsg(res.error); }
-    setFilled({ url: res.url, filename: res.filename }); setMsg('Filled PDF saved.');
+    setFilled({ url: res.url, filename: res.filename });
+    // By design (since #62) unnamed fields don't block filling; they're left blank on the PDF. Say so.
+    const blank = sum.unmapped || 0;
+    setMsg(`Filled PDF saved.${blank ? ` ${blank} unnamed field${blank === 1 ? ' was' : 's were'} left blank.` : ''} Tap Download to get it.`);
   }
   async function clearSig(id) {
     setSigMenu(null); setSel(null); setBusy(true); setMsg(null); // clear only; no edit panel
@@ -321,7 +324,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
       </div>
       <BrokerField packetId={packet.id} value={brokerName} canEdit={canEdit} api={layoutApi} onSaved={(r) => { setBrokerName(r.broker_name || null); setLayoutTick((n) => n + 1); }} />
-      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name }, { canEdit, placed: placedCount(fields) }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
+      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name, total: fields.length }, { canEdit, placed: placedCount(fields), total: fields.length }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
         <p style={{ margin: 0 }}>{b.text}</p>
         {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' || b.action === 'names' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
       </div>; })()}
@@ -397,13 +400,14 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
-          {filled?.url && <p style={{ margin: '0 0 0.4rem', fontSize: 15 }}><a href={filled.url} download={filled.filename}>⬇ Download filled PDF</a></p>}
+          {filled?.url && <a href={filled.url} download={filled.filename} data-testid="download-filled" role="button"
+            style={{ ...s.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', marginBottom: 6, boxSizing: 'border-box' }}>⬇ Download filled PDF</a>}
           {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={discard}>Discard changes</button>}
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
               {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
-              <button style={{ ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : 'Fill & download PDF'}</button>
+              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
             </>}
         </div>
       </div>}
