@@ -9,7 +9,7 @@ import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
 import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
-import { packetStatusLabel } from '../lib/packetStatus';
+import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT } from '../lib/packetStatus';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -227,9 +227,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     <main style={{ ...s.main, paddingBottom: `calc(${Math.max(110, barH + 16)}px + var(--nav-h, 0px) + env(safe-area-inset-bottom))` }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
-      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
+      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · <span data-testid="packet-status">{packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields)).label}</span>{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
+      {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}
       {packet.status === 'error' && <p role="alert" style={s.banner}>Field detection failed. {canEdit ? 'You can add fields by hand or try again.' : ''}</p>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
@@ -284,7 +285,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         onDelete={() => { setDeleted((d) => [...d, cur.id]); setFields((fs) => fs.filter((x) => x.id !== cur.id)); setSel(null); }} />}
 
       <h2 style={{ fontSize: 16, margin: '1rem 0 0.4rem' }}>Fields on this page</h2>
-      {onPage.length === 0 ? <p style={s.muted}>None yet.</p> : onPage.map((f) => {
+      {onPage.length === 0 ? <p style={s.muted}>None yet.{canEdit && fields.length === 0 ? ` ${ADD_FIELD_HINT}` : ''}</p> : onPage.map((f) => {
         const st = fieldState(f);
         return <button key={f.id} onClick={() => setSel(f.id)} style={{ ...s.btn, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, textAlign: 'left' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{KEY_LABELS[f.profile_key] || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
@@ -342,7 +343,7 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
           onChange={(e) => onChange({ value: e.target.value })} />
         {f.check && !f.check.ok && <p style={{ ...s.muted, color: '#b45309' }}>{f.check.message}</p>}
       </>}
-      {f.kind === 'signature' && <p style={s.muted}>Signatures are placed with “Sign all” on the review step.</p>}
+      {f.kind === 'signature' && <p style={s.muted}>Tap this signature box on the page to sign it.</p>}
       {bank && <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: '0.75rem', padding: '0.6rem', borderRadius: 8, background: f.confirmed ? '#f0fdf4' : '#fef2f2', border: `1px solid ${f.confirmed ? '#86efac' : '#fca5a5'}` }}>
         <input type="checkbox" style={{ width: 24, height: 24, flex: 'none' }} disabled={dis || !(f.value || f.has_value)} checked={!!f.confirmed} onChange={(e) => onChange({ confirmed: e.target.checked })} />
         <span style={{ fontSize: 14 }}>I checked this {f.profile_key === 'bank_routing' ? 'routing' : 'account'} number against my bank records. Required before signing.</span>

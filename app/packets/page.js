@@ -1,44 +1,81 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { uploadPacket, validatePacketFile } from '../lib/packetUpload';
+import { makeApi } from '../lib/packetApi';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
-import { packetStatusLabel, isPendingStatus, POLL_MS, POLL_MAX_TICKS } from '../lib/packetStatus';
+import { isPendingStatus, PACKET_FILTERS, filterPackets, filterCounts, pollDelay, POLL_MAX_MS } from '../lib/packetStatus';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem 1rem', marginBottom: '0.75rem' },
   pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation' },
   muted: { color: '#6b7280', fontSize: 14, margin: '0.25rem 0 0' },
+  chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: c, whiteSpace: 'nowrap' }),
+  tab: (on) => ({ minHeight: 40, padding: '0 0.8rem', borderRadius: 999, border: `1px solid ${on ? '#2563eb' : '#d1d5db'}`, background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111827', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', touchAction: 'manipulation' }),
+  act: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, touchAction: 'manipulation' },
+  hint: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '0.4rem 0.6rem', fontSize: 14, margin: '0.5rem 0 0' },
 };
 const FILE_ID = 'packet-upload-file';
+const packetApi = makeApi(() => getSupabase()?.auth);
+const api = packetApi.call;
+// Last list per signed-in user, shown instantly on the next visit while the fresh copy loads.
+const cacheKey = (uid) => `packets-list-v1:${uid}`;
+const readCache = (uid) => { try { return JSON.parse(sessionStorage.getItem(cacheKey(uid)) || 'null'); } catch { return null; } };
+const writeCache = (uid, v) => { try { sessionStorage.setItem(cacheKey(uid), JSON.stringify(v)); } catch {} };
 
 export default function PacketsPage() {
   const [st, setSt] = useState({ loading: true });
+  const [filter, setFilter] = useState('all');
+  const [archived, setArchived] = useState(null); // rows for the Archived filter, loaded when it's picked
   const [busy, setBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState(null);
   const [msg, setMsg] = useState(null);
+  const user = useRef(null);
+  const marked = useRef(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     const sb = getSupabase();
     if (!sb) return setSt({ error: supabaseConfigError });
-    const { data } = await sb.auth.getSession();
-    const user = data?.session?.user;
-    if (!user) return setSt({ error: 'Sign in to see packets.', signedOut: true });
-    const { data: prof } = await sb.from('company_profiles').select('owner_id').limit(1);
-    const ownerId = prof?.[0]?.owner_id || user.id;
-    const { data: rows, error } = await sb.from('packets').select('id,source,status,subject,original_filename,created_at').order('created_at', { ascending: false }).limit(50);
-    if (error) return setSt({ error: 'Could not load packets.' });
-    setSt({ user, ownerId, rows: rows || [] });
-  }
-  useEffect(() => { load(); }, []);
-  // Poll while detection is pending (every 2s, up to ~3 min; stops once nothing is pending) so status updates without a reload.
+    if (!user.current) {
+      const { data } = await sb.auth.getSession(); // local; no network unless the token needs a refresh
+      user.current = data?.session?.user || null;
+      if (!user.current) return setSt({ error: 'Sign in to see packets.', signedOut: true });
+      const c = readCache(user.current.id);
+      if (c?.rows) setSt((p) => (p.rows ? p : { ...c, stale: true }));
+    }
+    const d = await api('/api/packets'); // one request: list + statuses + roles (see app/lib/packetList.js)
+    if (d.signedOut) return setSt({ error: 'Sign in to see packets.', signedOut: true });
+    if (d.error) return setSt((p) => (p.rows ? { ...p, stale: false, refreshError: d.error } : { error: 'Could not load packets.' }));
+    const next = { rows: d.rows || [], ownerId: d.ownerId, archivedCount: d.archivedCount || 0, canManage: !!d.canManage };
+    writeCache(user.current.id, next);
+    setSt(next);
+    if (!marked.current && typeof performance !== 'undefined') { marked.current = true; try { performance.mark('packets:list-ready'); } catch {} }
+  }, []);
+  const loadArchived = useCallback(async () => {
+    const d = await api('/api/packets?view=archived');
+    if (!d.error) { setArchived(d.rows || []); setSt((p) => (p.rows ? { ...p, archivedCount: (d.rows || []).length } : p)); }
+    else setMsg(d.error);
+  }, []);
+  useEffect(() => { load().catch((e) => { console.error('[packets] load', e); setSt({ error: 'Could not load packets.' }); }); }, [load]);
+  useEffect(() => { if (filter === 'archived') loadArchived(); }, [filter, loadArchived]);
+
+  // Poll only while detection is pending: 2s, 3s, 5s, 8s, then every 10s; paused in background tabs; stops after ~3 min.
   const pending = (st.rows || []).some((r) => isPendingStatus(r.status));
   useEffect(() => {
     if (!pending) return;
-    let n = 0; const t = setInterval(() => { if (++n > POLL_MAX_TICKS || document.hidden) return n > POLL_MAX_TICKS && clearInterval(t); load(); }, POLL_MS);
-    return () => clearInterval(t);
-  }, [pending]);
+    let n = 0, t = null, live = true; const start = Date.now();
+    const tick = async () => {
+      if (!live || Date.now() - start > POLL_MAX_MS) return;
+      if (!document.hidden) await load().catch(() => {});
+      if (live) t = setTimeout(tick, pollDelay(++n));
+    };
+    t = setTimeout(tick, pollDelay(0));
+    const onVis = () => { if (!document.hidden && live) { clearTimeout(t); n = 0; tick(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { live = false; clearTimeout(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [pending, load]);
 
   async function onFile(e) {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -46,7 +83,7 @@ export default function PacketsPage() {
     const v = validatePacketFile(f); if (v) return setMsg(v);
     setBusy(true); setMsg(null);
     let newId = null;
-    const err = await uploadPacket(getSupabase(), { userId: st.user.id, ownerId: st.ownerId, file: f, onCreated: (id) => { newId = id; } });
+    const err = await uploadPacket(getSupabase(), { userId: user.current.id, ownerId: st.ownerId || user.current.id, file: f, onCreated: (id) => { newId = id; } });
     if (!err && newId) { // start field detection in the background; the packet page also retries it
       const { data } = await getSupabase().auth.getSession();
       fetch(`/api/packets/${newId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${data?.session?.access_token}` } }).then(() => load(), () => {}); // refresh as soon as detection finishes
@@ -55,8 +92,29 @@ export default function PacketsPage() {
     if (err) setMsg(err); else { setMsg('Packet uploaded.'); load(); }
   }
 
-  if (st.loading) return <main style={s.main}><p>Loading packets…</p></main>;
+  async function setArchivedFlag(r, flag) {
+    setRowBusy(r.id); setMsg(null);
+    const d = await api(`/api/packets/${r.id}/archive`, { method: 'POST', body: JSON.stringify({ archived: flag }) });
+    setRowBusy(null);
+    if (d.error) return setMsg(d.error);
+    setMsg(flag ? 'Packet archived. Find it under Archived.' : 'Packet moved back to your list.');
+    await Promise.all([load(), filter === 'archived' ? loadArchived() : setArchived(null)]);
+  }
+  async function del(r) {
+    const name = r.subject || r.original_filename || 'this packet';
+    if (!window.confirm(`Delete “${name}”?\n\nThis removes the PDF, filled copies, signatures and send history. It can’t be undone.`)) return;
+    setRowBusy(r.id); setMsg(null);
+    const d = await api(`/api/packets/${r.id}`, { method: 'DELETE' });
+    setRowBusy(null);
+    if (d.error) return setMsg(d.error);
+    setMsg(d.storageWarning || 'Packet deleted.');
+    await Promise.all([load(), filter === 'archived' ? loadArchived() : setArchived(null)]);
+  }
+
+  if (st.loading) return <main style={s.main}><h1 style={{ marginBottom: '0.25rem' }}>Carrier packets</h1><p style={s.muted}>Loading packets…</p></main>;
   if (st.error) return <main style={s.main}><h1>Carrier packets</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/packets">Sign in</a>}</main>;
+  const counts = { ...filterCounts(st.rows), archived: archived ? archived.length : st.archivedCount };
+  const shown = filter === 'archived' ? (archived || []) : filterPackets(st.rows, filter);
   return (
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Carrier packets</h1>
@@ -67,12 +125,31 @@ export default function PacketsPage() {
         <label htmlFor={FILE_ID} role="button" style={{ ...s.pick, ...(busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{busy ? 'Uploading…' : '📄 Upload packet PDF'}</label>
         {msg && <p role="status" style={{ marginTop: '0.5rem' }}>{msg}</p>}
       </div>
-      {st.rows.length === 0 ? <p style={s.muted}>No packets yet.</p> : st.rows.map((r) => (
-        <a key={r.id} href={`/packets/${r.id}`} style={{ ...s.card, display: 'block', color: 'inherit', textDecoration: 'none' }}>
-          <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{r.subject || r.original_filename}</div>
-          <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {new Date(r.created_at).toLocaleString()} · {packetStatusLabel(r.status)}</p>
-        </a>
-      ))}
+      <div role="tablist" aria-label="Filter packets" style={{ display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 4, marginBottom: '0.75rem' }}>
+        {PACKET_FILTERS.map((f) => <button key={f.id} role="tab" aria-selected={filter === f.id} style={s.tab(filter === f.id)} onClick={() => setFilter(f.id)}>{f.label}{counts[f.id] != null ? ` (${counts[f.id]})` : ''}</button>)}
+      </div>
+      {st.stale && <p style={{ ...s.muted, margin: '0 0 0.5rem' }} aria-live="polite">Updating…</p>}
+      {st.refreshError && <p role="alert" style={{ color: '#b91c1c', fontSize: 14, margin: '0 0 0.5rem' }}>Couldn’t refresh: {st.refreshError}</p>}
+      {filter === 'archived' && !archived ? <p style={s.muted}>Loading archived packets…</p>
+        : shown.length === 0 ? <p style={s.muted}>{st.rows.length === 0 && filter === 'all' ? 'No packets yet.' : filter === 'archived' ? 'No archived packets.' : 'No packets here.'}</p>
+        : shown.map((r) => (
+          <div key={r.id} data-testid="packet-row" style={s.card}>
+            <a href={`/packets/${r.id}`} style={{ display: 'block', color: 'inherit', textDecoration: 'none' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{r.subject || r.original_filename}</span>
+                <span style={s.chip(r.color)} data-status={r.display}>{r.label}</span>
+              </div>
+              <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              {r.hint && <p style={s.hint}>{r.hint}</p>}
+            </a>
+            {r.canManage && <div style={{ display: 'flex', gap: 8, marginTop: '0.6rem' }}>
+              {r.display === 'archived'
+                ? <button style={s.act} disabled={rowBusy === r.id} onClick={() => setArchivedFlag(r, false)}>Unarchive</button>
+                : !isPendingStatus(r.status) && <button style={s.act} disabled={rowBusy === r.id} onClick={() => setArchivedFlag(r, true)}>Archive</button>}
+              <button style={{ ...s.act, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={rowBusy === r.id} onClick={() => del(r)}>Delete</button>
+            </div>}
+          </div>
+        ))}
     </main>
   );
 }

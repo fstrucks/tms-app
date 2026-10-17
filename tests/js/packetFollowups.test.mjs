@@ -22,18 +22,19 @@ test('list and packet page use the same status labels', () => {
   assert.equal(packetStatusLabel('review'), 'Ready to fill out');
   for (const s of Object.keys(PACKET_STATUS_LABELS)) assert.ok(packetStatusLabel(s));
   assert.equal(packetStatusLabel('weird'), 'weird');
-  for (const f of ['app/packets/page.js', 'app/packets/PacketMapper.js']) {
-    assert.match(src(f), /packetStatusLabel\(/, f);
-    assert.doesNotMatch(src(f), /'ready to fill out'/, f);
-  }
+  // Both pages go through packetDisplayStatus (list via the server, packet page in PacketMapper).
+  assert.match(src('app/lib/packetList.js'), /packetDisplayStatus\(/);
+  assert.match(src('app/packets/PacketMapper.js'), /packetDisplayStatus\(/);
+  for (const f of ['app/packets/page.js', 'app/packets/PacketMapper.js']) assert.doesNotMatch(src(f), /'ready to fill out'/i, f);
   assert.match(src('app/packets/PacketMapper.js'), /manualReasonText\(packet\.manual_reason, canEdit\)/);
 });
 
-test('list polls fast only while pending and refreshes when processing returns', () => {
+test('list polls only while pending (backoff) and refreshes when processing returns', () => {
   assert.ok(POLL_MS <= 2000);
   assert.equal(isPendingStatus('processing'), true); assert.equal(isPendingStatus('received'), true); assert.equal(isPendingStatus('review'), false);
   const page = src('app/packets/page.js');
   assert.match(page, /if \(!pending\) return;/);
-  assert.match(page, /POLL_MS\)/);
+  assert.match(page, /pollDelay\(/);
+  assert.match(page, /document\.hidden/);
   assert.match(page, /\.then\(\(\) => load\(\)/);
 });
