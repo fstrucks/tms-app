@@ -15,6 +15,7 @@ import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
+import { parseWeightLb } from '../../lib/loadWeight';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -39,6 +40,8 @@ export default function LoadDetailPage() {
   const [checking, setChecking] = useState(true);
   const [load, setLoad] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
+  const [weightErr, setWeightErr] = useState(null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -81,6 +84,22 @@ export default function LoadDetailPage() {
     });
     return () => sub.subscription.unsubscribe();
   }, [id]);
+
+  // Load weight (lb): copied from the rate con on create; editable here. The Truck tab compares scale tickets with it.
+  async function saveWeight(e) {
+    e.preventDefault();
+    const txt = String(weightEdit || '').trim();
+    const weight = txt ? parseWeightLb(txt) : null;
+    if (txt && !weight) return setWeightErr('Enter a weight in pounds, like 38,500.');
+    setWeightErr(null); setSaving(true);
+    try {
+      const { data: saved, error } = await supabase.from('loads').update({ weight }).eq('id', id).select('weight').maybeSingle();
+      if (error || !saved) { console.error('[load] weight', error); return setWeightErr("Couldn't save the weight. Please try again."); }
+      setLoad((l) => ({ ...l, weight: saved.weight }));
+      list?.patchLoad(id, { weight: saved.weight });
+      setWeightEdit(null);
+    } finally { setSaving(false); }
+  }
 
   async function changeStatus(status) {
     const prev = load.status;
@@ -155,6 +174,22 @@ export default function LoadDetailPage() {
                       </div>
                     ))}
                   </dl>
+                  {weightEdit === null ? (
+                    <button type="button" data-testid="edit-weight" onClick={() => { setWeightErr(null); setWeightEdit(load.weight != null ? String(load.weight) : ''); }}
+                      style={{ marginTop: '0.5rem', minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14 }}>
+                      {load.weight != null ? 'Edit weight' : 'Add weight'}
+                    </button>
+                  ) : (
+                    <form onSubmit={saveWeight} data-testid="weight-form" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                      <label style={{ flex: '1 1 160px' }}><span style={s.muted}>Weight (lb)</span>
+                        <input id="load-weight" inputMode="numeric" value={weightEdit} onChange={(e) => setWeightEdit(e.target.value)} placeholder="38,500"
+                          style={{ display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db' }} />
+                      </label>
+                      <button type="button" onClick={() => setWeightEdit(null)} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' }}>Cancel</button>
+                      <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600 }}>Save</button>
+                      {weightErr && <p role="alert" style={{ color: '#b91c1c', fontSize: 14, margin: 0, flexBasis: '100%' }}>{weightErr}</p>}
+                    </form>
+                  )}
                   {hasStatus && (
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>

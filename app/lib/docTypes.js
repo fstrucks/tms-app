@@ -7,6 +7,8 @@ export const SCAN_DOC_TYPES = [
   { id: 'w9', label: 'W-9', short: 'W9', button: 'W-9', company: true },
   { id: 'coi', label: 'Certificate of Insurance (COI)', short: 'COI', button: 'COI', company: true },
   { id: 'mc_authority', label: 'MC Authority', short: 'MC_AUTHORITY', button: 'MC Authority', company: true },
+  // Truck tab (PR #69): scanned from Truck → Scan scale ticket; read for weight + date.
+  { id: 'scale_ticket', label: 'Scale ticket', short: 'SCALE_TICKET', button: 'Scale Ticket' },
   // Free-text type (Marc): stored as doc_type 'other:<name>' (no migration; doc_type is plain text).
   { id: 'other', label: 'Other', short: 'OTHER', button: null },
 ];
