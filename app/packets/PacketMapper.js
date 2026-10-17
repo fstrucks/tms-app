@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
 import SignaturePad from '../components/PacketSignaturePad';
-import { dragBox, isTap } from '../lib/packetDrag';
+import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
@@ -32,7 +32,18 @@ export function boxText(f) {
   if (f.value && !SENSITIVE.has(f.profile_key)) return f.value;
   return KEY_LABELS[f.profile_key] || '';
 }
-const STATE_TEXT = { unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
+// Inch box: free typing (empty allowed); applies valid numbers as typed, restores the real value on blur.
+function InchInput({ label, aria, step, px, onApply }) {
+  const real = String(inches(px));
+  const [txt, setTxt] = useState(real);
+  const [focus, setFocus] = useState(false);
+  useEffect(() => { if (!focus) setTxt(real); }, [real, focus]);
+  return <label style={{ gridColumn: 'span 2', fontSize: 13 }}>{label}<input type="text" inputMode="decimal" style={s.input} aria-label={aria} data-step={step} value={txt}
+    onFocus={() => setFocus(true)}
+    onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
+    onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
+}
+const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
 
 export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
@@ -46,6 +57,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const [signing, setSigning] = useState(null); // signature field id being signed
   const [filled, setFilled] = useState(null); // { url, filename }
   const drag = useRef(null);
+  const base = useRef(initial); // last server copy of the fields (for Discard)
   const raf = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [sigUrls, setSigUrls] = useState({});
@@ -53,6 +65,14 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const [signedOut, setSignedOut] = useState(false);
   const store = typeof window !== 'undefined' ? window.sessionStorage : null;
   const wrap = useRef(null);
+  const bar = useRef(null);
+  const [barH, setBarH] = useState(0); // live height of the sticky Discard/Save bar, so content never ends up under it
+  useEffect(() => {
+    const el = bar.current; if (!el) { setBarH(0); return; } // bar hidden (send step): drop its padding
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight)); ro.observe(el); setBarH(el.offsetHeight);
+    return () => ro.disconnect();
+  });
   const [dispW, setDispW] = useState(0);
   const [zoom, setZoom] = useState(1);
   useEffect(() => { // track the page's displayed width so boxes scale with it (rotation, resize)
@@ -61,6 +81,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     return () => ro.disconnect();
   }, []);
   useEffect(() => { // restore unsaved edits kept from before a sign-out / reload
+    base.current = initial;
     const r = applyDraft(initial, store && loadDraft(store, packet.id));
     setFields(r.fields); setDeleted(r.deleted);
     if (r.restored) setMsg(`Restored ${r.restored} unsaved change${r.restored === 1 ? '' : 's'}.${r.secretsDropped ? ' Re-type bank/EIN numbers (they are never stored in the browser).' : ''} Tap Save to keep them.`);
@@ -84,8 +105,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
   function tapPage(e) {
     if (!placing || !canEdit || !img) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - r.left) / scale, y = (e.clientY - r.top) / scale;
+    const r = e.currentTarget.getBoundingClientRect(), k = img.w / r.width;
+    const x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
     const id = `tmp-${Date.now().toString(36)}`;
     const f = { id, field_key: `u-${id.slice(4)}`, page, kind: 'text', label: '', box: placeBox(x, y, img.w, img.h), profile_key: null, value: '', confirmed: false, page_w: img.w, page_h: img.h, dirty: true, source: 'user' };
     setFields((fs) => [...fs, f]); setSel(id); setPlacing(false);
@@ -96,27 +117,35 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (placing) return;
     if (!canEdit) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { id: f.id, mode, x: e.clientX, y: e.clientY, box: f.box, moved: false };
+    const r = wrap.current.getBoundingClientRect();
+    drag.current = { id: f.id, mode, start: { x: e.clientX, y: e.clientY, left: r.left, top: r.top }, box: f.box, moved: false, dx: 0, dy: 0, k: pxPerCss(wrap.current, img) };
     setDragging(true);
   }
   function moveDrag(e) {
     const d = drag.current; if (!d || !img) return;
-    const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (!d.moved && isTap(dx, dy)) return;
-    d.moved = true; d.dx = dx; d.dy = dy;
+    track(d, e);
+    if (!d.moved) return;
     if (!raf.current) raf.current = requestAnimationFrame(() => { // one state update per frame: smooth on phones
       raf.current = 0; const c = drag.current; if (!c) return;
-      set(c.id, { box: dragBox(c.box, c.mode, c.dx / scale, c.dy / scale, img.w, img.h) });
+      set(c.id, { box: dragBox(c.box, c.mode, c.dx, c.dy, img.w, img.h) });
     });
   }
-  function stopDrag() {
+  // Offset from the ORIGINAL pointerdown point (never from where the tap threshold was crossed).
+  function track(d, e) {
+    const r = wrap.current.getBoundingClientRect();
+    const m = dragDelta(d.start, { x: e.clientX, y: e.clientY, left: r.left, top: r.top }, d.k);
+    if (!d.moved && !m.moved) return;
+    d.moved = true; d.dx = m.dx; d.dy = m.dy;
+  }
+  function stopDrag(e) {
     const d = drag.current; drag.current = null; setDragging(false);
     if (raf.current) { cancelAnimationFrame(raf.current); raf.current = 0; }
-    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx / scale, d.dy / scale, img.w, img.h) }); // final position
+    if (d && e && Number.isFinite(e.clientX) && e.type === 'pointerup') track(d, e); // final position = where the finger lifted
+    if (d?.moved) set(d.id, { box: dragBox(d.box, d.mode, d.dx, d.dy, img.w, img.h) });
     return d;
   }
   function endDrag(e, f) {
-    const d = stopDrag();
+    const d = stopDrag(e);
     if (d && d.moved) { e.stopPropagation(); return; }
     tapField(f);
   }
@@ -125,6 +154,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setSel(f.id);
     if (!canEdit || !onSign) return;
     if (isSigField(f) && f.signed) return setSigMenu(f.id);
+    startSign(f);
+  }
+  function startSign(f) {
     const t = signTarget(fields, f);
     if (!t) return;
     if (t.error) return setMsg(t.error);
@@ -132,12 +164,12 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setSigning(t.id);
   }
   async function doSign(r) {
-    const id = signing; setSigning(null); setBusy(true); setMsg(null);
+    const id = signing; setSigning(null); setSel(null); setBusy(true); setMsg(null); // no edit panel popping up after Done
     const res = await onSign({ fieldId: id, ...r });
     setBusy(false);
     if (handle(res)) return;
     if (res?.error) return setMsg(res.error);
-    if (res?.fields) setFields(res.fields);
+    if (res?.fields) { base.current = res.fields; setFields(res.fields); }
     setMsg(`Signed by ${r.signerName}. Date filled: ${res.date}.`);
   }
   async function doFill() {
@@ -149,18 +181,27 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setFilled({ url: res.url, filename: res.filename }); setMsg('Filled PDF saved.');
   }
   async function clearSig(id) {
-    setSigMenu(null); setBusy(true); setMsg(null);
+    setSigMenu(null); setSel(null); setBusy(true); setMsg(null); // clear only; no edit panel
     const r = await onClearSig(id);
     setBusy(false);
     if (handle(r)) return;
     if (r?.error) return setMsg(r.error);
+    if (r?.fields) base.current = r.fields;
     if (r?.fields) setFields((fs) => r.fields.map((n) => { const local = fs.find((x) => x.id === n.id && x.dirty); return local ? { ...local, signed: false, signer_name: null, signed_at: null } : n; }));
-    setFilled(null); setMsg('Signature cleared.');
+    setFilled(null);
+    const pending = fields.some((x) => x.dirty && x.id !== id) || deleted.length;
+    setMsg(pending ? 'Signature cleared. Your other changes are still unsaved: tap Save changes to keep them, or Discard.' : 'Signature cleared.');
   }
   function reSign(id) {
     setSigMenu(null);
     if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save your changes first, then re-sign.');
     setSigning(id);
+  }
+  function discard() {
+    if (typeof window !== 'undefined' && !window.confirm('Discard your unsaved changes on this packet?')) return;
+    if (store) clearDraft(store, packet.id);
+    setFields(base.current); setDeleted([]); setSel(null); setSigMenu(null); setSigning(null); setPlacing(false);
+    setMsg('Unsaved changes discarded.');
   }
   const blockers = unconfirmedBank(fields);
   const fillWhy = fillBlockers(fields, { dirty });
@@ -179,11 +220,11 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (store) clearDraft(store, packet.id);
     if (r?.errors?.length) setMsg(r.errors.map((x) => x.error).join(' · '));
     else setMsg('Saved.');
-    if (r?.fields) { setFields(r.fields); setDeleted([]); setSel(null); }
+    if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); }
   }
 
   return (
-    <main style={s.main}>
+    <main style={{ ...s.main, paddingBottom: `calc(${Math.max(110, barH + 16)}px + var(--nav-h, 0px) + env(safe-area-inset-bottom))` }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
       <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
@@ -193,6 +234,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
         <span style={s.chip('#374151')}>{sum.total} fields</span>
+        {sum.sign > 0 && <span style={s.chip(STATE_COLORS.sign)}>{sum.sign} to sign</span>}
         {sum.unmapped > 0 && <span style={s.chip(STATE_COLORS.unmapped)}>{sum.unmapped} need a name</span>}
         {sum.confirm > 0 && <span style={s.chip(STATE_COLORS.confirm)}>{sum.confirm} bank # to confirm</span>}
         {sum.check > 0 && <span style={s.chip(STATE_COLORS.check)}>{sum.check} to check</span>}
@@ -212,12 +254,12 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
             onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
             onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
             onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => stopDrag()}
-            style={{ zIndex: sel === f.id ? 2 : 1, touchAction: canEdit ? 'none' : 'auto', cursor: canEdit ? 'move' : 'pointer', overflow: 'visible', position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            style={{ zIndex: sel === f.id ? 2 : 1, touchAction: canEdit ? 'none' : 'auto', cursor: canEdit ? 'move' : 'pointer', overflow: 'visible', position: 'absolute', left: x0 * scale, top: y0 * scale, width: Math.max(8, (x1 - x0) * scale), height: Math.max(6, (y1 - y0) * scale), border: `2px solid ${STATE_COLORS[st]}`, background: sel === f.id ? `${STATE_COLORS[st]}33` : `${STATE_COLORS[st]}14`, borderRadius: 3, padding: 0, boxSizing: 'border-box', minHeight: 0, minWidth: 0, lineHeight: 1, display: 'block', fontSize: 9, color: STATE_COLORS[st], textAlign: 'left', whiteSpace: 'nowrap' }}>
             {f.signed && sigUrls[f.id]
               ? <img src={sigUrls[f.id]} alt={`Signature of ${f.signer_name || 'signer'}`} draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
               : <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: '100%' }}>{boxText(f)}</span>}
             {canEdit && sel === f.id && <span role="presentation" data-resize={f.id} onPointerDown={(e) => startDrag(e, f, 'resize')} onPointerMove={moveDrag}
-              onPointerUp={(e) => { e.stopPropagation(); stopDrag(); }} onPointerCancel={(e) => { e.stopPropagation(); stopDrag(); }}
+              onPointerUp={(e) => { e.stopPropagation(); stopDrag(e); }} onPointerCancel={(e) => { e.stopPropagation(); stopDrag(); }}
               style={{ position: 'absolute', right: -22, bottom: -22, width: 44, height: 44, zIndex: 3, touchAction: 'none', cursor: 'nwse-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ width: 16, height: 16, background: STATE_COLORS[st], border: '2px solid #fff', borderRadius: 4, boxShadow: '0 0 0 1px rgba(0,0,0,.3)', pointerEvents: 'none' }} />
             </span>}
@@ -230,14 +272,14 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       </div>
 
       {signedOut && <p role="alert" style={{ ...s.banner, background: '#fef2f2', borderColor: '#fca5a5' }}>You were signed out. <a href={loginHref}>Sign in again</a>. Your unsaved changes are kept on this device and come back after you sign in.</p>}
-      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section aria-label="Signature options" style={{ border: '2px solid #059669', borderRadius: 12, padding: '0.75rem', margin: '0.75rem 0', background: '#f0fdf4' }}>
+      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section role="dialog" aria-label="Signature options" data-testid="sig-sheet" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 60, maxWidth: 560, margin: '0 auto', boxSizing: 'border-box', border: '2px solid #059669', borderBottom: 'none', borderRadius: '12px 12px 0 0', padding: '0.75rem', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))', background: '#f0fdf4', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
         <p style={{ margin: '0 0 0.5rem' }}>Signed by <strong>{f.signer_name || 'signer'}</strong>{f.signed_at ? ` on ${formatPacketDate(f.signed_at)}` : ''}.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={{ ...s.btn, flex: 1 }} onClick={() => reSign(f.id)} disabled={busy}>Re-sign</button>
           <button style={{ ...s.btn, flex: 1, color: '#b91c1c', borderColor: '#fca5a5' }} onClick={() => clearSig(f.id)} disabled={busy}>Clear signature</button>
           <button style={s.btn} onClick={() => setSigMenu(null)} aria-label="Close signature options">✕</button>
         </div></section>; })()}
-      {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => setSigning(null)} />}
+      {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => { setSigning(null); setSel(null); }} />}
       {cur && !(isSigField(cur) && (sigMenu === cur.id || signing)) && <FieldEditor f={cur} canEdit={canEdit} onChange={(p) => set(cur.id, p)} onClose={() => setSel(null)} img={img}
         onDelete={() => { setDeleted((d) => [...d, cur.id]); setFields((fs) => fs.filter((x) => x.id !== cur.id)); setSel(null); }} />}
 
@@ -251,15 +293,16 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
       {/* Hidden while the Send-to-broker write/review step is open (it covered Edit / Send now on iPhone), unless
           there are unsaved field edits that still need the Save button. */}
-      {canEdit && !(hideActionBar && !dirty) && <div data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
+      {canEdit && !(hideActionBar && !dirty) && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
           {filled?.url && <p style={{ margin: '0 0 0.4rem', fontSize: 15 }}><a href={filled.url} download={filled.filename}>⬇ Download filled PDF</a></p>}
+          {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={discard}>Discard changes</button>}
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
-              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
+              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
               <button style={{ ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : 'Fill & download PDF'}</button>
             </>}
         </div>
@@ -314,8 +357,8 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => mv(0, 0, 40)}>Wider</button>
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => rs(0, -8)}>Shorter</button>
           <button style={{ ...s.btn, gridColumn: 'span 2' }} onClick={() => rs(0, 8)}>Taller</button>
-          <label style={{ gridColumn: 'span 2', fontSize: 13 }}>Width (in)<input type="number" inputMode="decimal" step="0.1" min="0.1" style={s.input} aria-label="Width in inches" value={inches(f.box[2] - f.box[0])} onChange={(e) => setIn(e.target.value, null)} /></label>
-          <label style={{ gridColumn: 'span 2', fontSize: 13 }}>Height (in)<input type="number" inputMode="decimal" step="0.05" min="0.05" style={s.input} aria-label="Height in inches" value={inches(f.box[3] - f.box[1])} onChange={(e) => setIn(null, e.target.value)} /></label>
+          <InchInput label="Width (in)" aria="Width in inches" step="0.1" px={f.box[2] - f.box[0]} onApply={(v) => setIn(v, null)} />
+          <InchInput label="Height (in)" aria="Height in inches" step="0.05" px={f.box[3] - f.box[1]} onApply={(v) => setIn(null, v)} />
         </div>
         <button style={{ ...s.btn, width: '100%', marginTop: '0.75rem', color: '#b91c1c', borderColor: '#fca5a5' }} onClick={onDelete}>Remove field</button>
       </>}

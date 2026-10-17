@@ -11,15 +11,16 @@ export const NEW_BOX = [0, 0, 560, 36]; // px at 200 dpi (~2.8in × 0.18in)
 
 export function fieldState(f) {
   if (!f.profile_key) return 'unmapped';
+  if ((f.kind === 'signature' || f.profile_key === 'signature') && !f.signed) return 'sign';
   if (f.check && !f.check.ok && BANK.has(f.profile_key)) return 'check';
   if (BANK.has(f.profile_key) && !f.confirmed) return 'confirm';
   if (f.check && !f.check.ok) return 'check';
   return 'ok';
 }
-export const STATE_COLORS = { unmapped: '#d97706', confirm: '#dc2626', check: '#b45309', ok: '#16a34a' };
+export const STATE_COLORS = { sign: '#7c3aed', unmapped: '#d97706', confirm: '#dc2626', check: '#b45309', ok: '#16a34a' };
 
 export function summarize(fields) {
-  const s = { total: fields.length, unmapped: 0, confirm: 0, check: 0, ok: 0 };
+  const s = { total: fields.length, unmapped: 0, confirm: 0, check: 0, ok: 0, sign: 0 };
   for (const f of fields) s[fieldState(f)]++;
   return s;
 }

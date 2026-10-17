@@ -73,7 +73,7 @@ test('toClient never exposes ciphertext; masks bank values', () => {
 // ---- mapper model
 test('mapper model: states, placement clamp, nudge, patch building', () => {
   const fs = [{ profile_key: null }, { profile_key: 'bank_routing', confirmed: false }, { profile_key: 'dot_number', check: { ok: false } }, { profile_key: 'legal_name' }];
-  assert.deepEqual(summarize(fs), { total: 4, unmapped: 1, confirm: 1, check: 1, ok: 1 });
+  assert.deepEqual(summarize(fs), { total: 4, unmapped: 1, confirm: 1, check: 1, ok: 1, sign: 0 });
   assert.deepEqual(placeBox(1600, 5, 1700, 2200), [1140, 0, 1700, 36]);
   assert.deepEqual(nudge([0, 0, 100, 30], -10, 0, -100, 1700, 2200), [0, 0, 40, 30]);
   let f = { id: 'a', page: 1, kind: 'text', box: [0, 0, 10, 10], profile_key: 'bank_routing', value: '•••0015', confirmed: true };

@@ -60,7 +60,7 @@ test('reset success: no redirect to forgot-password, no resend, Continue goes to
 });
 test('sign out clears header user immediately', () => {
   const m = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
-  assert.match(m, /else \{ setUser\(null\); setOpen\(false\); router\.replace\('\/login'\)/);
+  assert.match(m, /else \{ setUser\(null\); setOpen\(false\); router\.replace\(hereLogin\(\)\)/); // /login?next=<this page>
 });
 import { pageMode } from '../../app/lib/passwordSetup.js';
 test('invite with next=/account/password opens setup mode', () => {
