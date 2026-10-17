@@ -9,7 +9,8 @@ import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
 import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
-import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT } from '../lib/packetStatus';
+import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
+import { formatListTime } from '../lib/packetDate';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -98,6 +99,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
   const onPage = fields.filter((f) => f.page === page);
   const sum = useMemo(() => summarize(fields), [fields]);
+  const status = packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields));
   const dirty = fields.some((f) => f.dirty) || deleted.length > 0;
   const cur = fields.find((f) => f.id === sel) || null;
   const scale = img && dispW ? dispW / img.w : 0;
@@ -227,7 +229,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     <main style={{ ...s.main, paddingBottom: `calc(${Math.max(110, barH + 16)}px + var(--nav-h, 0px) + env(safe-area-inset-bottom))` }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
-      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · <span data-testid="packet-status">{packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields)).label}</span>{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: '0.35rem' }}>
+        <span data-testid="packet-status" data-status={status.key} style={statusChipStyle(status.color)}>{status.label}</span>
+        <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
+      </div>
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
       {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}

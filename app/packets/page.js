@@ -5,14 +5,15 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { uploadPacket, validatePacketFile } from '../lib/packetUpload';
 import { makeApi } from '../lib/packetApi';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
-import { isPendingStatus, PACKET_FILTERS, filterPackets, filterCounts, pollDelay, POLL_MAX_MS } from '../lib/packetStatus';
+import { isPendingStatus, PACKET_FILTERS, filterPackets, filterCounts, pollDelay, POLL_MAX_MS, statusChipStyle } from '../lib/packetStatus';
+import { formatListTime } from '../lib/packetDate';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem 1rem', marginBottom: '0.75rem' },
   pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation' },
   muted: { color: '#6b7280', fontSize: 14, margin: '0.25rem 0 0' },
-  chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: c, whiteSpace: 'nowrap' }),
+  chip: statusChipStyle,
   tab: (on) => ({ minHeight: 40, padding: '0 0.8rem', borderRadius: 999, border: `1px solid ${on ? '#2563eb' : '#d1d5db'}`, background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111827', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', touchAction: 'manipulation' }),
   act: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, touchAction: 'manipulation' },
   hint: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '0.4rem 0.6rem', fontSize: 14, margin: '0.5rem 0 0' },
@@ -139,7 +140,7 @@ export default function PacketsPage() {
                 <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{r.subject || r.original_filename}</span>
                 <span style={s.chip(r.color)} data-status={r.display}>{r.label}</span>
               </div>
-              <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <p style={s.muted}>{r.source === 'email' ? 'Emailed' : 'Uploaded'} · {formatListTime(r.created_at)}{r.sent_at ? ` · Sent ${formatListTime(r.sent_at)}` : r.filled_at ? ` · Filled ${formatListTime(r.filled_at)}` : ''}</p>
               {r.hint && <p style={s.hint}>{r.hint}</p>}
             </a>
             {r.canManage && <div style={{ display: 'flex', gap: 8, marginTop: '0.6rem' }}>

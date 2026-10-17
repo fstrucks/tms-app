@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { safeNext } from '../lib/safeNext';
+import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
 
 const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('next'));
 
@@ -31,9 +32,9 @@ export default function LoginPage() {
     setError(null);
     try {
       if (usePw) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await signInWithRetry((c) => supabase.auth.signInWithPassword(c), { email, password });
         if (error) {
-          setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : error.message);
+          setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : isNetworkAuthError(error) ? NETWORK_SIGNIN_MSG : error.message);
           // back to the password field with its text selected, after the button re-enables
           setTimeout(() => { const el = pwRef.current; if (el) { el.focus(); el.select(); } }, 0);
         }
@@ -62,7 +63,7 @@ export default function LoginPage() {
       }
       else setSent(true);
     } catch (err) {
-      setError(err.message || 'Could not send the sign-in link.');
+      setError(isNetworkAuthError(err) ? NETWORK_SIGNIN_MSG : err.message || 'Could not send the sign-in link.');
     } finally {
       setSending(false);
     }

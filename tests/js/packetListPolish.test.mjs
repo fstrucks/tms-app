@@ -35,9 +35,9 @@ test('display status: one label per state, shared keys', () => {
 });
 
 test('fieldSummary counts signature fields from DB rows or client fields', () => {
-  assert.deepEqual(fieldSummary([{ kind: 'text' }, { kind: 'signature', signature_path: 'a' }, { profile_key: 'signature', kind: 'text' }]), { fieldCount: 3, sigTotal: 2, sigSigned: 1 });
-  assert.deepEqual(fieldSummary([{ kind: 'signature', signed: true }]), { fieldCount: 1, sigTotal: 1, sigSigned: 1 });
-  assert.deepEqual(fieldSummary([]), { fieldCount: 0, sigTotal: 0, sigSigned: 0 });
+  assert.deepEqual(fieldSummary([{ kind: 'text' }, { kind: 'signature', signature_path: 'a' }, { profile_key: 'signature', kind: 'text' }]), { fieldCount: 3, sigTotal: 2, sigSigned: 1, unnamed: 2 });
+  assert.deepEqual(fieldSummary([{ kind: 'signature', profile_key: 'signature', signed: true }]), { fieldCount: 1, sigTotal: 1, sigSigned: 1, unnamed: 0 });
+  assert.deepEqual(fieldSummary([]), { fieldCount: 0, sigTotal: 0, sigSigned: 0, unnamed: 0 });
 });
 
 test('"Tap Add field" hint only on scanned/unreadable packets with no fields; view-only users get who can', () => {
@@ -100,7 +100,7 @@ function fakeDb(tables, { failFrom = {}, jwtFail = false, failDelete = false } =
       eq(k, v) { (st.raw ||= []).push(`${k}=eq.${v}`); st.f.push((r) => r[k] === v); return b; },
       neq(k, v) { (st.raw ||= []).push(`${k}=neq.${v}`); st.f.push((r) => r[k] !== v); return b; },
       in(k, vs) { (st.raw ||= []).push(`${k}=in.${vs.length}`); st.f.push((r) => vs.includes(r[k])); return b; },
-      or(expr) { (st.raw ||= []).push(`or=${expr}`); st.f.push((r) => r.kind === 'signature' || r.profile_key === 'signature'); return b; },
+      or(expr) { (st.raw ||= []).push(`or=${expr}`); st.f.push((r) => r.kind === 'signature' || r.profile_key === 'signature' || (/profile_key\.is\.null/.test(expr) && r.profile_key == null)); return b; },
       order() { return b; }, limit() { return b; },
       update(p) { st.op = 'update'; st.payload = p; return b; }, delete() { st.op = 'delete'; return b; },
       maybeSingle: async () => { st.one = true; return run(); },

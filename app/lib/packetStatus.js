@@ -14,11 +14,14 @@ export const packetStatusLabel = (status) => PACKET_STATUS_LABELS[status] || Str
 export const isPendingStatus = (status) => status === 'received' || status === 'processing';
 
 export const isSigFieldRow = (f) => f.kind === 'signature' || f.profile_key === 'signature';
+// Same rule as the packet page's orange "N need a name" badge (packetMapperModel fieldState → 'unmapped').
+export const isUnnamedField = (f) => !f.profile_key;
 // Field rows (DB rows with signature_path, or client fields with `signed`) → the counts the status needs.
 export function fieldSummary(fields = []) {
-  const s = { fieldCount: 0, sigTotal: 0, sigSigned: 0 };
+  const s = { fieldCount: 0, sigTotal: 0, sigSigned: 0, unnamed: 0 };
   for (const f of fields) {
     s.fieldCount++;
+    if (isUnnamedField(f)) s.unnamed++;
     if (isSigFieldRow(f)) { s.sigTotal++; if (f.signed || f.signature_path) s.sigSigned++; }
   }
   return s;
@@ -30,6 +33,7 @@ export const DISPLAY = {
   processing: { label: PACKET_STATUS_LABELS.processing, color: '#6b7280' },
   error: { label: PACKET_STATUS_LABELS.error, color: '#b91c1c' },
   needs_fields: { label: 'Needs fields', color: '#d97706' },
+  needs_names: { label: 'Name fields', color: '#d97706' }, // amber, same as the badge; label gets the count: "Name 3 fields"
   needs_signature: { label: 'Needs signature', color: '#7c3aed' },
   ready: { label: PACKET_STATUS_LABELS.review, color: '#2563eb' },
   signed: { label: PACKET_STATUS_LABELS.signed, color: '#0f766e' },
@@ -46,13 +50,18 @@ export function packetDisplayStatus(packet, summary) {
     if (st === 'sent' || packet?.sent_at) return 'sent';
     if (!summary) return 'ready';
     if (summary.fieldCount === 0) return 'needs_fields';
+    if (summary.unnamed > 0) return 'needs_names'; // before Ready/Signed/Filled: unnamed fields can't be filled
     if (summary.sigTotal > summary.sigSigned) return 'needs_signature';
     if (packet?.filled_at) return 'filled';
     if (summary.sigTotal > 0) return 'signed';
     return 'ready';
   })();
+  if (key === 'needs_names') return { key, ...DISPLAY[key], label: namesLabel(summary.unnamed) };
   return { key, ...DISPLAY[key] };
 }
+export const namesLabel = (n) => `Name ${n} field${n === 1 ? '' : 's'}`;
+// Chip style shared by the list rows and the packet page header.
+export const statusChipStyle = (color) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: color, whiteSpace: 'nowrap' });
 
 // Scanned / unreadable packets with no fields: tell the user how to start.
 const MANUAL_START = new Set(['no_text_layer', 'no_fields', 'read_failed', 'reader_error']);
@@ -67,7 +76,7 @@ export function addFieldHint(packet, summary, canEdit) {
 // List filters (chips on /packets). Archived packets are hidden unless the Archived filter is picked.
 export const PACKET_FILTERS = [
   { id: 'all', label: 'All', keys: null },
-  { id: 'todo', label: 'To do', keys: ['received', 'processing', 'error', 'needs_fields', 'needs_signature', 'ready'] },
+  { id: 'todo', label: 'To do', keys: ['received', 'processing', 'error', 'needs_fields', 'needs_names', 'needs_signature', 'ready'] },
   { id: 'filled', label: 'Filled', keys: ['filled', 'signed'] },
   { id: 'sent', label: 'Sent', keys: ['sent'] },
   { id: 'archived', label: 'Archived', keys: ['archived'] },

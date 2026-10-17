@@ -4,10 +4,11 @@
 //   Round 2 (service key, only for the packet ids RLS returned): field counts, signature fields, caller's role.
 // No signed URLs or file reads here; the PDF is only fetched when a packet is opened.
 import { canEdit as canEditRole, isRole } from './companyRoles.js';
-import { packetDisplayStatus, addFieldHint, canManagePackets } from './packetStatus.js';
+import { packetDisplayStatus, addFieldHint, canManagePackets, isSigFieldRow, isUnnamedField } from './packetStatus.js';
 
 export const LIST_COLS = 'id,owner_id,source,status,subject,original_filename,created_at,manual_reason,filled_at,sent_at';
 export const LIST_LIMIT = 100;
+export const SUMMARY_OR = 'kind.eq.signature,profile_key.eq.signature,profile_key.is.null';
 const isJwtError = (r) => r?.status === 401 || /^PGRST30/.test(r?.error?.code || '') || /jwt/i.test(r?.error?.message || '');
 
 export async function listPackets({ uc, sb, view = 'active', timings = {} }) {
@@ -29,15 +30,21 @@ export async function listPackets({ uc, sb, view = 'active', timings = {} }) {
   const t1 = Date.now();
   const [counts, sigs, ...roles] = await Promise.all([
     ids.length ? sb.from('packets').select('id,packet_fields(count)').in('id', ids) : { data: [] },
-    ids.length ? sb.from('packet_fields').select('packet_id,signature_path').in('packet_id', ids).or('kind.eq.signature,profile_key.eq.signature') : { data: [] },
+    // One narrow query for both the signature counts and the "need a name" counts: only signature rows and
+    // unnamed rows come back (normally a handful per packet), not every field.
+    ids.length ? sb.from('packet_fields').select('packet_id,kind,profile_key,signature_path').in('packet_id', ids).or(SUMMARY_OR) : { data: [] },
     ...owners.map((o) => uc.rpc('packet_role', { p_owner: o })),
   ]);
   timings.db2 = Date.now() - t1;
   const fieldsOk = !counts.error && !sigs.error;
   if (!fieldsOk) console.error('[packets] list summary', counts.error?.code, sigs.error?.code); // degrade: status from the packet row only
-  const sum = new Map(ids.map((id) => [id, { fieldCount: 0, sigTotal: 0, sigSigned: 0 }]));
+  const sum = new Map(ids.map((id) => [id, { fieldCount: 0, sigTotal: 0, sigSigned: 0, unnamed: 0 }]));
   for (const c of counts.data || []) { const s = sum.get(c.id); if (s) s.fieldCount = Number(c.packet_fields?.[0]?.count || 0); }
-  for (const f of sigs.data || []) { const s = sum.get(f.packet_id); if (s) { s.sigTotal++; if (f.signature_path) s.sigSigned++; } }
+  for (const f of sigs.data || []) {
+    const s = sum.get(f.packet_id); if (!s) continue;
+    if (isUnnamedField(f)) s.unnamed++;
+    if (isSigFieldRow(f)) { s.sigTotal++; if (f.signature_path) s.sigSigned++; }
+  }
   const roleOf = new Map(owners.map((o, i) => [o, isRole(roles[i]?.data) ? roles[i].data : null]));
 
   const out = rows.map((r) => {
