@@ -27,7 +27,7 @@ export default function EldImportPage() {
 
   return (
     <main style={main}>
-      <p style={{ margin: '0 0 0.25rem' }}><Link href="/mileage" style={{ color: '#2563eb' }}>← Mileage</Link></p>
+      <p style={{ margin: '0 0 0.25rem' }}><Link href="/dashboard?view=mileage" style={{ color: '#2563eb' }}>← Stats · Mileage</Link></p>
       <h1 style={{ fontSize: '1.5rem', marginTop: 0 }}>Import ELD miles</h1>
       {demo ? <EldImport supabase={null} userId={null} />
         : supabaseConfigError ? <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>

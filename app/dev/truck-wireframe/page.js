@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const TODAY = '2026-10-17';
 const FAKE = {
-  truck: { unit_number: '104', license_plate: 'TEST104', license_state: 'CA', vin: '1FAKEVIN0TEST0104', empty_weight_lb: 19850 },
+  truck: { unit_number: '104', license_plate: 'TEST104', license_state: 'CA', vin: '1FAKEVXN0TEST0104', empty_weight_lb: 19850 },
   trailer: { unit_number: 'T-22', license_plate: 'TRL0022', license_state: 'CA', empty_weight_lb: 14600 },
   driver: { name: 'Pat Driver (FAKE)', phone: '555-010-0104', cdl_number: 'D0000000', cdl_state: 'CA', cdl_expiry: '2027-03-01', med_card_expiry: '2026-11-02' },
   history: [

@@ -1,7 +1,9 @@
 # Truck tab: plan + wireframe (DRAFT, do not merge)
 
-Status: plan only. Nothing here is built except a preview-only wireframe (`/dev/truck-wireframe`, 404 in production),
-the field-key mapping module, and a **proposed** migration that has **not** been applied.
+Status (Oct 17): **approved by Marc and built** on this branch (see PR #69). Migration `20261017002100_truck_tab.sql` was
+**applied on prod by Dakota at 11:33 AM PT** after he checked the live `trucks`/`trailers` tables (they matched, no changes).
+Decisions: Mileage moved inside Stats and Truck took its tab; weight warnings on; Company is a link only; no team drivers;
+drivers get a read-only view. The plan below is kept as written for reference.
 
 > **Migration `supabase/migrations/20261017002100_truck_tab.sql`: NEEDS SAM/MARC OK.** Not run anywhere. It is numbered after 20261017002000 (in main, unapplied) and #68's 20261017001900.
 
