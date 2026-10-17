@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { safeNext } from '../lib/safeNext';
 import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
+import { readCredentials, validateCredentials, submitDisabled } from '../lib/loginForm';
 
 const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('next'));
 
@@ -28,11 +29,18 @@ export default function LoginPage() {
     e.preventDefault();
     const supabase = getSupabase();
     if (!supabase) return setError(supabaseConfigError);
+    // Read what's actually in the inputs: autofill / password managers may not have fired onChange.
+    const creds = readCredentials(e.currentTarget, { email, password });
+    const { email: em, password: pw } = creds;
+    if (em !== email) setEmail(em);
+    if (usePw && pw !== password) setPassword(pw);
+    const invalid = validateCredentials(creds, usePw);
+    if (invalid) return setError(invalid);
     setSending(true);
     setError(null);
     try {
       if (usePw) {
-        const { data, error } = await signInWithRetry((c) => supabase.auth.signInWithPassword(c), { email, password });
+        const { data, error } = await signInWithRetry((c) => supabase.auth.signInWithPassword(c), { email: em, password: pw });
         if (error) {
           setError(/invalid/i.test(error.message || '') ? 'Wrong email or password.' : isNetworkAuthError(error) ? NETWORK_SIGNIN_MSG : error.message);
           // back to the password field with its text selected, after the button re-enables
@@ -48,7 +56,7 @@ export default function LoginPage() {
         return;
       }
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: em,
         options: {
           emailRedirectTo: window.location.origin + '/auth/callback?next=' + encodeURIComponent(safeNext(nextParam())),
           shouldCreateUser: false, // invite-only: no public signups
@@ -84,17 +92,18 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleSubmit}>
             <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Email</label>
-            <input id="email" type="email" required autoComplete="email" value={email}
-              onChange={(e) => setEmail(e.target.value)} style={s.input} placeholder="you@example.com" />
+            <input id="email" name="email" type="email" required autoComplete="email" value={email}
+              onChange={(e) => setEmail(e.target.value)} onInput={(e) => setEmail(e.currentTarget.value)} style={s.input} placeholder="you@example.com" />
             {usePw && (
               <>
                 <label htmlFor="password" style={{ display: 'block', margin: '0.75rem 0 0.5rem', fontWeight: 600 }}>Password</label>
-                <input id="password" ref={pwRef} type="password" aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required autoComplete="current-password" value={password}
-                  onChange={(e) => setPassword(e.target.value)} style={s.input} />
+                <input id="password" name="password" ref={pwRef} type="password" aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required autoComplete="current-password" value={password}
+                  onChange={(e) => setPassword(e.target.value)} onInput={(e) => setPassword(e.currentTarget.value)} style={s.input} />
               </>
             )}
             <p id="login-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || ''}</p>
-            <button type="submit" disabled={sending || !email || (usePw && !password)} style={{ ...s.btn, opacity: sending || !email || (usePw && !password) ? 0.6 : 1 }}>
+            {/* Never disabled for empty-looking fields: autofill can fill them without React noticing. Checked on submit. */}
+            <button type="submit" disabled={submitDisabled(sending)} style={{ ...s.btn, opacity: submitDisabled(sending) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
             </button>
             {usePw && (
