@@ -824,3 +824,48 @@ test('QA r3 E: "Owner name" → Owner name (not Signer name); other labels keep 
   assert.deepEqual(byPosition([f('d', 2, 10, 10), f('c', 1, 10, 300), f('b', 1, 600, 105), f('a', 1, 100, 100)]).map((x) => x.id), ['a', 'b', 'c', 'd']);
   assert.match(readFileSync('app/packets/PacketMapper.js', 'utf8'), /const onPage = byPosition\(fields\.filter\(\(f\) => f\.page === page\)\)/);
 });
+
+// ===================== URGENT (Oct 17): packet pages stuck on "Couldn't check your sign-in just now" =====================
+import { packetAccess, jwtClaims, checkUser } from '../../app/lib/packetServer.js';
+const fakeJwt = (claims) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.fake-signature`;
+const fReq = (token) => new Request(`http://x/api/packets/${pid(1)}/fields`, { headers: { authorization: `Bearer ${token}` } });
+
+test('URGENT: Supabase Auth unavailable → the token is verified by the database instead; fields load (no 503 dead end)', async () => {
+  const sb = await acmeLearned();
+  const tok = fakeJwt({ sub: 'u-owner', email: 'taylor@example.test', role: 'authenticated', exp: Math.floor(Date.now() / 1000) + 3600 });
+  let calls = 0;
+  const down = (rpc) => () => ({ auth: { getUser: async () => { calls++; return { data: { user: null }, error: { status: 500, message: 'Internal server error' } }; } }, rpc });
+  const ok = async () => ({ data: 'owner', error: null });
+  const r = await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb, mkUserClient: down(ok), authRetryMs: 0 } });
+  assert.equal(r.status, 200); const j = await r.json();
+  assert.equal(j.canEdit, true); assert.equal(j.packet.broker_name, 'Acme Test Logistics'); assert.ok(j.fields.length > 0);
+  assert.equal(calls, 2); // one quick retry before falling back
+  // getUser throwing (network) is handled the same way.
+  const thrower = () => ({ auth: { getUser: async () => { throw new Error('fetch failed'); } }, rpc: ok });
+  assert.equal((await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb, mkUserClient: thrower, authRetryMs: 0 } })).status, 200);
+  // The database rejects a bad/forged token → signed out, never let in.
+  const bad = down(async () => ({ data: null, error: { code: 'PGRST301', message: 'JWSError JWSInvalidSignature' } }));
+  assert.equal((await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb, mkUserClient: bad, authRetryMs: 0 } })).status, 401);
+  // Not a member → 404 as usual; expired → 401 (client refreshes the session and retries).
+  assert.equal((await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb, mkUserClient: down(async () => ({ data: null, error: null })), authRetryMs: 0 } })).status, 404);
+  const old = fakeJwt({ sub: 'u-owner', role: 'authenticated', exp: Math.floor(Date.now() / 1000) - 10 });
+  assert.equal((await FIELDS_GET(fReq(old), { params: { id: pid(1) }, deps: { sb, mkUserClient: down(ok), authRetryMs: 0 } })).status, 401);
+  // Database also unreachable → 503 with retry (can't verify either way).
+  const both = down(async () => ({ data: null, error: { code: '57014', message: 'timeout' } }));
+  const b = await packetAccess(fReq(tok), pid(1), { sb, mkUserClient: both, authRetryMs: 0 });
+  assert.equal(b.status, 503); assert.equal(b.retry, true);
+  // A real rejection from Auth is still a sign-out; a working Auth is untouched.
+  assert.deepEqual(await checkUser({ auth: { getUser: async () => ({ data: { user: null }, error: { status: 403, message: 'invalid JWT: token is expired' } }) } }, tok, { retryMs: 0 }), { rejected: true });
+  assert.equal(jwtClaims(tok).sub, 'u-owner'); assert.equal(jwtClaims('garbage'), null);
+  // Any unexpected throw in the route → JSON 500 with the plain fields message (not HTML, not a sign-in message).
+  const boom = await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb: { from: () => { throw new Error('boom'); } }, mkUserClient: down(ok), authRetryMs: 0 } });
+  assert.equal(boom.status, 500); assert.match((await boom.json()).error, /Couldn’t load this packet’s fields/);
+});
+
+test('URGENT: the packet page says "Couldn’t load this packet’s fields. Try again." (with a Try again button) for non-sign-in failures', () => {
+  const page = readFileSync('app/packets/[id]/page.js', 'utf8');
+  assert.match(page, /const FIELDS_LOAD_ERROR = 'Couldn’t load this packet’s fields\. Try again\.';/);
+  assert.match(page, /if \(d\.signedOut \|\| d\.status === 401\) return \{ error: d\.error \|\| 'Sign in again\.', signedOut: true \};/);
+  assert.equal((page.match(/setSt\(fieldsError\(d\)\)/g) || []).length, 2);
+  assert.match(page, /data-testid="fields-retry"/);
+});

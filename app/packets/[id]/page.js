@@ -10,6 +10,14 @@ import { makeApi } from '../../lib/packetApi';
 import { fillWithRetry } from '../../lib/packetFillRetry';
 
 const DPI = 200;
+// A failed GET /fields is a "couldn't load" problem unless the session is really gone (401 after the refresh retry).
+// 404 keeps its own message ("Packet not found."). Everything else gets a plain retry message, never a sign-in one.
+const FIELDS_LOAD_ERROR = 'Couldn’t load this packet’s fields. Try again.';
+function fieldsError(d) {
+  if (d.signedOut || d.status === 401) return { error: d.error || 'Sign in again.', signedOut: true };
+  if (d.status === 404) return { error: d.error || 'Packet not found.' };
+  return { error: FIELDS_LOAD_ERROR, retry: true };
+}
 const PROCESS_POLL_MS = [1500, 2000, 3000, 3000, 5000, 5000, 8000, 8000, 10000, 10000, 10000, 10000, 15000, 15000]; // ~2 min
 const isProcessing = (status) => status === 'received' || status === 'processing';
 const packetApi = makeApi(() => getSupabase()?.auth);
@@ -26,12 +34,12 @@ export default function PacketPage({ params }) {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
     let d = await api(`/api/packets/${id}/fields`);
     if (d.setupNeeded) return setSt({ error: d.error, setup: true });
-    if (d.error) return setSt({ error: d.error, signedOut: d.status === 401 });
+    if (d.error) return setSt(fieldsError(d));
     if (isProcessing(d.packet.status)) { // kick (idempotent) and refresh
       setSt({ ...d, loading: false });
       await api(`/api/packets/${id}/process`, { method: 'POST' });
       d = await api(`/api/packets/${id}/fields`);
-      if (d.error) return setSt({ error: d.error });
+      if (d.error) return setSt(fieldsError(d));
       // Already being processed elsewhere (started right after upload): poll until it's done, so the fields and
       // the remembered-layout banner show up without a reload.
       for (let i = 0; isProcessing(d.packet?.status) && i < PROCESS_POLL_MS.length; i++) {
@@ -83,7 +91,7 @@ export default function PacketPage({ params }) {
   const loadSignatures = useCallback(() => api(`/api/packets/${id}/signatures`), [id]);
 
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
-  if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}</main>;
+  if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}{st.retry && <button type="button" data-testid="fields-retry" style={{ minHeight: 44, padding: '0 1rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15 }} onClick={() => { setSt({ loading: true }); load().catch(() => setSt({ error: FIELDS_LOAD_ERROR, retry: true })); }}>Try again</button>}</main>;
   return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review' || coiStep === 'write' || coiStep === 'review'} onBarShownChange={setBarShown} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
     <div data-testid="send-wrap" style={{ padding: '0 0.75rem', paddingBottom: sendWrapPadding(barShown) }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} />{COI_FLAG && <PacketCoiRequest load={loadCoi} send={onCoi} onStepChange={setCoiStep} />}</div></>;
 }
