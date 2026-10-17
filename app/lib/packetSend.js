@@ -5,6 +5,7 @@ export const SEND_ROLES = new Set(['owner', 'management']);
 export const canSend = (r) => SEND_ROLES.has(r);
 const EMAIL = /^[^\s@<>(),;:"\[\]]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 export const MAX_RECIPIENTS = 10;
+export const POSTMARK_TIMEOUT_MS = 20000;
 
 // "a@x.com, b@y.com; c@z.com" → { list } | { error }
 export function parseEmails(input, { label = 'email', required = false } = {}) {
@@ -69,7 +70,8 @@ export function validateSend(b, env = process.env) {
 }
 
 // One Postmark /email call. fetchImpl is injected (tests use a mock; nothing real is sent in tests).
-export async function postmarkSend({ token, from, replyTo, stream, to, cc, subject, body, pdf, filename }, fetchImpl = fetch) {
+// → { messageId } | { error, code? } (definitely not sent) | { error, unknown: true } (timed out: may have sent).
+export async function postmarkSend({ token, from, replyTo, stream, to, cc, subject, body, pdf, filename, timeoutMs = POSTMARK_TIMEOUT_MS }, fetchImpl = fetch) {
   const payload = {
     From: from, To: to.join(', '), ...(cc.length ? { Cc: cc.join(', ') } : {}), ...(replyTo ? { ReplyTo: replyTo } : {}),
     Subject: subject, TextBody: body, MessageStream: stream, TrackOpens: false,
@@ -77,8 +79,14 @@ export async function postmarkSend({ token, from, replyTo, stream, to, cc, subje
   };
   let r;
   try {
-    r = await fetchImpl('https://api.postmarkapp.com/email', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Postmark-Server-Token': token }, body: JSON.stringify(payload) });
-  } catch { return { error: 'Could not reach the email service. Nothing was sent.' }; }
+    r = await fetchImpl('https://api.postmarkapp.com/email', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Postmark-Server-Token': token }, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    // Only "couldn't connect at all" is a sure no-send. A timeout or a dropped connection after the request went
+    // out may still have sent it, so the caller keeps the claim and the UI says "not confirmed".
+    const code = e?.cause?.code || e?.code;
+    if (!['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT'].includes(code)) return { error: 'We lost contact with the email service, so we can’t tell if it sent. Check the send history before sending again.', unknown: true };
+    return { error: 'Could not reach the email service. Nothing was sent.' };
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || (j.ErrorCode && j.ErrorCode !== 0)) {
     console.error('[packets] postmark', r.status, j.ErrorCode, j.Message);

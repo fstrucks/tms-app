@@ -34,7 +34,7 @@ export function boxText(f) {
 }
 const STATE_TEXT = { unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -249,7 +249,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
           <span style={s.chip(STATE_COLORS[st])}>{STATE_TEXT[st]}</span></button>;
       })}
 
-      {canEdit && <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
+      {/* Hidden while the Send-to-broker write/review step is open (it covered Edit / Send now on iPhone), unless
+          there are unsaved field edits that still need the Save button. */}
+      {canEdit && !(hideActionBar && !dirty) && <div data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
