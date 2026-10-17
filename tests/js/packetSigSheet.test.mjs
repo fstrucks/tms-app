@@ -6,5 +6,5 @@ test('signature options sheet sits above bottom nav (z 50) and sticky bar (z 45)
   assert.match(sec, /safe-area-inset-bottom/);
 });
 test('page padding tracks the sticky bar height + nav + safe area', () => {
-  assert.match(m, /ResizeObserver/); assert.match(m, /barH \+ 16\)\}px \+ var\(--nav-h/);
+  assert.match(m, /ResizeObserver/); assert.match(m, /bottomPadding\(bottomReservePx\(true, barH\)\)/); // barH + 16 + nav + safe area, see app/lib/packetLayout.js
 });
