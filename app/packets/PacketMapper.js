@@ -1,5 +1,6 @@
 'use client';
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
+import { actionBarShown, bottomReservePx, bottomPadding, COLLAPSED_RESERVE } from '../lib/packetLayout';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROFILE_KEYS } from '../lib/packetReader';
 import SignaturePad from '../components/PacketSignaturePad';
@@ -45,7 +46,7 @@ function InchInput({ label, aria, step, px, onApply }) {
 }
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -99,6 +100,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   const onPage = fields.filter((f) => f.page === page);
   const sum = useMemo(() => summarize(fields), [fields]);
   const dirty = fields.some((f) => f.dirty) || deleted.length > 0;
+  const barShown = actionBarShown({ canEdit, hideActionBar, dirty });
+  useEffect(() => { onBarShownChange?.(barShown); }, [barShown, onBarShownChange]);
   const cur = fields.find((f) => f.id === sel) || null;
   const scale = img && dispW ? dispW / img.w : 0;
   const set = (id, patch) => setFields((fs) => fs.map((f) => (f.id === id ? updateField(f, patch) : f)));
@@ -224,7 +227,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   }
 
   return (
-    <main style={{ ...s.main, paddingBottom: `calc(${Math.max(110, barH + 16)}px + var(--nav-h, 0px) + env(safe-area-inset-bottom))` }}>
+    <main style={{ ...s.main, paddingBottom: barShown ? bottomPadding(bottomReservePx(true, barH)) : COLLAPSED_RESERVE }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
       <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
@@ -293,7 +296,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
       {/* Hidden while the Send-to-broker write/review step is open (it covered Edit / Send now on iPhone), unless
           there are unsaved field edits that still need the Save button. */}
-      {canEdit && !(hideActionBar && !dirty) && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
+      {barShown && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}

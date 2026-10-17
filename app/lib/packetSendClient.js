@@ -10,3 +10,27 @@ export function attemptOutcome(sends, key) {
   if (!row) return 'not-sent';
   return row.confirmed || row.postmark_message_id ? 'sent' : 'unknown';
 }
+
+// Case-insensitive de-dupe, keeping the first-seen order (and spelling). Taylor nit: "Not allowed:" listed an address twice.
+export function uniqueEmails(list) {
+  const seen = new Set();
+  return (list || []).map((e) => String(e || '').trim()).filter((e) => {
+    const k = e.toLowerCase();
+    if (!e || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// Addresses in To + CC outside the allowed domains (null domains = no limit), de-duplicated.
+export function outsideRecipients(to, cc, domains) {
+  if (!domains) return [];
+  const split = (s) => String(s || '').split(/[,;\s]+/).filter(Boolean);
+  const allowed = domains.map((d) => String(d).toLowerCase());
+  return uniqueEmails([...split(to), ...split(cc)]).filter((e) => !allowed.includes(String(e.split('@')[1] || '').toLowerCase()));
+}
+
+// Primary button style that clearly looks disabled (grey, faded, not-allowed cursor) instead of staying blue.
+export function primaryButtonStyle(base, disabled) {
+  return disabled ? { ...base, background: '#9ca3af', color: '#f9fafb', opacity: 0.6, cursor: 'not-allowed' } : { ...base, cursor: 'pointer' };
+}

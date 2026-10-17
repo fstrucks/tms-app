@@ -1,4 +1,5 @@
 'use client';
+import { sendWrapPadding } from '../../lib/packetLayout';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import PacketMapper from '../PacketMapper';
@@ -65,10 +66,11 @@ export default function PacketPage({ params }) {
   const [coiStep, setCoiStep] = useState('closed');
   const loadCoi = useCallback(() => api(`/api/packets/${id}/coi-request`), [id]);
   const onCoi = useCallback((body) => api(`/api/packets/${id}/coi-request`, { method: 'POST', body: JSON.stringify(body) }), [id]);
+  const [barShown, setBarShown] = useState(true);
   const loadSignatures = useCallback(() => api(`/api/packets/${id}/signatures`), [id]);
 
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
   if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}</main>;
-  return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review' || coiStep === 'write' || coiStep === 'review'} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
-    <div style={{ padding: '0 0.75rem 140px' }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} />{COI_FLAG && <PacketCoiRequest load={loadCoi} send={onCoi} onStepChange={setCoiStep} />}</div></>;
+  return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review' || coiStep === 'write' || coiStep === 'review'} onBarShownChange={setBarShown} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
+    <div data-testid="send-wrap" style={{ padding: '0 0.75rem', paddingBottom: sendWrapPadding(barShown) }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} />{COI_FLAG && <PacketCoiRequest load={loadCoi} send={onCoi} onStepChange={setCoiStep} />}</div></>;
 }

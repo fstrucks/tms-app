@@ -221,7 +221,8 @@ test('flag-gated UI + cap shown in both review steps', () => {
   assert.match(page, /\{COI_FLAG && <PacketCoiRequest/);
   const coi = read('../../app/packets/PacketCoiRequest.js');
   assert.match(coi, /NEXT_PUBLIC_COI_REQUEST_ENABLED/); assert.match(coi, /if \(!enabled \|\| !info\) return null/);
-  assert.match(coi, /capLabel\(info\.sendCap\)/); assert.match(coi, /disabled=\{!ok \|\| busy \|\| capFull\}/);
+  assert.match(coi, /capLabel\(info\.sendCap\)/); assert.match(coi, /outsideRecipients\(/); assert.match(coi, /primaryButtonStyle\(\{ \.\.\.primary, flex: 2 \}, outside\.length > 0\)/);
+  assert.match(page, /paddingBottom: sendWrapPadding\(barShown\)/); assert.match(page, /coiStep === 'review'\} onBarShownChange=\{setBarShown\}/); assert.match(coi, /disabled=\{!ok \|\| busy \|\| capFull\}/);
   assert.match(read('../../app/packets/PacketSendBroker.js'), /capLabel\(info\.sendCap\)/);
   assert.match(read('../../app/company/page.js'), /<CompanyInsurance \/>/);
   const env = read('../../.env.example');

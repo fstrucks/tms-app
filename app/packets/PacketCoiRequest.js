@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { coiGaps } from '../lib/coiGaps';
 import { capLabel } from '../lib/sendCap';
 import { formatSentAt } from '../lib/packetDate';
-import { newSendKey, attemptOutcome } from '../lib/packetSendClient';
+import { newSendKey, attemptOutcome, outsideRecipients, primaryButtonStyle } from '../lib/packetSendClient';
 
 export const COI_FLAG = ['1', 'true'].includes(String(process.env.NEXT_PUBLIC_COI_REQUEST_ENABLED || '').toLowerCase());
 
@@ -35,7 +35,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
   }, [load, enabled]);
   const gaps = useMemo(() => (info ? coiGaps({ policies: info.policies, profile: { min_auto_liability: info.minimums?.auto_liability, min_cargo: info.minimums?.cargo }, loadDate: d.loadDate || null, certHolder: { name: d.holderName, address: d.holderAddress } }) : []), [info, d.loadDate, d.holderName, d.holderAddress]);
   if (!enabled || !info) return null;
-  const outside = info.allowedDomains ? [...new Set([...list(d.to), ...list(d.cc)])].filter((e) => !info.allowedDomains.includes(e.split('@')[1])) : [];
+  const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
   const capFull = info.sendCap && info.sendCap.used >= info.sendCap.cap;
   const body = (resend) => ({ to: d.to, cc: d.cc, subject: d.subject, body: d.body, certHolder: { name: d.holderName, address: d.holderAddress }, loadDate: d.loadDate || undefined, confirm: true, idempotencyKey: key, ...(resend ? { resend: true } : {}) });
   const doSend = async (resend = false) => {
@@ -88,7 +88,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
-            <button type="submit" style={{ ...primary, flex: 2, ...(outside.length ? { background: '#9ca3af', opacity: 0.6, cursor: 'not-allowed' } : {}) }} disabled={outside.length > 0}>Review email</button>
+            <button type="submit" style={primaryButtonStyle({ ...primary, flex: 2 }, outside.length > 0)} disabled={outside.length > 0} aria-disabled={outside.length > 0}>Review email</button>
           </div></form>
         : <div data-testid="coi-review">
           <p style={{ fontSize: 14, margin: '0 0 0.5rem' }}><strong>Check this before sending.</strong> It goes out as soon as you press Send now.</p>

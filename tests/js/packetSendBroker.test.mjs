@@ -231,7 +231,7 @@ test('send writes sent_at as a UTC ISO instant (timestamptz-safe)', async () => 
 
 test('iPhone: Fill & download bar hidden during send write/review (unless unsaved edits); client sends idempotency key + resend', () => {
   const m = readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
-  assert.match(m, /canEdit && !\(hideActionBar && !dirty\) &&/);
+  assert.match(m, /actionBarShown\(\{ canEdit, hideActionBar, dirty \}\)/); assert.match(m, /\{barShown && <div ref=\{bar\}/);
   const p = readFileSync(new URL('../../app/packets/[id]/page.js', import.meta.url), 'utf8');
   assert.match(p, /hideActionBar=\{sendStep === 'write' \|\| sendStep === 'review'( \|\| coiStep === 'write' \|\| coiStep === 'review')?\}/); assert.match(p, /onStepChange=\{setSendStep\}/);
   const c = readFileSync(new URL('../../app/packets/PacketSendBroker.js', import.meta.url), 'utf8');

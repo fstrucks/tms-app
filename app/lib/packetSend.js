@@ -27,7 +27,8 @@ export function allowedDomains(env = process.env) {
 }
 export function blockedRecipients(emails, domains) {
   if (!domains) return [];
-  return emails.filter((e) => !domains.includes(e.split('@')[1]));
+  const seen = new Set();
+  return emails.filter((e) => { const k = e.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return !domains.includes(k.split('@')[1]); });
 }
 
 export function senderConfig(env = process.env) {
