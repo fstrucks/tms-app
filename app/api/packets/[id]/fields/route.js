@@ -13,9 +13,19 @@ async function list(sb, packetId) {
   if (error) { const e = new Error(error.message); e.db = error; throw e; }
   return data || [];
 }
-const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at, filled_at: p.filled_at ?? null, sent_at: p.sent_at ?? null });
+export const pkt = (p) => ({ id: p.id, status: p.status, subject: p.subject, original_filename: p.original_filename, source: p.source, page_count: p.page_count ?? null, has_text_layer: p.has_text_layer ?? null, manual_reason: p.manual_reason ?? null, process_error: p.process_error ?? null, created_at: p.created_at, filled_at: p.filled_at ?? null, sent_at: p.sent_at ?? null,
+  // Broker field + remembered-layout banner refresh (carrier packet G). Optional columns read as null when absent.
+  broker_name: p.broker_name ?? null, processed_at: p.processed_at ?? null, layout_id: p.layout_id ?? null,
+  layout_applied_at: p.layout_applied_at ?? null, layout_dismissed_at: p.layout_dismissed_at ?? null });
 
-export async function GET(req, { params, deps } = {}) {
+// Never lets an unexpected error escape as an HTML 500: the page always gets JSON it can show.
+export async function GET(req, ctx = {}) {
+  try { return await getFields(req, ctx); } catch (e) {
+    console.error('[packets] fields GET', String(e?.message || e).slice(0, 200));
+    return json({ error: 'Couldn’t load this packet’s fields. Try again.', retry: true }, 500);
+  }
+}
+async function getFields(req, { params, deps } = {}) {
   const sb = deps?.sb || serviceClient();
   if (!sb) return json({ error: 'Storage not configured' }, 503);
   const a = await packetAccess(req, params?.id, { sb, ...(deps || {}) });

@@ -3,6 +3,8 @@ import { noStoreFetch } from '../../../lib/noStoreFetch';
 import { waitUntil } from '@vercel/functions';
 import { processPacket } from '../../../lib/packetProcess';
 import { checkBasicAuth, parseInbound, packetPath } from '../../../lib/postmarkInbound';
+import { brokerSender } from '../../../lib/packetFingerprint';
+import { savePacketLayout } from '../../../lib/packetLayouts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,6 +49,10 @@ export async function POST(req, { deps } = {}) {
     const { data: pRow, error: pErr } = await sb.from('packets').insert({ owner_id: ownerId, source: 'email', inbound_email_id: email.id, subject: mail.subject, file_path: path, original_filename: pdf.name, size_bytes: pdf.size, status: 'received' }).select('id').single();
     if (pErr) { await sb.storage.from('documents').remove([path]); console.error('[inbound] packet insert', pErr.code); continue; }
     created++;
+    // Broker identity for remembered layouts: the forwarded From: (Marc/dispatch forward the broker's email),
+    // then Reply-To, then From when it isn't one of ours. Its own update, so a missing column never blocks the packet.
+    const sender = brokerSender({ textBody: mail.textBody, replyTo: mail.replyTo, from: mail.fromEmail, ourEmails: [mail.fromEmail] });
+    if (pRow?.id && sender.email) await savePacketLayout(sb, pRow.id, { broker_email: sender.email });
     // Detection runs after we answer Postmark (waitUntil keeps the function alive, within maxDuration).
     if (pRow?.id) (deps?.waitUntil || waitUntil)((deps?.process || processPacket)({ sb, packetId: pRow.id }).catch(() => {}));
   }

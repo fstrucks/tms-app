@@ -9,9 +9,12 @@ import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
-import { KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { byPosition, KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
+import { layoutBanner, placedCount } from '../lib/packetLayoutBanner';
+import { makeApi } from '../lib/packetApi';
+import { getSupabase } from '../lib/supabase';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -24,6 +27,9 @@ const s = {
   lab: { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' },
   chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: c }),
 };
+let defaultLayoutApi = null; // lazy: GET/POST /api/packets/[id]/layout with the signed-in session
+const layoutCall = (...a) => (defaultLayoutApi || (defaultLayoutApi = makeApi(() => getSupabase()?.auth))).call(...a);
+export const REDETECT_POLL_MS = [1500, 1500, 2000, 2000, 3000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 10000, 10000]; // ~75 s
 const DPI_PX = 200; // field boxes are px at 200 dpi
 const inches = (px) => Math.round((px / DPI_PX) * 100) / 100;
 // Text inside a box. Date fields with no value preview today's date (display only; fills on signing),
@@ -46,9 +52,33 @@ function InchInput({ label, aria, step, px, onApply }) {
     onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
     onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
 }
+// Broker field (QA B): pre-filled from the PDF text when found; editors can correct it. Saves on blur / Enter.
+export function BrokerField({ packetId, value, canEdit, api, onSaved }) {
+  const [txt, setTxt] = useState(value || '');
+  const [state, setState] = useState(null); // null | 'saving' | 'saved' | error text
+  const last = useRef(value || '');
+  useEffect(() => { setTxt(value || ''); last.current = value || ''; }, [value]);
+  if (!canEdit) return value ? <p data-testid="broker-name" style={{ ...s.muted, margin: '0.35rem 0 0' }}>Broker: {value}</p> : null;
+  async function save() {
+    const v = txt.replace(/\s+/g, ' ').trim();
+    if (v === last.current || !api) return;
+    setState('saving');
+    const r = await api(`/api/packets/${packetId}`, { method: 'PATCH', body: JSON.stringify({ broker_name: v }) });
+    if (!r || r.error) return setState(r?.error || 'Could not save the broker.');
+    last.current = r.broker_name || ''; setTxt(r.broker_name || ''); setState('saved');
+    onSaved && onSaved(r);
+  }
+  return <div style={{ marginTop: '0.5rem' }}>
+    <label htmlFor="packet-broker" style={{ ...s.lab, margin: '0 0 0.25rem' }}>Broker</label>
+    <input id="packet-broker" data-testid="broker-input" type="text" autoComplete="organization" maxLength={120} placeholder="Broker company name" style={s.input}
+      value={txt} onChange={(e) => { setTxt(e.target.value); setState(null); }} onBlur={save}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
+    {state && <p role="status" style={{ ...s.muted, fontSize: 13, color: state === 'saving' || state === 'saved' ? '#6b7280' : '#b91c1c' }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Broker saved.' : state}</p>}
+  </div>;
+}
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null, layoutApi = layoutCall }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -96,10 +126,69 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     let on = true; loadSignatures().then((r) => { if (on && r?.urls) setSigUrls(r.urls); });
     return () => { on = false; };
   }, [signedKey, loadSignatures]);
+  // Remembered broker layout (carrier packet G): banner + "Don't use this layout" / "Use layout".
+  const [layoutInfo, setLayoutInfo] = useState(null);
+  const [brokerName, setBrokerName] = useState(packet?.broker_name || null);
+  useEffect(() => { setBrokerName(packet?.broker_name || null); }, [packet?.broker_name]);
+  const [layoutTick, setLayoutTick] = useState(0);
+  // Re-read the banner whenever processing finishes or the packet changes (first open: the packet is still being
+  // processed when the mapper mounts, so the first read has nothing to show — QA D).
+  const layoutKeyDep = `${packet?.id}|${packet?.status}|${packet?.processed_at || ''}|${packet?.layout_id || ''}|${packet?.layout_applied_at || ''}|${layoutTick}`;
+  useEffect(() => {
+    if (!packet?.id || !layoutApi) return;
+    let on = true;
+    Promise.resolve(layoutApi(`/api/packets/${packet.id}/layout`)).then((r) => { if (on && r && !r.error) setLayoutInfo(r); }).catch(() => {});
+    return () => { on = false; };
+  }, [layoutKeyDep, layoutApi]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function layoutAction(action) {
+    if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save or discard your changes first.');
+    if (action === 'dismiss' && typeof window !== 'undefined' && !window.confirm('Remove the fields placed from the saved layout and find fields fresh? Fields you added or edited are kept.')) return;
+    setBusy(true); setMsg(null);
+    const r = await layoutApi(`/api/packets/${packet.id}/layout`, { method: 'POST', body: JSON.stringify({ action }) });
+    setBusy(false);
+    if (handle(r)) return;
+    if (r?.error) return setMsg(r.error);
+    if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
+    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}), ...(r.matched != null ? { matched: r.matched } : {}), ...(r.same != null ? { same: r.same } : {}), ...(r.kept != null ? { kept: r.kept } : {}) } : li));
+    setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.')
+      : action === 'names' ? `${r.named ?? 0} field name${r.named === 1 ? '' : 's'} copied from last time. Review them before filling.`
+      : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
+  }
+  // "Find fields again" (editors): re-run detection + layout matching. User-made/edited fields are kept.
+  async function redetect() {
+    if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save or discard your changes first.');
+    if (typeof window !== 'undefined' && !window.confirm('Find fields again? Fields found automatically are replaced. Fields you added or edited are kept.')) return;
+    setBusy(true); setMsg('Finding fields…');
+    const before = (await layoutApi(`/api/packets/${packet.id}/fields`))?.packet?.processed_at || packet.processed_at || null;
+    // Runs on the server after the reply (a slow request can't be dropped mid-way); we poll until it's done.
+    const r = await layoutApi(`/api/packets/${packet.id}/process?force=1&background=1`, { method: 'POST' });
+    if (handle(r)) { setBusy(false); return; }
+    if (r?.error) { setBusy(false); return setMsg(r.error); }
+    let d = null;
+    for (const ms of REDETECT_POLL_MS) {
+      await new Promise((ok) => setTimeout(ok, ms));
+      d = await layoutApi(`/api/packets/${packet.id}/fields`);
+      if (d?.error || (d?.packet && d.packet.status !== 'processing' && d.packet.processed_at && d.packet.processed_at !== before)) break;
+    }
+    setBusy(false);
+    if (d?.error) return setMsg(d.error);
+    if (d?.fields) { base.current = d.fields; setFields(d.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
+    if (d?.packet && 'broker_name' in d.packet) setBrokerName(d.packet.broker_name || null);
+    setLayoutTick((n) => n + 1);
+    setMsg(d?.packet?.processed_at && d.packet.processed_at !== before ? `Fields found again: ${d?.fields?.length ?? 0}.` : 'Still finding fields. Reload in a minute to see them.');
+  }
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
-  useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
+  // renderPage changes identity once the PDF is open (r5: a fresh packet showed the mapper while still processing,
+  // the first render ran before the PDF existed, failed silently and never re-ran → stuck on "Loading page…").
+  const [imgErr, setImgErr] = useState(false);
+  useEffect(() => {
+    let on = true; setImg(null); setImgErr(false);
+    Promise.resolve().then(() => renderPage(page)).then((r) => { if (on && r) setImg(r); })
+      .catch((e) => { console.error('[packet] page render', e); if (on) setImgErr(true); });
+    return () => { on = false; };
+  }, [page, renderPage]);
 
-  const onPage = fields.filter((f) => f.page === page);
+  const onPage = byPosition(fields.filter((f) => f.page === page)); // top to bottom, then left to right
   const sum = useMemo(() => summarize(fields), [fields]);
   const status = packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields));
   const dirty = fields.some((f) => f.dirty) || deleted.length > 0;
@@ -184,7 +273,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setBusy(false);
     if (handle(res)) return;
     if (res?.error) { if (res.missing?.[0]) { setPage(res.missing[0].page); setSel(res.missing[0].id); } return setMsg(res.error); }
-    setFilled({ url: res.url, filename: res.filename }); setMsg('Filled PDF saved.');
+    setFilled({ url: res.url, filename: res.filename });
+    // By design (since #62) unnamed fields don't block filling; they're left blank on the PDF. Say so.
+    const blank = sum.unmapped || 0;
+    setMsg(`Filled PDF saved.${blank ? ` ${blank} unnamed field${blank === 1 ? ' was' : 's were'} left blank.` : ''} Tap Download to get it.`);
   }
   async function clearSig(id) {
     setSigMenu(null); setSel(null); setBusy(true); setMsg(null); // clear only; no edit panel
@@ -239,10 +331,17 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <span data-testid="packet-status" data-status={status.key} style={statusChipStyle(status.color)}>{status.label}</span>
         <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
       </div>
+      <BrokerField packetId={packet.id} value={brokerName} canEdit={canEdit} api={layoutApi} onSaved={(r) => { setBrokerName(r.broker_name || null); setLayoutTick((n) => n + 1); }} />
+      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name, total: fields.length }, { canEdit, placed: placedCount(fields), total: fields.length }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
+        <p style={{ margin: 0 }}>{b.text}</p>
+        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' || b.action === 'names' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
+      </div>; })()}
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
       {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}
       {packet.status === 'error' && <p role="alert" style={s.banner}>Field detection failed. {canEdit ? 'You can add fields by hand or try again.' : ''}</p>}
+      {canEdit && packet.status !== 'processing' && packet.status !== 'received' && packet.status !== 'archived' && layoutApi
+        && <button type="button" data-testid="redetect" style={{ ...s.btn, minHeight: 40, fontSize: 14, margin: '0.25rem 0' }} disabled={busy} onClick={redetect}>Find fields again</button>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
         <span style={s.chip('#374151')}>{sum.total} fields</span>
@@ -259,7 +358,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       </div>
       <div style={{ overflowX: zoom > 1 ? 'auto' : 'hidden', WebkitOverflowScrolling: 'touch', borderRadius: 6 }}>
       <div ref={wrap} onClick={tapPage} data-testid="page" style={{ touchAction: dragging ? 'none' : 'auto', position: 'relative', width: `${zoom * 100}%`, border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden', background: '#fff', cursor: placing ? 'crosshair' : 'default', aspectRatio: img ? `${img.w} / ${img.h}` : '8.5 / 11' }}>
-        {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
+        {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : (imgErr ? <p role="alert" style={{ ...s.muted, padding: '1rem' }}>Couldn’t show this page. Reload to try again.</p> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>)}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
           return <button key={f.id} data-field={f.id} aria-label={`${rowName(f)}: ${STATE_TEXT[st]}`}
@@ -309,13 +408,14 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
-          {filled?.url && <p style={{ margin: '0 0 0.4rem', fontSize: 15 }}><a href={filled.url} download={filled.filename}>⬇ Download filled PDF</a></p>}
+          {filled?.url && <a href={filled.url} download={filled.filename} data-testid="download-filled" role="button"
+            style={{ ...s.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', marginBottom: 6, boxSizing: 'border-box' }}>⬇ Download filled PDF</a>}
           {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={discard}>Discard changes</button>}
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
               {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
-              <button style={{ ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : 'Fill & download PDF'}</button>
+              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
             </>}
         </div>
       </div>}

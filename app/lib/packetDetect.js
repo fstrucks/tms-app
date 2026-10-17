@@ -3,6 +3,7 @@
 // candidate squares [{x,y,w,h,ink}] from the rasterizer. Output: fields [{id,page,kind,label,box}].
 // No network, no secrets. Rasterizing (lines/squares/words) is a separate adapter (open decision).
 const right = (r) => r.left + r.width;
+export const LABEL_REACH_PX = 700; // 3.5 in at 200 dpi
 
 export function detectPage({ page, size: [W] = [0], words = [], lines = [], squares = [] }) {
   const ws = words.filter((r) => String(r.text || '').trim() && (r.conf ?? 100) > 30);
@@ -15,7 +16,11 @@ export function detectPage({ page, size: [W] = [0], words = [], lines = [], squa
     // Skip text underlines: words sitting on the line covering most of its width.
     const cov = ws.filter((r) => Math.abs(r.top + r.height - l.y) < 6 && r.left >= l.x - 5 && right(r) <= l.x + l.w + 5).reduce((s, r) => s + r.width, 0);
     if (cov > 0.6 * l.w) continue;
-    const lab = ws.filter((r) => Math.abs(r.top + r.height / 2 - (l.y - 10)) < 14 && right(r) < l.x + 5 && r.left > l.x - 300)
+    // Label = words on the same row, left of the line. Reach: up to LABEL_REACH_PX, but never past the end of
+    // another blank on the same row (two-column forms). The old fixed 300 px cut "Carrier name:" to nothing when
+    // the blank started ~2 in. right of the label (Taylor's rev-2 form).
+    const stop = Math.max(l.x - LABEL_REACH_PX, ...lines.filter((o) => o !== l && Math.abs(o.y - l.y) < 6 && o.x + o.w <= l.x + 2 && o.h <= 6).map((o) => o.x + o.w));
+    const lab = ws.filter((r) => Math.abs(r.top + r.height / 2 - (l.y - 10)) < 14 && right(r) < l.x + 5 && r.left >= stop - 2)
       .sort((a, b) => a.left - b.left).map((r) => r.text);
     const label = lab.slice(-5).join(' ');
     const kind = /sign/i.test(label) ? 'signature' : /\bdate\b/i.test(label) ? 'date' : 'text';

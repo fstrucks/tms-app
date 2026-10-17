@@ -3,12 +3,16 @@ import { filledPath, SIGN_MIGRATION } from '../../../../lib/packetSign';
 import { resolveFillValues } from '../../../../lib/packetFillValues';
 import { fillPacket } from '../../../../lib/packetFill';
 import { decryptField, loadKey, PacketKeyError } from '../../../../lib/packetCrypto';
+import { learnFromFill, needsRefingerprint } from '../../../../lib/packetLayouts';
+import { waitUntil } from '@vercel/functions';
+import { findReusableFill } from '../../../../lib/packetFillRetry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const maxDuration = 60;
 const json = (b, s = 200) => Response.json(b, { status: s, headers: { 'Cache-Control': 'no-store' } });
+const fillName = (p) => `${String(p.original_filename || p.subject || 'packet').replace(/\.pdf$/i, '').replace(/[^\w.-]+/g, '_').slice(0, 60)}-filled.pdf`;
 const blobBytes = async (b) => new Uint8Array(await b.arrayBuffer());
 
 // Builds the filled PDF (text values + signature images), saves it as a new file under the owner's
@@ -22,6 +26,16 @@ export async function POST(req, { params, deps } = {}) {
   const { data: rows, error } = await sb.from('packet_fields').select('*').eq('packet_id', a.packet.id);
   if (error) return json({ error: 'Could not load fields.' }, 500);
   if (!rows?.length) return json({ error: 'Add fields before filling the packet.' }, 400);
+  // Automatic client retry after a dropped connection: hand back the fill that just finished (or is finishing)
+  // instead of filling again, if nothing changed since. Otherwise fill normally.
+  if (new URL(req.url).searchParams.get('retry') === '1') {
+    const done = await findReusableFill(sb, a.packet, rows, deps?.retryOpts || {});
+    if (done) {
+      const name = fillName(done);
+      const { data: link } = await sb.storage.from('documents').createSignedUrl(done.filled_path, 600, { download: name });
+      if (link?.signedUrl) return json({ ok: true, path: done.filled_path, url: link.signedUrl, filename: name, reused: true, recorded: true, layout: { action: 'skip', version: null } });
+    }
+  }
   const unconfirmed = rows.filter((r) => r.needs_confirm && !r.confirmed_at);
   if (unconfirmed.length) return json({ error: 'Confirm the bank numbers before filling the packet.', fieldIds: unconfirmed.map((r) => r.id) }, 409);
   const { data: profile } = await sb.from('company_profiles').select('*').eq('owner_id', a.packet.owner_id).maybeSingle();
@@ -51,7 +65,13 @@ export async function POST(req, { params, deps } = {}) {
   if (upErr) { console.error('[packets] fill upload', upErr.message); return json({ error: 'Could not save the filled PDF.' }, 500); }
   const { error: pErr } = await sb.from('packets').update({ filled_path: path, filled_at: new Date().toISOString(), filled_by: a.user.id }).eq('id', a.packet.id);
   if (pErr && !isMissingSchema(pErr)) console.error('[packets] fill record', pErr.code);
-  const name = `${String(a.packet.original_filename || a.packet.subject || 'packet').replace(/\.pdf$/i, '').replace(/[^\w.-]+/g, '_').slice(0, 60)}-filled.pdf`;
+  const name = fillName(a.packet);
   const { data: link } = await sb.storage.from('documents').createSignedUrl(path, 600, { download: name });
-  return json({ ok: true, path, drawn: out.drawn, url: link?.signedUrl || null, filename: name, recorded: !pErr, ...(pErr && isMissingSchema(pErr) ? { migration: SIGN_MIGRATION } : {}) });
+  // Remember this broker's layout (positions + names only; never values, bank/EIN data or signatures). Never fails the fill.
+  // Runs after the response (waitUntil) so the download link is never held up; tests inject and await it.
+  const learnJob = (async () => (deps?.learn || learnFromFill)(sb, { packet: a.packet, rows, userId: a.user.id,
+    pdfBytes: !needsRefingerprint(a.packet.fingerprint) ? null : await blobBytes(src).catch(() => null) }))().catch((e) => { console.error('[packets] learn', e?.message); return { action: 'skip' }; });
+  let learned = { action: 'pending' };
+  if (deps?.awaitLearn) learned = await learnJob; else (deps?.waitUntil || waitUntil)(learnJob);
+  return json({ ok: true, path, drawn: out.drawn, url: link?.signedUrl || null, filename: name, recorded: !pErr, layout: { action: learned?.action || 'skip', version: learned?.version ?? null }, ...(pErr && isMissingSchema(pErr) ? { migration: SIGN_MIGRATION } : {}) });
 }
