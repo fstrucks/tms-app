@@ -2,15 +2,16 @@
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
 import { actionBarShown, bottomReservePx, bottomPadding, COLLAPSED_RESERVE } from '../lib/packetLayout';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PROFILE_KEYS } from '../lib/packetReader';
+import { nameOptions, selectValue, keyFromSelect, isCustomKey, customName, customKey, CUSTOM_LABEL, SKIP_KEY } from '../lib/packetFieldNames';
 import SignaturePad from '../components/PacketSignaturePad';
 import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
-import { KEY_LABELS, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
-import { packetStatusLabel } from '../lib/packetStatus';
+import { KEY_LABELS, fieldName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
+import { formatListTime } from '../lib/packetDate';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -31,7 +32,8 @@ export function boxText(f) {
   if (f.kind === 'checkbox') return '';
   if ((f.kind === 'date' || f.profile_key === 'date') && !f.value) return `${formatPacketDate()} (on signing)`;
   if (f.value && !SENSITIVE.has(f.profile_key)) return f.value;
-  return KEY_LABELS[f.profile_key] || '';
+  if (f.profile_key === SKIP_KEY) return '';
+  return fieldName(f.profile_key);
 }
 // Inch box: free typing (empty allowed); applies valid numbers as typed, restores the real value on blur.
 function InchInput({ label, aria, step, px, onApply }) {
@@ -44,7 +46,7 @@ function InchInput({ label, aria, step, px, onApply }) {
     onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
     onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
 }
-const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK' };
+const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
 export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
   const [fields, setFields] = useState(initial);
@@ -99,6 +101,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
   const onPage = fields.filter((f) => f.page === page);
   const sum = useMemo(() => summarize(fields), [fields]);
+  const status = packetDisplayStatus(filled?.url && !packet.filled_at ? { ...packet, filled_at: 'now' } : packet, fieldSummary(fields));
   const dirty = fields.some((f) => f.dirty) || deleted.length > 0;
   const barShown = actionBarShown({ canEdit, hideActionBar, dirty });
   useEffect(() => { onBarShownChange?.(barShown); }, [barShown, onBarShownChange]);
@@ -213,6 +216,8 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       const b = blockers[0]; setPage(b.page); setSel(b.id);
       return setMsg(`Confirm the ${KEY_LABELS[b.profile_key].toLowerCase()} first: tick “I checked this number” (or clear the number).`);
     }
+    const noName = fields.find((f) => f.dirty && isCustomKey(f.profile_key) && !customName(f.profile_key));
+    if (noName) { setPage(noName.page); setSel(noName.id); return setMsg('Type a name for the custom field (or pick another name) before saving.'); }
     const bad = fields.find((f) => f.dirty && BANK.has(f.profile_key) && f.check && !f.check.ok);
     if (bad) { setPage(bad.page); setSel(bad.id); return setMsg(bad.check.message); }
     setBusy(true); setMsg(null);
@@ -230,9 +235,13 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     <main style={{ ...s.main, paddingBottom: barShown ? bottomPadding(bottomReservePx(true, barH)) : COLLAPSED_RESERVE }}>
       <a href="/packets" style={{ fontSize: 14 }}>‹ Packets</a>
       <h1 style={{ fontSize: 20, margin: '0.4rem 0 0', overflowWrap: 'anywhere' }}>{packet.subject || packet.original_filename || 'Carrier packet'}</h1>
-      <p style={s.muted}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'} · {packetStatusLabel(packet.status)}{packet.page_count ? ` · ${packet.page_count} pages` : ''}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: '0.35rem' }}>
+        <span data-testid="packet-status" data-status={status.key} style={statusChipStyle(status.color)}>{status.label}</span>
+        <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
+      </div>
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
+      {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}
       {packet.status === 'error' && <p role="alert" style={s.banner}>Field detection failed. {canEdit ? 'You can add fields by hand or try again.' : ''}</p>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
@@ -253,7 +262,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
-          return <button key={f.id} data-field={f.id} aria-label={`${KEY_LABELS[f.profile_key] || f.label || 'Field'}: ${STATE_TEXT[st]}`}
+          return <button key={f.id} data-field={f.id} aria-label={`${fieldName(f.profile_key) || f.label || 'Field'}: ${STATE_TEXT[st]}`}
             onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
             onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
             onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => stopDrag()}
@@ -287,10 +296,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         onDelete={() => { setDeleted((d) => [...d, cur.id]); setFields((fs) => fs.filter((x) => x.id !== cur.id)); setSel(null); }} />}
 
       <h2 style={{ fontSize: 16, margin: '1rem 0 0.4rem' }}>Fields on this page</h2>
-      {onPage.length === 0 ? <p style={s.muted}>None yet.</p> : onPage.map((f) => {
+      {onPage.length === 0 ? <p style={s.muted}>None yet.{canEdit && fields.length === 0 ? ` ${ADD_FIELD_HINT}` : ''}</p> : onPage.map((f) => {
         const st = fieldState(f);
         return <button key={f.id} onClick={() => setSel(f.id)} style={{ ...s.btn, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, textAlign: 'left' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{KEY_LABELS[f.profile_key] || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fieldName(f.profile_key) || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
           <span style={s.chip(STATE_COLORS[st])}>{STATE_TEXT[st]}</span></button>;
       })}
 
@@ -326,26 +335,33 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
         <strong>{f.label ? `“${f.label}”` : 'New field'}</strong>
         {(canEdit || !(f.kind === 'signature' || f.profile_key === 'signature')) && <button style={s.btn} onClick={onClose}>Done</button>}
       </div>
+      {canEdit && <p data-testid="editor-save-hint" style={{ ...s.muted, fontSize: 13, color: f.dirty ? '#92400e' : '#6b7280' }}>{f.dirty ? 'Changed. Tap Save changes at the bottom to keep it.' : 'Done closes this panel. Tap Save changes at the bottom to keep edits.'}</p>}
       {f.source === 'model' && f.confidence < 0.6 && <p style={{ ...s.muted, color: '#b45309' }}>Low confidence name. Please check it.</p>}
       <label style={s.lab} htmlFor="pf-key">Name</label>
-      <select id="pf-key" style={s.input} disabled={dis} value={f.profile_key || ''} onChange={(e) => onChange({ profile_key: e.target.value || null })}>
+      <select id="pf-key" style={s.input} disabled={dis} value={selectValue(f.profile_key)} onChange={(e) => onChange({ profile_key: keyFromSelect(e.target.value, f) })}>
         <option value="">Choose…</option>
-        {PROFILE_KEYS.filter((k) => k !== 'unknown').map((k) => <option key={k} value={k}>{KEY_LABELS[k]}</option>)}
+        {nameOptions(KEY_LABELS, f.kind).map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)}
       </select>
+      {isCustomKey(f.profile_key) && <>
+        <label style={s.lab} htmlFor="pf-custom">{CUSTOM_LABEL}</label>
+        <input id="pf-custom" style={s.input} disabled={dis} maxLength={60} placeholder="e.g. Dispatcher name" value={f.profile_key.slice(7)} onChange={(e) => onChange({ profile_key: customKey(e.target.value) })} />
+        {!customName(f.profile_key) && <p style={{ ...s.muted, color: '#b45309' }}>Type a name for this field.</p>}
+      </>}
+      {f.profile_key === SKIP_KEY && <p style={s.muted}>This field will be left blank on the filled PDF.</p>}
       <label style={s.lab} htmlFor="pf-kind">Type</label>
       <select id="pf-kind" style={s.input} disabled={dis} value={f.kind} onChange={(e) => onChange({ kind: e.target.value })}>
         <option value="text">Text</option><option value="date">Date</option><option value="checkbox">Checkbox</option><option value="signature">Signature</option>
       </select>
       <label style={s.lab} htmlFor="pf-label">Label on the form</label>
       <input id="pf-label" style={s.input} disabled={dis} value={f.label || ''} onChange={(e) => onChange({ label: e.target.value })} />
-      {f.kind !== 'signature' && f.kind !== 'checkbox' && <>
+      {f.kind !== 'signature' && f.kind !== 'checkbox' && f.profile_key !== SKIP_KEY && <>
         <label style={s.lab} htmlFor="pf-val">Value{sensitive ? ' (stored encrypted)' : ''}</label>
         <input id="pf-val" style={s.input} disabled={dis} value={f.value || ''} autoComplete="off" inputMode={bank ? 'numeric' : undefined}
           placeholder={sensitive && f.has_value ? 'Saved. Type to replace' : ''} onFocus={(e) => { if (sensitive && /^•/.test(e.target.value)) onChange({ value: '' }); }}
           onChange={(e) => onChange({ value: e.target.value })} />
         {f.check && !f.check.ok && <p style={{ ...s.muted, color: '#b45309' }}>{f.check.message}</p>}
       </>}
-      {f.kind === 'signature' && <p style={s.muted}>Signatures are placed with “Sign all” on the review step.</p>}
+      {f.kind === 'signature' && <p style={s.muted}>Tap this signature box on the page to sign it.</p>}
       {bank && <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: '0.75rem', padding: '0.6rem', borderRadius: 8, background: f.confirmed ? '#f0fdf4' : '#fef2f2', border: `1px solid ${f.confirmed ? '#86efac' : '#fca5a5'}` }}>
         <input type="checkbox" style={{ width: 24, height: 24, flex: 'none' }} disabled={dis || !(f.value || f.has_value)} checked={!!f.confirmed} onChange={(e) => onChange({ confirmed: e.target.checked })} />
         <span style={{ fontSize: 14 }}>I checked this {f.profile_key === 'bank_routing' ? 'routing' : 'account'} number against my bank records. Required before signing.</span>

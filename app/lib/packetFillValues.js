@@ -9,6 +9,7 @@ export function resolveFillValues(rows, profile, { decrypt, images = {}, today =
   for (const r of rows) {
     const f = { id: r.id, page: r.page, kind: r.kind, box: r.box, needs_confirm: !!r.needs_confirm, confirmed: !!r.confirmed_at };
     const key = r.profile_key;
+    if (key === 'skip') continue; // "Leave blank / skip": never drawn on the PDF
     if (r.kind === 'signature' || key === 'signature') {
       f.kind = 'signature'; f.image = r.signature_path ? images[r.signature_path] || null : null;
       if (!f.image) missing.push({ id: r.id, page: r.page, what: 'signature' });

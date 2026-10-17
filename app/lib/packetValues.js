@@ -16,6 +16,8 @@ const RULES = {
   email: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Email looks invalid'],
   bank_account: [/^\d{4,17}$/, 'Account number should be 4-17 digits'],
 };
+RULES.contact_phone = RULES.phone;
+RULES.contact_email = RULES.email;
 // Returns { ok, message, needs_confirm }. Bank fields always need the user's confirmation.
 export function checkValue(key, value) {
   const v = String(value ?? '').trim();

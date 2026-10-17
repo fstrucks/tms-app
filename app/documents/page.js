@@ -3,6 +3,7 @@
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
+import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
@@ -71,6 +72,34 @@ export default function DocumentsPage() {
 
   // Both pickers feed the same state. Validate the real type/extension right away (the simple
   // accept list no longer filters, so unsupported files are caught here).
+  // Upload type: rate confirmation (default; AI extraction, and COIs are auto-detected) or a fixed type.
+  // /documents?type=coi presets COI (Company → Insurance → Upload COI).
+  const [uploadType, setUploadType] = useState('rate_confirmation');
+  // Change type on saved documents: owner/management only (server enforces). Never re-runs extraction by itself.
+  const [canChangeType, setCanChangeType] = useState(false);
+  const [typeBusy, setTypeBusy] = useState({});
+  const [typeChanged, setTypeChanged] = useState({}); // id → true after a change to rate con ("Read as rate con" offered)
+  useEffect(() => { (async () => {
+    const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
+    const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
+    setCanChangeType(canChangeDocType(j.role));
+  })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [typeErr, setTypeErr] = useState({}); // id → { error, docType } after a failed save (old type kept)
+  async function changeType(d, docType) {
+    if (typeBusy[d.id] || docType === d.doc_type) return;
+    setTypeBusy((m) => ({ ...m, [d.id]: true }));
+    setTypeErr((m) => ({ ...m, [d.id]: null }));
+    const t = (await supabase.auth.getSession())?.data?.session?.access_token;
+    const r = await saveDocType({ id: d.id, docType, token: t });
+    setTypeBusy((m) => ({ ...m, [d.id]: false }));
+    // Failure: the row keeps the old type (select is controlled by d.doc_type, which we don't touch).
+    if (!r.ok) return setTypeErr((m) => ({ ...m, [d.id]: { error: r.error, docType } }));
+    setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: r.docType } : x)));
+    setTypeChanged((m) => ({ ...m, [d.id]: r.offerRead }));
+    setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)}.${r.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
+  }
+  useEffect(() => { const t = uploadTypeFromQuery(window.location.search); if (t) setUploadType(t); }, []);
+
   function pickFile(f) {
     if (!f) return;
     const type = resolveType(f);
@@ -146,6 +175,11 @@ export default function DocumentsPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
+      if (body.reclassified === 'coi') {
+        setDocs((list) => list.map((d) => (d.id === id ? { ...d, doc_type: 'coi', ai_extracted_data: null } : d)));
+        setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI. Open Company → Insurance to read it.' });
+        return;
+      }
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
     } catch (err) {
       setExtractErr((m) => ({ ...m, [id]: err.message }));
@@ -241,9 +275,10 @@ export default function DocumentsPage() {
       setUploading(false);
       return setStatus({ type: 'error', text: 'Upload failed: ' + upErr.message });
     }
+    const docType = uploadType || 'rate_confirmation';
     const { data: inserted, error: dbErr } = await supabase.from('documents').insert({
       user_id: user.id,
-      doc_type: 'rate_confirmation',
+      doc_type: docType,
       file_path: path,
       original_filename: uploadFile.name, // converted HEIC is saved as .jpg
       load_id: null,
@@ -257,7 +292,7 @@ export default function DocumentsPage() {
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
     await loadDocs();
-    if (inserted?.id) extract(inserted.id);
+    if (inserted?.id && docType === 'rate_confirmation') extract(inserted.id);
     return true;
   }
 
@@ -312,6 +347,11 @@ export default function DocumentsPage() {
           <form onSubmit={handleUpload} style={s.card}>
             <fieldset style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }} disabled={uploading || converting}>
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload Rate Confirmations, POD, BOL and other documents</legend>
+              <label htmlFor="upload-type" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '0 0 0.3rem' }}>Document type</label>
+              <select id="upload-type" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
+                style={{ width: '100%', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.6rem', marginBottom: '0.5rem', background: '#fff' }}>
+                {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
@@ -345,6 +385,23 @@ export default function DocumentsPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    {canChangeType && (
+                      <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
+                        <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
+                        <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={UPLOAD_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
+                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: '100%', minWidth: 0 }}>
+                          {!UPLOAD_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
+                          {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    {canChangeType && typeErr[d.id] && (
+                      <div role="alert" data-testid="change-type-error" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4, fontSize: 13, color: '#b91c1c' }}>
+                        <span>{typeErr[d.id].error}</span>
+                        <button type="button" data-testid="change-type-retry" disabled={!!typeBusy[d.id]} onClick={() => changeType(d, typeErr[d.id].docType)}
+                          style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #b91c1c', background: '#fff', color: '#b91c1c', fontWeight: 600 }}>Retry</button>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>
@@ -361,7 +418,7 @@ export default function DocumentsPage() {
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
                     {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
                     <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
-                      {d.ai_extracted_data ? 'Re-run extraction' : 'Run extraction'}
+                      {d.ai_extracted_data ? 'Re-run extraction' : typeChanged[d.id] ? 'Read as rate con' : 'Run extraction'}
                     </button>
                     {d.load_id ? (
                       <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: '#059669', marginTop: '0.25rem' }}>View load</Link>

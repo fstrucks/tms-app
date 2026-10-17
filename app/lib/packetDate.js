@@ -16,3 +16,9 @@ export function formatSentAt(d, tz) {
   if (Number.isNaN(t.getTime())) return '';
   return new Intl.DateTimeFormat('en-US', { ...(tz ? { timeZone: tz } : {}), month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(t);
 }
+// Shorter form for the /packets list: "Oct 17, 2026, 11:50 AM CDT" (viewer's zone, with its label).
+export function formatListTime(d, tz) {
+  const t = parseUtc(d);
+  if (Number.isNaN(t.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', { ...(tz ? { timeZone: tz } : {}), month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(t);
+}
