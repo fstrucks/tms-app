@@ -1,6 +1,6 @@
 # Remember each broker's packet layout (carrier packet G)
 
-Status: **design + migration only. The migration is NOT applied, and no feature code has been written yet.**
+Status: **design + migration only. The migration is NOT applied, and only the pure fingerprint/scoring library is written (not wired in).**
 SQL: `supabase/migrations/20261017001900_packet_layouts.sql` (needs approval before it goes into Supabase).
 
 ## Goal
@@ -128,6 +128,13 @@ checks for the unique active version, the source check and the MC format. It has
 
 ## 6. Build plan after approval
 1. `lib/packetFingerprint.js` (pure: normalize, text_hash, simhash, MC/domain extraction, `scoreLayout`, page mapping) with unit tests.
+   **Done (pure library only, not wired in):** `app/lib/packetFingerprint.js` + `tests/js/packetFingerprint.test.mjs`. Choices made while building it:
+   - The fallback rules take precedence over the point bands: rules 2 and 3 (MC or domain + fuzzy ≥ 0.8) apply even when the total is
+     under 70 (e.g. 32 + 25 = 57), and rule 5 returns `changed` even when the total would be ≥ 45. Scans and an MC conflict never apply.
+   - A page counts as text when it has ≥ 20 normalized letters. Pages without text join `layout_key` as `scan:WxH`, so scans with
+     the same page sizes share a key. Scans are never treated as an exact match, but the learn step must not assume a scan's key is unique.
+   - The MC regex also accepts `MC No.` / `MC Number:` and needs a non-letter before `MC` (so `SMC 1234` is ignored). Matching uses the
+     base domain (`mail.tql.com` → `tql.com`). Forwarded `From:` lines count only when a Date/Sent/To/Cc/Subject header follows within 4 lines.
 2. Changes to `packetProcess.js`: fingerprint, `findLayout`, apply/suggest, and skipping naming on matched pages. Changes to the inbound route: forwarded-From parse into `packets.broker_email`.
 3. `lib/packetLayoutLearn.js`: diffing and versioning on fill. `/api/packets/[id]/layout` for dismiss/apply-suggested.
 4. Banner and dismiss in `PacketMapper.js`. This doesn't touch `PacketSendBroker.js` or the COI files in #66. `app/packets/[id]/page.js` is
