@@ -4,6 +4,8 @@ import { extractPdf, MAX_PAGES } from './packetPdfText.js';
 import { buildPacketFields } from './packetFields.js';
 import { createPacketReader } from './packetReader.js';
 import { isMissingSchema, MISSING_MSG, MIGRATION } from './packetServer.js';
+import { prepareLayout, savePacketLayout, insertLayoutRows, bumpLayoutUse } from './packetLayouts.js';
+import { layoutRows } from './packetLayoutApply.js';
 
 export const BUDGET_MS = 45_000; // leaves headroom under maxDuration 60
 export const STALE_MS = 5 * 60_000; // a 'processing' claim older than this can be retried
@@ -18,7 +20,7 @@ export async function claimPacket(sb, packetId, { force = false, now = Date.now(
   return data; // null = someone else has it, or already processed
 }
 
-export async function processPacket({ sb, packetId, force = false, reader = createPacketReader(), extract = extractPdf, budgetMs = BUDGET_MS, now = Date.now }) {
+export async function processPacket({ sb, packetId, force = false, reader = createPacketReader(), extract = extractPdf, budgetMs = BUDGET_MS, now = Date.now, layouts = true }) {
   const start = now();
   let pk;
   try { pk = await claimPacket(sb, packetId, { force, now: start }); } catch (e) {
@@ -39,25 +41,55 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
       return { manual: 'reader_error', fields: 0 };
     }
     const base = { page_count: ex.pageCount, has_text_layer: ex.hasText };
-    if (!ex.hasText) { await finish({ ...base, status: 'review', manual_reason: 'no_text_layer' }); return { manual: 'no_text_layer', fields: 0 }; }
+    // Remembered layouts (carrier packet G): fingerprint + broker identity, then the best saved layout.
+    // Unavailable (migration not applied, any DB problem) → normal detection, exactly as before.
+    const lm = layouts ? await prepareLayout(sb, { packetId, ownerId: pk.owner_id, ex }) : { available: false };
+    const pick = lm.available ? lm.pick : null;
+    const decision = pick?.result?.decision || null;
+    const layoutInfo = pick ? { decision, layout_id: pick.layout.id, score: pick.result.score, reason: pick.result.reason } : null;
+    // Suggest / changed: remember which layout, but don't place anything (the banner offers it or explains).
+    if (pick && decision !== 'apply') await savePacketLayout(sb, packetId, { layout_id: pick.layout.id, layout_score: pick.result.score, layout_applied_at: null });
+    if (!ex.hasText) { await finish({ ...base, status: 'review', manual_reason: 'no_text_layer' }); return { manual: 'no_text_layer', fields: 0, ...(layoutInfo ? { layout: layoutInfo } : {}) }; }
+    // Auto-apply: template rows for the matched pages; detection + AI naming run only on the other pages.
+    let lay = { rows: [], pages: new Set() };
+    if (pick && decision === 'apply') {
+      const sizes0 = new Map(ex.pages.map((p) => [p.page, p.size]));
+      lay = layoutRows({ layout: pick.layout, packetFingerprint: lm.fingerprint, packetId, ownerId: pk.owner_id, pageSizes: sizes0 });
+    }
     // Naming gets what's left of the budget; on timeout we keep the unnamed local fields.
     const left = start + budgetMs - now();
     const timed = { enabled: reader.enabled, nameFields: (f) => {
       let t; const to = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('timeout')), Math.max(1000, left)); });
       return Promise.race([reader.nameFields(f), to]).finally(() => clearTimeout(t));
     } };
-    const { rows, summary } = await buildPacketFields({ packetId, ownerId: pk.owner_id, pages: ex.pages, reader: timed });
+    const detectPages = (skip) => ex.pages.filter((p) => !skip.has(p.page));
+    let { rows, summary } = await buildPacketFields({ packetId, ownerId: pk.owner_id, pages: detectPages(lay.pages), reader: timed });
     const sizes = new Map(ex.pages.map((p) => [p.page, p.size]));
-    const full = rows.map((r) => ({ ...r, page_w: sizes.get(r.page)?.[0] ?? null, page_h: sizes.get(r.page)?.[1] ?? null }));
-    // Replace only machine-made rows; user-made/edited rows are kept on a re-run.
-    await sb.from('packet_fields').delete().eq('packet_id', packetId).in('source', ['local', 'model']);
+    const withSize = (rs) => rs.map((r) => ({ ...r, page_w: sizes.get(r.page)?.[0] ?? null, page_h: sizes.get(r.page)?.[1] ?? null }));
+    // Replace only machine-made rows (incl. layout-placed ones); user-made/edited rows are kept on a re-run.
+    await sb.from('packet_fields').delete().eq('packet_id', packetId).in('source', ['local', 'model', 'layout']);
+    let placed = 0;
+    if (lay.rows.length) {
+      const ins = await insertLayoutRows(sb, lay.rows);
+      if (ins.ok) {
+        placed = ins.count;
+        await savePacketLayout(sb, packetId, { layout_id: pick.layout.id, layout_score: pick.result.score, layout_applied_at: new Date(now()).toISOString() });
+        await bumpLayoutUse(sb, pick.layout);
+      } else { // couldn't place (e.g. source check not widened yet): detect the matched pages too
+        console.error('[packets] layout apply failed, detecting all pages');
+        const rest = await buildPacketFields({ packetId, ownerId: pk.owner_id, pages: ex.pages.filter((p) => lay.pages.has(p.page)), reader: timed });
+        rows = [...rows, ...rest.rows]; summary = { ...summary, detected: summary.detected + rest.summary.detected, error: summary.error || rest.summary.error };
+        layoutInfo.decision = 'apply_failed';
+      }
+    }
+    const full = withSize(rows);
     if (full.length) {
       const { error } = await sb.from('packet_fields').upsert(full, { onConflict: 'packet_id,field_key', ignoreDuplicates: true });
       if (error) throw new Error('save fields failed: ' + (error.code || error.message));
     }
-    const manual = ex.truncated ? 'too_many_pages' : summary.error === 'timeout' ? 'timeout' : summary.error ? 'reader_error' : !full.length ? 'no_fields' : null;
+    const manual = ex.truncated ? 'too_many_pages' : summary.error === 'timeout' ? 'timeout' : summary.error ? 'reader_error' : !full.length && !placed ? 'no_fields' : null;
     await finish({ ...base, status: 'review', manual_reason: manual });
-    return { fields: full.length, named: summary.named, low_confidence: summary.low_confidence, manual };
+    return { fields: full.length + placed, named: summary.named, low_confidence: summary.low_confidence, manual, ...(layoutInfo ? { layout: { ...layoutInfo, placed } } : {}) };
   } catch (e) {
     await finish({ status: 'error', process_error: String(e.message).slice(0, 200) });
     return { error: e.message };

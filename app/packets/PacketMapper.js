@@ -12,6 +12,9 @@ import { formatPacketDate } from '../lib/packetDate';
 import { KEY_LABELS, fieldName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
+import { layoutBanner, placedCount } from '../lib/packetLayoutBanner';
+import { makeApi } from '../lib/packetApi';
+import { getSupabase } from '../lib/supabase';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
@@ -24,6 +27,8 @@ const s = {
   lab: { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' },
   chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: c }),
 };
+let defaultLayoutApi = null; // lazy: GET/POST /api/packets/[id]/layout with the signed-in session
+const layoutCall = (...a) => (defaultLayoutApi || (defaultLayoutApi = makeApi(() => getSupabase()?.auth))).call(...a);
 const DPI_PX = 200; // field boxes are px at 200 dpi
 const inches = (px) => Math.round((px / DPI_PX) * 100) / 100;
 // Text inside a box. Date fields with no value preview today's date (display only; fills on signing),
@@ -48,7 +53,7 @@ function InchInput({ label, aria, step, px, onApply }) {
 }
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null, layoutApi = layoutCall }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -96,6 +101,26 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     let on = true; loadSignatures().then((r) => { if (on && r?.urls) setSigUrls(r.urls); });
     return () => { on = false; };
   }, [signedKey, loadSignatures]);
+  // Remembered broker layout (carrier packet G): banner + "Don't use this layout" / "Use layout".
+  const [layoutInfo, setLayoutInfo] = useState(null);
+  useEffect(() => {
+    if (!packet?.id || !layoutApi) return;
+    let on = true;
+    Promise.resolve(layoutApi(`/api/packets/${packet.id}/layout`)).then((r) => { if (on && r && !r.error) setLayoutInfo(r); }).catch(() => {});
+    return () => { on = false; };
+  }, [packet?.id, layoutApi]);
+  async function layoutAction(action) {
+    if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save or discard your changes first.');
+    if (action === 'dismiss' && typeof window !== 'undefined' && !window.confirm('Remove the fields placed from the saved layout and find fields fresh? Fields you added or edited are kept.')) return;
+    setBusy(true); setMsg(null);
+    const r = await layoutApi(`/api/packets/${packet.id}/layout`, { method: 'POST', body: JSON.stringify({ action }) });
+    setBusy(false);
+    if (handle(r)) return;
+    if (r?.error) return setMsg(r.error);
+    if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
+    setLayoutInfo((li) => (li ? { ...li, state: r.state } : li));
+    setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.') : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
+  }
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
   useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
 
@@ -239,6 +264,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <span data-testid="packet-status" data-status={status.key} style={statusChipStyle(status.color)}>{status.label}</span>
         <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
       </div>
+      {(() => { const b = layoutBanner(layoutInfo, { canEdit, placed: placedCount(fields) }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
+        <p style={{ margin: 0 }}>{b.text}</p>
+        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
+      </div>; })()}
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
       {packet.status === 'archived' && <p role="status" style={s.ro}>This packet is archived. The owner or management can unarchive it from the Packets list.</p>}

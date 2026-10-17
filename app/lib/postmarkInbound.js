@@ -31,6 +31,15 @@ export const safeName = (n) => (String(n || 'packet.pdf').replace(/[^a-zA-Z0-9._
 
 const isPdf = (a, bytes) => /pdf/i.test(a.ContentType || '') || /\.pdf$/i.test(a.Name || '') ? bytes.subarray(0, 5).toString('latin1') === '%PDF-' : false;
 
+const BODY_MAX = 200_000;
+// Plain text of the email body: TextBody, or HtmlBody with tags stripped (line breaks kept for the From: parser).
+export function bodyText(p) {
+  if (p?.TextBody) return String(p.TextBody).slice(0, BODY_MAX);
+  if (!p?.HtmlBody) return '';
+  return String(p.HtmlBody).slice(0, BODY_MAX * 2).replace(/<(br|\/p|\/div|\/tr|\/li)[^>]*>/gi, '\n').replace(/<[^>]+>/g, ' ')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').slice(0, BODY_MAX);
+}
+
 // Postmark inbound JSON → normalized email + accepted PDFs + rejected list.
 export function parseInbound(p) {
   if (!p || typeof p !== 'object') throw new Error('Bad payload');
@@ -53,6 +62,8 @@ export function parseInbound(p) {
   return {
     fromEmail, messageId,
     to: p.To || null, cc: p.Cc || null, subject: p.Subject || null,
+    // Body text is only read in memory to find a forwarded broker's From: line; it is never stored or logged.
+    textBody: bodyText(p), replyTo: p.ReplyTo || header(headers, 'Reply-To') || null,
     inReplyTo: header(headers, 'In-Reply-To'), references: header(headers, 'References'),
     headers: headers.map((x) => ({ Name: String(x?.Name || ''), Value: String(x?.Value || '').slice(0, 2000) })),
     pdfs, rejected,

@@ -1,0 +1,142 @@
+// Carrier packet G: server I/O for remembered broker layouts (service-role client injected).
+// Every function degrades when 20261017001900_packet_layouts.sql isn't applied yet: it logs once per call and
+// returns { missing: true } so callers fall back to normal detection. Nothing here ever throws to a route.
+import { extractPdf } from './packetPdfText.js';
+import { fingerprintPacket, extractBrokerMc, pickLayout } from './packetFingerprint.js';
+import { layoutRows, packetIdentity, planLearn } from './packetLayoutApply.js';
+
+export const LAYOUT_MIGRATION = '20261017001900_packet_layouts.sql';
+export const LAYOUT_MISSING_MSG = 'Remembered layouts need a database update that hasn’t been applied yet. Fields are found as usual.';
+// Undefined table/column (Postgres or PostgREST schema cache), or the packet_fields.source check not widened yet.
+export function isLayoutSchemaMissing(e) {
+  if (!e) return false;
+  if (['42P01', '42703', 'PGRST204', 'PGRST205', 'PGRST200'].includes(e.code)) return true;
+  if (e.code === '23514' && /source/i.test(`${e.message || ''} ${e.details || ''}`)) return true;
+  return /column .* does not exist|relation .* does not exist|Could not find the .* (column|table)|packet_layouts/i.test(e.message || '');
+}
+const logMissing = (where, e) => console.error(`[packets] layouts unavailable (${where}): ${e?.code || ''} apply ${LAYOUT_MIGRATION}`);
+// Packet rows are read with select('*'), so a missing column simply isn't a key on the row.
+export const packetHasLayoutColumns = (p) => !!p && 'fingerprint' in p && 'layout_id' in p;
+
+// Update the new packets columns. → { ok } | { missing } | { error }
+export async function savePacketLayout(sb, packetId, patch) {
+  try {
+    const { error } = await sb.from('packets').update(patch).eq('id', packetId);
+    if (!error) return { ok: true };
+    if (isLayoutSchemaMissing(error)) { logMissing('packets update', error); return { missing: true }; }
+    console.error('[packets] layout packet update', error.code); return { error: error.code || 'update failed' };
+  } catch (e) { console.error('[packets] layout packet update', e?.message); return { error: 'update failed' }; }
+}
+export async function activeLayouts(sb, ownerId) {
+  try {
+    const { data, error } = await sb.from('packet_layouts').select('*').eq('owner_id', ownerId).eq('status', 'active').order('last_used_at', { ascending: false });
+    if (error) { if (isLayoutSchemaMissing(error)) { logMissing('select', error); return { missing: true }; } console.error('[packets] layouts select', error.code); return { error: error.code || 'select failed' }; }
+    return { layouts: Array.isArray(data) ? data : [] };
+  } catch (e) { console.error('[packets] layouts select', e?.message); return { error: 'select failed' }; }
+}
+export async function getLayout(sb, id) {
+  if (!id) return { layout: null };
+  try {
+    const { data, error } = await sb.from('packet_layouts').select('*').eq('id', id).maybeSingle();
+    if (error) { if (isLayoutSchemaMissing(error)) { logMissing('get', error); return { missing: true }; } return { error: error.code || 'get failed' }; }
+    return { layout: data || null };
+  } catch (e) { return { error: e?.message || 'get failed' }; }
+}
+async function ownMc(sb, ownerId) {
+  try { const { data } = await sb.from('company_profiles').select('mc_number').eq('owner_id', ownerId).maybeSingle(); return data?.mc_number || null; } catch { return null; }
+}
+async function packetRow(sb, packetId) {
+  try { const { data } = await sb.from('packets').select('*').eq('id', packetId).maybeSingle(); return data || null; } catch { return null; }
+}
+
+// During processing, right after extractPdf: fingerprint + broker identity → stored on the packet → best layout.
+// → { available:false } | { available:true, fingerprint, identity, dismissed, pick:{layout,result}|null }
+export async function prepareLayout(sb, { packetId, ownerId, ex }) {
+  try {
+    const row = await packetRow(sb, packetId);
+    if (row && !packetHasLayoutColumns(row)) { console.error(`[packets] layouts unavailable (packets columns missing): apply ${LAYOUT_MIGRATION}`); return { available: false }; }
+    const { fingerprint } = fingerprintPacket(ex);
+    const broker_mc = extractBrokerMc(ex.pages || [], { ownMc: await ownMc(sb, ownerId) });
+    const saved = await savePacketLayout(sb, packetId, { fingerprint, broker_mc, layout_id: null, layout_score: null, layout_applied_at: null });
+    if (!saved.ok) return { available: false };
+    const identity = packetIdentity({ fingerprint, broker_mc, broker_email: row?.broker_email, page_count: ex.pageCount });
+    if (row?.layout_dismissed_at) return { available: true, fingerprint, identity, dismissed: true, pick: null };
+    const got = await activeLayouts(sb, ownerId);
+    if (!got.layouts) return { available: false };
+    return { available: true, fingerprint, identity, dismissed: false, pick: pickLayout(identity, got.layouts) };
+  } catch (e) { console.error('[packets] layout prepare', e?.message); return { available: false }; }
+}
+
+export async function bumpLayoutUse(sb, layout) {
+  try { await sb.from('packet_layouts').update({ use_count: (layout.use_count || 0) + 1, updated_at: new Date().toISOString() }).eq('id', layout.id); } catch { /* best effort */ }
+}
+
+// Insert layout rows. → { ok, count } | { missing } | { error }
+export async function insertLayoutRows(sb, rows) {
+  if (!rows.length) return { ok: true, count: 0 };
+  try {
+    const { error } = await sb.from('packet_fields').upsert(rows, { onConflict: 'packet_id,field_key', ignoreDuplicates: true });
+    if (!error) return { ok: true, count: rows.length };
+    if (isLayoutSchemaMissing(error)) { logMissing('packet_fields insert', error); return { missing: true }; }
+    console.error('[packets] layout rows insert', error.code); return { error: error.code || 'insert failed' };
+  } catch (e) { return { error: e?.message || 'insert failed' }; }
+}
+
+// "Use layout" on a suggested layout (and the shared apply step): rows for matched pages replace the machine-found
+// rows on those pages (user rows are kept). → { ok, count, pages } | { missing } | { error, status }
+export async function applyLayoutToPacket(sb, { packet, layout, now = new Date().toISOString() }) {
+  const { rows, pages } = layoutRows({ layout, packetFingerprint: packet.fingerprint, packetId: packet.id, ownerId: packet.owner_id });
+  if (!rows.length) return { error: 'This saved layout doesn’t match any page of this packet.', status: 409 };
+  const del = await sb.from('packet_fields').delete().eq('packet_id', packet.id).in('source', ['local', 'model', 'layout']).in('page', [...pages]);
+  if (del?.error) { if (isLayoutSchemaMissing(del.error)) return { missing: true }; return { error: 'Could not update the fields.', status: 500 }; }
+  const ins = await insertLayoutRows(sb, rows);
+  if (!ins.ok) return ins.missing ? { missing: true } : { error: 'Could not place the saved layout.', status: 500 };
+  const up = await savePacketLayout(sb, packet.id, { layout_id: layout.id, layout_applied_at: now, layout_dismissed_at: null });
+  if (up.missing) return { missing: true };
+  await bumpLayoutUse(sb, layout);
+  return { ok: true, count: rows.length, pages: [...pages] };
+}
+
+// After a successful /fill by an editor: create or version the layout for this packet's form. Never throws.
+// pdfBytes lets a packet processed before the migration get its fingerprint now.
+export async function learnFromFill(sb, { packet, rows, userId, pdfBytes = null, extract = extractPdf, now = new Date().toISOString() }) {
+  try {
+    if (!packetHasLayoutColumns(packet)) return { action: 'skip', reason: 'migration_missing' };
+    let p = packet;
+    if (!p.fingerprint?.pages?.length && pdfBytes) {
+      try {
+        const ex = await extract(pdfBytes, { deadline: Date.now() + 8000 });
+        const { fingerprint } = fingerprintPacket(ex);
+        const broker_mc = p.broker_mc || extractBrokerMc(ex.pages || [], { ownMc: await ownMc(sb, p.owner_id) });
+        p = { ...p, fingerprint, broker_mc };
+        await savePacketLayout(sb, p.id, { fingerprint, broker_mc });
+      } catch (e) { console.error('[packets] learn fingerprint', e?.message); }
+    }
+    const got = await activeLayouts(sb, p.owner_id);
+    if (got.missing) return { action: 'skip', reason: 'migration_missing' };
+    if (!got.layouts) return { action: 'skip', reason: 'error' };
+    const key = p.fingerprint?.pages?.length ? packetIdentity(p).layout_key : null;
+    const target = key ? got.layouts.find((l) => l.layout_key === key) || null : null;
+    const applied = p.layout_id ? got.layouts.find((l) => l.id === p.layout_id) || null : null;
+    const plan = planLearn({ packet: p, rows, target, applied });
+    if (plan.action === 'skip') return plan;
+    if (plan.action === 'touch') {
+      await sb.from('packet_layouts').update({ last_used_at: now, updated_at: now }).eq('id', target.id);
+      return { action: 'touch', layout_id: target.id, version: target.version };
+    }
+    const row = { owner_id: p.owner_id, layout_key: plan.layout_key, version: plan.version, status: 'active', broker_name: plan.broker_name,
+      broker_mc: plan.broker_mc, broker_domain: plan.broker_domain, page_count: plan.page_count, fingerprint: plan.fingerprint, fields: plan.fields,
+      source_packet_id: p.id, created_by: userId || null, use_count: target?.use_count || 0, last_used_at: now, created_at: now, updated_at: now };
+    if (target) { // one active version per form: supersede first, restore it if the insert fails
+      const { error: sErr } = await sb.from('packet_layouts').update({ status: 'superseded', updated_at: now }).eq('id', target.id).eq('status', 'active');
+      if (sErr) { console.error('[packets] layout supersede', sErr.code); return { action: 'skip', reason: 'error' }; }
+    }
+    const { data, error } = await sb.from('packet_layouts').insert(row).select('id,version').single();
+    if (error) {
+      if (target) await sb.from('packet_layouts').update({ status: 'active' }).eq('id', target.id);
+      if (isLayoutSchemaMissing(error)) { logMissing('insert', error); return { action: 'skip', reason: 'migration_missing' }; }
+      console.error('[packets] layout insert', error.code); return { action: 'skip', reason: 'error' };
+    }
+    return { action: plan.action, layout_id: data?.id || null, version: data?.version || plan.version, fields: plan.fields.length };
+  } catch (e) { console.error('[packets] learn', e?.message); return { action: 'skip', reason: 'error' }; }
+}

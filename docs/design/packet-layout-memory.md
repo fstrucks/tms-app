@@ -1,8 +1,26 @@
 # Remember each broker's packet layout (carrier packet G)
 
-Status: **design + migration only. The migration is NOT applied, and only the pure fingerprint/scoring library is written (not wired in).**
-SQL: `supabase/migrations/20261017001900_packet_layouts.sql` (needs approval before it goes into Supabase).
+Status: **wired in (draft PR #68, do-not-merge).** Marc approved the SQL; Dakota is applying
+`supabase/migrations/20261017001900_packet_layouts.sql`. Until it's applied, everything falls back to normal detection
+(logged as `[packets] layouts unavailable … apply 20261017001900_packet_layouts.sql`), and no route returns a 500 for it.
 
+### What's built (and choices made while wiring)
+- `lib/packetLayouts.js` (server I/O + fallback), `lib/packetLayoutApply.js` (pure: layout → rows, rows → layout fields, diff,
+  learn plan), `lib/packetLayoutBanner.js` (client-safe banner text), `app/api/packets/[id]/layout/route.js` (GET state; POST dismiss/apply).
+- **Processing** (`packetProcess.js`): after `extractPdf`, fingerprint + broker MC are stored on the packet and the best layout is picked.
+  Apply → `source='layout'` rows on matched pages, detection + AI naming only on the other pages. Suggest/changed → `layout_id`
+  and `layout_score` only. If placing fails (for example the `source` check isn't widened yet), every page is detected as usual.
+- **Inbound**: the forwarded `From:` (then Reply-To, then From when it isn't ours) is saved to `packets.broker_email` in a separate
+  update, so a missing column never blocks the packet. The body is read in memory only and never stored.
+- **Learning** happens on a successful `/fill`, after the response (`waitUntil`). The target is the active layout for **this packet's**
+  `layout_key`, so a fuzzy-applied packet (the broker changed the form) starts its own group and the old group stays active. Fields are
+  a whitelist copy (`page, kind, label, box, dpi, page_w, page_h, profile_key`), with `custom:` and `skip` names kept. Scanned packets
+  are never learned in v1, because they can't reach the suggest band anyway. A packet processed before the migration gets its
+  fingerprint at fill time.
+- `last_used_at` is updated when a layout is learned or confirmed on fill, not when it's applied, so the banner's "last used" shows the
+  previous real use instead of today. `use_count` is incremented on apply.
+- "Changed form" isn't stored as its own column. The GET route re-scores the packet against `layout_id` to show the
+  "looks different" banner.
 ## Goal
 When a broker we've seen before sends a carrier packet, put the fields where the user placed them last time
 (same names, same boxes). The user only reviews them, so detection and OpenAI naming are skipped for the pages
