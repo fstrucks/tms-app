@@ -35,6 +35,7 @@ export default function PacketsPage() {
   const [msg, setMsg] = useState(null);
   const user = useRef(null);
   const marked = useRef(false);
+  const kicked = useRef(new Set()); // packets we've asked the server to start processing this visit
 
   const load = useCallback(async () => {
     const sb = getSupabase();
@@ -62,6 +63,16 @@ export default function PacketsPage() {
   useEffect(() => { load().catch((e) => { console.error('[packets] load', e); setSt({ error: 'Could not load packets.' }); }); }, [load]);
   useEffect(() => { if (filter === 'archived') loadArchived(); }, [filter, loadArchived]);
 
+  // Any packet still 'received' (upload kick lost, emailed while the webhook's job died, …): start it in the
+  // background once per visit, so nothing sits at 'Waiting to start' until someone opens it (QA D).
+  useEffect(() => {
+    for (const r of st.rows || []) {
+      if (r.status !== 'received' || kicked.current.has(r.id)) continue;
+      kicked.current.add(r.id);
+      Promise.resolve(api(`/api/packets/${r.id}/process?background=1`, { method: 'POST' })).catch(() => {});
+    }
+  }, [st.rows]);
+
   // Poll only while detection is pending: 2s, 3s, 5s, 8s, then every 10s; paused in background tabs; stops after ~3 min.
   const pending = (st.rows || []).some((r) => isPendingStatus(r.status));
   useEffect(() => {
@@ -87,7 +98,8 @@ export default function PacketsPage() {
     const err = await uploadPacket(getSupabase(), { userId: user.current.id, ownerId: st.ownerId || user.current.id, file: f, onCreated: (id) => { newId = id; } });
     if (!err && newId) { // start field detection in the background; the packet page also retries it
       const { data } = await getSupabase().auth.getSession();
-      fetch(`/api/packets/${newId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${data?.session?.access_token}` } }).then(() => load(), () => {}); // refresh as soon as detection finishes
+      kicked.current.add(newId);
+      fetch(`/api/packets/${newId}/process?background=1`, { method: 'POST', keepalive: true, headers: { Authorization: `Bearer ${data?.session?.access_token}` } }).then(() => load(), () => {}); // runs server-side after the reply; polling picks up the result
     }
     setBusy(false);
     if (err) setMsg(err); else { setMsg('Packet uploaded.'); load(); }

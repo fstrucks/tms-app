@@ -4,12 +4,14 @@
 // jsonb: { v:1, pages:[{ w, h, text_hash, simhash, has_text }] }.
 import { createHash } from 'node:crypto';
 
-export const FINGERPRINT_VERSION = 1;
+export const FINGERPRINT_VERSION = 2; // v2 adds per-page `head` (first words, digits stripped) for "same form, revised" matching
+export const HEAD_WORDS = 16;
+export const HEAD_SIMILAR = 0.6;       // Jaccard of first-page head words: same broker/title even when the body changed
 export const MIN_PAGE_CHARS = 20;      // normalized letters on a page below this = scanned/blank page
 export const SIMHASH_MAX_DISTANCE = 6; // Hamming distance for a fuzzy page match
 export const SIZE_TOLERANCE_PT = 1;
 export const THRESHOLDS = { apply: 70, suggest: 45 };
-export const POINTS = { exact: 60, fuzzy: 40, sizes: 10, mc: 25, mcConflict: -40, domain: 15, domainConflict: -10 };
+export const POINTS = { exact: 60, fuzzy: 40, sizes: 10, mc: 25, mcConflict: -40, domain: 15, domainConflict: -10, name: 15 };
 export const PAGE_COUNT_WINDOW = 2;
 
 const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
@@ -57,11 +59,58 @@ export function pageSizePt(page, dpi = 200) {
   const [w, h] = page?.sizePt || (page?.size ? page.size.map((v) => (v * 72) / dpi) : [0, 0]);
   return [Math.round(w || 0), Math.round(h || 0)];
 }
+// Words in reading order (top to bottom, then left to right; words within 4 px count as one line).
+export function readingOrder(words = []) {
+  const ws = (words || []).filter((w) => w && String(w.text ?? '').trim());
+  if (!ws.some((w) => Number.isFinite(w.top))) return ws;
+  const sorted = [...ws].sort((a, b) => (a.top ?? 0) - (b.top ?? 0) || (a.left ?? 0) - (b.left ?? 0));
+  const lines = [];
+  for (const w of sorted) {
+    const ln = lines[lines.length - 1];
+    if (ln && Math.abs((w.top ?? 0) - ln.top) <= 4) ln.words.push(w); else lines.push({ top: w.top ?? 0, words: [w] });
+  }
+  return lines.flatMap((l) => l.words.sort((a, b) => (a.left ?? 0) - (b.left ?? 0)));
+}
+// Text lines (reading order) of a page: [{ top, text }].
+export function pageLines(page) {
+  const out = [];
+  for (const w of readingOrder(page?.words || [])) {
+    const ln = out[out.length - 1];
+    if (ln && Math.abs((w.top ?? 0) - ln.top) <= 4) ln.text += ' ' + w.text; else out.push({ top: w.top ?? 0, text: String(w.text) });
+  }
+  return out;
+}
+// The first HEAD_WORDS normalized words of the page (broker name / form title area), each stored only as an
+// 8-hex hash so the fingerprint never holds page text. Digits are already stripped. Space-separated string.
+export const headWords = (page) => normalizeText(readingOrder(page?.words || []).map((w) => w.text).join(' ')).split(' ').filter(Boolean).slice(0, HEAD_WORDS);
+export const pageHead = (page) => headWords(page).map((w) => sha256('head:' + w).slice(0, 8)).join(' ');
 export function pageFingerprint(page, opts = {}) {
   const norm = normalizeText(pageRawText(page));
   const [w, h] = pageSizePt(page, opts.dpi);
   const has_text = norm.replace(/ /g, '').length >= MIN_PAGE_CHARS;
-  return { w, h, text_hash: has_text ? textHash(norm) : null, simhash: has_text ? simhash(norm) : null, has_text };
+  return { w, h, text_hash: has_text ? textHash(norm) : null, simhash: has_text ? simhash(norm) : null, has_text, head: has_text ? pageHead(page) : null };
+}
+// Jaccard similarity of two heads (sets of hashed words). null when either side has no head (older fingerprints).
+export function headSimilarity(a, b) {
+  if (!a || !b) return null;
+  const A = new Set(String(a).split(' ').filter(Boolean)), B = new Set(String(b).split(' ').filter(Boolean));
+  if (!A.size || !B.size) return null;
+  let n = 0; for (const x of A) if (B.has(x)) n++;
+  return n / (A.size + B.size - n);
+}
+// First text page's head on each side.
+export const firstHead = (pages = []) => (pages || []).find((p) => p?.has_text && p.head)?.head || null;
+
+// ---------- broker identity: name ----------
+const NAME_NOISE = /\b(?:the|inc|incorporated|llc|l l c|ltd|corp|corporation|co|company|fake|test only)\b/g;
+// "Acme Test Logistics, LLC" → "acme test logistics". null when nothing is left.
+export function normalizeBrokerName(s) {
+  const n = String(s ?? '').toLowerCase().normalize('NFKC').replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(NAME_NOISE, ' ').replace(/\s+/g, ' ').trim();
+  return n.length >= 2 ? n : null;
+}
+export function brokerNamesMatch(a, b) {
+  const x = normalizeBrokerName(a), y = normalizeBrokerName(b);
+  return !!x && !!y && x === y;
 }
 // layout_key = sha256 of the ordered per-page text hashes. Pages without text contribute `scan:WxH`, so two
 // scans only share a key when every page size matches (scans are never auto-applied; see scoreLayout).
@@ -214,6 +263,7 @@ export function isCandidate(packet, layout) {
   const mc = normalizeMc(packet?.broker_mc), lmc = normalizeMc(layout.broker_mc);
   if (mc && lmc && mc === lmc) return true;
   if (packet?.broker_domain && layout.broker_domain && packet.broker_domain === layout.broker_domain) return true;
+  if (brokerNamesMatch(packet?.broker_name, layout.broker_name)) return true;
   return Math.abs((packet?.page_count ?? 0) - (layout.page_count ?? 0)) <= PAGE_COUNT_WINDOW;
 }
 
@@ -235,12 +285,19 @@ export function scoreLayout(packet, layout) {
   const mcMatch = !!mc && mc === lmc, mcConflict = !!mc && !!lmc && mc !== lmc;
   const dom = packet?.broker_domain || null, ldom = layout?.broker_domain || null;
   const domainMatch = !!dom && dom === ldom, domainConflict = !!dom && !!ldom && dom !== ldom;
+  const nameMatch = brokerNamesMatch(packet?.broker_name, layout?.broker_name);
+  const nameConflict = !nameMatch && !!normalizeBrokerName(packet?.broker_name) && !!normalizeBrokerName(layout?.broker_name);
+  const head = scanned ? null : headSimilarity(firstHead(pp), firstHead(tp));
+  const headMatch = head != null && head >= HEAD_SIMILAR;
+  // Same page structure: same page count and every page the same size.
+  const structure = sizes;
   const parts = {
     exact: exact ? POINTS.exact : 0,
     fuzzy: Math.round(POINTS.fuzzy * fuzzy * 10) / 10,
     sizes: sizes ? POINTS.sizes : 0,
     mc: mcMatch ? POINTS.mc : mcConflict ? POINTS.mcConflict : 0,
     domain: domainMatch ? POINTS.domain : domainConflict ? POINTS.domainConflict : 0,
+    name: nameMatch ? POINTS.name : 0, // head similarity scores nothing: it only decides 'changed' (below)
   };
   const score = Math.round(Object.values(parts).reduce((a, b) => a + b, 0) * 10) / 10;
   const band = score >= THRESHOLDS.apply ? 'apply' : score >= THRESHOLDS.suggest ? 'suggest' : 'none';
@@ -250,11 +307,15 @@ export function scoreLayout(packet, layout) {
   else if (exact) { decision = 'apply'; reason = 'exact'; }
   else if (mcMatch && fuzzy >= 0.8) { decision = 'apply'; reason = 'mc_fuzzy'; }
   else if (domainMatch && fuzzy >= 0.8) { decision = 'apply'; reason = 'domain_fuzzy'; }
-  else if ((mcMatch || domainMatch) && fuzzy < 0.5) { decision = 'changed'; reason = 'form_changed'; }
+  else if (nameMatch && fuzzy >= 0.8) { decision = 'apply'; reason = 'name_fuzzy'; }
+  else if ((mcMatch || domainMatch || nameMatch) && fuzzy < 0.5) { decision = 'changed'; reason = 'form_changed'; }
+  // Same broker header/title and the same page structure, but the body text changed (a revised form with no MC
+  // or email to go on, e.g. an upload): the broker's form changed. A different broker name blocks this.
+  else if (headMatch && structure && !nameConflict && !mcConflict && !domainConflict && fuzzy < 0.5) { decision = 'changed'; reason = 'head_changed'; }
   else if (band === 'apply') { decision = 'apply'; reason = 'score'; }
   else if (fuzzy >= 0.9 && band !== 'none') { decision = 'suggest'; reason = 'fuzzy_only'; }
   else { decision = band; reason = 'score'; }
-  return { score, decision, reason, parts, exact, fuzzy, sizesEqual: sizes, mcMatch, mcConflict, domainMatch, domainConflict, scanned };
+  return { score, decision, reason, parts, exact, fuzzy, sizesEqual: sizes, mcMatch, mcConflict, domainMatch, domainConflict, nameMatch, head, scanned };
 }
 
 const RANK = { apply: 3, suggest: 2, changed: 1, none: 0 };

@@ -4,8 +4,8 @@ import { extractPdf, MAX_PAGES } from './packetPdfText.js';
 import { buildPacketFields } from './packetFields.js';
 import { createPacketReader } from './packetReader.js';
 import { isMissingSchema, MISSING_MSG, MIGRATION } from './packetServer.js';
-import { prepareLayout, savePacketLayout, insertLayoutRows, bumpLayoutUse } from './packetLayouts.js';
-import { layoutRows } from './packetLayoutApply.js';
+import { prepareLayout, savePacketLayout, insertLayoutRows, bumpLayoutUse, keptRows, ownCompany, brokerNameFor } from './packetLayouts.js';
+import { layoutRows, dropCovered } from './packetLayoutApply.js';
 
 export const BUDGET_MS = 45_000; // leaves headroom under maxDuration 60
 export const STALE_MS = 5 * 60_000; // a 'processing' claim older than this can be retried
@@ -14,7 +14,7 @@ export async function claimPacket(sb, packetId, { force = false, now = Date.now(
   const iso = new Date(now).toISOString();
   let q = sb.from('packets').update({ status: 'processing', processing_started_at: iso, process_error: null, updated_at: iso }).eq('id', packetId);
   q = force ? q.in('status', ['received', 'error', 'review', 'processing']) : q.or(`status.in.(received,error),and(status.eq.processing,processing_started_at.lt.${new Date(now - STALE_MS).toISOString()})`);
-  const { data, error } = await q.select('id,owner_id,file_path').maybeSingle();
+  const { data, error } = await q.select('id,owner_id,file_path,broker_name').maybeSingle();
   if (error && isMissingSchema(error)) { const e = new Error(MISSING_MSG); e.setupNeeded = true; throw e; }
   if (error) throw new Error('claim failed: ' + (error.code || error.message));
   return data; // null = someone else has it, or already processed
@@ -44,6 +44,13 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
     // Remembered layouts (carrier packet G): fingerprint + broker identity, then the best saved layout.
     // Unavailable (migration not applied, any DB problem) → normal detection, exactly as before.
     const lm = layouts ? await prepareLayout(sb, { packetId, ownerId: pk.owner_id, ex }) : { available: false };
+    // Broker name from the packet text (only when the packet has none yet). packets.broker_name is an original column.
+    let brokerPatch = {};
+    if (lm.broker_detected) brokerPatch = { broker_name: lm.broker_name };
+    else if (lm.broker_name === undefined && !(pk.broker_name && String(pk.broker_name).trim())) {
+      try { const bn = brokerNameFor(pk, ex, await ownCompany(sb, pk.owner_id)); if (bn.detected) brokerPatch = { broker_name: bn.name }; } catch { /* best effort */ }
+    }
+    base.broker_name = brokerPatch.broker_name; if (base.broker_name === undefined) delete base.broker_name;
     const pick = lm.available ? lm.pick : null;
     const decision = pick?.result?.decision || null;
     const layoutInfo = pick ? { decision, layout_id: pick.layout.id, score: pick.result.score, reason: pick.result.reason } : null;
@@ -63,7 +70,11 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
       return Promise.race([reader.nameFields(f), to]).finally(() => clearTimeout(t));
     } };
     const detectPages = (skip) => ex.pages.filter((p) => !skip.has(p.page));
+    // Spots a kept (user-made/edited, incl. "Left blank") field already covers are never filled again (QA C).
+    const kept = await keptRows(sb, packetId);
+    lay = { ...lay, rows: dropCovered(lay.rows, kept) };
     let { rows, summary } = await buildPacketFields({ packetId, ownerId: pk.owner_id, pages: detectPages(lay.pages), reader: timed });
+    rows = dropCovered(rows, kept);
     const sizes = new Map(ex.pages.map((p) => [p.page, p.size]));
     const withSize = (rs) => rs.map((r) => ({ ...r, page_w: sizes.get(r.page)?.[0] ?? null, page_h: sizes.get(r.page)?.[1] ?? null }));
     // Replace only machine-made rows (incl. layout-placed ones); user-made/edited rows are kept on a re-run.
@@ -78,7 +89,7 @@ export async function processPacket({ sb, packetId, force = false, reader = crea
       } else { // couldn't place (e.g. source check not widened yet): detect the matched pages too
         console.error('[packets] layout apply failed, detecting all pages');
         const rest = await buildPacketFields({ packetId, ownerId: pk.owner_id, pages: ex.pages.filter((p) => lay.pages.has(p.page)), reader: timed });
-        rows = [...rows, ...rest.rows]; summary = { ...summary, detected: summary.detected + rest.summary.detected, error: summary.error || rest.summary.error };
+        rows = [...rows, ...dropCovered(rest.rows, kept)]; summary = { ...summary, detected: summary.detected + rest.summary.detected, error: summary.error || rest.summary.error };
         layoutInfo.decision = 'apply_failed';
       }
     }

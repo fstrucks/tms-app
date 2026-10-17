@@ -1,6 +1,6 @@
 // Carrier packet G: PURE helpers that turn a saved layout into packet_fields rows, and filled packet rows into
 // a layout's `fields`. Server only (imports packetFingerprint → node:crypto). See docs/design/packet-layout-memory.md.
-import { mapPages, layoutKey, normalizeMc, matchDomain } from './packetFingerprint.js';
+import { mapPages, layoutKey, normalizeMc, matchDomain, normalizeText } from './packetFingerprint.js';
 import { validateNameKey } from './packetFieldNames.js';
 
 export const LAYOUT_DPI = 200;
@@ -18,10 +18,57 @@ const ptToPx = (pt, dpi = LAYOUT_DPI) => (Number(pt) * dpi) / 72;
 export const fpPagePx = (fp, dpi = LAYOUT_DPI) => (fp && fp.w && fp.h ? [ptToPx(fp.w, dpi), ptToPx(fp.h, dpi)] : null);
 
 // Packet identity used by scoreLayout/pickLayout.
-export function packetIdentity({ fingerprint, broker_mc, broker_email, page_count }) {
+export function packetIdentity({ fingerprint, broker_mc, broker_email, broker_name, page_count }) {
   const pages = fingerprint?.pages || [];
   return { fingerprint: { pages }, layout_key: pages.length ? layoutKey(pages) : null, page_count: page_count ?? pages.length,
-    broker_mc: normalizeMc(broker_mc), broker_domain: matchDomain(broker_email) };
+    broker_mc: normalizeMc(broker_mc), broker_domain: matchDomain(broker_email), broker_name: broker_name ? String(broker_name).trim() || null : null };
+}
+
+// ---------- spots already covered by a kept field (QA C) ----------
+const area = (b) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+export function boxOverlap(a, b) {
+  const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const inter = ix * iy, ua = area(a) + area(b) - inter, small = Math.min(area(a), area(b));
+  return { iou: ua > 0 ? inter / ua : 0, cover: small > 0 ? inter / small : 0 };
+}
+export const IOU_COVERED = 0.3, COVER_COVERED = 0.6;
+// Kept box in the candidate's pixel space (rows may come from a different render size).
+function inSpace(box, from, to) {
+  const fw = Number(from?.page_w), fh = Number(from?.page_h), tw = Number(to?.page_w), th = Number(to?.page_h);
+  if (!(fw > 0 && fh > 0 && tw > 0 && th > 0)) return box.map(Number);
+  return [box[0] * tw / fw, box[1] * th / fh, box[2] * tw / fw, box[3] * th / fh];
+}
+// True when `row` sits on a spot one of `kept` already covers (same page; IoU ≥ 0.3, or ≥ 60% of the smaller box).
+export function isCovered(row, kept = [], { iou = IOU_COVERED, cover = COVER_COVERED } = {}) {
+  if (!Array.isArray(row?.box) || row.box.length !== 4) return false;
+  return kept.some((k) => k && Number(k.page) === Number(row.page) && Array.isArray(k.box) && k.box.length === 4 && (() => {
+    const o = boxOverlap(row.box.map(Number), inSpace(k.box, k, row));
+    return o.iou >= iou || o.cover >= cover;
+  })());
+}
+// Fresh detection / layout rows minus every spot a kept (user-made or edited, incl. "Left blank") field covers.
+export const dropCovered = (rows = [], kept = [], opts) => (kept.length ? rows.filter((r) => !isCovered(r, kept, opts)) : rows);
+
+// ---------- names from last time (QA A) ----------
+// "Carrier name:" → "carrier name". Labels that normalize to nothing never match.
+export const labelKey = (s) => normalizeText(s) || null;
+// When a broker's form changed: for machine-found fields whose label matches a field label in the old layout
+// (same kind), the name used last time. User-made/edited rows are never touched. → [{ id, field_key, profile_key, label }]
+export function nameSuggestions(fields = [], layout = null) {
+  const old = new Map();
+  for (const f of Array.isArray(layout?.fields) ? layout.fields : []) {
+    const k = labelKey(f?.label); const nk = f?.profile_key ? validateNameKey(f.profile_key, f.kind) : null;
+    if (!k || !nk || nk.error || !nk.key) continue;
+    const key = `${f.kind}|${k}`;
+    if (!old.has(key)) old.set(key, nk.key); else if (old.get(key) !== nk.key) old.set(key, null); // ambiguous label: no offer
+  }
+  const out = [];
+  for (const r of fields) {
+    if (!r || r.source === 'user' || r.source === 'layout') continue;
+    const k = labelKey(r.label); const want = k ? old.get(`${r.kind}|${k}`) : null;
+    if (want && want !== (r.profile_key || null)) out.push({ id: r.id, field_key: r.field_key, profile_key: want, label: r.label });
+  }
+  return out;
 }
 
 // Layout → packet_fields rows on the packet pages the template maps to (exact text hash, then simhash).
@@ -92,7 +139,9 @@ export function planLearn({ packet, rows, target = null, applied = null }) {
   if (!fields.length) return { action: 'skip', reason: 'no_fields' };
   const key = layoutKey(fp.pages);
   const mc = normalizeMc(packet.broker_mc), domain = matchDomain(packet.broker_email);
-  const broker_name = target?.broker_name || applied?.broker_name || packet.broker_name || domain || (mc ? `MC ${mc}` : null);
+  // The packet's Broker field (detected or typed by the user) wins over what an older layout version said.
+  const pname = packet.broker_name && String(packet.broker_name).trim() ? String(packet.broker_name).trim().slice(0, 120) : null;
+  const broker_name = pname || target?.broker_name || applied?.broker_name || domain || (mc ? `MC ${mc}` : null);
   const common = { layout_key: key, fields, broker_name, broker_mc: mc || normalizeMc(target?.broker_mc) || null, broker_domain: domain || target?.broker_domain || null, page_count: fp.pages.length, fingerprint: { v: fp.v || 1, pages: fp.pages } };
   if (!target) return { action: 'create', version: 1, ...common };
   if (layoutChanged(target.fields || [], fields)) return { action: 'version', version: (target.version || 1) + 1, ...common };

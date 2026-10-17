@@ -51,6 +51,30 @@ function InchInput({ label, aria, step, px, onApply }) {
     onChange={(e) => { const v = e.target.value; setTxt(v); const n = parseInch(v); if (n != null) onApply(n); }}
     onBlur={() => { setFocus(false); const n = parseInch(txt); if (n != null) onApply(n); setTxt(String(inches(px))); }} /></label>;
 }
+// Broker field (QA B): pre-filled from the PDF text when found; editors can correct it. Saves on blur / Enter.
+export function BrokerField({ packetId, value, canEdit, api, onSaved }) {
+  const [txt, setTxt] = useState(value || '');
+  const [state, setState] = useState(null); // null | 'saving' | 'saved' | error text
+  const last = useRef(value || '');
+  useEffect(() => { setTxt(value || ''); last.current = value || ''; }, [value]);
+  if (!canEdit) return value ? <p data-testid="broker-name" style={{ ...s.muted, margin: '0.35rem 0 0' }}>Broker: {value}</p> : null;
+  async function save() {
+    const v = txt.replace(/\s+/g, ' ').trim();
+    if (v === last.current || !api) return;
+    setState('saving');
+    const r = await api(`/api/packets/${packetId}`, { method: 'PATCH', body: JSON.stringify({ broker_name: v }) });
+    if (!r || r.error) return setState(r?.error || 'Could not save the broker.');
+    last.current = r.broker_name || ''; setTxt(r.broker_name || ''); setState('saved');
+    onSaved && onSaved(r);
+  }
+  return <div style={{ marginTop: '0.5rem' }}>
+    <label htmlFor="packet-broker" style={{ ...s.lab, margin: '0 0 0.25rem' }}>Broker</label>
+    <input id="packet-broker" data-testid="broker-input" type="text" autoComplete="organization" maxLength={120} placeholder="Broker company name" style={s.input}
+      value={txt} onChange={(e) => { setTxt(e.target.value); setState(null); }} onBlur={save}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
+    {state && <p role="status" style={{ ...s.muted, fontSize: 13, color: state === 'saving' || state === 'saved' ? '#6b7280' : '#b91c1c' }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Broker saved.' : state}</p>}
+  </div>;
+}
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
 export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null, layoutApi = layoutCall }) {
@@ -103,12 +127,18 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
   }, [signedKey, loadSignatures]);
   // Remembered broker layout (carrier packet G): banner + "Don't use this layout" / "Use layout".
   const [layoutInfo, setLayoutInfo] = useState(null);
+  const [brokerName, setBrokerName] = useState(packet?.broker_name || null);
+  useEffect(() => { setBrokerName(packet?.broker_name || null); }, [packet?.broker_name]);
+  const [layoutTick, setLayoutTick] = useState(0);
+  // Re-read the banner whenever processing finishes or the packet changes (first open: the packet is still being
+  // processed when the mapper mounts, so the first read has nothing to show — QA D).
+  const layoutKeyDep = `${packet?.id}|${packet?.status}|${packet?.processed_at || ''}|${packet?.layout_id || ''}|${packet?.layout_applied_at || ''}|${layoutTick}`;
   useEffect(() => {
     if (!packet?.id || !layoutApi) return;
     let on = true;
     Promise.resolve(layoutApi(`/api/packets/${packet.id}/layout`)).then((r) => { if (on && r && !r.error) setLayoutInfo(r); }).catch(() => {});
     return () => { on = false; };
-  }, [packet?.id, layoutApi]);
+  }, [layoutKeyDep, layoutApi]); // eslint-disable-line react-hooks/exhaustive-deps
   async function layoutAction(action) {
     if (fields.some((x) => x.dirty) || deleted.length) return setMsg('Save or discard your changes first.');
     if (action === 'dismiss' && typeof window !== 'undefined' && !window.confirm('Remove the fields placed from the saved layout and find fields fresh? Fields you added or edited are kept.')) return;
@@ -118,8 +148,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (handle(r)) return;
     if (r?.error) return setMsg(r.error);
     if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
-    setLayoutInfo((li) => (li ? { ...li, state: r.state } : li));
-    setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.') : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
+    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}) } : li));
+    setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.')
+      : action === 'names' ? `${r.named ?? 0} field name${r.named === 1 ? '' : 's'} copied from last time. Review them before filling.`
+      : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
   }
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
   useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
@@ -264,9 +296,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <span data-testid="packet-status" data-status={status.key} style={statusChipStyle(status.color)}>{status.label}</span>
         <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
       </div>
-      {(() => { const b = layoutBanner(layoutInfo, { canEdit, placed: placedCount(fields) }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
+      <BrokerField packetId={packet.id} value={brokerName} canEdit={canEdit} api={layoutApi} onSaved={(r) => { setBrokerName(r.broker_name || null); setLayoutTick((n) => n + 1); }} />
+      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name }, { canEdit, placed: placedCount(fields) }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
         <p style={{ margin: 0 }}>{b.text}</p>
-        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
+        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' || b.action === 'names' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
       </div>; })()}
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}

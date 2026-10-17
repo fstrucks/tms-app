@@ -3,7 +3,7 @@ import { filledPath, SIGN_MIGRATION } from '../../../../lib/packetSign';
 import { resolveFillValues } from '../../../../lib/packetFillValues';
 import { fillPacket } from '../../../../lib/packetFill';
 import { decryptField, loadKey, PacketKeyError } from '../../../../lib/packetCrypto';
-import { learnFromFill } from '../../../../lib/packetLayouts';
+import { learnFromFill, needsRefingerprint } from '../../../../lib/packetLayouts';
 import { waitUntil } from '@vercel/functions';
 
 export const runtime = 'nodejs';
@@ -58,7 +58,7 @@ export async function POST(req, { params, deps } = {}) {
   // Remember this broker's layout (positions + names only; never values, bank/EIN data or signatures). Never fails the fill.
   // Runs after the response (waitUntil) so the download link is never held up; tests inject and await it.
   const learnJob = (async () => (deps?.learn || learnFromFill)(sb, { packet: a.packet, rows, userId: a.user.id,
-    pdfBytes: a.packet.fingerprint ? null : await blobBytes(src).catch(() => null) }))().catch((e) => { console.error('[packets] learn', e?.message); return { action: 'skip' }; });
+    pdfBytes: !needsRefingerprint(a.packet.fingerprint) ? null : await blobBytes(src).catch(() => null) }))().catch((e) => { console.error('[packets] learn', e?.message); return { action: 'skip' }; });
   let learned = { action: 'pending' };
   if (deps?.awaitLearn) learned = await learnJob; else (deps?.waitUntil || waitUntil)(learnJob);
   return json({ ok: true, path, drawn: out.drawn, url: link?.signedUrl || null, filename: name, recorded: !pErr, layout: { action: learned?.action || 'skip', version: learned?.version ?? null }, ...(pErr && isMissingSchema(pErr) ? { migration: SIGN_MIGRATION } : {}) });

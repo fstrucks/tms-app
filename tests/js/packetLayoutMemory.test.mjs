@@ -386,3 +386,228 @@ test('scope: PacketSendBroker.js and the #66 COI files are untouched by this bra
   try { diff = execSync('git diff --name-only origin/main...HEAD', { encoding: 'utf8' }) + execSync('git diff --name-only', { encoding: 'utf8' }); } catch { return; } // no git (CI tarball): skip
   for (const f of ['app/packets/PacketSendBroker.js', 'app/packets/PacketCoiRequest.js', 'app/lib/coiRequest.js', 'app/lib/coiTemplate.js', 'app/lib/coiGaps.js']) assert.ok(!diff.includes(f), f);
 });
+
+// ===================== Taylor's QA on #68 (2026-10-17): A–D. FAKE broker "Acme Test Logistics" only. =====================
+import { detectBrokerName, cleanName } from '../../app/lib/packetBrokerName.js';
+import { isCovered, dropCovered, boxOverlap, nameSuggestions, labelKey } from '../../app/lib/packetLayoutApply.js';
+import { scoreLayout, headSimilarity, normalizeBrokerName, brokerNamesMatch } from '../../app/lib/packetFingerprint.js';
+import { PATCH as PACKET_PATCH, cleanBrokerName } from '../../app/api/packets/[id]/route.js';
+import { POST as PROCESS_POST } from '../../app/api/packets/[id]/process/route.js';
+
+const V1_LABELS = ['Carrier name:', 'MC number:', 'DOT number:', 'Contact name:', 'Phone:', 'Email:', 'Truck number:', 'Trailer number:'];
+const V2_LABELS = ['Carrier name:', 'Insurance agent:', 'MC number:', 'DOT number:', 'Dispatcher name:', 'Phone:', 'Email:', 'Truck number:', 'Emergency contact:'];
+const V1_NAMES = { 'Carrier name:': 'legal_name', 'MC number:': 'mc_number', 'DOT number:': 'dot_number', 'Contact name:': 'contact_name', 'Phone:': 'phone', 'Email:': 'email', 'Truck number:': 'truck_number', 'Trailer number:': 'skip' };
+// Mirrors Taylor's FAKE-packet-v1.pdf / FAKE-packet-v2-changed.pdf.
+async function acmePdf({ rev = 1, broker = 'Acme Test Logistics', labels = rev === 1 ? V1_LABELS : V2_LABELS } = {}) {
+  const d = await PDFDocument.create(); const f = await d.embedFont(StandardFonts.Helvetica); const b = await d.embedFont(StandardFonts.HelveticaBold);
+  const p = d.addPage([612, 792]);
+  p.drawText(`TEST ONLY - FAKE BROKER "${broker}" - NOT A REAL PACKET`, { x: 60, y: 750, size: 10, font: b });
+  p.drawText(rev === 1 ? 'Carrier Setup Form' : 'Carrier Setup Form (rev 2)', { x: 60, y: 724, size: 16, font: b });
+  p.drawText(rev === 1 ? 'Please complete every blank below and return to the test broker.' : 'Please complete every blank below and return to the test broker.', { x: 60, y: 706, size: 9, font: f });
+  const gap = rev === 1 ? 32 : 40;
+  labels.forEach((lab, i) => p.drawText(`${lab} ______________________________________`, { x: 60, y: 660 - i * gap, size: 9, font: f }));
+  p.drawText('This file contains fake test data only. Do not send to a real broker.', { x: 60, y: rev === 1 ? 90 : 300, size: 8, font: f });
+  return Buffer.from(await d.save());
+}
+const acmeFill = (sb, packetId) => sb.t.packet_fields.filter((r) => r.packet_id === packetId).map((r) => ({ ...r, profile_key: V1_NAMES[r.label] ?? r.profile_key, value_text: null }));
+async function acmeLearned({ brokerOnLayout = true } = {}) {
+  const sb = memSb({ packets: [pkt(1)], pdfs: { [`${OWNER}/packets/1.pdf`]: await acmePdf() }, profiles: [{ owner_id: OWNER, mc_number: 'MC 111222', legal_name: 'FST Fake Trucking LLC' }] });
+  const o = await processPacket({ sb, packetId: pid(1), reader: spyReader() });
+  assert.equal(o.fields, V1_LABELS.length);
+  const p1 = sb.t.packets[0];
+  assert.equal(p1.broker_name, 'Acme Test Logistics'); // B: detected from the PDF text on processing
+  const learned = await learnFromFill(sb, { packet: p1, rows: acmeFill(sb, pid(1)), userId: 'u-owner' });
+  assert.equal(learned.action, 'create');
+  if (!brokerOnLayout) sb.t.packet_layouts[0].broker_name = null; // layouts learned before B have no name
+  return sb;
+}
+
+test('QA A: changed rev-2 packet from the same fake broker → "looks different" banner, old names offered where labels match', async () => {
+  const sb = await acmeLearned();
+  const lay = sb.t.packet_layouts[0];
+  assert.equal(lay.broker_name, 'Acme Test Logistics');
+  await addPacket(sb, 2, await acmePdf({ rev: 2 }));
+  const r = spyReader();
+  const o = await processPacket({ sb, packetId: pid(2), reader: r });
+  assert.equal(o.layout.decision, 'changed'); // before: no match at all (no MC / email on an upload)
+  assert.equal(r.calls.length, 1); // fresh detection + naming
+  const p2 = sb.t.packets.find((p) => p.id === pid(2));
+  assert.equal(p2.layout_id, lay.id); assert.equal(p2.layout_applied_at, null); assert.equal(p2.broker_name, 'Acme Test Logistics');
+  assert.equal(layoutState(p2, lay), 'changed');
+  // GET: banner state + how many fresh fields share a label with last time (Carrier name, MC, DOT, Phone, Email, Truck number).
+  const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(g.state, 'changed'); assert.equal(g.names, 6); assert.equal(g.broker_name, 'Acme Test Logistics');
+  const b = layoutBanner(g, { canEdit: true });
+  assert.equal(b.kind, 'changed'); assert.equal(b.action, 'names'); assert.equal(b.button, 'Use 6 names from last time');
+  assert.match(b.text, /^Acme Test Logistics’s packet looks different from last time, so fields were found fresh\. 6 fields have the same label as last time\.$/);
+  assert.equal(layoutBanner(g, { canEdit: false }).action, null); // drivers: view-only text
+  // POST names: copies them onto the matching fresh fields only.
+  const pr = await (await LAYOUT_POST(req('POST', { action: 'names' }), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('dispatcher') } })).json();
+  assert.equal(pr.ok, true); assert.equal(pr.named, 6);
+  const by = Object.fromEntries(sb.t.packet_fields.filter((x) => x.packet_id === pid(2)).map((x) => [x.label, x.profile_key]));
+  for (const l of ['Carrier name:', 'MC number:', 'DOT number:', 'Phone:', 'Email:', 'Truck number:']) assert.equal(by[l], V1_NAMES[l], l);
+  for (const l of ['Insurance agent:', 'Dispatcher name:', 'Emergency contact:']) assert.equal(by[l], null, l); // new labels: still need a name
+  const g2 = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(g2.names, 0); assert.equal(layoutBanner(g2, { canEdit: true }).action, null);
+  // Drivers can't copy names.
+  const dr = await LAYOUT_POST(req('POST', { action: 'names' }), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('driver') } });
+  assert.equal(dr.status, 403);
+});
+
+test('QA A: a layout saved without a broker name still matches the revised form by its header + page structure', async () => {
+  const sb = await acmeLearned({ brokerOnLayout: false });
+  await addPacket(sb, 2, await acmePdf({ rev: 2 }));
+  const o = await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  assert.equal(o.layout.decision, 'changed');
+  const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.match(layoutBanner(g, { canEdit: true }).text, /^Acme Test Logistics’s packet looks different/); // packet's Broker field
+});
+
+test('QA A: a different broker with the same page structure is NOT flagged as Acme’s changed form; v1 again still auto-applies', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmePdf({ rev: 2, broker: 'Zenith Test Freight' }));
+  const o = await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  assert.equal(o.layout, undefined);
+  assert.equal(sb.t.packets.find((p) => p.id === pid(2)).broker_name, 'Zenith Test Freight');
+  await addPacket(sb, 3, await acmePdf());
+  const o3 = await processPacket({ sb, packetId: pid(3), reader: spyReader() });
+  assert.equal(o3.layout.decision, 'apply'); assert.equal(o3.layout.reason, 'exact'); assert.equal(o3.layout.placed, V1_LABELS.length);
+});
+
+test('QA A: scoring — head match + same structure → changed; name conflict or different structure blocks it; head never scores', () => {
+  const pg = (head, extra = {}) => ({ w: 612, h: 792, has_text: true, text_hash: extra.th || 'x'.repeat(16), simhash: extra.sh || '0000000000000000', head });
+  const H1 = 'a1a1a1a1 b2b2b2b2 c3c3c3c3 d4d4d4d4 e5e5e5e5 f6f6f6f6 07070707 08080808 09090909 10101010';
+  const H2 = 'a1a1a1a1 b2b2b2b2 c3c3c3c3 d4d4d4d4 e5e5e5e5 f6f6f6f6 07070707 08080808 09090909 99999999';
+  assert.ok(headSimilarity(H1, H2) >= 0.6); assert.equal(headSimilarity(H1, null), null);
+  const tpl = { fingerprint: { pages: [pg(H1)] }, layout_key: 'k1', page_count: 1, broker_name: 'Acme Test Logistics' };
+  const pkt2 = { fingerprint: { pages: [pg(H2, { th: 'y'.repeat(16), sh: 'ffffffffffffffff' })] }, layout_key: 'k2', page_count: 1 };
+  let r = scoreLayout(pkt2, { ...tpl, broker_name: null });
+  assert.equal(r.decision, 'changed'); assert.equal(r.reason, 'head_changed'); assert.equal(r.parts.name, 0);
+  r = scoreLayout({ ...pkt2, broker_name: 'ACME TEST LOGISTICS, LLC' }, tpl);
+  assert.equal(r.decision, 'changed'); assert.equal(r.reason, 'form_changed'); assert.equal(r.nameMatch, true);
+  assert.equal(scoreLayout({ ...pkt2, broker_name: 'Zenith Test Freight' }, tpl).decision, 'none');
+  assert.equal(scoreLayout({ ...pkt2, fingerprint: { pages: [pg(H2, { th: 'y'.repeat(16), sh: 'ffffffffffffffff' }), pg(H2)] }, page_count: 2 }, { ...tpl, broker_name: null }).decision, 'none');
+  assert.equal(normalizeBrokerName('The Acme Test Logistics, Inc.'), 'acme test logistics');
+  assert.ok(brokerNamesMatch('Acme Test Logistics LLC', 'acme test logistics')); assert.ok(!brokerNamesMatch('Acme', null));
+});
+
+test('QA A: refilling an older packet brings its layout up to date (page heads + broker name) without a new version', async () => {
+  const sb = await acmeLearned({ brokerOnLayout: false });
+  const lay = sb.t.packet_layouts[0];
+  lay.fingerprint = { v: 1, pages: lay.fingerprint.pages.map(({ head, ...p }) => p) }; // learned before v2
+  const p1 = sb.t.packets[0];
+  const old = { ...p1, fingerprint: { v: 1, pages: p1.fingerprint.pages.map(({ head, ...p }) => p) }, broker_name: null };
+  const r = await learnFromFill(sb, { packet: old, rows: acmeFill(sb, pid(1)), userId: 'u-owner', pdfBytes: await acmePdf() });
+  assert.equal(r.action, 'touch');
+  assert.equal(sb.t.packet_layouts.length, 1);
+  assert.ok(lay.fingerprint.pages[0].head); assert.equal(lay.broker_name, 'Acme Test Logistics');
+});
+
+test('QA A: nameSuggestions — label match by kind, user rows untouched, ambiguous labels skipped', () => {
+  const layout = { fields: [{ kind: 'text', label: 'Phone:', profile_key: 'phone' }, { kind: 'text', label: 'Truck #', profile_key: 'truck_number' },
+    { kind: 'text', label: 'Name', profile_key: 'legal_name' }, { kind: 'text', label: 'Name:', profile_key: 'contact_name' }, { kind: 'checkbox', label: 'Email', profile_key: null }] };
+  const rows = [{ id: 'a', field_key: 'a', kind: 'text', label: 'PHONE', source: 'model', profile_key: null },
+    { id: 'b', field_key: 'b', kind: 'text', label: 'Truck', source: 'local', profile_key: null },
+    { id: 'c', field_key: 'c', kind: 'text', label: 'Phone', source: 'user', profile_key: null },
+    { id: 'd', field_key: 'd', kind: 'text', label: 'Name', source: 'model', profile_key: null },
+    { id: 'e', field_key: 'e', kind: 'checkbox', label: 'Phone', source: 'model', profile_key: null }];
+  assert.deepEqual(nameSuggestions(rows, layout).map((x) => [x.id, x.profile_key]), [['a', 'phone'], ['b', 'truck_number']]);
+  assert.equal(labelKey(' Carrier name: '), 'carrier name'); assert.equal(labelKey('12:'), null);
+});
+
+test('QA B: broker name from the PDF text — quoted, labeled, company line; our own name never used', () => {
+  const pg = (lines, h = 2200) => ({ size: [1700, h], words: lines.flatMap((t, i) => t.split(' ').map((w, j) => ({ text: w, top: 100 + i * 60, left: 100 + j * 80 }))) });
+  assert.equal(detectBrokerName([pg(['TEST ONLY - FAKE BROKER "Acme Test Logistics" - NOT A REAL PACKET', 'Carrier Setup Form'])]), 'Acme Test Logistics');
+  assert.equal(detectBrokerName([pg(['Carrier Setup', 'Broker Name: Zenith Test Freight LLC', 'Carrier name: ________'])]), 'Zenith Test Freight LLC');
+  assert.equal(detectBrokerName([pg(['NORTHSTAR FAKE LOGISTICS', 'Carrier onboarding packet'])]), 'Northstar Fake Logistics');
+  assert.equal(detectBrokerName([pg(['FST Fake Trucking LLC', 'Carrier onboarding packet'])], { ownNames: ['FST Fake Trucking LLC'] }), null);
+  assert.equal(detectBrokerName([pg(['Broker: ____________', 'Carrier name: ______'])]), null); // blank → nothing
+  assert.equal(detectBrokerName([pg(['Carrier Setup Form', 'Please complete every blank'])]), null);
+  assert.equal(detectBrokerName([]), null);
+  assert.equal(cleanName('ACME TEST LOGISTICS (FAKE)'), 'Acme Test Logistics');
+});
+
+test('QA B: Broker field — editors save it (trimmed), drivers can’t, empty clears, a new name re-checks layouts', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmePdf({ rev: 2, broker: 'Unknown Test Co' }), { broker_name: null });
+  const preq = (body) => new Request('http://x/api/packets/x', { method: 'PATCH', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let rematched = null;
+  const deps = (role) => ({ sb, mkUserClient: uc(role), rematch: async (_sb, p) => { rematched = p.broker_name; return null; } });
+  let r = await PACKET_PATCH(preq({ broker_name: '  Acme   Test Logistics ' }), { params: { id: pid(2) }, deps: deps('dispatcher') });
+  assert.equal(r.status, 200); assert.equal((await r.json()).broker_name, 'Acme Test Logistics');
+  assert.equal(sb.t.packets.find((p) => p.id === pid(2)).broker_name, 'Acme Test Logistics'); assert.equal(rematched, 'Acme Test Logistics');
+  r = await PACKET_PATCH(preq({ broker_name: 'X' }), { params: { id: pid(2) }, deps: deps('driver') });
+  assert.equal(r.status, 403);
+  r = await PACKET_PATCH(preq({ broker_name: 'x'.repeat(121) }), { params: { id: pid(2) }, deps: deps('owner') });
+  assert.equal(r.status, 400);
+  r = await PACKET_PATCH(preq({ broker_name: '' }), { params: { id: pid(2) }, deps: deps('owner') });
+  assert.equal((await r.json()).broker_name, null);
+  assert.deepEqual(cleanBrokerName(5), { error: 'Broker name must be text.' });
+  // The packet page shows the field; the banner prefers the packet's name over the layout's.
+  const src = readFileSync('app/packets/PacketMapper.js', 'utf8');
+  assert.match(src, /<BrokerField packetId=\{packet\.id\}/); assert.match(src, /method: 'PATCH', body: JSON\.stringify\(\{ broker_name: v \}\)/);
+  const b = layoutBanner({ available: true, state: 'applied', broker_name: 'Typed Test Broker', layout: { broker_name: 'Old Name' } }, { canEdit: true, placed: 2 });
+  assert.match(b.text, /^Layout from Typed Test Broker\. 2 fields placed/);
+  assert.match(layoutBanner({ available: true, state: 'applied', layout: { broker_name: null } }, { placed: 1 }).text, /^Layout from a saved broker/);
+});
+
+test('QA B: rematch after the Broker field changes links the layout as a suggestion/changed (never places fields)', async () => {
+  const { rematchLayout } = await import('../../app/lib/packetLayouts.js');
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmePdf({ rev: 2, broker: 'Unknown Test Co' }));
+  await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  const p2 = sb.t.packets.find((p) => p.id === pid(2));
+  assert.equal(p2.layout_id, null); // different broker header, different name
+  const before = sb.t.packet_fields.filter((x) => x.packet_id === pid(2)).length;
+  const out = await rematchLayout(sb, { ...p2, broker_name: 'Acme Test Logistics' });
+  assert.equal(out.decision, 'changed'); assert.equal(p2.layout_id, sb.t.packet_layouts[0].id); assert.equal(p2.layout_applied_at, null);
+  assert.equal(sb.t.packet_fields.filter((x) => x.packet_id === pid(2)).length, before);
+});
+
+test('QA C: after "Don’t use this layout", fresh detection never stacks a field on a kept (Left blank) field → can reach Ready', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmePdf());
+  await processPacket({ sb, packetId: pid(2), reader: spyReader() });
+  // Taylor edited the placed "Trailer number" row (Left blank) → it became a user row, kept across re-runs.
+  const tr = sb.t.packet_fields.find((x) => x.packet_id === pid(2) && x.label === 'Trailer number:');
+  assert.equal(tr.profile_key, 'skip'); tr.source = 'user';
+  const r = await LAYOUT_POST(req('POST', { action: 'dismiss' }), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } });
+  assert.equal(r.status, 200);
+  const rows = sb.t.packet_fields.filter((x) => x.packet_id === pid(2));
+  assert.equal(rows.filter((x) => x.label === 'Trailer number:').length, 1); // before: 2 (kept + fresh)
+  assert.equal(rows.length, V1_LABELS.length);
+  assert.ok(!rows.some((x) => x !== tr && isCovered(x, [tr])));
+  // A forced re-run doesn't bring it back either.
+  await processPacket({ sb, packetId: pid(2), force: true, reader: spyReader() });
+  assert.equal(sb.t.packet_fields.filter((x) => x.packet_id === pid(2) && x.label === 'Trailer number:').length, 1);
+});
+
+test('QA C: overlap check — IoU or mostly-inside counts as covered; other pages / far boxes don’t; render sizes are scaled', () => {
+  const kept = [{ page: 1, box: [100, 100, 500, 140], page_w: 1700, page_h: 2200 }];
+  assert.ok(boxOverlap([100, 100, 500, 140], [100, 100, 500, 140]).iou === 1);
+  assert.equal(isCovered({ page: 1, box: [110, 104, 490, 142] }, kept), true); // same blank, slightly different box
+  assert.equal(isCovered({ page: 1, box: [200, 110, 300, 135] }, kept), true); // small box inside the kept one
+  assert.equal(isCovered({ page: 1, box: [100, 200, 500, 240] }, kept), false); // next line
+  assert.equal(isCovered({ page: 2, box: [100, 100, 500, 140] }, kept), false);
+  assert.equal(isCovered({ page: 1, box: [50, 50, 250, 70], page_w: 850, page_h: 1100 }, kept), true); // half-size render
+  assert.deepEqual(dropCovered([{ page: 1, box: [100, 100, 500, 140] }, { page: 1, box: [100, 300, 500, 340] }], kept).map((x) => x.box[1]), [300]);
+  assert.equal(dropCovered([{ page: 1, box: [1, 1, 2, 2] }], []).length, 1);
+});
+
+test('QA D: banner re-read when processing finishes (no reload); upload starts processing server-side; list kicks stuck packets', async () => {
+  const m = readFileSync('app/packets/PacketMapper.js', 'utf8');
+  assert.match(m, /const layoutKeyDep = `\$\{packet\?\.id\}\|\$\{packet\?\.status\}\|\$\{packet\?\.processed_at/);
+  assert.match(m, /\}, \[layoutKeyDep, layoutApi\]\);/);
+  const page = readFileSync('app/packets/[id]/page.js', 'utf8');
+  assert.match(page, /isProcessing\(d\.packet\?\.status\) && i < PROCESS_POLL_MS\.length/);
+  const list = readFileSync('app/packets/page.js', 'utf8');
+  assert.match(list, /process\?background=1`, \{ method: 'POST', keepalive: true/);
+  assert.match(list, /if \(r\.status !== 'received' \|\| kicked\.current\.has\(r\.id\)\) continue;/);
+  // background=1: answers 202 at once and hands the job to waitUntil.
+  const jobs = []; let ran = false;
+  const sb = memSb({ packets: [pkt(5)] });
+  const res = await PROCESS_POST(new Request(`http://x/api/packets/${pid(5)}/process?background=1`, { method: 'POST', headers: { authorization: 'Bearer t' } }),
+    { params: { id: pid(5) }, deps: { sb, mkUserClient: uc('driver'), waitUntil: (p) => jobs.push(p), process: async () => { ran = true; return { fields: 0 }; } } });
+  assert.equal(res.status, 202); assert.deepEqual(await res.json(), { started: true });
+  assert.equal(jobs.length, 1); await jobs[0]; assert.equal(ran, true);
+});

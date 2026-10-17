@@ -2,7 +2,7 @@ import { serviceClient, packetAccess } from '../../../../lib/packetServer';
 import { toClient } from '../../../../lib/packetFieldEdits';
 import { processPacket } from '../../../../lib/packetProcess';
 import { scoreLayout } from '../../../../lib/packetFingerprint';
-import { packetIdentity } from '../../../../lib/packetLayoutApply';
+import { packetIdentity, nameSuggestions, BANK_KEYS } from '../../../../lib/packetLayoutApply';
 import { getLayout, savePacketLayout, applyLayoutToPacket, packetHasLayoutColumns, isLayoutSchemaMissing, LAYOUT_MIGRATION, LAYOUT_MISSING_MSG } from '../../../../lib/packetLayouts';
 
 export const runtime = 'nodejs';
@@ -31,8 +31,16 @@ export async function GET(req, { params, deps } = {}) {
   if (!packetHasLayoutColumns(a.packet)) return json(unavailable);
   const got = await getLayout(sb, a.packet.layout_id);
   if (got.missing) return json(unavailable);
-  if (got.error) return json({ available: true, state: null, canEdit: a.canEdit });
-  return json({ available: true, state: layoutState(a.packet, got.layout), score: a.packet.layout_score ?? null, layout: publicLayout(got.layout), canEdit: a.canEdit });
+  const broker_name = a.packet.broker_name || null;
+  if (got.error) return json({ available: true, state: null, broker_name, canEdit: a.canEdit });
+  const state = layoutState(a.packet, got.layout);
+  // Changed form: how many fresh fields have a label the old layout named (offered as "Use N names from last time").
+  const names = state === 'changed' ? nameSuggestions(await rawFields(sb, a.packet.id), got.layout).length : 0;
+  return json({ available: true, state, score: a.packet.layout_score ?? null, layout: publicLayout(got.layout), broker_name, names, canEdit: a.canEdit });
+}
+
+async function rawFields(sb, packetId) {
+  try { const { data } = await sb.from('packet_fields').select('*').eq('packet_id', packetId); return Array.isArray(data) ? data : []; } catch { return []; }
 }
 
 async function fieldsOf(sb, packetId) {
@@ -40,7 +48,8 @@ async function fieldsOf(sb, packetId) {
   return (data || []).map(toClient);
 }
 
-// POST { action: 'dismiss' | 'apply' }: owner, dispatcher or management only.
+// POST { action: 'dismiss' | 'apply' | 'names' }: owner, dispatcher or management only.
+//   names:   (changed form) copy last time's names onto fresh fields whose labels match.
 //   dismiss: remove the layout-placed fields (user rows kept), set layout_dismissed_at, re-run detection.
 //   apply:   place a suggested layout on the pages it matches.
 export async function POST(req, { params, deps } = {}) {
@@ -51,7 +60,7 @@ export async function POST(req, { params, deps } = {}) {
   if (!a.canEdit) return json({ error: 'Only the owner, dispatcher or management can change the saved layout.' }, 403);
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
-  if (action !== 'dismiss' && action !== 'apply') return json({ error: 'Unknown action' }, 400);
+  if (action !== 'dismiss' && action !== 'apply' && action !== 'names') return json({ error: 'Unknown action' }, 400);
   const p = a.packet;
   if (!packetHasLayoutColumns(p)) return json({ ...unavailable, error: LAYOUT_MISSING_MSG, setupNeeded: true }, 503);
   if (p.status === 'processing') return json({ error: 'Fields are still being found. Try again in a minute.' }, 409);
@@ -68,6 +77,19 @@ export async function POST(req, { params, deps } = {}) {
   }
 
   if (!p.layout_id) return json({ error: 'There’s no saved layout to use for this packet.' }, 409);
+  if (action === 'names') {
+    const got = await getLayout(sb, p.layout_id);
+    if (got.missing) return json({ ...unavailable, error: LAYOUT_MISSING_MSG, setupNeeded: true }, 503);
+    if (!got.layout || got.layout.owner_id !== p.owner_id) return json({ error: 'That saved layout is no longer available.' }, 409);
+    const sug = nameSuggestions(await rawFields(sb, p.id), got.layout);
+    let named = 0;
+    for (const x of sug) {
+      const { error } = await sb.from('packet_fields').update({ profile_key: x.profile_key, updated_at: now, ...(BANK_KEYS.has(x.profile_key) ? { needs_confirm: true } : {}) }).eq('packet_id', p.id).eq('field_key', x.field_key);
+      if (error) { console.error('[packets] layout names', error.code); return json({ error: 'Could not copy the names. Please try again.', named, fields: await fieldsOf(sb, p.id) }, 500); }
+      named++;
+    }
+    return json({ ok: true, state: 'changed', named, names: 0, fields: await fieldsOf(sb, p.id) });
+  }
   if (p.layout_applied_at) return json({ ok: true, state: 'applied', fields: await fieldsOf(sb, p.id) });
   const got = await getLayout(sb, p.layout_id);
   if (got.missing) return json({ ...unavailable, error: LAYOUT_MISSING_MSG, setupNeeded: true }, 503);

@@ -3,7 +3,8 @@
 // returns { missing: true } so callers fall back to normal detection. Nothing here ever throws to a route.
 import { extractPdf } from './packetPdfText.js';
 import { fingerprintPacket, extractBrokerMc, pickLayout } from './packetFingerprint.js';
-import { layoutRows, packetIdentity, planLearn } from './packetLayoutApply.js';
+import { layoutRows, packetIdentity, planLearn, dropCovered } from './packetLayoutApply.js';
+import { detectBrokerName } from './packetBrokerName.js';
 
 export const LAYOUT_MIGRATION = '20261017001900_packet_layouts.sql';
 export const LAYOUT_MISSING_MSG = 'Remembered layouts need a database update that hasn’t been applied yet. Fields are found as usual.';
@@ -42,8 +43,21 @@ export async function getLayout(sb, id) {
     return { layout: data || null };
   } catch (e) { return { error: e?.message || 'get failed' }; }
 }
-async function ownMc(sb, ownerId) {
-  try { const { data } = await sb.from('company_profiles').select('mc_number').eq('owner_id', ownerId).maybeSingle(); return data?.mc_number || null; } catch { return null; }
+// Our own company (so our MC / name are never taken for the broker's). select('*'): tolerant of column drift.
+export async function ownCompany(sb, ownerId) {
+  try {
+    const { data } = await sb.from('company_profiles').select('*').eq('owner_id', ownerId).maybeSingle();
+    return { mc: data?.mc_number || null, names: [data?.legal_name, data?.dba_name].filter(Boolean) };
+  } catch { return { mc: null, names: [] }; }
+}
+async function ownMc(sb, ownerId) { return (await ownCompany(sb, ownerId)).mc; }
+// Fingerprints before v2 have no per-page `head` (needed to spot a revised form from the same broker).
+export const needsRefingerprint = (fp) => !fp?.pages?.length || (fp.pages.some((p) => p?.has_text) && !fp.pages.some((p) => p?.head));
+// Broker name from the packet text (QA B). Only fills an empty packets.broker_name; a name the user typed wins.
+export function brokerNameFor(row, ex, own) {
+  if (row?.broker_name && String(row.broker_name).trim()) return { name: String(row.broker_name).trim(), detected: false };
+  const name = detectBrokerName(ex?.pages || [], { ownNames: own?.names || [] });
+  return { name, detected: !!name };
 }
 async function packetRow(sb, packetId) {
   try { const { data } = await sb.from('packets').select('*').eq('id', packetId).maybeSingle(); return data || null; } catch { return null; }
@@ -56,14 +70,17 @@ export async function prepareLayout(sb, { packetId, ownerId, ex }) {
     const row = await packetRow(sb, packetId);
     if (row && !packetHasLayoutColumns(row)) { console.error(`[packets] layouts unavailable (packets columns missing): apply ${LAYOUT_MIGRATION}`); return { available: false }; }
     const { fingerprint } = fingerprintPacket(ex);
-    const broker_mc = extractBrokerMc(ex.pages || [], { ownMc: await ownMc(sb, ownerId) });
-    const saved = await savePacketLayout(sb, packetId, { fingerprint, broker_mc, layout_id: null, layout_score: null, layout_applied_at: null });
+    const own = await ownCompany(sb, ownerId);
+    const broker_mc = extractBrokerMc(ex.pages || [], { ownMc: own.mc });
+    const bn = brokerNameFor(row, ex, own);
+    const saved = await savePacketLayout(sb, packetId, { fingerprint, broker_mc, layout_id: null, layout_score: null, layout_applied_at: null, ...(bn.detected ? { broker_name: bn.name } : {}) });
     if (!saved.ok) return { available: false };
-    const identity = packetIdentity({ fingerprint, broker_mc, broker_email: row?.broker_email, page_count: ex.pageCount });
-    if (row?.layout_dismissed_at) return { available: true, fingerprint, identity, dismissed: true, pick: null };
+    const identity = packetIdentity({ fingerprint, broker_mc, broker_email: row?.broker_email, broker_name: bn.name, page_count: ex.pageCount });
+    const bnOut = { broker_name: bn.name || null, broker_detected: bn.detected };
+    if (row?.layout_dismissed_at) return { available: true, fingerprint, identity, dismissed: true, pick: null, ...bnOut };
     const got = await activeLayouts(sb, ownerId);
-    if (!got.layouts) return { available: false };
-    return { available: true, fingerprint, identity, dismissed: false, pick: pickLayout(identity, got.layouts) };
+    if (!got.layouts) return { available: false, ...bnOut };
+    return { available: true, fingerprint, identity, dismissed: false, pick: pickLayout(identity, got.layouts), ...bnOut };
   } catch (e) { console.error('[packets] layout prepare', e?.message); return { available: false }; }
 }
 
@@ -85,8 +102,10 @@ export async function insertLayoutRows(sb, rows) {
 // "Use layout" on a suggested layout (and the shared apply step): rows for matched pages replace the machine-found
 // rows on those pages (user rows are kept). → { ok, count, pages } | { missing } | { error, status }
 export async function applyLayoutToPacket(sb, { packet, layout, now = new Date().toISOString() }) {
-  const { rows, pages } = layoutRows({ layout, packetFingerprint: packet.fingerprint, packetId: packet.id, ownerId: packet.owner_id });
-  if (!rows.length) return { error: 'This saved layout doesn’t match any page of this packet.', status: 409 };
+  const lr = layoutRows({ layout, packetFingerprint: packet.fingerprint, packetId: packet.id, ownerId: packet.owner_id });
+  const pages = lr.pages;
+  if (!lr.rows.length) return { error: 'This saved layout doesn’t match any page of this packet.', status: 409 };
+  const rows = dropCovered(lr.rows, await keptRows(sb, packet.id)); // never stack a layout field on a kept one
   const del = await sb.from('packet_fields').delete().eq('packet_id', packet.id).in('source', ['local', 'model', 'layout']).in('page', [...pages]);
   if (del?.error) { if (isLayoutSchemaMissing(del.error)) return { missing: true }; return { error: 'Could not update the fields.', status: 500 }; }
   const ins = await insertLayoutRows(sb, rows);
@@ -97,19 +116,44 @@ export async function applyLayoutToPacket(sb, { packet, layout, now = new Date()
   return { ok: true, count: rows.length, pages: [...pages] };
 }
 
+// User-made or edited rows on a packet (kept across re-runs). [] on any error.
+export async function keptRows(sb, packetId) {
+  try {
+    const { data, error } = await sb.from('packet_fields').select('*').eq('packet_id', packetId).eq('source', 'user');
+    return error || !Array.isArray(data) ? [] : data;
+  } catch { return []; }
+}
+
+// After the Broker field is edited: if no layout is linked (and none was dismissed/applied), look again with the
+// new name. Only ever suggests or flags 'changed'; never places fields. → { layout_id, decision } | null
+export async function rematchLayout(sb, packet) {
+  try {
+    if (!packetHasLayoutColumns(packet) || packet.layout_dismissed_at || packet.layout_applied_at || !packet.fingerprint?.pages?.length) return null;
+    const got = await activeLayouts(sb, packet.owner_id);
+    if (!got.layouts) return null;
+    const pick = pickLayout(packetIdentity(packet), got.layouts);
+    const layout_id = pick && pick.result.decision !== 'none' ? pick.layout.id : null;
+    if ((packet.layout_id || null) === layout_id) return layout_id ? { layout_id, decision: pick.result.decision } : null;
+    await savePacketLayout(sb, packet.id, { layout_id, layout_score: pick ? pick.result.score : null });
+    return layout_id ? { layout_id, decision: pick.result.decision } : null;
+  } catch (e) { console.error('[packets] rematch', e?.message); return null; }
+}
+
 // After a successful /fill by an editor: create or version the layout for this packet's form. Never throws.
 // pdfBytes lets a packet processed before the migration get its fingerprint now.
 export async function learnFromFill(sb, { packet, rows, userId, pdfBytes = null, extract = extractPdf, now = new Date().toISOString() }) {
   try {
     if (!packetHasLayoutColumns(packet)) return { action: 'skip', reason: 'migration_missing' };
     let p = packet;
-    if (!p.fingerprint?.pages?.length && pdfBytes) {
+    if (needsRefingerprint(p.fingerprint) && pdfBytes) { // no fingerprint yet, or a v1 one without page heads
       try {
         const ex = await extract(pdfBytes, { deadline: Date.now() + 8000 });
         const { fingerprint } = fingerprintPacket(ex);
-        const broker_mc = p.broker_mc || extractBrokerMc(ex.pages || [], { ownMc: await ownMc(sb, p.owner_id) });
-        p = { ...p, fingerprint, broker_mc };
-        await savePacketLayout(sb, p.id, { fingerprint, broker_mc });
+        const own = await ownCompany(sb, p.owner_id);
+        const broker_mc = p.broker_mc || extractBrokerMc(ex.pages || [], { ownMc: own.mc });
+        const bn = brokerNameFor(p, ex, own);
+        p = { ...p, fingerprint, broker_mc, broker_name: bn.name || p.broker_name || null };
+        await savePacketLayout(sb, p.id, { fingerprint, broker_mc, ...(bn.detected ? { broker_name: bn.name } : {}) });
       } catch (e) { console.error('[packets] learn fingerprint', e?.message); }
     }
     const got = await activeLayouts(sb, p.owner_id);
@@ -121,7 +165,12 @@ export async function learnFromFill(sb, { packet, rows, userId, pdfBytes = null,
     const plan = planLearn({ packet: p, rows, target, applied });
     if (plan.action === 'skip') return plan;
     if (plan.action === 'touch') {
-      await sb.from('packet_layouts').update({ last_used_at: now, updated_at: now }).eq('id', target.id);
+      // Same fields: refresh use time, and bring an older layout up to date (v2 page heads, the broker's name).
+      const patch = { last_used_at: now, updated_at: now };
+      if (needsRefingerprint(target.fingerprint) && !needsRefingerprint(p.fingerprint)) patch.fingerprint = { v: p.fingerprint.v || 2, pages: p.fingerprint.pages };
+      const bname = p.broker_name && String(p.broker_name).trim();
+      if (bname && bname !== target.broker_name) patch.broker_name = bname.slice(0, 120);
+      await sb.from('packet_layouts').update(patch).eq('id', target.id);
       return { action: 'touch', layout_id: target.id, version: target.version };
     }
     const row = { owner_id: p.owner_id, layout_key: plan.layout_key, version: plan.version, status: 'active', broker_name: plan.broker_name,

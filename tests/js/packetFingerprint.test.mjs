@@ -75,10 +75,11 @@ test('pageSizePt: rounds sizePt, falls back to raster px at 200 dpi', () => {
 });
 test('pageFingerprint: text page vs scanned page', () => {
   const t = pageFingerprint(page(formText()));
-  assert.deepEqual(Object.keys(t).sort(), ['h', 'has_text', 'simhash', 'text_hash', 'w']);
+  assert.deepEqual(Object.keys(t).sort(), ['h', 'has_text', 'head', 'simhash', 'text_hash', 'w']);
+  assert.match(t.head, /^[0-9a-f]{8}( [0-9a-f]{8}){15}$/); // 16 hashed head words, never the words
   assert.equal(t.has_text, true); assert.match(t.text_hash, /^[0-9a-f]{16}$/); assert.match(t.simhash, /^[0-9a-f]{16}$/);
   const scan = pageFingerprint(page('12 34 5 / . x'));
-  assert.deepEqual(scan, { w: 612, h: 792, text_hash: null, simhash: null, has_text: false });
+  assert.deepEqual(scan, { w: 612, h: 792, text_hash: null, simhash: null, has_text: false, head: null });
   assert.equal(pageFingerprint(page('a'.repeat(MIN_PAGE_CHARS))).has_text, true);
   assert.equal(pageFingerprint(page('a'.repeat(MIN_PAGE_CHARS - 1))).has_text, false);
 });
@@ -87,7 +88,7 @@ test('fingerprintPacket: same form with different dates/load numbers → same la
   const b = fingerprintPacket({ pageCount: 2, pages: [page(formText(0) + ' load 88231 date 11/30/2026'), page(formText(1), [612, 792], 2)] });
   assert.equal(a.layout_key, b.layout_key);
   assert.match(a.layout_key, /^[0-9a-f]{64}$/);
-  assert.equal(a.fingerprint.v, 1); assert.equal(a.page_count, 2); assert.equal(a.has_text, true);
+  assert.equal(a.fingerprint.v, 2); assert.equal(a.page_count, 2); assert.equal(a.has_text, true);
   const swapped = fingerprintPacket({ pageCount: 2, pages: [page(formText(1)), page(formText(0) + ' load date')] });
   assert.notEqual(swapped.layout_key, a.layout_key); // order matters for the exact key
 });
@@ -245,12 +246,12 @@ const OTHER2 = 'driver qualification file road test certificate annual review of
 
 test('points and thresholds match the design note', () => {
   assert.deepEqual(THRESHOLDS, { apply: 70, suggest: 45 });
-  assert.deepEqual(POINTS, { exact: 60, fuzzy: 40, sizes: 10, mc: 25, mcConflict: -40, domain: 15, domainConflict: -10 });
+  assert.deepEqual(POINTS, { exact: 60, fuzzy: 40, sizes: 10, mc: 25, mcConflict: -40, domain: 15, domainConflict: -10, name: 15 });
 });
 test('1. exact layout_key, no MC conflict → apply (110 points)', () => {
   const r = scoreLayout(pkt(), tpl());
   assert.equal(r.decision, 'apply'); assert.equal(r.reason, 'exact'); assert.equal(r.score, 110);
-  assert.deepEqual(r.parts, { exact: 60, fuzzy: 40, sizes: 10, mc: 0, domain: 0 });
+  assert.deepEqual(r.parts, { exact: 60, fuzzy: 40, sizes: 10, mc: 0, domain: 0, name: 0 });
   const r2 = scoreLayout(pkt(undefined, { broker_mc: '445566', broker_domain: 'acmetest.com' }), tpl({ broker_mc: '445566', broker_domain: 'acmetest.com' }));
   assert.equal(r2.score, 150); assert.equal(r2.decision, 'apply');
 });

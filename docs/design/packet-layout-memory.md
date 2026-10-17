@@ -162,3 +162,26 @@ checks for the unique active version, the source check and the MC format. It has
 
 ## Not in scope
 Driver Profile tab, sharing layouts between companies, and automatic placement on scanned packets (v2).
+
+## QA round 1 fixes (Taylor, 2026-10-17)
+
+- **Revised form from the same broker (A).** Fingerprint v2 adds a per-page `head`: the first 16 normalized words,
+  each stored only as an 8-hex hash (never page text). A packet is `changed` against a layout when the body text
+  no longer matches (fuzzy < 0.5) and either the broker matches (MC, email domain, or **broker name**) or the
+  first-page heads are ≥ 0.6 similar (Jaccard) with the same page count/sizes and no conflicting name/MC/domain.
+  Head similarity scores no points; it only decides `changed`. The banner then offers
+  "Use N names from last time" (POST /layout `{action:'names'}`): machine-found fields whose label matches a
+  label in the old layout (same kind, unambiguous) get last time's name. User rows are never touched.
+  Older layouts get page heads and the broker name the next time an editor fills a packet of that form
+  (learn re-reads the PDF when the packet's fingerprint is v1, then `touch` backfills the layout).
+- **Broker name (B).** Detected from the PDF text on processing (labeled `Broker: …`, a quoted name next to
+  "broker", or a short company-suffix line near the top of page 1; our own legal/DBA names are excluded) into the
+  existing `packets.broker_name`, only when empty. Editable Broker field on the packet page
+  (PATCH /api/packets/[id]); a new name re-checks layouts (suggest/changed only). Banner and learned layouts use
+  the packet's name first. Name match = +15 and an apply rule like domain (fuzzy ≥ 0.8).
+- **No stacked fields (C).** Fresh detection and layout rows skip any spot a kept (user) field covers:
+  same page and IoU ≥ 0.3, or ≥ 60% of the smaller box (boxes scaled between render sizes).
+- **First open / waiting (D).** The mapper re-reads the banner when status/processed_at/layout change; the packet
+  page polls while processing elsewhere. Upload calls `/process?background=1` (202 + waitUntil), and the list
+  starts any packet still `received` once per visit.
+- No schema change: `packets.broker_name` is an original column; heads live in the existing `fingerprint` jsonb.

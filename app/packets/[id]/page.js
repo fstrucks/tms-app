@@ -9,6 +9,8 @@ import { loadPacketPdf } from '../../lib/packetPdfLoad';
 import { makeApi } from '../../lib/packetApi';
 
 const DPI = 200;
+const PROCESS_POLL_MS = [1500, 2000, 3000, 3000, 5000, 5000, 8000, 8000, 10000, 10000, 10000, 10000, 15000, 15000]; // ~2 min
+const isProcessing = (status) => status === 'received' || status === 'processing';
 const packetApi = makeApi(() => getSupabase()?.auth);
 const api = packetApi.call;
 const token = packetApi.token;
@@ -24,11 +26,19 @@ export default function PacketPage({ params }) {
     let d = await api(`/api/packets/${id}/fields`);
     if (d.setupNeeded) return setSt({ error: d.error, setup: true });
     if (d.error) return setSt({ error: d.error, signedOut: d.status === 401 });
-    if (d.packet.status === 'received' || (d.packet.status === 'processing')) { // kick (idempotent) and refresh
+    if (isProcessing(d.packet.status)) { // kick (idempotent) and refresh
       setSt({ ...d, loading: false });
       await api(`/api/packets/${id}/process`, { method: 'POST' });
       d = await api(`/api/packets/${id}/fields`);
       if (d.error) return setSt({ error: d.error });
+      // Already being processed elsewhere (started right after upload): poll until it's done, so the fields and
+      // the remembered-layout banner show up without a reload.
+      for (let i = 0; isProcessing(d.packet?.status) && i < PROCESS_POLL_MS.length; i++) {
+        await new Promise((r) => setTimeout(r, PROCESS_POLL_MS[i]));
+        const n = await api(`/api/packets/${id}/fields`);
+        if (n.error) break;
+        d = n;
+      }
     }
     if (!pdf.current) {
       const bytes = await loadPacketPdf(id, { call: api, getToken: token });
