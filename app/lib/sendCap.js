@@ -40,3 +40,5 @@ export async function monthlyUsage(sb, env = process.env, now = new Date()) {
 export const capReached = (u) => !!u && !u.error && u.used >= u.cap;
 export const capLabel = (u) => (u && !u.error && Number.isFinite(u.used) ? (u.used >= u.cap ? 'Monthly limit reached' : `${u.used} of ${u.cap} used this month`) : '');
 export const CAP_MSG = (u) => `This month’s email limit is reached (${u.used} of ${u.cap} used). Nothing was sent. It resets on the 1st.`;
+// Today's date (YYYY-MM-DD) in America/Los_Angeles.
+export const laToday = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);

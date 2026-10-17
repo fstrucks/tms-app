@@ -97,3 +97,20 @@ export function suggestMessage(r) {
   if (r.skipped) parts.push(`${r.skipped} already on file`);
   return `${parts.join(', ')}.${r.added || r.updated ? ' Check and confirm each one.' : ''}`;
 }
+
+// Expired AI-suggested (unconfirmed) policies, flagged on /company before confirmation.
+const mmdd = (d) => `${d.slice(5, 7)}/${d.slice(8, 10)}`;
+export function suggestedExpiredLabel(p, today) {
+  const exp = String(p?.expiry_date || '').slice(0, 10);
+  if (!p || p.confirmed || !/^\d{4}-\d{2}-\d{2}$/.test(exp) || exp >= today) return null;
+  return `Suggested, expired ${mmdd(exp)}`;
+}
+export function suggestedExpiredNotes(policies, today) {
+  return (policies || []).filter((p) => suggestedExpiredLabel(p, today)).map((p) => ({ code: 'suggested_expired', severity: 'error', coverage: p.coverage,
+    text: `Suggested ${String(COVERAGE_LABELS_LC[p.coverage] || 'policy')}${p.policy_number ? ` ${p.policy_number}` : ''} expired ${mmdd(String(p.expiry_date).slice(0, 10))}. Get a current COI before confirming it.` }));
+}
+const COVERAGE_LABELS_LC = { auto_liability: 'auto liability policy', cargo: 'cargo policy', general_liability: 'general liability policy', workers_comp: 'workers comp policy' };
+export const MIN_BUSY_MS = 600;
+export async function atLeast(promise, ms = MIN_BUSY_MS, wait = (t) => new Promise((r) => setTimeout(r, t))) {
+  const [v] = await Promise.all([promise, wait(ms)]); return v;
+}

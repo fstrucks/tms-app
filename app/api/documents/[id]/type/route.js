@@ -27,8 +27,10 @@ export async function PATCH(req, { params, deps } = {}) {
   const { data: role } = await uc.rpc('packet_role', { p_owner: doc.user_id });
   if (!role) return json({ error: 'Document not found.' }, 404);
   if (!DOC_TYPE_EDIT_ROLES.has(role)) return json({ error: 'Only the owner or management can change a document’s type.' }, 403);
-  if (doc.doc_type === b.docType) return json({ ok: true, docType: doc.doc_type, unchanged: true });
+  if (doc.doc_type === b.docType) return json({ ok: true, docType: doc.doc_type, document: { id: doc.id, doc_type: doc.doc_type }, unchanged: true });
   const up = await sb.from('documents').update({ doc_type: b.docType }).eq('id', doc.id);
   if (up.error) return json({ error: 'Could not change the type.' }, 500);
-  return json({ ok: true, docType: b.docType, offerRead: b.docType === 'rate_confirmation' });
+  const { data: saved } = await sb.from('documents').select('id,doc_type').eq('id', doc.id).maybeSingle();
+  const docType = saved?.doc_type || b.docType;
+  return json({ ok: true, docType, document: { id: doc.id, doc_type: docType }, offerRead: docType === 'rate_confirmation' });
 }

@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { COVERAGES, COVERAGE_LABELS, coiGaps } from '../lib/coiGaps';
-import { companyGapNotes, suggestMessage } from '../lib/coiRequest';
+import { companyGapNotes, suggestMessage, suggestedExpiredLabel, suggestedExpiredNotes, atLeast } from '../lib/coiRequest';
+import { laToday } from '../lib/sendCap';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -71,12 +72,14 @@ export default function CompanyInsurance() {
         onClick={() => run(() => api('/api/company/insurance', { method: 'PUT', body: JSON.stringify({ agent, minimums: mins }) }), 'Insurance info saved.').then((r) => r && apply(r))}>Save agent and minimums</button>}
 
       <h3 style={{ fontSize: '1rem', margin: '1.25rem 0 0.25rem' }}>Policies</h3>
-      {(() => { const notes = companyGapNotes(coiGaps({ policies: st.policies || [], profile: { min_auto_liability: st.minimums?.auto_liability, min_cargo: st.minimums?.cargo }, certHolder: { name: '-', address: '-' } })); return notes.length > 0 && <ul data-testid="company-gaps" style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>{notes.map((g, i) => <li key={g.code + i} style={{ color: g.severity === 'error' ? '#b91c1c' : '#92400e' }}>{g.text}</li>)}</ul>; })()}
+      {(() => { const notes = companyGapNotes(coiGaps({ policies: st.policies || [], profile: { min_auto_liability: st.minimums?.auto_liability, min_cargo: st.minimums?.cargo }, certHolder: { name: '-', address: '-' }, today: laToday() })).concat(suggestedExpiredNotes(st.policies, laToday())); return notes.length > 0 && <ul data-testid="company-gaps" style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>{notes.map((g, i) => <li key={g.code + i} style={{ color: g.severity === 'error' ? '#b91c1c' : '#92400e' }}>{g.text}</li>)}</ul>; })()}
       {!(st.policies || []).length && <p style={{ color: '#6b7280', fontSize: 14 }}>No policies yet.</p>}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {(st.policies || []).map((p) => <li key={p.id} data-testid="policy-row" style={{ borderTop: '1px solid #f1f5f9', padding: '0.5rem 0', fontSize: 14 }}>
           <strong>{COVERAGE_LABELS[p.coverage] || p.coverage}</strong> {usd(p.limit_amount)} · {p.insurer || 'insurer ?'} {p.policy_number ? `#${p.policy_number}` : ''} · {p.effective_date || '?'} → {p.expiry_date || '?'}
-          {!p.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600 }}>Suggested – check it</span>}
+          {!p.confirmed && (suggestedExpiredLabel(p, laToday())
+            ? <span data-testid="suggested-expired" style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 600 }}>{suggestedExpiredLabel(p, laToday())}</span>
+            : <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600 }}>Suggested – check it</span>)}
           {ed && <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             {!p.confirmed && <button type="button" style={{ ...s.small, borderColor: '#059669', color: '#065f46' }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'PATCH', body: JSON.stringify({ id: p.id, confirm: true }) }), 'Policy confirmed.').then((r) => r?.policy && setSt((x) => ({ ...x, policies: (x.policies || []).map((q) => (q.id === r.policy.id ? r.policy : q)) })))}>Confirm</button>}
             <button type="button" style={{ ...s.small, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'DELETE', body: JSON.stringify({ id: p.id }) }), 'Policy removed.').then((r) => r && reload())}>Remove</button>
@@ -99,7 +102,7 @@ export default function CompanyInsurance() {
           : docs.map((d) => <button key={d.id} type="button" data-testid="suggest-btn" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left', ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : null) }} disabled={busy} aria-busy={reading === d.id}
             onClick={async () => {
               setReading(d.id);
-              const r = await run(() => api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) }));
+              const r = await run(() => atLeast(api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) }))); // busy state stays visible ≥600ms
               setReading(null);
               if (!r) return;
               if (Array.isArray(r.policies)) setSt((x) => ({ ...x, policies: r.policies })); // refresh the list in place

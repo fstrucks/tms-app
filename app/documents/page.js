@@ -3,7 +3,7 @@
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
-import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType } from '../lib/docTypes';
+import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
@@ -84,17 +84,19 @@ export default function DocumentsPage() {
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [typeErr, setTypeErr] = useState({}); // id → { error, docType } after a failed save (old type kept)
   async function changeType(d, docType) {
     if (typeBusy[d.id] || docType === d.doc_type) return;
     setTypeBusy((m) => ({ ...m, [d.id]: true }));
+    setTypeErr((m) => ({ ...m, [d.id]: null }));
     const t = (await supabase.auth.getSession())?.data?.session?.access_token;
-    const res = await fetch(`/api/documents/${d.id}/type`, { method: 'PATCH', cache: 'no-store', headers: { Authorization: `Bearer ${t || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ docType }) });
-    const j = await res.json().catch(() => ({}));
+    const r = await saveDocType({ id: d.id, docType, token: t });
     setTypeBusy((m) => ({ ...m, [d.id]: false }));
-    if (!res.ok) return setStatus({ type: 'error', text: j.error || 'Could not change the type.' });
-    setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: j.docType } : x)));
-    setTypeChanged((m) => ({ ...m, [d.id]: !!j.offerRead }));
-    setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(j.docType)}.${j.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
+    // Failure: the row keeps the old type (select is controlled by d.doc_type, which we don't touch).
+    if (!r.ok) return setTypeErr((m) => ({ ...m, [d.id]: { error: r.error, docType } }));
+    setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: r.docType } : x)));
+    setTypeChanged((m) => ({ ...m, [d.id]: r.offerRead }));
+    setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)}.${r.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
   }
   useEffect(() => { const t = uploadTypeFromQuery(window.location.search); if (t) setUploadType(t); }, []);
 
@@ -384,14 +386,21 @@ export default function DocumentsPage() {
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
                     {canChangeType && (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
-                        Change type
+                      <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
+                        <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
                         <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={UPLOAD_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
-                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: 200 }}>
+                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: '100%', minWidth: 0 }}>
                           {!UPLOAD_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
                           {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
                         </select>
                       </label>
+                    )}
+                    {canChangeType && typeErr[d.id] && (
+                      <div role="alert" data-testid="change-type-error" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4, fontSize: 13, color: '#b91c1c' }}>
+                        <span>{typeErr[d.id].error}</span>
+                        <button type="button" data-testid="change-type-retry" disabled={!!typeBusy[d.id]} onClick={() => changeType(d, typeErr[d.id].docType)}
+                          style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #b91c1c', background: '#fff', color: '#b91c1c', fontWeight: 600 }}>Retry</button>
+                      </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>

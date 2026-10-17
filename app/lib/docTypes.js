@@ -62,3 +62,16 @@ export function uploadTypeFromQuery(search) {
 }
 // Change type on saved documents (server enforces the same in /api/documents/[id]/type).
 export const canChangeDocType = (role) => role === 'owner' || role === 'management';
+
+// PATCH /api/documents/:id/type. Never throws: { ok:true, docType, offerRead } from the SERVER response,
+// or { ok:false, error } on a network error (e.g. net::ERR_CONNECTION_CLOSED) or any non-2xx.
+export async function saveDocType({ id, docType, token, fetchImpl = fetch }) {
+  let res;
+  try {
+    res = await fetchImpl(`/api/documents/${id}/type`, { method: 'PATCH', cache: 'no-store', headers: { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ docType }) });
+  } catch { return { ok: false, error: 'Couldn’t reach the server. Type not changed.' }; }
+  const j = await res.json().catch(() => ({}));
+  const serverType = j?.document?.doc_type || j?.docType;
+  if (!res.ok || !serverType) return { ok: false, error: j?.error || `Couldn’t change the type (error ${res.status}). Type not changed.` };
+  return { ok: true, docType: serverType, offerRead: !!j.offerRead };
+}
