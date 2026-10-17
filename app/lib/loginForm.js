@@ -11,6 +11,7 @@ export function readCredentials(form, state = {}) {
 // → error text, or null when the form can be sent.
 export function validateCredentials({ email, password }, usePw = true) {
   if (!email) return usePw && !password ? 'Enter your email and password.' : 'Enter your email.';
+  if (usePw && !password && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'Enter a valid email address and your password.';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'Enter a valid email address.';
   if (usePw && !password) return 'Enter your password.';
   return null;

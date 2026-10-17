@@ -90,7 +90,9 @@ export default function LoginPage() {
             <button style={{ ...s.btn, background: '#6b7280' }} onClick={() => setSent(false)}>Use a different email</button>
           </>
         ) : (
-          <form onSubmit={handleSubmit}>
+          // noValidate: our own plain message ("Enter your email and password.") instead of the browser's tip,
+          // which some phones never show. The fields stay `required` for autofill/accessibility hints.
+          <form onSubmit={handleSubmit} noValidate>
             <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Email</label>
             <input id="email" name="email" type="email" required autoComplete="email" value={email}
               onChange={(e) => setEmail(e.target.value)} onInput={(e) => setEmail(e.currentTarget.value)} style={s.input} placeholder="you@example.com" />
