@@ -1,5 +1,5 @@
 'use client';
-import { bottomPadding, COLLAPSED_RESERVE } from '../../lib/packetLayout';
+import { sendWrapPadding } from '../../lib/packetLayout';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import PacketMapper from '../PacketMapper';
@@ -68,5 +68,5 @@ export default function PacketPage({ params }) {
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
   if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}</main>;
   return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review'} onBarShownChange={setBarShown} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
-    <div data-testid="send-wrap" style={{ padding: '0 0.75rem', paddingBottom: barShown ? '140px' : bottomPadding(COLLAPSED_RESERVE) }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} /></div></>;
+    <div data-testid="send-wrap" style={{ padding: '0 0.75rem', paddingBottom: sendWrapPadding(barShown) }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} /></div></>;
 }

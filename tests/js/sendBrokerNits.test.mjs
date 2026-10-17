@@ -34,7 +34,7 @@ test('disabled Review email button looks disabled, enabled stays blue', () => {
   assert.match(src, /outsideRecipients\(/);
 });
 
-import { actionBarShown, bottomReservePx, bottomPadding, COLLAPSED_RESERVE, BAR_MIN_RESERVE } from '../../app/lib/packetLayout.js';
+import { actionBarShown, bottomReservePx, bottomPadding, COLLAPSED_RESERVE, BAR_MIN_RESERVE, sendWrapPadding } from '../../app/lib/packetLayout.js';
 
 test('bottom space only reserved while the Fill & download bar is rendered (iPhone gap)', () => {
   assert.equal(actionBarShown({ canEdit: true, hideActionBar: false, dirty: false }), true);
@@ -52,6 +52,15 @@ test('bottom space only reserved while the Fill & download bar is rendered (iPho
   assert.doesNotMatch(mapper, /Math\.max\(110, barH/);
   const page = readFileSync(new URL('../../app/packets/[id]/page.js', import.meta.url), 'utf8');
   assert.match(page, /onBarShownChange=\{setBarShown\}/);
-  assert.match(page, /paddingBottom: barShown \? '140px' : bottomPadding\(COLLAPSED_RESERVE\)/);
+  assert.match(page, /paddingBottom: sendWrapPadding\(barShown\)/);
+  assert.doesNotMatch(page, /nav-h|safe-area|bottomPadding/); // body.has-appnav already reserves the nav + safe area
   assert.doesNotMatch(page, /0 0\.75rem 140px/);
+});
+
+test('send card wrapper: no double nav/safe-area reserve; bar space only while bar is shown (Taylor iPhone 14 Pro: 91px gap)', () => {
+  assert.equal(sendWrapPadding(false), '0px');
+  assert.equal(sendWrapPadding(true), '140px');
+  assert.doesNotMatch(sendWrapPadding(false) + sendWrapPadding(true), /nav-h|safe-area/);
+  const css = readFileSync(new URL('../../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /body\.has-appnav \{ padding-bottom: calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\)\); \}/); // nav + safe area live here
 });
