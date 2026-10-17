@@ -20,6 +20,8 @@ export const CUSTOM_MAX = 60;
 
 export const isCustomKey = (k) => typeof k === 'string' && k.startsWith(CUSTOM_PREFIX);
 export const cleanCustomName = (s) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CUSTOM_MAX).trim();
+// Form labels usually end in a colon ("Contact name:"); strip trailing colons (incl. full-width) and whitespace.
+export const labelToName = (s) => cleanCustomName(String(s ?? '').replace(/[\s:：]+$/u, ''));
 export const customName = (k) => (isCustomKey(k) ? cleanCustomName(k.slice(CUSTOM_PREFIX.length)) : '');
 // Keeps the typed text (even empty) so the input doesn't jump while typing; an empty name still counts as unnamed.
 export const customKey = (name) => CUSTOM_PREFIX + String(name ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, CUSTOM_MAX);
@@ -43,13 +45,30 @@ export function validateNameKey(key, kind) {
 export function nameOptions(KEY_LABELS, kind) {
   return [
     { group: 'Company profile', options: BASE_KEYS.map((k) => ({ value: k, label: KEY_LABELS[k] })) },
-    { group: 'Contact, driver & equipment (type the value)', options: EXTRA_KEYS.map((k) => ({ value: k, label: EXTRA_KEY_LABELS[k] })) },
+    { group: 'Contact, driver & equipment (you type the value)', options: EXTRA_KEYS.map((k) => ({ value: k, label: EXTRA_KEY_LABELS[k] })) },
     { group: 'Other', options: [{ value: CUSTOM_OPTION, label: CUSTOM_LABEL }, ...(kind === 'signature' ? [] : [{ value: SKIP_KEY, label: SKIP_LABEL }])] },
   ];
+}
+// Flat <select> rows with visible, disabled heading rows. <optgroup> labels didn't show in Taylor's run, and iOS Safari's
+// picker shows disabled rows as grey text, so headings render the same in every browser.
+export const HEADING_PREFIX = '__h:';
+export const isHeadingValue = (v) => typeof v === 'string' && v.startsWith(HEADING_PREFIX);
+export function nameSelectRows(KEY_LABELS, kind) {
+  return nameOptions(KEY_LABELS, kind).flatMap((g, i) => [
+    { value: HEADING_PREFIX + i, label: `— ${g.group} —`, heading: true, disabled: true },
+    ...g.options.map((o) => ({ ...o, group: g.group })),
+  ]);
+}
+// Which group the current name belongs to (shown under the picker as a visible heading).
+export function nameGroup(KEY_LABELS, kind, key) {
+  const v = selectValue(key);
+  if (!v) return '';
+  return nameSelectRows(KEY_LABELS, kind).find((r) => !r.heading && r.value === v)?.group || '';
 }
 export const selectValue = (k) => (isCustomKey(k) ? CUSTOM_OPTION : k || '');
 // Picking an option → the profile_key to store. Custom starts from the form's own label (e.g. "Contact name").
 export function keyFromSelect(value, f = {}) {
-  if (value === CUSTOM_OPTION) return isCustomKey(f.profile_key) ? f.profile_key : customKey(cleanCustomName(f.label));
+  if (value === CUSTOM_OPTION) return isCustomKey(f.profile_key) ? f.profile_key : customKey(labelToName(f.label));
+  if (isHeadingValue(value)) return f.profile_key ?? null; // headings are disabled; never change the name
   return value || null;
 }

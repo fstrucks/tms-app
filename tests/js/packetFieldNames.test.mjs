@@ -99,8 +99,7 @@ test('fill: extra / custom fields fill only what was typed (no profile mapping y
 
 test('editor UI: grouped picker, custom name input, skip note, and clear Done vs Save changes wording', () => {
   const m = readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
-  assert.match(m, /nameOptions\(KEY_LABELS, f\.kind\)/);
-  assert.match(m, /<optgroup/);
+    assert.match(m, /nameSelectRows\(KEY_LABELS, f\.kind\)/);
   assert.match(m, /id="pf-custom"/);
   assert.match(m, /left blank on the filled PDF/);
   assert.match(m, /Tap Save changes at the bottom to keep/);
