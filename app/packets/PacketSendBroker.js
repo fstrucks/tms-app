@@ -3,7 +3,7 @@
 // Nothing is sent until the user presses "Send now" on the review step with the confirm box ticked.
 import { useEffect, useState } from 'react';
 import { formatPacketDate, formatSentAt } from '../lib/packetDate';
-import { newSendKey as newKey, attemptOutcome } from '../lib/packetSendClient';
+import { newSendKey as newKey, attemptOutcome, outsideRecipients, primaryButtonStyle } from '../lib/packetSendClient';
 
 const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' };
 const primary = { ...btn, border: 0, background: '#2563eb', color: '#fff', fontWeight: 600, width: '100%' };
@@ -25,7 +25,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   useEffect(() => { load().then((j) => { if (!j.error) { setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); } }); }, [load, filledAt]);
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
-  const outside = info.allowedDomains ? [...list(d.to), ...list(d.cc)].filter((e) => !info.allowedDomains.includes(e.split('@')[1])) : [];
+  const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
   const confirmedSends = (info.sends || []).filter((x) => x.confirmed || x.postmark_message_id);
   const lastSend = confirmedSends[0] || info.sends?.[0];
   const finish = (r) => { setInfo((i) => ({ ...i, sends: r.sends || i.sends, sent_at: r.sent_at })); setWarn(r.warning || null); setStep('done'); setOk(false); setAgain(false); setKey(null); };
@@ -77,7 +77,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
           {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
-            <button type="submit" style={{ ...primary, flex: 2 }} disabled={outside.length > 0}>Review email</button>
+            <button type="submit" style={primaryButtonStyle({ ...primary, flex: 2 }, outside.length > 0)} disabled={outside.length > 0} aria-disabled={outside.length > 0}>Review email</button>
           </div></form>
         : <div data-testid="send-review">
           <p style={{ fontSize: 14, margin: '0 0 0.5rem' }}><strong>Check this before sending.</strong> It goes out as soon as you press Send now.</p>
