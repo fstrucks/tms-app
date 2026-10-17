@@ -3,6 +3,7 @@ import { noStoreFetch } from '../../lib/noStoreFetch';
 import { classifyDocText, decideDocKind } from '../../lib/docClassify';
 import { loadPdfjs } from '../../lib/packetPdfText';
 import { parseWeightLb } from '../../lib/loadWeight';
+import { fillLinkedLoadWeight } from '../../lib/loadWeightFill';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,7 +84,7 @@ export async function POST(req) {
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);
 
   const { data: doc, error: docErr } = await userDb
-    .from('documents').select('id, user_id, doc_type, file_path, original_filename, ai_extracted_data').eq('id', documentId).maybeSingle();
+    .from('documents').select('id, user_id, doc_type, file_path, original_filename, ai_extracted_data, load_id').eq('id', documentId).maybeSingle();
   if (docErr) return fail(500, GENERIC, 'doc load', docErr.message);
   if (!doc || doc.user_id !== user.id) return fail(404, 'Document not found.');
   // Only rate confirmations are extracted (e.g. expense receipts are not).
@@ -185,8 +186,11 @@ export async function POST(req) {
     .eq('id', doc.id).eq('user_id', user.id);
   if (upErr) { await finish('error'); return fail(500, GENERIC, 'save', upErr.message); }
 
+  // Re-run on a rate con that already has a load: fill that load's weight if it's empty (never overwrite).
+  const lw = await fillLinkedLoadWeight(userDb, { loadId: doc.load_id, userId: user.id, weight: extracted.weight_lb });
+  if (lw.error) console.error('[extract] load weight', lw.error.message || lw.error);
   await finish('success');
-  return json({ data: extracted });
+  return json({ data: extracted, ...(lw.filled ? { loadWeightFilled: lw.weight } : {}) });
 }
 
 // Text of the first pages of a digital PDF (empty for scans or on any error).

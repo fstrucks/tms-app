@@ -9,6 +9,7 @@ import SignInLink from '../../components/SignInLink';
 import { useParams, useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
+import LoadScaleTickets from '../../components/LoadScaleTickets';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
@@ -225,6 +226,7 @@ export default function LoadDetailPage() {
                   ))}
                 </div>
 
+                <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
                 <LoadMileage load={load} userId={user.id} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>

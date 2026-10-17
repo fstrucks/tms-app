@@ -77,3 +77,29 @@ export async function ownedLoad(db, ownerId, loadId) {
   const { data } = await db.from('loads').select('id').eq('id', loadId).eq('user_id', ownerId).maybeSingle();
   return !!data;
 }
+
+// Scale tickets linked to one load (load page). Same scoping as the Truck tab: every query is filtered by
+// user_id = ownerId. Warnings come from the shared weightChecks() helper; the rate con check uses the load's weight.
+// → { load, tickets } | { notFound } | { setupNeeded } | { error }
+export async function loadTicketsForLoad(db, ownerId, loadId) {
+  if (!UUID.test(loadId || '')) return { notFound: true };
+  const ld = await db.from('loads').select('id,weight,broker_load_number').eq('id', loadId).eq('user_id', ownerId).maybeSingle();
+  if (ld.error) return { error: 'Could not load the load.' };
+  if (!ld.data) return { notFound: true };
+  const tk = await db.from('scale_tickets').select('*').eq('user_id', ownerId).eq('load_id', loadId)
+    .order('ticket_date', { ascending: false }).order('created_at', { ascending: false }).limit(50);
+  if (tk.error) return isMissing(tk.error) ? { setupNeeded: true } : { error: 'Could not load scale tickets.' };
+  const rows = tk.data || [];
+  if (!rows.length) return { load: ld.data, tickets: [] };
+  const truckIds = [...new Set(rows.map((t) => t.truck_id).filter(Boolean))];
+  const trucks = (await db.from('trucks').select('id,unit_number,empty_weight_lb,current_trailer_id').eq('user_id', ownerId).in('id', truckIds)).data || [];
+  const trailerIds = [...new Set([...rows.map((t) => t.trailer_id), ...trucks.map((t) => t.current_trailer_id)].filter(Boolean))];
+  const trailers = trailerIds.length ? (await db.from('trailers').select('id,unit_number,empty_weight_lb').eq('user_id', ownerId).in('id', trailerIds)).data || [] : [];
+  const tickets = rows.map((t) => {
+    const truck = trucks.find((x) => x.id === t.truck_id) || null;
+    const trailer = trailers.find((x) => x.id === t.trailer_id) || trailers.find((x) => x.id === truck?.current_trailer_id) || null;
+    return { ...t, truck_number: truck?.unit_number || null, trailer_number: trailer?.unit_number || null,
+      ...weightChecks({ ticket: t, truckEmpty: truck?.empty_weight_lb, trailerEmpty: trailer?.empty_weight_lb, loadWeight: ld.data.weight }) };
+  });
+  return { load: ld.data, tickets };
+}
