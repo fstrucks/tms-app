@@ -40,6 +40,8 @@ export async function GET(req, { params, deps } = {}) {
     agent: ag.data || null, policies: pol.data || [], minimums: minimumsFrom(profile), certHolder,
     from: cfg.from, replyTo: cfg.replyTo, allowedDomains: allowedDomains(env), configured: !!cfg.token,
     draft: defaultCoiDraft({ packet: a.packet, profile, agent: ag.data, certHolder }),
+    // Non-sensitive inputs so the client can rebuild the body from holder/load-date edits (coiTemplate.js).
+    draftContext: { packet: { subject: a.packet.subject || null, original_filename: a.packet.original_filename || null }, profile: { legal_name: profile?.legal_name || null, mc_number: profile?.mc_number || null, min_auto_liability: profile?.min_auto_liability ?? null, min_cargo: profile?.min_cargo ?? null }, agent: { name: ag.data?.name || null } },
     requests: (hist.data || []).map(shape),
     sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining },
   });

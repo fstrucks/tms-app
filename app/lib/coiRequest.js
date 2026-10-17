@@ -1,32 +1,12 @@
 // COI request email helpers. Pure (no network). Sending reuses validateSend/postmarkSend from packetSend.js.
 import { validateSend } from './packetSend.js';
-import { COVERAGE_LABELS, minimumsFrom } from './coiGaps.js';
+export { defaultCoiDraft } from './coiTemplate.js';
 
 export const COI_MIGRATION = '20261017001800_insurance_coi.sql';
 // Feature flag for the Request COI button (client-visible). Off unless exactly "1" or "true".
 export const coiEnabled = (env = process.env) => ['1', 'true'].includes(String(env.NEXT_PUBLIC_COI_REQUEST_ENABLED || '').trim().toLowerCase());
 
-const usd = (n) => `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 const clip = (s, n) => String(s ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, n);
-
-export function defaultCoiDraft({ packet, profile, agent, certHolder, loadDate } = {}) {
-  const co = String(profile?.legal_name || '').trim() || 'our company';
-  const mins = minimumsFrom(profile);
-  const who = String(agent?.name || '').trim().split(/\s+/)[0] || 'there';
-  const ref = String(packet?.subject || packet?.original_filename || '').replace(/\.pdf$/i, '').replace(/^(re|fwd?):\s*/i, '').trim();
-  const holder = [certHolder?.name, certHolder?.address].map((x) => String(x || '').trim()).filter(Boolean).join('\n');
-  return {
-    subject: `COI request – ${co}${certHolder?.name ? ` – holder: ${clip(certHolder.name, 80)}` : ''}`.slice(0, 200),
-    body: [
-      `Hi ${who},`, '',
-      `Please send a certificate of insurance for ${co}${profile?.mc_number ? ` (MC ${profile.mc_number})` : ''}${ref ? ` for ${ref}` : ''}.`, '',
-      'Certificate holder:', holder || '[broker name and address]', '',
-      `Coverage needed: ${COVERAGE_LABELS.auto_liability} ${usd(mins.auto_liability)}, ${COVERAGE_LABELS.cargo} ${usd(mins.cargo)}.`,
-      ...(loadDate ? [`Coverage must be in force on ${String(loadDate).slice(0, 10)}.`] : []), '',
-      'Please reply to this email with the certificate attached.', '', 'Thank you,', co,
-    ].join('\n'),
-  };
-}
 
 // Validates a COI request. → { to, cc, subject, body, certHolder, loadDate } | { error, status, blocked? }
 export function validateCoiRequest(b, env = process.env) {

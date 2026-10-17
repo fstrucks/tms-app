@@ -3,6 +3,7 @@
 // as Send to broker. Feature-flagged: hidden unless NEXT_PUBLIC_COI_REQUEST_ENABLED is "1"/"true" (server checks too).
 import { useEffect, useMemo, useState } from 'react';
 import { coiGaps } from '../lib/coiGaps';
+import { defaultCoiDraft, syncBody, editBody, resetBody } from '../lib/coiTemplate';
 import { capLabel } from '../lib/sendCap';
 import { formatSentAt } from '../lib/packetDate';
 import { newSendKey, attemptOutcome, outsideRecipients, primaryButtonStyle } from '../lib/packetSendClient';
@@ -19,7 +20,7 @@ const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLower
 export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onStepChange }) {
   const [info, setInfo] = useState(null);
   const [step, setStep] = useState('closed'); // closed | write | review | done
-  const [d, setD] = useState({ to: '', cc: '', subject: '', body: '', holderName: '', holderAddress: '', loadDate: '' });
+  const [d, setD] = useState({ to: '', cc: '', subject: '', body: '', holderName: '', holderAddress: '', loadDate: '', bodyDirty: false });
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -34,6 +35,8 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
     });
   }, [load, enabled]);
   const gaps = useMemo(() => (info ? coiGaps({ policies: info.policies, profile: { min_auto_liability: info.minimums?.auto_liability, min_cargo: info.minimums?.cargo }, loadDate: d.loadDate || null, certHolder: { name: d.holderName, address: d.holderAddress } }) : []), [info, d.loadDate, d.holderName, d.holderAddress]);
+  const template = useMemo(() => (info?.draftContext ? defaultCoiDraft({ ...info.draftContext, certHolder: { name: d.holderName, address: d.holderAddress }, loadDate: d.loadDate || null }) : { body: d.body }), [info, d.holderName, d.holderAddress, d.loadDate]);
+  useEffect(() => { if (info?.draftContext) setD((x) => syncBody(x, template)); }, [template.body]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!enabled || !info) return null;
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
   const capFull = info.sendCap && info.sendCap.used >= info.sendCap.cap;
@@ -84,7 +87,8 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           <label style={lab} htmlFor="coi-subj">Subject</label>
           <input id="coi-subj" style={input} required maxLength={200} value={d.subject} onChange={(e) => setD({ ...d, subject: e.target.value })} />
           <label style={lab} htmlFor="coi-body">Message</label>
-          <textarea id="coi-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD({ ...d, body: e.target.value })} />
+          <textarea id="coi-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD(editBody(d, e.target.value, template))} />
+          {d.bodyDirty && <p style={{ fontSize: 13, margin: '0.25rem 0 0' }}>You edited the message, so it no longer updates from the fields above. <a href="#" data-testid="coi-reset-body" onClick={(e) => { e.preventDefault(); setD(resetBody(d, template)); }}>Reset to template</a></p>}
           {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
