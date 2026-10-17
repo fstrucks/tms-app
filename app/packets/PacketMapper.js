@@ -2,14 +2,14 @@
 // Manual-mapping screen (presentational). Mobile-first (390px). Pages come from renderPage(pageNo) → { url, w, h } in px@200dpi.
 import { actionBarShown, bottomReservePx, bottomPadding, COLLAPSED_RESERVE } from '../lib/packetLayout';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { nameOptions, selectValue, keyFromSelect, isCustomKey, customName, customKey, CUSTOM_LABEL, SKIP_KEY } from '../lib/packetFieldNames';
+import { nameSelectRows, nameGroup, selectValue, keyFromSelect, isCustomKey, customName, customKey, CUSTOM_LABEL, SKIP_KEY } from '../lib/packetFieldNames';
 import SignaturePad from '../components/PacketSignaturePad';
 import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
 import { formatPacketDate } from '../lib/packetDate';
-import { KEY_LABELS, fieldName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
+import { KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
 import { layoutBanner, placedCount } from '../lib/packetLayoutBanner';
@@ -291,7 +291,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
-          return <button key={f.id} data-field={f.id} aria-label={`${fieldName(f.profile_key) || f.label || 'Field'}: ${STATE_TEXT[st]}`}
+          return <button key={f.id} data-field={f.id} aria-label={`${rowName(f)}: ${STATE_TEXT[st]}`}
             onClick={(e) => { e.stopPropagation(); if (!canEdit || e.detail === 0) tapField(f); }}
             onPointerDown={canEdit ? (e) => startDrag(e, f, 'move') : undefined} onPointerMove={canEdit ? moveDrag : undefined}
             onPointerUp={canEdit ? (e) => endDrag(e, f) : undefined} onPointerCancel={() => stopDrag()}
@@ -328,7 +328,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       {onPage.length === 0 ? <p style={s.muted}>None yet.{canEdit && fields.length === 0 ? ` ${ADD_FIELD_HINT}` : ''}</p> : onPage.map((f) => {
         const st = fieldState(f);
         return <button key={f.id} onClick={() => setSel(f.id)} style={{ ...s.btn, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, textAlign: 'left' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fieldName(f.profile_key) || f.label || 'Unnamed field'}{f.value ? ` · ${f.value}` : ''}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName(f)}{f.value && f.profile_key !== SKIP_KEY ? ` · ${f.value}` : ''}</span>
           <span style={s.chip(STATE_COLORS[st])}>{STATE_TEXT[st]}</span></button>;
       })}
 
@@ -369,8 +369,11 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
       <label style={s.lab} htmlFor="pf-key">Name</label>
       <select id="pf-key" style={s.input} disabled={dis} value={selectValue(f.profile_key)} onChange={(e) => onChange({ profile_key: keyFromSelect(e.target.value, f) })}>
         <option value="">Choose…</option>
-        {nameOptions(KEY_LABELS, f.kind).map((g) => <optgroup key={g.group} label={g.group}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)}
+        {nameSelectRows(KEY_LABELS, f.kind).map((o) => o.heading
+          ? <option key={o.value} value={o.value} disabled data-heading="1" style={{ fontWeight: 700, color: '#6b7280' }}>{o.label}</option>
+          : <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      {nameGroup(KEY_LABELS, f.kind, f.profile_key) && <p data-testid="name-group" style={{ ...s.muted, fontSize: 13 }}>Group: {nameGroup(KEY_LABELS, f.kind, f.profile_key)}</p>}
       {isCustomKey(f.profile_key) && <>
         <label style={s.lab} htmlFor="pf-custom">{CUSTOM_LABEL}</label>
         <input id="pf-custom" style={s.input} disabled={dis} maxLength={60} placeholder="e.g. Dispatcher name" value={f.profile_key.slice(7)} onChange={(e) => onChange({ profile_key: customKey(e.target.value) })} />

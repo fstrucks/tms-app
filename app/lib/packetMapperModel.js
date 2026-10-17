@@ -1,5 +1,5 @@
 import { checkValue } from './packetValues.js';
-import { EXTRA_KEY_LABELS, SKIP_KEY, SKIP_LABEL, isCustomKey, customName, isUnnamedKey } from './packetFieldNames.js';
+import { EXTRA_KEY_LABELS, SKIP_KEY, SKIP_LABEL, isCustomKey, customName, isUnnamedKey, labelToName } from './packetFieldNames.js';
 // Pure state helpers for the manual-mapping screen (unit-tested; no React).
 export const KEY_LABELS = {
   legal_name: 'Legal name', dba_name: 'DBA name', mc_number: 'MC number', dot_number: 'USDOT number', address_line1: 'Address', address_line2: 'Address line 2',
@@ -13,6 +13,11 @@ export function fieldName(key) {
   if (isCustomKey(key)) return customName(key);
   if (key === SKIP_KEY) return SKIP_LABEL;
   return KEY_LABELS[key] || '';
+}
+// Row / box title. A skipped field keeps its original form label ("Trailer number") next to the grey "Left blank" chip.
+export function rowName(f) {
+  if (f.profile_key === SKIP_KEY) return labelToName(f.label) || 'Unnamed field';
+  return fieldName(f.profile_key) || labelToName(f.label) || 'Unnamed field';
 }
 export const BANK = new Set(['bank_routing', 'bank_account']);
 export const SENSITIVE = new Set(['bank_routing', 'bank_account', 'ein']);
