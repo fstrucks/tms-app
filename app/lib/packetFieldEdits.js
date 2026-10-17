@@ -1,5 +1,5 @@
 // Server: validate/normalize manual-mapping edits, encrypt sensitive values, enforce bank confirmation.
-import { PROFILE_KEYS } from './packetReader.js';
+import { validateNameKey, SKIP_KEY } from './packetFieldNames.js';
 import { checkValue } from './packetValues.js';
 
 export const SENSITIVE_KEYS = new Set(['bank_routing', 'bank_account', 'ein']);
@@ -30,8 +30,11 @@ export function applyEdit(edit, existing, { userId, encrypt, page = null, now = 
   if (!KINDS.includes(kind)) return { error: 'Bad field type' };
   const box = (edit.box ?? existing?.box ?? []).map(num);
   if (box.length !== 4 || box.some(Number.isNaN) || box[2] <= box[0] || box[3] <= box[1] || box.some((v) => v < 0 || v > 20000)) return { error: 'Bad box' };
-  let key = edit.profile_key === undefined ? existing?.profile_key ?? null : edit.profile_key || null;
-  if (key && (!PROFILE_KEYS.includes(key) || key === 'unknown')) return { error: 'Unknown field name' };
+  const rawKey = edit.profile_key === undefined ? existing?.profile_key ?? null : edit.profile_key || null;
+  // Names: profile keys, extra hand-filled keys, 'skip', or 'custom:<name>' (profile_key has no CHECK constraint).
+  const nk = validateNameKey(rawKey, kind);
+  if (nk.error) return { error: nk.error };
+  const key = nk.key;
   const row = {
     page: pageNo, kind, box, label: String(edit.label ?? existing?.label ?? '').slice(0, 200) || null, profile_key: key,
     needs_confirm: key === 'bank_routing' || key === 'bank_account', updated_by: userId, updated_at: now,
@@ -52,6 +55,9 @@ export function applyEdit(edit, existing, { userId, encrypt, page = null, now = 
     } else { row.value_text = v || null; row.value_ciphertext = null; row.value_last4 = null; valueChanged = true; }
   } else if (keyChanged && (SENSITIVE_KEYS.has(existing.profile_key) !== sensitive)) {
     row.value_text = null; row.value_ciphertext = null; row.value_last4 = null; valueChanged = true; // don't move a secret into plaintext or vice versa
+  }
+  if (key === SKIP_KEY && (valueChanged || existing?.value_text != null || existing?.value_ciphertext)) { // skipped = left blank
+    row.value_text = null; row.value_ciphertext = null; row.value_last4 = null; valueChanged = true;
   }
   // Bank confirmation: cleared whenever the value or name changes; set only by an explicit confirm with a value present.
   if (valueChanged || keyChanged || !row.needs_confirm) { row.confirmed_at = null; row.confirmed_by = null; }

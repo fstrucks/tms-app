@@ -1,26 +1,36 @@
 import { checkValue } from './packetValues.js';
+import { EXTRA_KEY_LABELS, SKIP_KEY, SKIP_LABEL, isCustomKey, customName, isUnnamedKey } from './packetFieldNames.js';
 // Pure state helpers for the manual-mapping screen (unit-tested; no React).
 export const KEY_LABELS = {
   legal_name: 'Legal name', dba_name: 'DBA name', mc_number: 'MC number', dot_number: 'USDOT number', address_line1: 'Address', address_line2: 'Address line 2',
   city: 'City', state: 'State', postal_code: 'ZIP', phone: 'Phone', email: 'Email', signer_name: 'Signer name', signer_title: 'Signer title',
   ein: 'EIN / TIN', bank_routing: 'Bank routing #', bank_account: 'Bank account #', signature: 'Signature', date: 'Date',
+  ...EXTRA_KEY_LABELS,
 };
+// Display name for any stored key: profile / extra keys, "Custom (type a name)" names, or the skip option.
+export function fieldName(key) {
+  if (!key) return '';
+  if (isCustomKey(key)) return customName(key);
+  if (key === SKIP_KEY) return SKIP_LABEL;
+  return KEY_LABELS[key] || '';
+}
 export const BANK = new Set(['bank_routing', 'bank_account']);
 export const SENSITIVE = new Set(['bank_routing', 'bank_account', 'ein']);
 export const NEW_BOX = [0, 0, 560, 36]; // px at 200 dpi (~2.8in × 0.18in)
 
 export function fieldState(f) {
-  if (!f.profile_key) return 'unmapped';
+  if (isUnnamedKey(f.profile_key)) return 'unmapped';
+  if (f.profile_key === SKIP_KEY) return 'skip'; // left blank on purpose: named, never filled
   if ((f.kind === 'signature' || f.profile_key === 'signature') && !f.signed) return 'sign';
   if (f.check && !f.check.ok && BANK.has(f.profile_key)) return 'check';
   if (BANK.has(f.profile_key) && !f.confirmed) return 'confirm';
   if (f.check && !f.check.ok) return 'check';
   return 'ok';
 }
-export const STATE_COLORS = { sign: '#7c3aed', unmapped: '#d97706', confirm: '#dc2626', check: '#b45309', ok: '#16a34a' };
+export const STATE_COLORS = { sign: '#7c3aed', unmapped: '#d97706', confirm: '#dc2626', check: '#b45309', ok: '#16a34a', skip: '#6b7280' };
 
 export function summarize(fields) {
-  const s = { total: fields.length, unmapped: 0, confirm: 0, check: 0, ok: 0, sign: 0 };
+  const s = { total: fields.length, unmapped: 0, confirm: 0, check: 0, ok: 0, sign: 0, skip: 0 };
   for (const f of fields) s[fieldState(f)]++;
   return s;
 }
@@ -53,6 +63,7 @@ export function updateField(f, patch) {
   if ('value' in patch) { n.valueDirty = true; n.confirmed = false; }
   if ('profile_key' in patch && patch.profile_key !== f.profile_key) { n.confirmed = false; if (SENSITIVE.has(patch.profile_key) !== SENSITIVE.has(f.profile_key)) { n.value = ''; n.valueDirty = false; } }
   if ('confirmed' in patch) n.confirmDirty = true;
+  if (n.profile_key === SKIP_KEY && 'profile_key' in patch && (n.value || n.has_value)) { n.value = ''; n.valueDirty = true; } // skipped fields are never filled
   n.needs_confirm = BANK.has(n.profile_key);
   // Re-run the format check on every value/name edit so the box colour follows what's typed.
   if ('value' in patch || 'profile_key' in patch) n.check = n.profile_key && !SENSITIVE.has(n.profile_key) && n.value ? checkValue(n.profile_key, n.value) : null;
