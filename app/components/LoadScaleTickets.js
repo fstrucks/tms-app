@@ -38,7 +38,7 @@ export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardSty
               <li key={t.id} data-testid="load-ticket-row" style={{ borderTop: '1px solid #f1f5f9', padding: '8px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span>{mdy(t.ticket_date)}{t.truck_number ? ` · Truck #${t.truck_number}` : ''}
-                    {!t.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600 }}>Not confirmed</span>}</span>
+                    {!t.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-block' }}>Not confirmed</span>}</span>
                   <strong style={{ whiteSpace: 'nowrap' }}>{lb(t.gross_weight_lb)}</strong>
                 </div>
                 <div style={{ color: '#6b7280', fontSize: 13 }}>
