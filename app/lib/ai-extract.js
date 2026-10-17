@@ -171,7 +171,34 @@ export const DOC_TYPES = {
     normalize: normalizeReceipt,
     maxOutputTokens: 600,
   },
+  // COI / declarations page → suggested policy rows. Stored unconfirmed; the owner confirms each one.
+  coi: {
+    name: 'coi_policies',
+    prompt: [
+      'You are reading a US trucking certificate of insurance (ACORD 25) or an insurance declarations page. Return JSON only.',
+      'policies: one entry per coverage line shown. coverage is one of auto_liability (automobile liability / combined single limit),',
+      'cargo (motor truck cargo), general_liability, physical_damage, other.',
+      'insurer: insurer name for that line. policy_number exactly as printed. limit_amount: the main per-occurrence / CSL / cargo limit in USD as a number, or null.',
+      'effective_date and expiry_date as YYYY-MM-DD converted from what is printed (US month first), or null. Never guess.',
+      'If the document is not a COI or declarations page, return an empty policies array.',
+    ].join('\n'),
+    schema: {
+      type: 'object', additionalProperties: false, required: ['policies'],
+      properties: {
+        policies: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['coverage', 'insurer', 'policy_number', 'limit_amount', 'effective_date', 'expiry_date'],
+          properties: { coverage: { type: 'string', enum: ['auto_liability', 'cargo', 'general_liability', 'physical_damage', 'other'] }, insurer: str, policy_number: str,
+            limit_amount: { type: ['number', 'null'] }, effective_date: str, expiry_date: str } } },
+      },
+    },
+    normalize: (r) => ({ policies: Array.isArray(r?.policies) ? r.policies.slice(0, 12) : [] }),
+    maxOutputTokens: 900,
+  },
 };
+
+// Image → input_image; PDF data URL → input_file (Responses API).
+export function inputPart(dataUrl, filename = 'document.pdf') {
+  return /^data:application\/pdf/i.test(dataUrl || '') ? { type: 'input_file', filename, file_data: dataUrl } : { type: 'input_image', image_url: dataUrl };
+}
 
 // Calls OpenAI with one image (data URL). Returns { data } or { error: { status, publicMsg, log: [...] } }.
 export async function runExtraction(docType, { apiKey, dataUrl, timeoutMs = 45_000, normalizeOpts } = {}) {
@@ -188,7 +215,7 @@ export async function runExtraction(docType, { apiKey, dataUrl, timeoutMs = 45_0
       body: JSON.stringify({
         model: pickModel(),
         max_output_tokens: cfg.maxOutputTokens || 1000,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: cfg.prompt }, { type: 'input_image', image_url: dataUrl }] }],
+        input: [{ role: 'user', content: [{ type: 'input_text', text: cfg.prompt }, inputPart(dataUrl)] }],
         text: { format: { type: 'json_schema', name: cfg.name, strict: true, schema: cfg.schema } },
       }),
     });

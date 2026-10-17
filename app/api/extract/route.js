@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { noStoreFetch } from '../../lib/noStoreFetch';
+import { classifyDocText, decideDocKind } from '../../lib/docClassify';
+import { loadPdfjs } from '../../lib/packetPdfText';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,8 +25,11 @@ const stop = { type: ['object', 'null'], additionalProperties: false, required: 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'notes'],
+  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'notes'],
   properties: {
+    // Classification: a COI uploaded through the rate-con path must not be saved as a rate confirmation.
+    document_kind: { type: 'string', enum: ['rate_confirmation', 'coi', 'other'], description: 'coi = certificate of insurance / ACORD 25' },
+    heading_text: { ...str, description: 'The document title and main section labels, copied as printed (e.g. "CERTIFICATE OF LIABILITY INSURANCE, PRODUCER, INSURER A, CERTIFICATE HOLDER")' },
     broker_name: str,
     load_number: str,
     reference_numbers: { type: ['array', 'null'], items: { type: 'string' } },
@@ -123,7 +128,12 @@ export async function POST(req) {
   }
   if (!SUPPORTED.includes(mime)) { await finish('rejected'); return fail(415, 'Unsupported file type. Use PDF, JPEG, PNG or WebP.'); }
 
-  const dataUrl = `data:${mime};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  // Digital PDF: read the text layer first. A clear COI (ACORD 25 wording) is reclassified without an AI call.
+  let pdfText = '';
+  if (mime === 'application/pdf') pdfText = await pdfTextOf(bytes);
+  if (classifyDocText(pdfText) === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
   const filePart = mime === 'application/pdf'
     ? { type: 'input_file', filename: name, file_data: dataUrl }
     : { type: 'input_image', image_url: dataUrl };
@@ -143,7 +153,7 @@ export async function POST(req) {
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: 'Extract the load details from this trucking rate confirmation. Use null for anything not present. Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number.' },
+            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number.' },
             filePart,
           ],
         }],
@@ -165,10 +175,32 @@ export async function POST(req) {
   let extracted;
   try { extracted = JSON.parse(text); } catch { await finish('error'); return fail(502, GENERIC, 'parse', aiBody?.status, aiBody?.incomplete_details); }
 
+  const { document_kind: aiKind, heading_text: aiText, ...loadData } = extracted || {};
+  if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  extracted = loadData;
   const { error: upErr } = await admin.from('documents').update({ ai_extracted_data: extracted })
     .eq('id', doc.id).eq('user_id', user.id);
   if (upErr) { await finish('error'); return fail(500, GENERIC, 'save', upErr.message); }
 
   await finish('success');
   return json({ data: extracted });
+}
+
+// Text of the first pages of a digital PDF (empty for scans or on any error).
+async function pdfTextOf(bytes) {
+  try {
+    const lib = await loadPdfjs();
+    const pdf = await lib.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise;
+    let out = '';
+    for (let i = 1; i <= Math.min(pdf.numPages, 2); i++) out += ' ' + (await (await pdf.getPage(i)).getTextContent()).items.map((it) => it.str).join(' ');
+    return out;
+  } catch { return ''; }
+}
+
+// Save the upload as a COI (no load data) and tell the client.
+async function reclassifyCoi(admin, doc, user, finish) {
+  const { error } = await admin.from('documents').update({ doc_type: 'coi', ai_extracted_data: null }).eq('id', doc.id).eq('user_id', user.id);
+  if (error) { await finish('error'); return fail(500, GENERIC, 'reclassify', error.message); }
+  await finish('success');
+  return json({ reclassified: 'coi', docType: 'coi', data: null });
 }

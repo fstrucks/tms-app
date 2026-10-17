@@ -49,3 +49,29 @@ export const DOC_TYPE_LABEL = Object.fromEntries([
 export function docTypeShort(id) {
   return SCAN_DOC_TYPES.find((t) => t.id === id)?.short || (id || 'scan').toUpperCase();
 }
+
+// Documents page "Document type" for the Upload button. Rate confirmation keeps AI extraction (and COI auto-detect);
+// the rest are saved as-is. 'other' needs a name, so it stays in the scanner only.
+export const UPLOAD_TYPES = [
+  { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)', short: 'Rate confirmation' },
+  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other').map((t) => ({ id: t.id, label: t.label, short: t.label })),
+];
+export function uploadTypeFromQuery(search) {
+  const t = new URLSearchParams(search || '').get('type');
+  return UPLOAD_TYPES.some((x) => x.id === t) ? t : null;
+}
+// Change type on saved documents (server enforces the same in /api/documents/[id]/type).
+export const canChangeDocType = (role) => role === 'owner' || role === 'management';
+
+// PATCH /api/documents/:id/type. Never throws: { ok:true, docType, offerRead } from the SERVER response,
+// or { ok:false, error } on a network error (e.g. net::ERR_CONNECTION_CLOSED) or any non-2xx.
+export async function saveDocType({ id, docType, token, fetchImpl = fetch }) {
+  let res;
+  try {
+    res = await fetchImpl(`/api/documents/${id}/type`, { method: 'PATCH', cache: 'no-store', headers: { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ docType }) });
+  } catch { return { ok: false, error: 'Couldn’t reach the server. Type not changed.' }; }
+  const j = await res.json().catch(() => ({}));
+  const serverType = j?.document?.doc_type || j?.docType;
+  if (!res.ok || !serverType) return { ok: false, error: j?.error || `Couldn’t change the type (error ${res.status}). Type not changed.` };
+  return { ok: true, docType: serverType, offerRead: !!j.offerRead };
+}

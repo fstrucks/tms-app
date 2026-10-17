@@ -76,7 +76,7 @@ export async function postmarkSend({ token, from, replyTo, stream, to, cc, subje
   const payload = {
     From: from, To: to.join(', '), ...(cc.length ? { Cc: cc.join(', ') } : {}), ...(replyTo ? { ReplyTo: replyTo } : {}),
     Subject: subject, TextBody: body, MessageStream: stream, TrackOpens: false,
-    Attachments: [{ Name: filename, Content: Buffer.from(pdf).toString('base64'), ContentType: 'application/pdf' }],
+    ...(pdf ? { Attachments: [{ Name: filename, Content: Buffer.from(pdf).toString('base64'), ContentType: 'application/pdf' }] } : {}),
   };
   let r;
   try {

@@ -1,5 +1,6 @@
 import { serviceClient, packetAccess, isMissingSchema } from '../../../../lib/packetServer';
 import { randomUUID } from 'node:crypto';
+import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
 import { canSend, validateSend, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 
 export const runtime = 'nodejs';
@@ -30,7 +31,9 @@ export async function GET(req, { params, deps } = {}) {
   const { data: profile } = await sb.from('company_profiles').select('*').eq('owner_id', a.packet.owner_id).maybeSingle();
   const h = await history(sb, a.packet.id);
   const cfg = senderConfig(env);
+  const u = await monthlyUsage(sb, env);
   return json({
+    sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining },
     canSend: canSend(a.role), filled: !!a.packet.filled_path, filled_at: a.packet.filled_at ?? null, sent_at: a.packet.sent_at ?? null,
     from: cfg.from, replyTo: cfg.replyTo, allowedDomains: allowedDomains(env), configured: !!cfg.token,
     draft: defaultDraft(a.packet, profile?.legal_name), filename: attachmentName(a.packet),
@@ -74,6 +77,11 @@ export async function POST(req, { params, deps } = {}) {
     const last = rows.find((r) => r.postmark_message_id) || rows[0];
     return json({ error: last.postmark_message_id ? 'This packet was already sent. Confirm “Send again” to send it again.' : 'An earlier send of this packet wasn’t confirmed. Check with the broker, then confirm “Send again” if needed.', alreadySent: true, last: shape(last), sends: rows.map(shape) }, 409);
   }
+
+  // Shared monthly cap (packet_sends + coi_requests). Checked before anything is claimed or sent.
+  const usage = await monthlyUsage(sb, env);
+  if (usage.error) return json({ error: 'Could not check this month’s email limit. Nothing was sent.' }, 503);
+  if (capReached(usage)) return json({ error: CAP_MSG(usage), capReached: true, sendCap: { used: usage.used, cap: usage.cap, remaining: 0 } }, 429);
 
   const { data: pdfBlob } = await sb.storage.from('documents').download(a.packet.filled_path);
   if (!pdfBlob) return json({ error: 'Could not open the filled PDF. Fill the packet again. Nothing was sent.' }, 404);
@@ -119,7 +127,7 @@ export async function POST(req, { params, deps } = {}) {
     warnings.push('The email was sent, but saving it to the send history failed.');
   }
   const done = { ...row, sent_at: now, postmark_message_id: r.messageId || 'sent' };
-  return json({ ok: true, id: key, messageId: r.messageId, sent_at: now, logged: !warnings.length, ...(warnings.length ? { warning: warnings[0] } : {}), sends: [shape(done), ...rows.map(shape)] });
+  return json({ ok: true, id: key, messageId: r.messageId, sent_at: now, sendCap: { used: usage.used + 1, cap: usage.cap, remaining: Math.max(0, usage.cap - usage.used - 1) }, logged: !warnings.length, ...(warnings.length ? { warning: warnings[0] } : {}), sends: [shape(done), ...rows.map(shape)] });
 }
 
 function repeat(r, rows) {
