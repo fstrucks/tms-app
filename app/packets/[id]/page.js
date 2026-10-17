@@ -29,6 +29,20 @@ export default function PacketPage({ params }) {
   const [st, setSt] = useState({ loading: true });
   const pdf = useRef(null);
   const cache = useRef(new Map());
+  // Bumped when the PDF opens so renderPage gets a new identity and the mapper renders the page then (r5).
+  const [pdfReady, setPdfReady] = useState(0);
+  const openPdf = useCallback(async () => {
+    if (pdf.current) return { ok: true };
+    const bytes = await loadPacketPdf(id, { call: api, getToken: token });
+    if (bytes.error) return { error: bytes.error };
+    try {
+      const lib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      lib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs'; // copied from pdfjs-dist 4.10.38 (keep versions in sync)
+      pdf.current = await lib.getDocument({ data: bytes.data, isEvalSupported: false }).promise;
+    } catch (e) { console.error('[packet] pdf', e); return { error: 'Could not open the packet PDF. Reload to try again.' }; }
+    cache.current.clear(); setPdfReady((n) => n + 1);
+    return { ok: true };
+  }, [id]);
 
   const load = useCallback(async () => {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
@@ -36,7 +50,10 @@ export default function PacketPage({ params }) {
     if (d.setupNeeded) return setSt({ error: d.error, setup: true });
     if (d.error) return setSt(fieldsError(d));
     if (isProcessing(d.packet.status)) { // kick (idempotent) and refresh
+      // The PDF is stored at upload, so open it now: the page preview shows while fields are still being found.
+      const opened = openPdf();
       setSt({ ...d, loading: false });
+      opened.then((o) => { if (o.ok) setSt((cur) => (cur.packet ? { ...cur, pageCount: pdf.current.numPages } : cur)); });
       await api(`/api/packets/${id}/process`, { method: 'POST' });
       d = await api(`/api/packets/${id}/fields`);
       if (d.error) return setSt(fieldsError(d));
@@ -49,21 +66,15 @@ export default function PacketPage({ params }) {
         d = n;
       }
     }
-    if (!pdf.current) {
-      const bytes = await loadPacketPdf(id, { call: api, getToken: token });
-      if (bytes.error) return setSt({ error: bytes.error });
-      try {
-        const lib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-        lib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs'; // copied from pdfjs-dist 4.10.38 (keep versions in sync)
-        pdf.current = await lib.getDocument({ data: bytes.data, isEvalSupported: false }).promise;
-      } catch (e) { console.error('[packet] pdf', e); return setSt({ error: 'Could not open the packet PDF. Reload to try again.' }); }
-    }
+    const o = await openPdf();
+    if (o.error) return setSt({ error: o.error });
     setSt({ ...d, pageCount: pdf.current.numPages, loading: false });
-  }, [id]);
+  }, [id, openPdf]);
   useEffect(() => { load().catch((e) => { console.error('[packet] load', e); setSt({ error: 'Could not load the packet. Reload to try again.' }); }); }, [load]);
 
   // Render at 200 dpi-equivalent px so boxes line up with server coordinates; displayed scaled to width.
   const renderPage = useCallback(async (n) => {
+    if (!pdf.current) return null; // not open yet; called again when pdfReady changes
     if (cache.current.has(n)) return cache.current.get(n);
     const page = await pdf.current.getPage(n);
     const vp = page.getViewport({ scale: Math.min(DPI / 72, 2.2) });
@@ -72,7 +83,7 @@ export default function PacketPage({ params }) {
     const full = page.getViewport({ scale: DPI / 72 });
     const out = { url: c.toDataURL('image/jpeg', 0.85), w: full.width, h: full.height };
     cache.current.set(n, out); return out;
-  }, []);
+  }, [pdfReady]); // eslint-disable-line react-hooks/exhaustive-deps
   const onSave = useCallback((body) => api(`/api/packets/${id}/fields`, { method: 'PATCH', body: JSON.stringify(body) }), [id]);
   const onSign = useCallback((body) => api(`/api/packets/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }), [id]);
   // One automatic retry if the connection drops (cold start / slow fill); the server reuses a fill that already

@@ -1,7 +1,7 @@
 // Carrier packet G: PURE helpers that turn a saved layout into packet_fields rows, and filled packet rows into
 // a layout's `fields`. Server only (imports packetFingerprint → node:crypto). See docs/design/packet-layout-memory.md.
 import { mapPages, layoutKey, normalizeMc, matchDomain, normalizeText } from './packetFingerprint.js';
-import { validateNameKey } from './packetFieldNames.js';
+import { validateNameKey, isFillableKey, isUnnamedKey, isSkipKey, isCustomKey } from './packetFieldNames.js';
 import { canonicalLabel, labelSimilarity, FUZZY_LABEL, ruleKeyFor } from './packetLabelRules.js';
 
 export const LAYOUT_DPI = 200;
@@ -90,7 +90,21 @@ export function labelMatches(fields = [], layout = null) {
     const os = usable.filter((x) => !used.has(x) && x.kind === r.kind && x.key === k);
     if (os.length >= 1) take(r, os[0], 'meaning');
   }
-  return { matched, toCopy: matched.filter((m) => m.profile_key !== m.current) };
+  // r5: last time's name is only offered/applied when it is a fillable profile key AND the field now is unnamed or
+  // mapped to something worse (Left blank / custom). A field already mapped to a fillable key is never renamed, and
+  // skip / "Left blank" / custom (raw-label) names are never copied. → same | toCopy | kept
+  const toCopy = [], same = [], kept = [];
+  for (const m of matched) {
+    if (m.profile_key === m.current) same.push(m);
+    else if (canCopyName(m.profile_key, m.current)) toCopy.push(m);
+    else kept.push(m);
+  }
+  return { matched, toCopy, same, kept };
+}
+// True when last time's `oldKey` may replace the field's `currentKey`.
+export function canCopyName(oldKey, currentKey) {
+  if (!isFillableKey(oldKey) || oldKey === currentKey) return false;
+  return isUnnamedKey(currentKey) || isSkipKey(currentKey) || isCustomKey(currentKey);
 }
 // Back-compat: just the fields whose name would change.
 export const nameSuggestions = (fields = [], layout = null) => labelMatches(fields, layout).toCopy;

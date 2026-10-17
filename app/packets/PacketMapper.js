@@ -149,7 +149,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (handle(r)) return;
     if (r?.error) return setMsg(r.error);
     if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); if (store) clearDraft(store, packet.id); }
-    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}), ...(r.matched != null ? { matched: r.matched } : {}) } : li));
+    setLayoutInfo((li) => (li ? { ...li, state: r.state, ...(r.names != null ? { names: r.names } : {}), ...(r.matched != null ? { matched: r.matched } : {}), ...(r.same != null ? { same: r.same } : {}), ...(r.kept != null ? { kept: r.kept } : {}) } : li));
     setMsg(action === 'dismiss' ? (r.redetected ? 'Saved layout removed. Fields were found fresh.' : 'Saved layout removed.')
       : action === 'names' ? `${r.named ?? 0} field name${r.named === 1 ? '' : 's'} copied from last time. Review them before filling.`
       : `Saved layout used. ${r.placed ?? placedCount(r.fields || [])} fields placed. Review them before filling.`);
@@ -178,7 +178,15 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     setMsg(d?.packet?.processed_at && d.packet.processed_at !== before ? `Fields found again: ${d?.fields?.length ?? 0}.` : 'Still finding fields. Reload in a minute to see them.');
   }
   const handle = (r) => { if (r?.signedOut) { setSignedOut(true); setMsg(r.error); return true; } return false; };
-  useEffect(() => { let on = true; setImg(null); Promise.resolve(renderPage(page)).then((r) => on && setImg(r)); return () => { on = false; }; }, [page, renderPage]);
+  // renderPage changes identity once the PDF is open (r5: a fresh packet showed the mapper while still processing,
+  // the first render ran before the PDF existed, failed silently and never re-ran → stuck on "Loading page…").
+  const [imgErr, setImgErr] = useState(false);
+  useEffect(() => {
+    let on = true; setImg(null); setImgErr(false);
+    Promise.resolve().then(() => renderPage(page)).then((r) => { if (on && r) setImg(r); })
+      .catch((e) => { console.error('[packet] page render', e); if (on) setImgErr(true); });
+    return () => { on = false; };
+  }, [page, renderPage]);
 
   const onPage = byPosition(fields.filter((f) => f.page === page)); // top to bottom, then left to right
   const sum = useMemo(() => summarize(fields), [fields]);
@@ -350,7 +358,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
       </div>
       <div style={{ overflowX: zoom > 1 ? 'auto' : 'hidden', WebkitOverflowScrolling: 'touch', borderRadius: 6 }}>
       <div ref={wrap} onClick={tapPage} data-testid="page" style={{ touchAction: dragging ? 'none' : 'auto', position: 'relative', width: `${zoom * 100}%`, border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden', background: '#fff', cursor: placing ? 'crosshair' : 'default', aspectRatio: img ? `${img.w} / ${img.h}` : '8.5 / 11' }}>
-        {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>}
+        {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : (imgErr ? <p role="alert" style={{ ...s.muted, padding: '1rem' }}>Couldn’t show this page. Reload to try again.</p> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>)}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
           return <button key={f.id} data-field={f.id} aria-label={`${rowName(f)}: ${STATE_TEXT[st]}`}

@@ -31,6 +31,9 @@ export const isUnnamedKey = (k) => !k || (isCustomKey(k) && !customName(k));
 
 const BASE_KEYS = PROFILE_KEYS.filter((k) => k !== 'unknown');
 // Server-side validation of a stored name. Returns { key } (normalized) or { error }.
+// A real choice the fill can put a value into: a company-profile or contact/driver/equipment key. Not skip ("Left
+// blank"), not a custom/raw-label name, not unnamed.
+export const isFillableKey = (k) => typeof k === 'string' && !!k && !isCustomKey(k) && !isSkipKey(k) && (BASE_KEYS.includes(k) || EXTRA_KEYS.includes(k));
 export function validateNameKey(key, kind) {
   if (!key) return { key: null };
   if (isCustomKey(key)) {

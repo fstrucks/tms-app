@@ -2,7 +2,7 @@ import { serviceClient, packetAccess } from '../../../../lib/packetServer';
 import { toClient } from '../../../../lib/packetFieldEdits';
 import { processPacket } from '../../../../lib/packetProcess';
 import { scoreLayout } from '../../../../lib/packetFingerprint';
-import { packetIdentity, nameSuggestions, labelMatches, BANK_KEYS } from '../../../../lib/packetLayoutApply';
+import { packetIdentity, nameSuggestions, labelMatches, canCopyName, BANK_KEYS } from '../../../../lib/packetLayoutApply';
 import { getLayout, savePacketLayout, applyLayoutToPacket, packetHasLayoutColumns, isLayoutSchemaMissing, LAYOUT_MIGRATION, LAYOUT_MISSING_MSG } from '../../../../lib/packetLayouts';
 
 export const runtime = 'nodejs';
@@ -38,9 +38,9 @@ export async function GET(req, { params, deps } = {}) {
   // matched: fields that line up with last time (label, fuzzy label or meaning); names: how many of those would
   // change name (the rest already have last time's name); total: every field on the packet (same as the summary).
   const all = state ? await rawFields(sb, a.packet.id) : [];
-  const lm = state === 'changed' ? labelMatches(all, got.layout) : { matched: [], toCopy: [] };
+  const lm = state === 'changed' ? labelMatches(all, got.layout) : { matched: [], toCopy: [], same: [], kept: [] };
   return json({ available: true, state, score: a.packet.layout_score ?? null, layout: publicLayout(got.layout), broker_name,
-    names: lm.toCopy.length, matched: lm.matched.length, total: all.length, canEdit: a.canEdit });
+    names: lm.toCopy.length, matched: lm.matched.length, same: lm.same.length, kept: lm.kept.length, total: all.length, canEdit: a.canEdit });
 }
 
 async function rawFields(sb, packetId) {
@@ -88,12 +88,13 @@ export async function POST(req, { params, deps } = {}) {
     const sug = nameSuggestions(await rawFields(sb, p.id), got.layout);
     let named = 0;
     for (const x of sug) {
+      if (!canCopyName(x.profile_key, x.current)) continue; // belt and braces: never overwrite a fillable mapping
       const { error } = await sb.from('packet_fields').update({ profile_key: x.profile_key, updated_at: now, ...(BANK_KEYS.has(x.profile_key) ? { needs_confirm: true } : {}) }).eq('packet_id', p.id).eq('field_key', x.field_key);
       if (error) { console.error('[packets] layout names', error.code); return json({ error: 'Could not copy the names. Please try again.', named, fields: await fieldsOf(sb, p.id) }, 500); }
       named++;
     }
-    const after = await rawFields(sb, p.id);
-    return json({ ok: true, state: 'changed', named, names: 0, matched: labelMatches(after, got.layout).matched.length, total: after.length, fields: await fieldsOf(sb, p.id) });
+    const after = await rawFields(sb, p.id), lm2 = labelMatches(after, got.layout);
+    return json({ ok: true, state: 'changed', named, names: lm2.toCopy.length, matched: lm2.matched.length, same: lm2.same.length, kept: lm2.kept.length, total: after.length, fields: await fieldsOf(sb, p.id) });
   }
   if (p.layout_applied_at) return json({ ok: true, state: 'applied', fields: await fieldsOf(sb, p.id) });
   const got = await getLayout(sb, p.layout_id);

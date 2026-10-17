@@ -869,3 +869,79 @@ test('URGENT: the packet page says "Couldn’t load this packet’s fields. Try 
   assert.equal((page.match(/setSt\(fieldsError\(d\)\)/g) || []).length, 2);
   assert.match(page, /data-testid="fields-retry"/);
 });
+
+// ===================== Taylor's round-5 retest on #68 (2026-10-17). FAKE data only. =====================
+import { canCopyName } from '../../app/lib/packetLayoutApply.js';
+import { isFillableKey } from '../../app/lib/packetFieldNames.js';
+import { titleCandidates } from '../../app/lib/packetBrokerName.js';
+
+test('r5 1: last time’s "Trailer #" (custom, Left blank) never replaces a Trailer # already mapped to Trailer number — count and apply', async () => {
+  const sb = await acmeLearned();
+  await addPacket(sb, 2, await acmeWidePdf());
+  await processPacket({ sb, packetId: pid(2), reader: aiReader(AI) });
+  const L = sb.t.packet_layouts[0];
+  // Last time Taylor named the Trailer # blank with its raw label (custom) and it filled as "Left blank";
+  // plus a skip and a fillable name for the guard cases.
+  // Only these four old fields, so the case is exactly 7c0eda21's (no other old 'trailer' label to make it ambiguous).
+  L.fields = [];
+  sb.t.packet_fields = sb.t.packet_fields.filter((x) => x.packet_id !== pid(2) || !/trailer|notes|seal|driver/i.test(x.label || ''));
+  L.fields.push({ page: 1, kind: 'text', label: 'Trailer #', box: [100, 1500, 600, 1540], dpi: 200, page_w: 1700, page_h: 2200, profile_key: 'custom:Trailer #' },
+    { page: 1, kind: 'text', label: 'Notes:', box: [100, 1600, 600, 1640], dpi: 200, page_w: 1700, page_h: 2200, profile_key: 'skip' },
+    { page: 1, kind: 'text', label: 'Seal #', box: [100, 1700, 600, 1740], dpi: 200, page_w: 1700, page_h: 2200, profile_key: 'custom:Seal #' },
+    { page: 1, kind: 'text', label: 'Driver name:', box: [100, 1800, 600, 1840], dpi: 200, page_w: 1700, page_h: 2200, profile_key: 'driver_name' });
+  const row = (k, label, profile_key) => ({ id: k, packet_id: pid(2), owner_id: OWNER, field_key: k, page: 1, kind: 'text', label, box: [100, 1500, 600, 1540], source: 'model', profile_key, confidence: 0.9 });
+  sb.t.packet_fields.push(row('t-trailer', 'Trailer #', 'trailer_number'), row('t-notes', 'Notes:', null), row('t-seal', 'Seal #', 'skip'), row('t-driver', 'Driver name:', null));
+  const lm = labelMatches(sb.t.packet_fields.filter((x) => x.packet_id === pid(2)), L);
+  assert.ok(lm.matched.some((m) => m.field_key === 't-trailer')); // the label still lines up…
+  assert.deepEqual(lm.toCopy.map((m) => [m.field_key, m.profile_key]), [['t-driver', 'driver_name']]); // …but only the fillable name onto the unnamed field is offered
+  assert.deepEqual(lm.kept.map((m) => m.field_key).sort(), ['t-notes', 't-seal', 't-trailer']);
+  const g = await (await LAYOUT_GET(req('GET'), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(g.names, 1); assert.equal(g.kept, 3);
+  const b = layoutBanner(g, { canEdit: true });
+  assert.equal(b.button, 'Use 1 name from last time');
+  assert.match(b.text, /3 keep their current name; 1 can use last time’s name\./);
+  const r = await (await LAYOUT_POST(req('POST', { action: 'names' }), { params: { id: pid(2) }, deps: { sb, mkUserClient: uc('owner') } })).json();
+  assert.equal(r.named, 1); assert.equal(r.names, 0);
+  const by = Object.fromEntries(sb.t.packet_fields.filter((x) => x.packet_id === pid(2)).map((x) => [x.field_key, x.profile_key]));
+  assert.equal(by['t-trailer'], 'trailer_number'); // NOT 'custom:Trailer #'
+  assert.equal(by['t-notes'], null); assert.equal(by['t-seal'], 'skip'); assert.equal(by['t-driver'], 'driver_name');
+  // After copying, nothing is offered again.
+  const b2 = layoutBanner({ ...g, names: r.names, matched: r.matched, same: r.same, kept: r.kept }, { canEdit: true });
+  assert.equal(b2.action, null);
+});
+
+test('r5 1: canCopyName rules — only a fillable key, only onto unnamed / Left blank / custom', () => {
+  assert.equal(isFillableKey('trailer_number'), true); assert.equal(isFillableKey('legal_name'), true);
+  for (const k of ['skip', 'custom:Trailer #', '', null, 'nope']) assert.equal(isFillableKey(k), false, String(k));
+  assert.equal(canCopyName('custom:Trailer #', 'trailer_number'), false);
+  assert.equal(canCopyName('skip', 'trailer_number'), false);
+  assert.equal(canCopyName('skip', null), false);
+  assert.equal(canCopyName('custom:Trailer #', null), false);
+  assert.equal(canCopyName('truck_number', 'trailer_number'), false); // never swap one real choice for another
+  assert.equal(canCopyName('trailer_number', null), true);
+  assert.equal(canCopyName('trailer_number', 'custom:'), true);
+  assert.equal(canCopyName('trailer_number', 'skip'), true);
+  assert.equal(canCopyName('trailer_number', 'custom:Trailer #'), true);
+  assert.equal(canCopyName('trailer_number', 'trailer_number'), false);
+});
+
+test('r5 2: the page preview renders once the PDF opens (fresh packet still processing no longer sticks on "Loading page…")', () => {
+  const page = readFileSync('app/packets/[id]/page.js', 'utf8');
+  const mapper = readFileSync('app/packets/PacketMapper.js', 'utf8');
+  assert.match(page, /if \(!pdf\.current\) return null;/); // no throw before the PDF exists
+  assert.match(page, /\}, \[pdfReady\]\);/); // renderPage changes identity when the PDF opens → mapper re-renders
+  assert.match(page, /const opened = openPdf\(\);\s*setSt\(\{ \.\.\.d, loading: false \}\);/); // opened during processing
+  assert.match(mapper, /\.then\(\(\) => renderPage\(page\)\)\.then\(\(r\) => \{ if \(on && r\) setImg\(r\); \}\)\s*\.catch/);
+  assert.match(mapper, /Couldn’t show this page\. Reload to try again\./);
+});
+
+test('r5 3: broker from a title line with a trailing parenthetical: "Ridgeline Demo Logistics (FAKE TEST FORM)"', () => {
+  const pg = (lines, h = 2200) => ({ size: [1700, h], words: lines.flatMap((t, i) => t.split(' ').map((w, j) => ({ text: w, top: 100 + i * 60, left: 100 + j * 80 }))) });
+  assert.equal(detectBrokerName([pg(['Ridgeline Demo Logistics (FAKE TEST FORM)', 'Tractor information form'])]), 'Ridgeline Demo Logistics');
+  assert.equal(detectBrokerName([pg(['RIDGELINE DEMO LOGISTICS (FAKE TEST FORM)', 'Tractor information'])]), 'Ridgeline Demo Logistics');
+  assert.equal(detectBrokerName([pg(['Ridgeline Demo Freight Inc. (rev 3) (draft)', 'Tractor information'])]), 'Ridgeline Demo Freight Inc');
+  assert.equal(detectBrokerName([pg(['Ridgeline Demo Logistics – Tractor Form (FAKE)', 'x'])]), 'Ridgeline Demo Logistics');
+  assert.equal(detectBrokerName([pg(['Tractor information (FAKE TEST FORM)', 'Please complete'])]), null);
+  assert.equal(detectBrokerName([pg(['FST Fake Trucking LLC (FAKE)', 'x'])], { ownNames: ['FST Fake Trucking LLC'] }), null);
+  assert.deepEqual(titleCandidates('Acme Logistics (FAKE) '), ['Acme Logistics']);
+});

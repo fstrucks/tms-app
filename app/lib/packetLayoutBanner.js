@@ -27,8 +27,13 @@ export function layoutBanner(info, { canEdit = false, placed = 0, total: total0 
     const base = `${who} looks different from last time, so fields were found fresh.`;
     // "6 of 9 fields matched last time. 5 already have the same name; 1 can use last time’s name."
     const matchTxt = m > 0 && total > 0 ? ` ${m} of ${total} field${total === 1 ? '' : 's'} matched last time.` : '';
-    const same = m - n;
-    const detail = m > 0 ? (n > 0 ? ` ${same > 0 ? `${same} already ha${same === 1 ? 's' : 've'} the same name; ` : ''}${n} can use last time’s name.` : ' They already have the same names.') : '';
+    // kept: matched fields that keep their own (fillable) name rather than last time's (r5).
+    const kept = Math.max(0, Number(info.kept) || 0);
+    const same = info.same != null ? Math.max(0, Number(info.same) || 0) : Math.max(0, m - n - kept);
+    const keptTxt = kept > 0 ? `${kept} keep${kept === 1 ? 's its' : ' their'} current name` : '';
+    const sameTxt = same > 0 ? `${same} already ha${same === 1 ? 's' : 've'} the same name` : '';
+    const detail = m > 0 ? (n > 0 ? ` ${[sameTxt, keptTxt].filter(Boolean).map((t) => `${t}; `).join('')}${n} can use last time’s name.`
+      : kept > 0 ? ` ${[sameTxt, keptTxt].filter(Boolean).join('; ')}.` : ' They already have the same names.') : '';
     if (n > 0 && canEdit) return { kind: 'changed', text: `${base}${matchTxt}${detail}`, action: 'names', button: `Use ${n} name${n === 1 ? '' : 's'} from last time` };
     return { kind: 'changed', text: `${base}${matchTxt}${m > 0 && n === 0 ? detail : ''}`, action: null, button: null };
   }

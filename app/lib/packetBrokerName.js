@@ -9,6 +9,16 @@ const QUOTED = /\bbroker(?:age)?\b[^"“”]{0,24}["“]([^"”]{2,60})["”]/i;
 // Words that mean the "value" is really another label or a blank line.
 const NOT_A_NAME = /^(?:_+|name|mc|dot|phone|email|address|date|signature|carrier|n\/?a|none)\b/i;
 
+// A title line → the strings that may be the company name: the line minus trailing "(…)" groups, then its part
+// before a dash/pipe separator ("Acme Logistics – Carrier Setup").
+export function titleCandidates(line) {
+  let t = String(line ?? '').trim();
+  for (let i = 0; i < 3 && /\([^()]*\)\s*$/.test(t); i++) t = t.replace(/\s*\([^()]*\)\s*$/, '').trim();
+  const out = t ? [t] : [];
+  const head = t.split(/\s+[–—|-]\s+/)[0].trim();
+  if (head && head !== t) out.push(head);
+  return out;
+}
 export function cleanName(s) {
   let v = String(s ?? '').replace(/_{2,}.*$/, '').replace(/\s{2,}.*$/, '').replace(/["“”]/g, '').replace(/[\s,.;:–-]+$/, '').replace(/^[\s,.;:–-]+/, '').trim();
   v = v.replace(/\s*\((?:fake|test)[^)]*\)\s*$/i, '').trim();
@@ -33,8 +43,9 @@ export function detectBrokerName(pages = [], { ownNames = [] } = {}) {
     const H = p1.size?.[1] || Infinity;
     for (const l of pageLines(p1)) {
       if (l.top > H * 0.3) break;
-      const t = l.text.trim();
-      if (t.split(/\s+/).length <= 7 && SUFFIX.test(t)) { const v = ok(t); if (v) return v; }
+      // r5: drop trailing parentheticals ("Ridgeline Demo Logistics (FAKE TEST FORM)") and a " – Carrier Setup"
+      // style subtitle before looking for the company word.
+      for (const t of titleCandidates(l.text)) if (t.split(/\s+/).length <= 7 && SUFFIX.test(t)) { const v = ok(t); if (v) return v; }
     }
   }
   return null;
