@@ -384,7 +384,8 @@ test('banner (PacketMapper only): applied with "Don’t use this layout", sugges
 test('scope: PacketSendBroker.js and the #66 COI files are untouched by this branch', () => {
   let diff = '';
   try { diff = execSync('git diff --name-only origin/main...HEAD', { encoding: 'utf8' }) + execSync('git diff --name-only', { encoding: 'utf8' }); } catch { return; } // no git (CI tarball): skip
-  for (const f of ['app/packets/PacketSendBroker.js', 'app/packets/PacketCoiRequest.js', 'app/lib/coiRequest.js', 'app/lib/coiTemplate.js', 'app/lib/coiGaps.js']) assert.ok(!diff.includes(f), f);
+  // #68 is merged; PacketSendBroker.js is now changed on purpose by fix/broker-packet-cc (automatic CC).
+  for (const f of ['app/packets/PacketCoiRequest.js', 'app/lib/coiRequest.js', 'app/lib/coiTemplate.js', 'app/lib/coiGaps.js']) assert.ok(!diff.includes(f), f);
 });
 
 // ===================== Taylor's QA on #68 (2026-10-17): A–D. FAKE broker "Acme Test Logistics" only. =====================

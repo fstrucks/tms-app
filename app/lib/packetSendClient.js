@@ -34,3 +34,11 @@ export function outsideRecipients(to, cc, domains) {
 export function primaryButtonStyle(base, disabled) {
   return disabled ? { ...base, background: '#9ca3af', color: '#f9fafb', opacity: 0.6, cursor: 'not-allowed' } : { ...base, cursor: 'pointer' };
 }
+
+// Automatic copy (PACKET_CC_EMAIL, default marc@fstrucks.com): the address to CC, or null when it's off or already
+// one of the To addresses (case-insensitive; no duplicate copy to someone already receiving it).
+export function autoCcFor(autoCc, to = []) {
+  const a = String(autoCc || '').trim().toLowerCase();
+  if (!a) return null;
+  return (to || []).some((e) => String(e || '').trim().toLowerCase() === a) ? null : a;
+}

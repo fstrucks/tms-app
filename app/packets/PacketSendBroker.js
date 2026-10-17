@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { formatPacketDate, formatSentAt } from '../lib/packetDate';
 import { capLabel } from '../lib/sendCap';
-import { newSendKey as newKey, attemptOutcome, outsideRecipients, primaryButtonStyle } from '../lib/packetSendClient';
+import { newSendKey as newKey, attemptOutcome, outsideRecipients, primaryButtonStyle, autoCcFor } from '../lib/packetSendClient';
 
 const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' };
 const primary = { ...btn, border: 0, background: '#2563eb', color: '#fff', fontWeight: 600, width: '100%' };
@@ -27,6 +27,8 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
+  const copyTo = autoCcFor(info.autoCc, list(d.to)); // PACKET_CC_EMAIL copy, unless it's already a To address
+  const reviewCc = [...new Set([...list(d.cc).filter((e) => !list(d.to).includes(e)), ...(copyTo ? [copyTo] : [])])];
   const capFull = !!info.sendCap && info.sendCap.used >= info.sendCap.cap;
   const confirmedSends = (info.sends || []).filter((x) => x.confirmed || x.postmark_message_id);
   const lastSend = confirmedSends[0] || info.sends?.[0];
@@ -76,6 +78,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
           <input id="ps-subj" style={input} required maxLength={200} value={d.subject} onChange={(e) => setD({ ...d, subject: e.target.value })} />
           <label style={lab} htmlFor="ps-body">Message</label>
           <textarea id="ps-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD({ ...d, body: e.target.value })} />
+          {copyTo && <p data-testid="send-copy" style={{ fontSize: 13, color: '#6b7280', margin: '0.4rem 0 0' }}>A copy goes to {copyTo}.</p>}
           <p style={{ fontSize: 13, color: '#6b7280' }}>Attachment: {info.filename}</p>
           {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -88,7 +91,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             <dt style={{ fontWeight: 600 }}>From</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.from}</dd>
             <dt style={{ fontWeight: 600 }}>Replies go to</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.replyTo}</dd>
             <dt style={{ fontWeight: 600 }}>To</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.to).join(', ')}</dd>
-            {list(d.cc).length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.cc).join(', ')}</dd></>}
+            {reviewCc.length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd data-testid="send-review-cc" style={{ margin: '0 0 0.3rem' }}>{reviewCc.join(', ')}</dd></>}
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
             <dt style={{ fontWeight: 600 }}>Attachment</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.filename}{filledAt ? ` (filled ${formatPacketDate(filledAt)})` : ''}</dd>
           </dl>

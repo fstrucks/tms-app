@@ -1,7 +1,7 @@
 import { serviceClient, packetAccess, isMissingSchema } from '../../../../lib/packetServer';
 import { randomUUID } from 'node:crypto';
 import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
-import { canSend, validateSend, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
+import { canSend, validateSend, packetCcEmail, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +35,7 @@ export async function GET(req, { params, deps } = {}) {
   return json({
     sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining },
     canSend: canSend(a.role), filled: !!a.packet.filled_path, filled_at: a.packet.filled_at ?? null, sent_at: a.packet.sent_at ?? null,
-    from: cfg.from, replyTo: cfg.replyTo, allowedDomains: allowedDomains(env), configured: !!cfg.token,
+    from: cfg.from, replyTo: cfg.replyTo, autoCc: packetCcEmail(env), allowedDomains: allowedDomains(env), configured: !!cfg.token,
     draft: defaultDraft(a.packet, profile?.legal_name), filename: attachmentName(a.packet),
     sends: h.rows || [], ...(h.error && isMissingSchema(h.error) ? { setupNeeded: true, migration: SEND_MIGRATION } : {}),
   });
@@ -58,7 +58,7 @@ export async function POST(req, { params, deps } = {}) {
   if (!canSend(a.role)) return json({ error: 'Only the owner or management can send packets.' }, 403);
   const env = deps?.env || process.env;
   let b; try { b = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
-  const v = validateSend(b, env); // includes the server-side PACKET_SEND_ALLOWED_DOMAINS check on To + CC
+  const v = validateSend(b, env); // includes the server-side PACKET_SEND_ALLOWED_DOMAINS check on To + CC, then adds the PACKET_CC_EMAIL copy (logged in cc_emails)
   if (v.error) return json({ error: v.error, ...(v.blocked ? { blocked: v.blocked } : {}) }, v.status);
   const key = b.idempotencyKey == null ? (deps?.uuid || randomUUID)() : String(b.idempotencyKey).toLowerCase();
   if (!UUID.test(key)) return json({ error: 'Bad request (send id).' }, 400);
