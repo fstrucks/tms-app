@@ -138,7 +138,7 @@ test('Upload COI is a next/link to /documents?type=coi with no onClick', () => {
 test('migrations: 20261017001800 unchanged (already on prod); new optional 20261017001900 unique index is additive', () => {
   const m18 = read('../../supabase/migrations/20261017001800_insurance_coi.sql');
   assert.match(m18, /NOT applied anywhere yet/); // original header kept verbatim
-  const m19 = read('../../supabase/migrations/20261017001900_insurance_policy_suggest_unique.sql');
+  const m19 = read('../../supabase/migrations/20261017002000_insurance_policy_suggest_unique.sql');
   assert.match(m19, /create unique index if not exists insurance_policies_ai_suggest_unique/);
   assert.match(m19, /where source = 'ai' and confirmed = false/);
   assert.doesNotMatch(m19, /\bdrop\b|\bdelete\b|\btruncate\b|alter\s+table/i);
