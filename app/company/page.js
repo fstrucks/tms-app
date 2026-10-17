@@ -5,6 +5,7 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { PROFILE_FIELDS, validateProfile, maskEin } from '../lib/companyFields';
 import { ROLE_LABELS, canEdit as roleCanEdit, canSign as roleCanSign } from '../lib/companyRoles';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
+import CompanyInsurance from './CompanyInsurance';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
@@ -148,6 +149,7 @@ export default function CompanyProfilePage() {
         {editable && <button type="submit" style={{ ...s.btn, ...(busy ? { opacity: 0.6 } : null) }} disabled={busy}>{busy ? 'Saving…' : 'Save company profile'}</button>}
         {msg && <p role="status" style={{ marginTop: '0.75rem' }}>{msg}</p>}
       </form>
+      {p && <CompanyInsurance />}
     </main>
   );
 }

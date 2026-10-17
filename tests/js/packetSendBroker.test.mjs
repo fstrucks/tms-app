@@ -41,7 +41,7 @@ test('postmarkSend: payload shape (mock fetch), error 412 explained', async () =
 });
 
 function fakeSb({ packet, sendsTable = true, failUpdate = null, throwUpdate = null }) {
-  const tbl = { packets: [packet], packet_sends: [], company_profiles: [{ owner_id: 'owner1', legal_name: 'Test Trucking (FAKE)' }] };
+  const tbl = { packets: [packet], packet_sends: [], coi_requests: [], company_profiles: [{ owner_id: 'owner1', legal_name: 'Test Trucking (FAKE)' }] };
   const from = (name) => {
     const st = { op: 'select', f: [] };
     const run = () => {
@@ -50,7 +50,7 @@ function fakeSb({ packet, sendsTable = true, failUpdate = null, throwUpdate = nu
         if (st.payload.id && tbl[name].some((r) => r.id === st.payload.id)) return { error: { code: '23505', message: 'duplicate key' } };
         tbl[name].push({ id: 's' + tbl[name].length, sent_at: new Date().toISOString(), ...st.payload }); return { error: null };
       }
-      const rows = tbl[name].filter((r) => st.f.every(([k, v]) => r[k] === v));
+      const rows = tbl[name].filter((r) => st.f.every(([k, v]) => r[k] === v) && (!st.g || String(r[st.g[0]]) >= st.g[1]));
       if (st.op === 'update') {
         if (throwUpdate === name) throw new Error('boom (FAKE)');
         if (failUpdate === name) return { error: { code: 'XX000', message: 'fake failure' } };
@@ -59,7 +59,7 @@ function fakeSb({ packet, sendsTable = true, failUpdate = null, throwUpdate = nu
       if (st.op === 'delete') { tbl[name] = tbl[name].filter((r) => !rows.includes(r)); return { error: null }; }
       return { data: st.one ? rows[0] || null : rows, error: null };
     };
-    const b = { select() { return b; }, eq(k, v) { st.f.push([k, v]); return b; }, order() { return b; }, limit() { return b; },
+    const b = { select() { return b; }, eq(k, v) { st.f.push([k, v]); return b; }, gte(k, v) { st.g = [k, v]; return b; }, order() { return b; }, limit() { return b; },
       update(p) { st.op = 'update'; st.payload = p; return b; }, delete() { st.op = 'delete'; return b; }, insert(p) { st.op = 'insert'; st.payload = p; return b; },
       maybeSingle: async () => { st.one = true; return run(); }, then: (res, rej) => Promise.resolve().then(run).then(res, rej) };
     return b;
@@ -233,7 +233,7 @@ test('iPhone: Fill & download bar hidden during send write/review (unless unsave
   const m = readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
   assert.match(m, /canEdit && !\(hideActionBar && !dirty\) &&/);
   const p = readFileSync(new URL('../../app/packets/[id]/page.js', import.meta.url), 'utf8');
-  assert.match(p, /hideActionBar=\{sendStep === 'write' \|\| sendStep === 'review'\}/); assert.match(p, /onStepChange=\{setSendStep\}/);
+  assert.match(p, /hideActionBar=\{sendStep === 'write' \|\| sendStep === 'review'( \|\| coiStep === 'write' \|\| coiStep === 'review')?\}/); assert.match(p, /onStepChange=\{setSendStep\}/);
   const c = readFileSync(new URL('../../app/packets/PacketSendBroker.js', import.meta.url), 'utf8');
   assert.match(c, /idempotencyKey: k/); assert.match(c, /resend: true/); assert.match(c, /already sent on/); assert.match(c, /attemptOutcome\(h\.sends, k\)/);
 });
