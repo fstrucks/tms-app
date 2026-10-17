@@ -38,6 +38,7 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
     const api = {
       select() { if (st.op !== 'select') st.wantRow = true; return api; },
       eq(c, v) { st.eqs.push([c, v]); st.filters.push((r) => r[c] === v); return api; },
+      is(c, v) { st.eqs.push([`is:${c}`, v]); st.filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api; },
       in(c, vs) { st.ins.push([c, vs]); st.filters.push((r) => vs.includes(r[c])); return api; },
       order(c, o = {}) { st.order.push([c, o.ascending !== false]); return api; },
       limit(n) { st.lim = n; return api; },
