@@ -2,6 +2,8 @@
 // Each doc type supplies { name, prompt, schema, normalize }. Only 'receipt' is wired up today;
 // BOL etc. can add an entry to DOC_TYPES and reuse runExtraction().
 
+import { normalizeScaleTicket } from './truckFields.js';
+
 export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o'];
 export const pickModel = () => (ALLOWED_MODELS.includes(process.env.OPENAI_MODEL) ? process.env.OPENAI_MODEL : DEFAULT_MODEL);
@@ -192,6 +194,30 @@ export const DOC_TYPES = {
     },
     normalize: (r) => ({ policies: Array.isArray(r?.policies) ? r.policies.slice(0, 12) : [] }),
     maxOutputTokens: 900,
+  },
+  // Truck tab: CAT / certified scale ticket → weights + date. Saved unconfirmed; the user checks it.
+  scale_ticket: {
+    name: 'scale_ticket',
+    prompt: [
+      'You are reading a US truck scale ticket (CAT Scale or another certified scale). Return JSON only.',
+      'gross_weight_lb: the GROSS weight in pounds as a number (e.g. "78,420 LB" → 78420). Never guess.',
+      'steer_axle_lb, drive_axle_lb, trailer_axle_lb: the axle-group weights (steer, drive, trailer/tandem) in pounds, or null if not printed.',
+      'ticket_date: the weigh date converted to YYYY-MM-DD (US month first), or null if not printed. Never use today\'s date.',
+      'scale_name: the scale company, number and town if printed.',
+      'If the image is not a scale ticket, set is_scale_ticket false and the rest null.',
+    ].join('\n'),
+    schema: {
+      type: 'object', additionalProperties: false,
+      required: ['is_scale_ticket', 'gross_weight_lb', 'steer_axle_lb', 'drive_axle_lb', 'trailer_axle_lb', 'ticket_date', 'scale_name'],
+      properties: {
+        is_scale_ticket: { type: 'boolean' },
+        gross_weight_lb: { type: ['number', 'null'] }, steer_axle_lb: { type: ['number', 'null'] },
+        drive_axle_lb: { type: ['number', 'null'] }, trailer_axle_lb: { type: ['number', 'null'] },
+        ticket_date: str, scale_name: str,
+      },
+    },
+    normalize: (r) => normalizeScaleTicket(r),
+    maxOutputTokens: 300,
   },
 };
 

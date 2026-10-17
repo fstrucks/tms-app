@@ -5,6 +5,7 @@ import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fmtMoney, fmtPerMile } from '../lib/money';
+import MileagePanel from './MileagePanel';
 import { fetchPaged, buildWeeks, localISO, aggregate, summarize, REVENUE_RULE } from '../lib/dashboard';
 
 const s = {
@@ -98,6 +99,15 @@ export default function DashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [truncated, setTruncated] = useState(false);
+  // Stats has two views: Overview (weekly dashboard) and Mileage (moved here from its own tab). URL: ?view=mileage.
+  const [view, setView] = useState('overview');
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('view') === 'mileage') setView('mileage'); }, []);
+  function pickView(v) {
+    setView(v);
+    const q = new URLSearchParams(window.location.search);
+    if (v === 'mileage') q.set('view', 'mileage'); else q.delete('view');
+    window.history.replaceState(null, '', `/dashboard${q.toString() ? `?${q}` : ''}`);
+  }
 
   async function load(weeksCount) {
     setBusy(true); setError(null);
@@ -152,6 +162,12 @@ export default function DashboardPage() {
 
   return (
     <main style={s.main}>
+      <div role="tablist" aria-label="Stats views" style={{ display: 'flex', gap: '0.4rem', margin: '0.25rem 0 0.5rem' }}>
+        {[['overview', 'Overview'], ['mileage', 'Mileage']].map(([v, label]) => (
+          <button key={v} type="button" role="tab" aria-selected={view === v} data-testid={`stats-view-${v}`} onClick={() => pickView(v)} style={{ ...s.tab(view === v), minHeight: 44 }}>{label}</button>
+        ))}
+      </div>
+      {view === 'mileage' ? <MileagePanel /> : (<>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.5rem', margin: '0.25rem 0' }}>Weekly dashboard</h1>
         <div style={{ display: 'flex', gap: '0.4rem' }}>
@@ -197,6 +213,7 @@ export default function DashboardPage() {
             )}
           </>
         )}
+      </>)}
     </main>
   );
 }

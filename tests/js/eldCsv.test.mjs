@@ -105,8 +105,11 @@ test('post-import redirect URL + banner message', async () => {
 test('import -> router.replace to Mileage; banner is dismissible and params are cleared', () => {
   const ui = strip(readFileSync(new URL('../../app/mileage/import/EldImport.js', import.meta.url), 'utf8'));
   assert.match(ui, /router\.replace\(importedUrl\(n, skipped\)\)/);
-  const page = strip(readFileSync(new URL('../../app/mileage/page.js', import.meta.url), 'utf8'));
+  // Mileage moved inside Stats (PR #69): /mileage redirects to /dashboard?view=mileage keeping ?imported=….
+  const redirectPage = strip(readFileSync(new URL('../../app/mileage/page.js', import.meta.url), 'utf8'));
+  assert.match(redirectPage, /redirect\(mileageRedirectUrl\(searchParams\)\)/);
+  const page = strip(readFileSync(new URL('../../app/dashboard/MileagePanel.js', import.meta.url), 'utf8'));
   assert.match(page, /importedMessage\(window\.location\.search\)/);
-  assert.match(page, /router\.replace\('\/mileage', \{ scroll: false \}\)/);
+  assert.match(page, /router\.replace\(MILEAGE_VIEW_URL, \{ scroll: false \}\)/);
   assert.match(page, /aria-label="Dismiss" onClick=\{\(\) => setImportNote\(null\)\}/);
 });

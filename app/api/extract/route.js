@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { noStoreFetch } from '../../lib/noStoreFetch';
 import { classifyDocText, decideDocKind } from '../../lib/docClassify';
 import { loadPdfjs } from '../../lib/packetPdfText';
+import { parseWeightLb } from '../../lib/loadWeight';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ const stop = { type: ['object', 'null'], additionalProperties: false, required: 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'notes'],
+  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'weight', 'notes'],
   properties: {
     // Classification: a COI uploaded through the rate-con path must not be saved as a rate confirmation.
     document_kind: { type: 'string', enum: ['rate_confirmation', 'coi', 'other'], description: 'coi = certificate of insurance / ACORD 25' },
@@ -39,6 +40,8 @@ const schema = {
     delivery: stop,
     rate: { type: ['number', 'null'], description: 'Total linehaul/all-in rate in USD' },
     equipment_type: { ...str, description: 'Trailer/equipment required, as written, e.g. "53\' Dry Van", "Reefer", "Flatbed"' },
+    // Truck tab compares scale tickets with this (PR #69 fix A). Text as printed; parsed to weight_lb below.
+    weight: { ...str, description: 'Total cargo/load weight exactly as printed, with units, e.g. "38,500 lbs"' },
     notes: str,
   },
 };
@@ -153,7 +156,7 @@ export async function POST(req) {
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number.' },
+            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units.' },
             filePart,
           ],
         }],
@@ -177,7 +180,7 @@ export async function POST(req) {
 
   const { document_kind: aiKind, heading_text: aiText, ...loadData } = extracted || {};
   if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi') return reclassifyCoi(admin, doc, user, finish);
-  extracted = loadData;
+  extracted = { ...loadData, weight_lb: parseWeightLb(loadData.weight) };
   const { error: upErr } = await admin.from('documents').update({ ai_extracted_data: extracted })
     .eq('id', doc.id).eq('user_id', user.id);
   if (upErr) { await finish('error'); return fail(500, GENERIC, 'save', upErr.message); }
