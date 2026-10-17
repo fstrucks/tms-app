@@ -25,7 +25,8 @@ test('guardrail: default fstrucks.com only; configurable; * disables', () => {
   assert.equal(validateSend({ ...OK, cc: 'cc@other.example' }, {}).status, 403);
   assert.equal(validateSend({ ...OK, confirm: undefined }, {}).status, 400);
   assert.equal(validateSend({ ...OK, subject: 'a\r\nBcc: x' }, {}).subject, 'a Bcc: x');
-  assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, {}).cc, []);
+  assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, {}).cc, ['marc@fstrucks.com']); // typed CC = To dropped; the automatic copy (PACKET_CC_EMAIL default) stays
+  assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, { PACKET_CC_EMAIL: 'none' }).cc, []);
 });
 
 test('postmarkSend: payload shape (mock fetch), error 412 explained', async () => {
@@ -91,7 +92,7 @@ test('send route: management sends via (mock) Postmark, logs who/when/to/message
   assert.equal(r.status, 200); const j = await r.json();
   assert.equal(j.messageId, 'pm-123'); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].ReplyTo, 'marc@fstrucks.com');
   const log = sb.tbl.packet_sends[0];
-  assert.equal(log.sent_by, 'u-management'); assert.deepEqual(log.to_emails, ['dispatch@fstrucks.com']); assert.deepEqual(log.cc_emails, ['ops@fstrucks.com']); assert.equal(log.postmark_message_id, 'pm-123'); assert.ok(log.sent_at);
+  assert.equal(log.sent_by, 'u-management'); assert.deepEqual(log.to_emails, ['dispatch@fstrucks.com']); assert.deepEqual(log.cc_emails, ['ops@fstrucks.com', 'marc@fstrucks.com']); assert.equal(f.calls[0].Cc, 'ops@fstrucks.com, marc@fstrucks.com'); assert.equal(log.postmark_message_id, 'pm-123'); assert.ok(log.sent_at);
   assert.equal(sb.tbl.packets[0].status, 'sent'); assert.equal(j.sends.length, 1);
   const g = await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('driver'), env: ENV } })).json();
   assert.equal(g.canSend, false); assert.equal(g.sends.length, 1); assert.deepEqual(g.allowedDomains, ['fstrucks.com']); assert.match(g.draft.subject, /Test Trucking \(FAKE\)/);

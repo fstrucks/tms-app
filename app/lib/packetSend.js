@@ -1,10 +1,22 @@
 // Carrier packet step F: Send to broker. Pure helpers (validation, guardrail, draft, Postmark call) so the
 // route stays thin and everything is unit-testable with a mocked fetch. Nothing here sends on its own.
+import { autoCcFor, uniqueEmails } from './packetSendClient.js';
 export const SEND_MIGRATION = '20261016001700_packet_sends.sql';
 export const SEND_ROLES = new Set(['owner', 'management']);
 export const canSend = (r) => SEND_ROLES.has(r);
 const EMAIL = /^[^\s@<>(),;:"\[\]]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 export const MAX_RECIPIENTS = 10;
+export const DEFAULT_PACKET_CC = 'marc@fstrucks.com';
+
+// PACKET_CC_EMAIL: the address copied on every packet sent to a broker. Unset/empty → marc@fstrucks.com.
+// 'none' / 'off' turns the copy off. An invalid value is ignored (no copy) and logged.
+export function packetCcEmail(env = process.env) {
+  const v = String(env?.PACKET_CC_EMAIL ?? '').trim().toLowerCase();
+  if (!v) return DEFAULT_PACKET_CC;
+  if (v === 'none' || v === 'off') return null;
+  if (!EMAIL.test(v)) { console.error('[packets] PACKET_CC_EMAIL is not a valid email; no automatic copy'); return null; }
+  return v;
+}
 export const POSTMARK_TIMEOUT_MS = 20000;
 
 // "a@x.com, b@y.com; c@z.com" → { list } | { error }
@@ -65,9 +77,11 @@ export function validateSend(b, env = process.env) {
   if (!body) return { error: 'Add a message.', status: 422 };
   if (body.length > 10000) return { error: 'Message is too long.', status: 422 };
   const ccList = cc.list.filter((e) => !to.list.includes(e));
+  // The domain limit applies to what the user typed (To + CC), exactly as before; the automatic copy is added after.
   const blocked = blockedRecipients([...to.list, ...ccList], allowedDomains(env));
   if (blocked.length) return { error: `Sending is limited to ${allowedDomains(env).join(', ')} for now. Not allowed: ${blocked.join(', ')}.`, status: 403, blocked };
-  return { to: to.list, cc: ccList, subject, body };
+  const autoCc = autoCcFor(packetCcEmail(env), to.list);
+  return { to: to.list, cc: uniqueEmails([...ccList, ...(autoCc ? [autoCc] : [])]).map((e) => e.toLowerCase()), autoCc, subject, body };
 }
 
 // One Postmark /email call. fetchImpl is injected (tests use a mock; nothing real is sent in tests).
