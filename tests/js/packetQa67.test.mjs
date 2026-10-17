@@ -11,9 +11,10 @@ import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../../a
 
 const src = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const P1 = '00000000-0000-4000-8000-0000000000b1', P2 = '00000000-0000-4000-8000-0000000000b2', P3 = '00000000-0000-4000-8000-0000000000b3';
+const P4 = '00000000-0000-4000-8000-0000000000b4', P5 = '00000000-0000-4000-8000-0000000000b5';
 
 // --- 2: "Name N fields" -------------------------------------------------------------------------------
-test('unnamed fields: "Name N fields" (amber, To do) beats Ready / Signed / Filled; same rule as the badge', () => {
+test('unnamed fields: "Name N fields" (amber, To do) beats Ready / Needs signature, loses to Filled / Signed; same rule as the badge', () => {
   const fields = [{ profile_key: 'legal_name' }, { profile_key: null }, { profile_key: '' }, { kind: 'text' }, { profile_key: 'mc_number' }, { profile_key: 'phone' }, { profile_key: 'email' }, { profile_key: 'date' }];
   const sum = fieldSummary(fields);
   assert.equal(sum.unnamed, 3);
@@ -23,8 +24,19 @@ test('unnamed fields: "Name N fields" (amber, To do) beats Ready / Signed / Fill
   assert.match(d.color, /^#[0-9a-f]{6}$/);
   assert.equal(DISPLAY.needs_names.color, '#d97706'); // amber, same as the badge
   assert.equal(namesLabel(1), 'Name 1 field');
-  assert.equal(packetDisplayStatus({ status: 'review', filled_at: 'x' }, sum).key, 'needs_names');
+  // Beats Needs signature and Ready to fill out.
   assert.equal(packetDisplayStatus({ status: 'review' }, { ...sum, sigTotal: 1, sigSigned: 0 }).key, 'needs_names');
+  // Filled and Signed win: once filled / fully signed, unnamed boxes don't block anything.
+  assert.deepEqual(packetDisplayStatus({ status: 'review', filled_at: 'x' }, sum), { key: 'filled', ...DISPLAY.filled });
+  assert.equal(packetDisplayStatus({ status: 'review', filled_at: 'x' }, { ...sum, sigTotal: 1, sigSigned: 1 }).key, 'filled');
+  assert.deepEqual(packetDisplayStatus({ status: 'review' }, { ...sum, sigTotal: 1, sigSigned: 1 }), { key: 'signed', ...DISPLAY.signed });
+  // A filled packet with an unsigned signature is not Filled yet → unnamed fields show first, as before.
+  assert.equal(packetDisplayStatus({ status: 'review', filled_at: 'x' }, { ...sum, sigTotal: 1, sigSigned: 0 }).key, 'needs_names');
+  // No unnamed fields: same order as before (Needs signature → Filled → Signed → Ready).
+  const named = { fieldCount: 8, unnamed: 0 };
+  assert.equal(packetDisplayStatus({ status: 'review', filled_at: 'x' }, { ...named, sigTotal: 1, sigSigned: 0 }).key, 'needs_signature');
+  assert.equal(packetDisplayStatus({ status: 'review', filled_at: 'x' }, { ...named, sigTotal: 1, sigSigned: 1 }).key, 'filled');
+  assert.equal(packetDisplayStatus({ status: 'review' }, { ...named, sigTotal: 1, sigSigned: 1 }).key, 'signed');
   // Pipeline / terminal states still win.
   for (const st of ['received', 'processing', 'error', 'archived', 'sent']) assert.equal(packetDisplayStatus({ status: st }, sum).key, st);
   assert.equal(packetDisplayStatus({ status: 'review', sent_at: 'x' }, sum).key, 'sent');
@@ -71,12 +83,16 @@ test('list API: unnamed counts come from the existing signature query (no extra 
     { id: P1, owner_id: 'o', status: 'review', created_at: '2026-10-17T16:50:00Z' },
     { id: P2, owner_id: 'o', status: 'review', created_at: '2026-10-17T16:00:00Z' },
     { id: P3, owner_id: 'o', status: 'review', created_at: '2026-10-17T15:00:00Z' },
+    { id: P4, owner_id: 'o', status: 'review', created_at: '2026-10-17T14:00:00Z' },
+    { id: P5, owner_id: 'o', status: 'review', filled_at: '2026-10-17T14:30:00Z', created_at: '2026-10-17T13:00:00Z' },
   ];
   const pf = [
     ...['legal_name', 'mc_number', 'phone', 'email', 'date'].map((k) => ({ packet_id: P1, kind: 'text', profile_key: k })),
     { packet_id: P1, kind: 'text', profile_key: null }, { packet_id: P1, kind: 'text', profile_key: null }, { packet_id: P1, kind: 'text', profile_key: null },
     { packet_id: P2, kind: 'text', profile_key: 'legal_name' }, { packet_id: P2, kind: 'signature', profile_key: 'signature', signature_path: 'o/s.png' },
     { packet_id: P3, kind: 'signature', profile_key: null }, // unnamed signature box: counts as both
+    { packet_id: P4, kind: 'text', profile_key: null }, { packet_id: P4, kind: 'signature', profile_key: 'signature', signature_path: 'o/s.png' }, // signed + 1 unnamed → Signed
+    { packet_id: P5, kind: 'text', profile_key: null }, // filled + 1 unnamed → Filled
   ];
   const sb = fakeSb({ packets, packet_fields: pf });
   const r = await listPackets({ uc: fakeUc(packets), sb });
@@ -84,6 +100,8 @@ test('list API: unnamed counts come from the existing signature query (no extra 
   assert.deepEqual([by[P1].display, by[P1].label, by[P1].unnamed, by[P1].fieldCount], ['needs_names', 'Name 3 fields', 3, 8]);
   assert.deepEqual([by[P2].display, by[P2].unnamed], ['signed', 0]);
   assert.deepEqual([by[P3].display, by[P3].label, by[P3].sigTotal], ['needs_names', 'Name 1 field', 1]);
+  assert.deepEqual([by[P4].display, by[P4].unnamed], ['signed', 1]);
+  assert.deepEqual([by[P5].display, by[P5].unnamed], ['filled', 1]);
   assert.equal(sb.log.length, 2); // still 2 service queries
   const fq = sb.log.find((q) => q.name === 'packet_fields');
   assert.equal(fq.cols, 'packet_id,kind,profile_key,signature_path'); // no values / ciphertext

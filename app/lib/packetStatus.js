@@ -50,10 +50,12 @@ export function packetDisplayStatus(packet, summary) {
     if (st === 'sent' || packet?.sent_at) return 'sent';
     if (!summary) return 'ready';
     if (summary.fieldCount === 0) return 'needs_fields';
-    if (summary.unnamed > 0) return 'needs_names'; // before Ready/Signed/Filled: unnamed fields can't be filled
-    if (summary.sigTotal > summary.sigSigned) return 'needs_signature';
-    if (packet?.filled_at) return 'filled';
-    if (summary.sigTotal > 0) return 'signed';
+    const unsigned = summary.sigTotal > summary.sigSigned;
+    // Filled / Signed win over "Name N fields": once filled or fully signed, unnamed boxes don't block anything.
+    if (!unsigned && packet?.filled_at) return 'filled';
+    if (!unsigned && summary.sigTotal > 0) return 'signed';
+    if (summary.unnamed > 0) return 'needs_names'; // still beats Needs signature / Ready to fill out
+    if (unsigned) return 'needs_signature';
     return 'ready';
   })();
   if (key === 'needs_names') return { key, ...DISPLAY[key], label: namesLabel(summary.unnamed) };
