@@ -77,12 +77,35 @@ export function inviteRows(users, members, profile) {
 }
 
 // Rate limit from data we already have (no table): invites/resends this owner made in the last hour, read from
-// user_metadata.invite_log (timestamps the route writes), plus a per-address cooldown from invited_at.
+// app_metadata logs (owner's invite_sends + each invitee's tester_invite.log), plus a per-address cooldown.
 const hourAgo = (now) => now - 60 * 60 * 1000;
+// Sends are also kept on the OWNER's own app_metadata.invite_sends, so a send still counts if its per-invitee record
+// failed to save, or the invitee was later cancelled (deleteUser removes their log). Count = union of both, deduped
+// per timestamp (see recentSends), so older per-invitee logs keep counting too.
+export const ownerSends = (users, ownerId) => {
+  const o = (users || []).find((u) => u.id === ownerId);
+  const a = o?.app_metadata?.invite_sends;
+  return Array.isArray(a) ? a.filter((t) => typeof t === 'string') : [];
+};
+// Multiset union: per timestamp, max(count in owner ledger, count in invitee logs), so the same send logged in both
+// places counts once, while separate sends that share a millisecond still each count.
 export function recentSends(users, ownerId, now = Date.now()) {
+  const a = new Map(), b = new Map();
+  const add = (m, t) => { if (Date.parse(t) > hourAgo(now)) m.set(t, (m.get(t) || 0) + 1); };
+  for (const t of ownerSends(users, ownerId)) add(a, t);
+  for (const u of users || []) if (inviteMeta(u).by === ownerId) for (const t of inviteMeta(u).log || []) add(b, t);
   let n = 0;
-  for (const u of users || []) if (inviteMeta(u).by === ownerId) for (const t of inviteMeta(u).log || []) if (Date.parse(t) > hourAgo(now)) n++;
+  for (const t of new Set([...a.keys(), ...b.keys()])) n += Math.max(a.get(t) || 0, b.get(t) || 0);
   return n;
+}
+// Append one send to the owner's ledger (fresh app_metadata from the admin list; other keys kept). → error | null
+export async function noteOwnerSend(admin, users, ownerId, now) {
+  const o = (users || []).find((u) => u.id === ownerId);
+  const at = new Date(now).toISOString();
+  const invite_sends = [...ownerSends(users, ownerId).filter((t) => Date.parse(t) > hourAgo(now)), at].slice(-50);
+  const r = await Promise.resolve(admin.updateUserById(ownerId, { app_metadata: { ...(o?.app_metadata || {}), invite_sends } })).catch((e) => ({ error: e }));
+  if (r?.error) console.error('[invites] owner send log', r.error.code || r.error.status || '');
+  return r?.error || null;
 }
 export function rateLimit(users, ownerId, target, now = Date.now(), { limit = HOURLY_LIMIT, cooldownMs = RESEND_COOLDOWN_MS } = {}) {
   if (recentSends(users, ownerId, now) >= limit) return { error: `You’ve sent ${limit} invites in the last hour. Try again later.`, status: 429 };
@@ -131,6 +154,7 @@ export async function invite({ sb, owner, profile, input, redirectTo, now = Date
     ...(inviterName(owner) ? { inviter_name: inviterName(owner) } : {}) };
   const { data, error } = await admin.inviteUserByEmail(input.email, { redirectTo, data: data0 });
   if (error) return inviteError(error, input.email);
+  await noteOwnerSend(admin, all.users, owner.id, now); // counts toward the hourly limit even if the steps below fail
   const user = data?.user;
   if (!user?.id) return { error: 'The invite didn’t return a user. Check the list before trying again.', status: 502 };
   // The list shows an invite only if at least one of these two writes landed (inviteRows: app_metadata record OR
@@ -167,6 +191,7 @@ export async function resend({ sb, owner, profile, email, redirectTo, now = Date
   // GoTrue re-sends the invite for an existing, unconfirmed user.
   const { error } = await admin.inviteUserByEmail(normalizeEmail(u.email), { redirectTo });
   if (error) return inviteError(error, u.email);
+  await noteOwnerSend(admin, all.users, owner.id, now);
   await record(admin, u, inviteMeta(u).by || owner.id, profile, role, keepLog(u, now)); // this send counts toward the hourly limit
   const m = await ensureMembership(sb, profile, u.id, role);
   return { ok: true, user: u, emailed: true, linked: !m.error, ...(m.error ? { warning: 'Resent, but adding them to your company failed. Try Resend again later.' } : {}) };
@@ -241,4 +266,14 @@ export function redirectFor(req) {
   let origin = '';
   try { origin = new URL(req.url).origin; } catch { /* keep '' */ }
   return `${origin}${INVITE_PATH}`;
+}
+
+// Client-side, non-blocking: does the typed email match someone already in the list? → { kind, text } | null
+export function existingHint(list, typed) {
+  const e = normalizeEmail(typed);
+  if (!e || !EMAIL.test(e)) return null;
+  const x = (list || []).find((r) => normalizeEmail(r.email) === e);
+  if (!x) return null;
+  if (x.status === 'pending') return { kind: 'pending', text: `${e} already has a pending invite. Use Resend in the list below instead of sending a new one.` };
+  return { kind: 'member', text: `${e} is already in your company${x.role ? ` (${ROLE_LABELS[x.role] || x.role})` : ''}. No new invite is needed.` };
 }
