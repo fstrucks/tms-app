@@ -84,3 +84,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
    setting data-theme="dark" on <html> switches the tags to the dark set (already contrast-tested). */
 .status-tag { background: var(--st-bg); color: var(--st-fg); }
 [data-theme="dark"] .status-tag { background: var(--st-bg-d); color: var(--st-fg-d); }
+
+/* /loads/new form (#86 QA): one column on phones, auto-fit columns from 640px up. */
+.newload-grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+@media (min-width: 640px) { .newload-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }

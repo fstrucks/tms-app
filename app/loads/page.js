@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { LoadsList } from './LoadsData';
 
 const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' };
@@ -15,7 +16,10 @@ export default function LoadsPage() {
   }, []);
   return (
     <main style={main}>
-      <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
+        <Link href="/loads/new" data-testid="new-load-link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>
+      </div>
       {notice && <p role="status" style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
       <LoadsList />
     </main>
