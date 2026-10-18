@@ -38,7 +38,7 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
   };
   return { t, from, auth: { admin } };
 }
-const uc = (id) => () => ({ auth: { getUser: async () => ({ data: { user: { id, email: `${id}@fstrucks.com` } }, error: null }) } });
+const uc = (id, meta = {}) => () => ({ auth: { getUser: async () => ({ data: { user: { id, email: `${id}@fstrucks.com`, user_metadata: meta } }, error: null }) } });
 const req = (body, method = 'POST', url = 'https://tms-app-git-feat-tester-invites-fst-tms.vercel.app/api/account/invites') => new Request(url, { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 const call = async (sb, body, who = OWNER, extra = {}) => { const r = await POST(req(body), { deps: { sb, mkUserClient: uc(who), now: () => T0, ...extra } }); return { status: r.status, j: await r.json() }; };
 
@@ -63,7 +63,7 @@ test('invite: calls inviteUserByEmail with redirectTo <site>/account/password + 
   const { email, opts } = sb.t.invites[0];
   assert.equal(email, 'taylor+invite1@fstrucks.com');
   assert.equal(opts.redirectTo, 'https://tms-app-git-feat-tester-invites-fst-tms.vercel.app/account/password');
-  assert.deepEqual(opts.data, { full_name: 'Taylor Test (FAKE)' }); // user-editable metadata: display name only
+  assert.deepEqual(opts.data, { full_name: 'Taylor Test (FAKE)', company_name: 'FST Fake Trucking LLC' }); // display-only values for the email template
   assert.deepEqual(sb.t.updates[0].attrs.app_metadata.tester_invite, { by: OWNER, company: PROFILE, role: 'management', log: [iso(T0)] }); // trusted record
   assert.deepEqual(sb.t.company_members, [{ profile_id: PROFILE, user_id: 'user-1', role: 'management' }]);
   // default role is driver; owner is never grantable
@@ -254,4 +254,12 @@ test('3: account menu gets one owner-only "Invite testers" item; keyboard nav fo
   }
   const item = readFileSync('app/components/ui/InviteTestersMenuItem.js', 'utf8');
   assert.match(item, /if \(!owner\) return null;/); assert.match(item, /eq\('owner_id', userId\)/); assert.match(item, /Invite testers/);
+});
+
+test('(a) invite email data: company and inviter name for the template; template doc uses {{ .ConfirmationURL }}', async () => {
+  const sb = mockSb();
+  await call(sb, { email: 'taylor+invite5@fstrucks.com' }, OWNER, { mkUserClient: uc(OWNER, { full_name: 'Marc Brooks' }) });
+  assert.deepEqual(sb.t.invites[0].opts.data, { company_name: 'FST Fake Trucking LLC', inviter_name: 'Marc Brooks' });
+  const doc = readFileSync('docs/tester-invites.md', 'utf8');
+  assert.match(doc, /\{\{ \.ConfirmationURL \}\}/); assert.match(doc, /\.Data\.company_name/); assert.match(doc, /Set your password/);
 });

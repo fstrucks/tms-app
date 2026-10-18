@@ -111,6 +111,7 @@ async function record(admin, user, ownerId, profile, role, log) {
   return r?.error || null;
 }
 
+const inviterName = (o) => cleanName(o?.user_metadata?.full_name || o?.user_metadata?.name || '') || null;
 // New invite. → { ok, user, linked, warning? } | { error, status, code? }
 export async function invite({ sb, owner, profile, input, redirectTo, now = Date.now(), users: known }) {
   const admin = sb.auth.admin;
@@ -123,7 +124,10 @@ export async function invite({ sb, owner, profile, input, redirectTo, now = Date
     return { error: `${input.email} already has a PowerHaul account. No invite was sent.`, status: 409, code: 'already_registered', id: existing.id };
   }
   const rl = rateLimit(all.users, owner.id, null, now); if (rl) return rl;
-  const { data, error } = await admin.inviteUserByEmail(input.email, { redirectTo, data: input.name ? { full_name: input.name } : {} });
+  // Display-only values for the email template ({{ .Data.company_name }}, {{ .Data.inviter_name }}); never trusted.
+  const data0 = { ...(input.name ? { full_name: input.name } : {}), ...(profile.legal_name ? { company_name: String(profile.legal_name).slice(0, 120) } : {}),
+    ...(inviterName(owner) ? { inviter_name: inviterName(owner) } : {}) };
+  const { data, error } = await admin.inviteUserByEmail(input.email, { redirectTo, data: data0 });
   if (error) return inviteError(error, input.email);
   const user = data?.user;
   if (!user?.id) return { error: 'The invite didn’t return a user. Check the list before trying again.', status: 502 };
