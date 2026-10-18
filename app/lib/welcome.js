@@ -7,9 +7,7 @@ export const WELCOME_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', '
 
 export const WELCOME_CARDS = [
   { id: 'what', title: 'What PowerHaul TMS does', lines: [
-    'Scan rate confirmations and let PowerHaul read them into loads.',
-    'Track loads, mileage, expenses, your truck and weekly numbers in one place.',
-    'Build and send carrier packets to brokers.'] },
+    'PowerHaul TMS reads your rate confirmations for you. Just scan one, and it turns into a load automatically. From there, you can track your loads, mileage, expenses, truck and weekly numbers all in one place. When a broker needs your carrier packet, you can put it together and send it right from the app.'] },
   { id: 'home', title: 'Add it to your Home Screen', steps: [
     { label: 'iPhone (Safari)', lines: ['Tap the Share button (square with an arrow).', 'Scroll down and tap “Add to Home Screen”.', 'Tap Add.'] },
     { label: 'Android (Chrome)', lines: ['Tap the ⋮ menu at the top right.', 'Tap “Add to Home screen” (or “Install app”).', 'Tap Add.'] }] },
