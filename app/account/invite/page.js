@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { makeApi } from '../../lib/packetApi';
 import { ROLE_LABELS } from '../../lib/companyRoles';
+import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
 
 const api = makeApi(() => getSupabase()?.auth).call;
@@ -22,6 +23,7 @@ export default function InviteTesterPage() {
   const [st, setSt] = useState({ loading: true });
   const [f, setF] = useState({ email: '', name: '', role: '' });
   const [busy, setBusy] = useState(null);
+  const hydrated = useHydrated();
   const [msg, setMsg] = useState(null); // { ok, text }
   const [confirmCancel, setConfirmCancel] = useState(null); // row id awaiting "Yes, cancel"
 
@@ -67,7 +69,7 @@ export default function InviteTesterPage() {
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Invite a tester</h1>
       <p style={{ ...s.muted, marginTop: 0 }}>They get an email to set a password, then join {st.company || 'your company'}.{st.limit ? ` ${Math.max(0, st.limit.hourly - st.limit.used)} of ${st.limit.hourly} invites left this hour.` : ''}</p>
-      <form onSubmit={send} noValidate style={s.card} data-testid="invite-form">
+      <form method="post" action={fallbackAction('/account/invite')} onSubmit={send} noValidate data-auth-form="invite" style={s.card} data-testid="invite-form">
         <label htmlFor="inv-email" style={{ ...s.label, marginTop: 0 }}>Email</label>
         <input id="inv-email" style={s.input} type="email" inputMode="email" autoComplete="off" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@example.com" />
         <label htmlFor="inv-name" style={s.label}>Name (optional)</label>
@@ -77,7 +79,7 @@ export default function InviteTesterPage() {
           {(st.roles || []).map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
         </select>
         <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>Driver: view and upload. Dispatcher / Management: can also edit packets and the company profile.</p>
-        <button type="submit" style={{ ...s.btn, opacity: busy ? 0.6 : 1 }} disabled={!!busy}>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button>
+        <button type="submit" style={{ ...s.btn, opacity: !hydrated || busy ? 0.6 : 1 }} disabled={!hydrated || !!busy}>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button>
         {msg && <p role={msg.ok ? 'status' : 'alert'} style={{ fontSize: 14, color: msg.ok ? '#065f46' : '#b91c1c', margin: '0.6rem 0 0' }}>{msg.text}</p>}
       </form>
       <section style={s.card}>
