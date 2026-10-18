@@ -3,7 +3,7 @@
 export const WELCOME_KEY = 'powerhaul.welcome.seen.v1';
 export const OPEN_WELCOME_EVENT = 'powerhaul:open-welcome';
 // Never cover sign-in / password-setup flows (invite links land on /account/password).
-export const WELCOME_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', '/account/password'];
+export const WELCOME_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', '/account/password', '/dev/welcome-reset'];
 
 export const WELCOME_CARDS = [
   { id: 'what', title: 'What PowerHaul TMS does', lines: [
@@ -69,4 +69,23 @@ export function whenUiIdle(cb, doc = typeof document === 'undefined' ? null : do
   const mo = new MO(() => { if (!done && !uiBusy(doc)) { done = true; mo.disconnect(); cb(); } });
   mo.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded', 'role', 'aria-modal'] });
   return () => { done = true; mo.disconnect(); };
+}
+
+// QA only: /dev/welcome-reset (404 in production) can ask for the next auto-open to wait N ms so a tester can
+// open a menu first. Stored in sessionStorage (this tab only); cleared when the sheet actually opens.
+export const WELCOME_DELAY_KEY = 'powerhaul.welcome.qaDelayMs';
+export function qaDelayMs(session) {
+  try { const n = Number(session?.getItem(WELCOME_DELAY_KEY)); return Number.isFinite(n) && n > 0 ? Math.min(n, 10000) : 0; } catch { return 0; }
+}
+export function clearQaDelay(session) { try { session?.removeItem(WELCOME_DELAY_KEY); } catch { /* ignore */ } }
+
+// QA only: forget "seen" for the signed-in user (own auth metadata + this browser's key). No SQL.
+export async function resetWelcome({ supabase, user, storage, session, delayMs = 0 }) {
+  if (!supabase || !user) return { error: 'Sign in first.' };
+  try { storage?.removeItem(`${WELCOME_KEY}:${user.id}`); } catch { /* private mode */ }
+  try { if (delayMs > 0) session?.setItem(WELCOME_DELAY_KEY, String(Math.min(delayMs, 10000))); else clearQaDelay(session); } catch { /* ignore */ }
+  try {
+    const { error } = await supabase.auth.updateUser({ data: { welcome_seen_at: null } });
+    return error ? { error: error.message || String(error) } : { ok: true };
+  } catch (e) { return { error: e?.message || String(e) }; }
 }

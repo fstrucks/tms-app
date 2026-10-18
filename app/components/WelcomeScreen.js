@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSupabase } from '../lib/supabase';
-import { WELCOME_CARDS, OPEN_WELCOME_EVENT, shouldShowWelcome, markWelcomeSeen, uiBusy, whenUiIdle } from '../lib/welcome';
+import { WELCOME_CARDS, OPEN_WELCOME_EVENT, shouldShowWelcome, markWelcomeSeen, uiBusy, whenUiIdle, qaDelayMs, clearQaDelay } from '../lib/welcome';
 
 // Above any floating UI (Report a bug button z 60, its dialog z 2100, nav z 50).
 export const WELCOME_Z = 10000;
@@ -29,7 +29,11 @@ export default function WelcomeScreen() {
   // Auto-open (first run) only when no menu/dialog is open; otherwise wait until the user closes it.
   useEffect(() => {
     if (!shouldShowWelcome({ user, pathname, storage: store() })) return undefined;
-    return whenUiIdle(() => { if (shouldShowWelcome({ user: userRef.current, pathname, storage: store() })) setOpen(true); });
+    const ss = (() => { try { return window.sessionStorage; } catch { return null; } })();
+    const show = () => { if (shouldShowWelcome({ user: userRef.current, pathname, storage: store() })) { clearQaDelay(ss); setOpen(true); } };
+    let cancel = () => {};
+    const t = setTimeout(() => { cancel = whenUiIdle(show); }, qaDelayMs(ss)); // QA delay: 0 unless set by /dev/welcome-reset
+    return () => { clearTimeout(t); cancel(); };
   }, [user, pathname]);
   useEffect(() => {
     const onOpen = () => { if (userRef.current) setOpen(true); };

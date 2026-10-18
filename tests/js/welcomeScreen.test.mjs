@@ -101,9 +101,35 @@ test('welcome: auto-open waits for an open menu to close (MutationObserver, no p
 
 test('welcome: component defers auto-open, never steals focus from a menu, traps Tab, keeps Esc + marker', () => {
   const comp = readFileSync('app/components/WelcomeScreen.js', 'utf8');
-  assert.match(comp, /return whenUiIdle\(\(\) => \{ if \(shouldShowWelcome\(/);
+  assert.match(comp, /cancel = whenUiIdle\(show\)/); assert.match(comp, /const show = \(\) => \{ if \(shouldShowWelcome\(/);
   assert.match(comp, /if \(!uiBusy\(\)\) closeRef\.current\?\.focus\(\)/);
   assert.match(comp, /e\.key !== 'Tab'/); assert.match(comp, /e\.key === 'Escape'/);
   assert.match(comp, /document\.body\.dataset\.welcomeOpen = '1'/);
   assert.match(comp, /const onOpen = \(\) => \{ if \(userRef\.current\) setOpen\(true\); \}/, 'Welcome tour re-open is explicit, not deferred');
+});
+
+import { resetWelcome, qaDelayMs, WELCOME_DELAY_KEY, WELCOME_HIDDEN_PREFIXES } from '../../app/lib/welcome.js';
+test('dev/welcome-reset: 404 in production, same gating as /dev/signature', () => {
+  const src = readFileSync('app/dev/welcome-reset/page.js', 'utf8');
+  assert.match(src, /import \{ notFound \} from 'next\/navigation'/);
+  assert.match(src, /if \(process\.env\.VERCEL_ENV === 'production'\) notFound\(\);/);
+  assert.match(src, /export const dynamic = 'force-dynamic'/);
+  assert.doesNotMatch(src, /'use client'/, 'server component so VERCEL_ENV is read at request time');
+  assert.ok(WELCOME_HIDDEN_PREFIXES.includes('/dev/welcome-reset'), 'sheet stays held back on the reset page');
+});
+test('dev/welcome-reset: clears only the signed-in user’s own flag (metadata null + local key), optional one-time delay', async () => {
+  const m = new Map([[`${WELCOME_KEY}:u1`, 'x'], [`${WELCOME_KEY}:u2`, 'y']]);
+  const storage = { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v), removeItem: (k) => m.delete(k) };
+  const ss = new Map(); const session = { getItem: (k) => ss.get(k) ?? null, setItem: (k, v) => ss.set(k, v), removeItem: (k) => ss.delete(k) };
+  const calls = []; const supabase = { auth: { updateUser: async (a) => { calls.push(a); return { error: null }; } } };
+  assert.deepEqual(await resetWelcome({ supabase, user: U, storage, session, delayMs: 3000 }), { ok: true });
+  assert.deepEqual(calls, [{ data: { welcome_seen_at: null } }]);
+  assert.equal(m.has(`${WELCOME_KEY}:u1`), false); assert.equal(m.get(`${WELCOME_KEY}:u2`), 'y', 'other users untouched');
+  assert.equal(qaDelayMs(session), 3000); assert.equal(ss.get(WELCOME_DELAY_KEY), '3000');
+  await resetWelcome({ supabase, user: U, storage, session, delayMs: 0 }); assert.equal(qaDelayMs(session), 0);
+  session.setItem(WELCOME_DELAY_KEY, '999999'); assert.equal(qaDelayMs(session), 10000, 'capped');
+  assert.deepEqual(await resetWelcome({ supabase, user: null, storage, session }), { error: 'Sign in first.' });
+  const comp = readFileSync('app/components/WelcomeScreen.js', 'utf8');
+  assert.match(comp, /setTimeout\(\(\) => \{ cancel = whenUiIdle\(show\); \}, qaDelayMs\(ss\)\)/); assert.match(comp, /clearQaDelay\(ss\); setOpen\(true\)/);
+  assert.match(readFileSync('app/dev/welcome-reset/WelcomeResetQA.js', 'utf8'), /Welcome reset\. Go to another page to see it\./);
 });
