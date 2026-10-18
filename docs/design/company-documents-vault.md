@@ -1,7 +1,8 @@
 # Company Documents vault — design + wireframe
 
-> **Status: DESIGN ONLY.** Wireframes and this doc only. No app code, no migration, no SQL run. Nothing is built until Marc approves (via Sam). Reviewer: Taylor.
-> Idea approved by Marc on Oct 18, 2026 at 1:38 PM PT ("That's perfect"). This PR is for reviewing the layout and choosing the open picks in §7.
+> **Status: PICKS APPROVED, build in progress (draft, do not merge).** Idea approved by Marc on Oct 18, 2026 at 1:38 PM PT ("That's perfect").
+> **Picks approved by Marc on Oct 18, 2026 at 3:10 PM PT (via Sam): 1A, 2C, 3A, 4A, 5B, 6A**, plus Taylor's notes (§7a).
+> One optional column for pick 5B is written up in §9 and in `supabase/migrations/20261018000500_packet_sends_attached_documents.sql`. **It is NOT applied.** Dakota runs it only after Marc's OK via Sam. The app works without it.
 
 Wireframes (static HTML in `docs/wireframes/company-documents/`, PNGs rendered with headless Chrome):
 
@@ -33,8 +34,13 @@ Wireframes (static HTML in `docs/wireframes/company-documents/`, PNGs rendered w
   - COI: computed (see §3).
   - MC Authority: "No expiry". FMCSA operating authority doesn't expire; it's revoked instead.
   - W-9 and NOA: "No expiry".
-- **Current version only.** Current = the newest upload of that type for the company. Older ones go under a collapsed **Earlier versions (n)** with View (and Delete via the existing ConfirmButton). Uploading a new file moves the old one down automatically.
-- **Roles:** owner and management can upload, replace and delete, matching the Insurance write rule. Dispatchers and drivers can view. This is pick 2.
+- **Current version only (pick 1A).** Current = the newest upload of that type for the company. Older ones go under a collapsed **Earlier versions (n)** with View and Delete. Uploading a new file moves the old one down automatically.
+- **Delete, with a confirm (Taylor's note).** The current version also has **Delete**, behind the existing ConfirmButton ("Delete the current W-9? The previous version (uploaded Oct 3) becomes current again." / "…The W-9 will show as missing." when there is no earlier one). Deleting removes the row and the file. Because the newest upload always wins (1A), the previous version becomes current again with no extra step and no SQL.
+- **Roles (pick 2C):**
+  - Owner and management: upload, replace, delete, and View or download every vault file.
+  - Dispatchers and drivers: **on-file status only** for the W-9 and NOA (the status pill, e.g. "On file" or "Missing"). No file name, no upload date, no View, no download, no earlier versions. Those two hold the TIN and factoring and banking details.
+  - COI and MC Authority stay viewable by every member (a driver may need to show them at a shipper or scale). *If Marc wants status-only for all four, it's one constant (`VAULT_RESTRICTED_TYPES`).*
+  - **Enforced on the server for reads.** Members can't read the owner's `documents` rows (own-row RLS), so every vault read goes through `/api/company/documents`. That route strips the restricted rows to status only before they leave the server, and it refuses a View/signed-URL request for a W-9 or NOA from a dispatcher or driver (403). Hiding the button in the UI is not the protection.
 - **Phone (390):** each doc is a stacked card with full-width buttons, and the COI card holds its notes and earlier versions. **Desktop (≥1024):** a table inside the same 1120px shell, with callouts in the wireframe only.
 
 ## 3. Tie-in with CompanyInsurance
@@ -51,9 +57,11 @@ Wireframes (static HTML in `docs/wireframes/company-documents/`, PNGs rendered w
 ## 4. Packets and broker sends pull from the vault
 
 - **Send to broker** draft: under *Attachments*, the filled packet plus each current vault doc, each one a checkbox that's pre-ticked when on file. Missing docs show greyed out with a link to add them.
-- The server loads the files from Storage and adds them as extra Postmark attachments. Images are converted to PDF, and the total is capped at Postmark's 10 MB, shown as a running total.
-- `packet_sends` should record which document ids went out, either in the existing row's metadata or in a small column. That's pick 5, and it's the only part that might want SQL.
-- Coverage problems from `coiGaps` (with the packet's load date, as the COI request already does) show as an amber **warning, not a block**.
+- The server loads the files from Storage and adds them as extra Postmark attachments, **each as its own PDF (pick 6A)**. Images (JPEG, PNG) are converted to PDF.
+- **Size (Taylor's note).** Postmark's 10 MB limit counts the **encoded** message. Attachments are sent base64-encoded, which is about 33% larger than the file. So the cap is on the files themselves: **about 7.5 MB in total** (packet + vault files), which encodes to about 10 MB. One vault file is also capped at 7.5 MB at upload. The draft shows a running total, and the server re-checks the encoded size before calling Postmark and refuses with "Nothing was sent" if it's over.
+- **The #64 send limit doesn't change (Taylor's note).** Vault attachments go to the same To and CC addresses, through the same `validateSend()`. While `PACKET_SEND_ALLOWED_DOMAINS` is unset, sends are still limited to fstrucks.com addresses, with or without attachments. The monthly email cap and the automatic copy are unchanged too.
+- `packet_sends` records which vault document versions went out, in one new optional column (pick 5B, §9). Until that column exists, the send still works and the list is only in the email.
+- Coverage problems from `coiGaps` (with the packet's load date, as the COI request already does) show as an amber **warning, not a block (pick 4A)**. A flagged or expired COI starts **unticked**; the user can tick it and send anyway.
 - Packet fill: fields like "W-9 attached" or "COI attached" can tick themselves when the vault has a current doc. That's a follow-up and not required for v1.
 - **Access:** members can't read the owner's `documents` rows under own-row RLS. So the vault and send routes read with the service client, filtered `user_id = ownerId`, the same pattern as the Truck tab (`truckServer.js`). Uploads by management go through the same route and are saved under the **owner's** `user_id` and `{owner}/company/…` path. **No RLS change.**
 
@@ -83,26 +91,45 @@ select id, doc_type, original_filename, created_at from public.documents
 where doc_type ilike 'other:%' and doc_type ~* '(w-?9|coi|insur|authority|noa|assignment|factor)';
 ```
 
-**SQL only if Marc picks it:**
-- Pick 1B: a pinned "current" version needs `documents.is_current boolean` or `superseded_at timestamptz`, plus a client update grant.
-- Pick 3B: a typed expiry for authority or W-9 needs `documents.expires_on date`.
-- Pick 5B: send history per document needs `packet_sends.attached_document_ids uuid[]`.
+**SQL for the approved picks:** only pick 5B needs any. It's one optional column, `packet_sends.attached_document_ids uuid[]`, described in plain words in §9. 1A and 3A need no SQL (1B and 3B were not picked).
 
-Each of these would be additive and nullable, written up in plain words for Marc's OK before Dakota runs anything.
-
-## 7. Open design choices (for Marc)
+## 7. Design choices: **decided by Marc, Oct 18, 3:10 PM PT: 1A, 2C, 3A, 4A, 5B, 6A**
 
 1. **Which version is "current"?** **A:** the newest upload always wins (no SQL). **B:** you can mark an older version as current (one new column). *Recommend A.*
-2. **Who can change vault docs?** **A:** owner and management upload and replace, everyone views (same as Insurance). **B:** owner only. *Recommend A.*
+2. **Who can change vault docs?** **A:** owner and management upload and replace, everyone views (same as Insurance). **B:** owner only. *Recommend A.* **Decided: 2C** = A, except dispatchers and drivers see on-file status only for the W-9 and NOA; only owner and management can View or download those, enforced on the server (§2).
 3. **Expiry dates beyond the COI.** **A:** only the COI gets an expiry, pulled from Insurance; W-9, MC Authority and NOA show "No expiry". **B:** add a typed expiry or reminder date to every doc (one new column). *Recommend A.* Add a soft "W-9 is over a year old" grey hint, since some brokers want a current-year W-9.
 4. **Expired or flagged COI on a broker send.** **A:** warn and untick the COI by default, but still let you send. **B:** block the send until the COI is fixed. *Recommend A.*
 5. **Send history.** **A:** list the attached files only in the email (no SQL). **B:** also record which document versions went to each broker in send history (one new column). *Recommend B.* It answers "which COI did that broker get?", but it can come in a follow-up PR.
 6. **Attachments format.** **A:** separate PDFs (packet + W-9 + COI + MC + NOA). **B:** one merged PDF. *Recommend A.* Brokers' onboarding tools usually want each document separately.
 
-## 8. Build outline (after approval, not in this PR)
+### 7a. Taylor's notes (folded in)
+- Delete with a confirm on the current version; the previous version becomes current again (§2).
+- Vault attachments don't change #64's fstrucks.com-only send limit (§4).
+- The Postmark 10 MB cap counts the encoded size (about 33% larger), so files are capped at about 7.5 MB (§4).
+
+## 8. Build outline (separate draft PR, do-not-merge until QA)
 
 1. Add `noa` to `docTypes.js`. Add a vault helper (`app/lib/companyDocs.js`: group by type, newest = current, status from `coiGaps`) with unit tests.
 2. Add `/api/company/documents` (GET, upload, delete; service client scoped to owner; role checks) and the `CompanyDocuments.js` card. Update the Insurance links.
 3. Filter company types out of `/documents`, the Scanner, Change type and load delete.
 4. Add vault attachments to Send to broker, with a size guard and tests (mocked Postmark).
 5. Taylor QA at 390 and 1280, then Marc's merge OK.
+
+## 9. Pick 5B: the one optional column (plain words, for Marc's OK)
+
+- **Table:** `packet_sends`, the send history: one row per carrier packet emailed to a broker.
+- **Column:** `attached_document_ids`
+- **Type:** a list of document ids (`uuid[]`).
+- **Nullable:** yes. No default and no backfill. Old sends keep an empty value, and nothing existing changes.
+- **What goes in it:** when you send a packet with vault files attached, the ids of the exact versions that went out (for example that day's COI and W-9).
+- **Why:** it answers "which COI did that broker get?" even after the COI has been replaced, so a broker who says "your insurance expired" can be checked against what was actually sent.
+- **Who writes it:** only the server's send step, the same as the rest of that row. No new permission or policy.
+- **Undo:** dropping the column removes only this list. Sends and packets are untouched.
+- **Without it:** the app still sends with attachments and lists them in the email. Only the per-send record is skipped until Dakota applies it.
+- **Exact SQL:** `supabase/migrations/20261018000500_packet_sends_attached_documents.sql` (not applied):
+
+```sql
+alter table public.packet_sends add column if not exists attached_document_ids uuid[] null;
+comment on column public.packet_sends.attached_document_ids is
+  'Vault documents (documents.id) attached to this broker send besides the filled packet. NULL = none or sent before PR #84.';
+```
