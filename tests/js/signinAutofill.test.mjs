@@ -26,7 +26,7 @@ test('empty or bad fields are explained on submit instead of a silently disabled
 test('button: only disabled while signing in, never because the fields look empty to React', () => {
   assert.equal(submitDisabled(false), false); assert.equal(submitDisabled(true), true);
   const src = readFileSync('app/login/page.js', 'utf8');
-  assert.match(src, /<button type="submit" disabled=\{submitDisabled\(sending\)\}/);
+  assert.match(src, /<button type="submit" disabled=\{!hydrated \|\| submitDisabled\(sending\)\}/);
   assert.doesNotMatch(src, /disabled=\{sending \|\| !email/);
   assert.match(src, /readCredentials\(e\.currentTarget, \{ email, password \}\)/);
   assert.match(src, /<input id="email" name="email"/); assert.match(src, /<input id="password" name="password"/);
@@ -36,7 +36,7 @@ test('button: only disabled while signing in, never because the fields look empt
 
 test('both fields empty → our plain "Enter your email and password." message (browser tip suppressed with noValidate)', () => {
   const src = readFileSync('app/login/page.js', 'utf8');
-  assert.match(src, /<form onSubmit=\{handleSubmit\} noValidate>/);
+  assert.match(src, /<form method="post" action=\{fallbackAction\('\/login'\)\} onSubmit=\{handleSubmit\} noValidate/);
   assert.match(src, /const invalid = validateCredentials\(creds, usePw\);\n\s*if \(invalid\) return setError\(invalid\);/);
   assert.match(src, /<p id="login-error" role="alert" aria-live="assertive"/); // the message is announced and shown
   assert.equal(validateCredentials(readCredentials(form({ email: '', password: '' })), true), 'Enter your email and password.');

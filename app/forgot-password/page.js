@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
+import { useHydrated, fallbackAction } from '../lib/authForms';
 import { recoveryRedirect } from '../lib/passwordSetup';
 
 const s = {
@@ -17,6 +18,7 @@ export default function ForgotPasswordPage() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
+  const hydrated = useHydrated();
 
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get('email'); if (e) setEmail(e);
@@ -56,12 +58,12 @@ export default function ForgotPasswordPage() {
             <p>If <strong>{email}</strong> has an account, we sent a link to set a new password. Open it on this device, in this browser.</p>
           </>
         ) : (
-          <form onSubmit={onSubmit}>
+          <form method="post" action={fallbackAction('/forgot-password')} onSubmit={onSubmit} data-auth-form="forgot-password">
             <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Email</label>
             <input id="email" type="email" required autoComplete="email" value={email}
               onChange={(e) => setEmail(e.target.value)} style={s.input} placeholder="you@example.com" />
             <p role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || ''}</p>
-            <button type="submit" disabled={sending || !email} style={{ ...s.btn, opacity: sending || !email ? 0.6 : 1 }}>
+            <button type="submit" disabled={!hydrated || sending || !email} style={{ ...s.btn, opacity: !hydrated || sending || !email ? 0.6 : 1 }}>
               {sending ? 'Sending…' : 'Email me a reset link'}
             </button>
           </form>

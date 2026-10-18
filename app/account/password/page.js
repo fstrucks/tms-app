@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { safeNext, loginHref } from '../../lib/safeNext';
+import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { validatePassword, MIN_PASSWORD, PASSWORD_PATH, pageMode } from '../../lib/passwordSetup';
 
 const s = {
@@ -33,6 +34,7 @@ export default function SetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(false);
+  const hydrated = useHydrated();
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -80,7 +82,7 @@ export default function SetPasswordPage() {
               <a href={next} onClick={(e) => { e.preventDefault(); window.location.replace(next); }} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Continue</a>
             </>
           ) : (
-            <form onSubmit={onSubmit} noValidate>
+            <form method="post" action={fallbackAction('/account/password')} onSubmit={onSubmit} noValidate data-auth-form="set-password">
               <input type="email" autoComplete="username" value={user.email || ''} readOnly hidden />
               <label htmlFor="new-password" style={{ ...s.label, marginTop: 0 }}>New password</label>
               <input id="new-password" type={show ? 'text' : 'password'} autoComplete="new-password" required minLength={MIN_PASSWORD}
@@ -94,7 +96,7 @@ export default function SetPasswordPage() {
                 Show passwords
               </label>
               <p id="pw-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? '0.5rem 0 0' : 0 }}>{error || ''}</p>
-              <button type="submit" disabled={busy} style={{ ...s.btn, opacity: busy || !ready ? 0.6 : 1 }}>
+              <button type="submit" disabled={!hydrated || busy} style={{ ...s.btn, opacity: !hydrated || busy || !ready ? 0.6 : 1 }}>
                 {busy ? 'Saving…' : 'Save password'}
               </button>
               {mode === 'setup' && (
