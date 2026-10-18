@@ -1,4 +1,5 @@
 import './globals.css';
+import ReportBugButton from './components/ReportBugButton';
 import AppNav from './components/AppNav';
 
 export const metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <ReportBugButton />
         <AppNav />
         <div className="app-container">{children}</div>
       </body>
