@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadKey, PacketKeyError } from '../../lib/packetCrypto';
 import { buildRow, validateProfile, publicProfile } from '../../lib/companyProfile';
-import { saveProfile, saveErrorMessage } from '../../lib/companyProfileSave';
+import { saveProfileGraceful, saveErrorMessage } from '../../lib/companyProfileSave';
 import { roleFor, canEdit, canSign } from '../../lib/companyRoles';
 import { noStoreFetch } from '../../lib/noStoreFetch';
 
@@ -27,9 +27,13 @@ async function ctx(req) {
   return { sb, user: u.user, profile, role: profile ? roleFor(u.user.id, profile, members || []) : 'owner' };
 }
 
+// Optional columns the database has (select('*') simply leaves a missing one out). null = no profile row to tell.
+const columnsOf = (p) => ({ owner_name: p ? 'owner_name' in p : null });
+const OWNER_NAME_PENDING = 'Saved, except Owner name: it needs a database update that hasn’t been applied yet.';
+
 export async function GET(req) {
   const c = await ctx(req); if (c.err) return c.err;
-  return json({ profile: publicProfile(c.profile), role: c.role, canEdit: canEdit(c.role), canSign: canSign(c.role) });
+  return json({ profile: publicProfile(c.profile), role: c.role, canEdit: canEdit(c.role), canSign: canSign(c.role), columns: columnsOf(c.profile) });
 }
 
 export async function PUT(req) {
@@ -49,11 +53,12 @@ export async function PUT(req) {
     if (!String(body.signer_name ?? c.profile?.signer_name ?? '').trim()) return json({ error: 'Enter the authorized signer name first.', errors: { signer_name: 'Required to sign.' } }, 422);
     Object.assign(row, { signature_path: path, signed_by: c.user.id, signed_at: new Date().toISOString() });
   }
-  const { data, error } = await saveProfile(c, row);
+  const { data, error, dropped = [] } = await saveProfileGraceful(c, row);
   if (error) {
     console.error('[company-profile] save', error.code, error.message);
     return json({ error: saveErrorMessage(error) }, error.code === '42501' ? 403 : 500);
   }
-  return json({ profile: publicProfile(data), role: c.role, canEdit: true, canSign: canSign(c.role) });
+  return json({ profile: publicProfile(data), role: c.role, canEdit: true, canSign: canSign(c.role), columns: columnsOf(data),
+    ...(dropped.includes('owner_name') && row.owner_name ? { notice: OWNER_NAME_PENDING } : {}) });
 }
 

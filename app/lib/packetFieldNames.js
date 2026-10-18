@@ -1,6 +1,7 @@
 // Field names the packet editor can pick, beyond the company-profile keys the reader uses.
 // Stored in packet_fields.profile_key (free text, no CHECK constraint), so none of this needs SQL:
-//   - extra keys (contact_name, truck_number, …): hand-filled for now; later they map to a Driver Profile
+//   - extra keys (contact_name, truck_number, …): hand-filled for now; later they map to a Driver Profile.
+//     owner_name fills from the company profile (PROFILE_EXTRA_KEYS)
 //   - 'skip': "Leave blank / skip" (counts as named, never filled)
 //   - 'custom:<name>': "Custom (type a name)"; the name is typed by the user, hand-filled
 import { PROFILE_KEYS } from './packetReader.js';
@@ -11,6 +12,8 @@ export const EXTRA_KEY_LABELS = {
   truck_plate: 'Truck plate', truck_plate_state: 'Truck plate state', trailer_plate: 'Trailer plate', trailer_plate_state: 'Trailer plate state',
 };
 export const EXTRA_KEYS = Object.keys(EXTRA_KEY_LABELS);
+// Extra keys that fill from the company profile (listed under "Company profile" in the picker).
+export const PROFILE_EXTRA_KEYS = ['owner_name'];
 export const SKIP_KEY = 'skip';
 export const SKIP_LABEL = 'Leave blank / skip';
 export const CUSTOM_PREFIX = 'custom:';
@@ -47,8 +50,8 @@ export function validateNameKey(key, kind) {
 // <select> option groups for the editor's Name picker.
 export function nameOptions(KEY_LABELS, kind) {
   return [
-    { group: 'Company profile', options: BASE_KEYS.map((k) => ({ value: k, label: KEY_LABELS[k] })) },
-    { group: 'Contact, driver & equipment (you type the value)', options: EXTRA_KEYS.map((k) => ({ value: k, label: EXTRA_KEY_LABELS[k] })) },
+    { group: 'Company profile', options: [...BASE_KEYS, ...PROFILE_EXTRA_KEYS].map((k) => ({ value: k, label: KEY_LABELS[k] || EXTRA_KEY_LABELS[k] })) },
+    { group: 'Contact, driver & equipment (you type the value)', options: EXTRA_KEYS.filter((k) => !PROFILE_EXTRA_KEYS.includes(k)).map((k) => ({ value: k, label: EXTRA_KEY_LABELS[k] })) },
     { group: 'Other', options: [{ value: CUSTOM_OPTION, label: CUSTOM_LABEL }, ...(kind === 'signature' ? [] : [{ value: SKIP_KEY, label: SKIP_LABEL }])] },
   ];
 }

@@ -11,6 +11,7 @@ export const maskEin = (l4) => (l4 ? `•••••${l4}` : '');
 
 export const PROFILE_FIELDS = [
   ['legal_name', 'Legal company name'], ['dba_name', 'DBA (if any)'],
+  ['owner_name', 'Owner name'], // column added by 20261018000200_company_owner_name.sql (save degrades gracefully without it)
   ['mc_number', 'MC number'], ['dot_number', 'USDOT number'],
   ['address_line1', 'Street address'], ['address_line2', 'Suite / unit'],
   ['city', 'City'], ['state', 'State'], ['postal_code', 'ZIP'],
