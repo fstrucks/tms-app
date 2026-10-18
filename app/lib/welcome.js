@@ -54,3 +54,19 @@ export async function markWelcomeSeen({ supabase, user, storage, now = () => new
 export function openWelcome(win = typeof window === 'undefined' ? null : window) {
   win?.dispatchEvent(new Event(OPEN_WELCOME_EVENT));
 }
+
+// Another popup the user opened (account/upload menu, Report-a-bug dialog). The first-run sheet must not
+// auto-open over it: that stole focus, closed the menu, and swallowed the next tap.
+export const BUSY_UI_SELECTOR = '[role="menu"], [aria-haspopup][aria-expanded="true"], [role="dialog"][aria-modal="true"]:not([data-testid="welcome-screen"])';
+export const uiBusy = (doc = typeof document === 'undefined' ? null : document) => !!doc?.querySelector?.(BUSY_UI_SELECTOR);
+
+// Run cb now if nothing is open, otherwise once the user closes it (MutationObserver, no polling).
+// Returns a cancel fn.
+export function whenUiIdle(cb, doc = typeof document === 'undefined' ? null : document, MO = typeof MutationObserver === 'undefined' ? null : MutationObserver) {
+  if (!uiBusy(doc)) { cb(); return () => {}; }
+  if (!MO || !doc?.body) return () => {};
+  let done = false;
+  const mo = new MO(() => { if (!done && !uiBusy(doc)) { done = true; mo.disconnect(); cb(); } });
+  mo.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded', 'role', 'aria-modal'] });
+  return () => { done = true; mo.disconnect(); };
+}

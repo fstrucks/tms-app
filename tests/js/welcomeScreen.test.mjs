@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { WELCOME_CARDS, WELCOME_KEY, OPEN_WELCOME_EVENT, shouldShowWelcome, hasSeenWelcome, markWelcomeSeen, openWelcome } from '../../app/lib/welcome.js';
+import { uiBusy, whenUiIdle, BUSY_UI_SELECTOR, WELCOME_CARDS, WELCOME_KEY, OPEN_WELCOME_EVENT, shouldShowWelcome, hasSeenWelcome, markWelcomeSeen, openWelcome } from '../../app/lib/welcome.js';
 
 const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
 const U = { id: 'u1', email: 't@example.test', user_metadata: {} };
@@ -74,4 +74,36 @@ test('welcome: sets body marker while open (cleared on close/unmount) and sits a
   assert.match(comp, /document\.body\.dataset\.welcomeOpen = '1'/);
   assert.match(comp, /return \(\) => \{[^}]*delete document\.body\.dataset\.welcomeOpen; \}/);
   assert.match(comp, /export const WELCOME_Z = 10000/); assert.match(comp, /zIndex: WELCOME_Z/);
+});
+
+test('welcome: uiBusy spots an open menu / other modal, not the welcome sheet itself', () => {
+  const doc = (hit) => ({ querySelector: (sel) => { assert.equal(sel, BUSY_UI_SELECTOR); return hit ? {} : null; } });
+  assert.equal(uiBusy(doc(true)), true); assert.equal(uiBusy(doc(false)), false); assert.equal(uiBusy(null), false);
+  assert.match(BUSY_UI_SELECTOR, /\[role="menu"\]/); assert.match(BUSY_UI_SELECTOR, /\[aria-haspopup\]\[aria-expanded="true"\]/);
+  assert.match(BUSY_UI_SELECTOR, /:not\(\[data-testid="welcome-screen"\]\)/);
+});
+
+test('welcome: auto-open waits for an open menu to close (MutationObserver, no polling), and can be cancelled', () => {
+  let busy = true, mo = null; const body = {};
+  const doc = { body, querySelector: () => (busy ? {} : null) };
+  class MO { constructor(cb) { this.cb = cb; mo = this; } observe(t, o) { this.t = t; this.o = o; } disconnect() { this.off = true; } }
+  let opened = 0;
+  whenUiIdle(() => opened++, doc, MO);
+  assert.equal(opened, 0, 'not while the menu is open');
+  assert.equal(mo.t, body); assert.equal(mo.o.subtree, true); assert.deepEqual(mo.o.attributeFilter, ['aria-expanded', 'role', 'aria-modal']);
+  mo.cb(); assert.equal(opened, 0);
+  busy = false; mo.cb(); mo.cb();
+  assert.equal(opened, 1, 'opens once when the menu closes'); assert.equal(mo.off, true);
+  busy = true; let n = 0; const cancel = whenUiIdle(() => n++, doc, MO); cancel(); busy = false; mo.cb();
+  assert.equal(n, 0, 'cancelled on unmount / route change'); assert.equal(mo.off, true);
+  busy = false; let now = 0; whenUiIdle(() => now++, doc, MO); assert.equal(now, 1, 'opens right away when nothing is open');
+});
+
+test('welcome: component defers auto-open, never steals focus from a menu, traps Tab, keeps Esc + marker', () => {
+  const comp = readFileSync('app/components/WelcomeScreen.js', 'utf8');
+  assert.match(comp, /return whenUiIdle\(\(\) => \{ if \(shouldShowWelcome\(/);
+  assert.match(comp, /if \(!uiBusy\(\)\) closeRef\.current\?\.focus\(\)/);
+  assert.match(comp, /e\.key !== 'Tab'/); assert.match(comp, /e\.key === 'Escape'/);
+  assert.match(comp, /document\.body\.dataset\.welcomeOpen = '1'/);
+  assert.match(comp, /const onOpen = \(\) => \{ if \(userRef\.current\) setOpen\(true\); \}/, 'Welcome tour re-open is explicit, not deferred');
 });

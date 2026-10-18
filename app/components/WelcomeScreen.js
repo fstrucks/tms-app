@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSupabase } from '../lib/supabase';
-import { WELCOME_CARDS, OPEN_WELCOME_EVENT, shouldShowWelcome, markWelcomeSeen } from '../lib/welcome';
+import { WELCOME_CARDS, OPEN_WELCOME_EVENT, shouldShowWelcome, markWelcomeSeen, uiBusy, whenUiIdle } from '../lib/welcome';
 
 // Above any floating UI (Report a bug button z 60, its dialog z 2100, nav z 50).
 export const WELCOME_Z = 10000;
@@ -16,6 +16,7 @@ export default function WelcomeScreen() {
   const [user, setUser] = useState(null);
   const [open, setOpen] = useState(false);
   const closeRef = useRef(null);
+  const sheetRef = useRef(null);
   const userRef = useRef(null);
   const [wide, setWide] = useState(false);
   useEffect(() => { const m = window.matchMedia('(min-width: 768px)'); const f = () => setWide(m.matches); f(); m.addEventListener?.('change', f); return () => m.removeEventListener?.('change', f); }, []);
@@ -25,7 +26,11 @@ export default function WelcomeScreen() {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => { userRef.current = session?.user || null; setUser(session?.user || null); });
     return () => sub.subscription.unsubscribe();
   }, []);
-  useEffect(() => { if (shouldShowWelcome({ user, pathname, storage: store() })) setOpen(true); }, [user, pathname]);
+  // Auto-open (first run) only when no menu/dialog is open; otherwise wait until the user closes it.
+  useEffect(() => {
+    if (!shouldShowWelcome({ user, pathname, storage: store() })) return undefined;
+    return whenUiIdle(() => { if (shouldShowWelcome({ user: userRef.current, pathname, storage: store() })) setOpen(true); });
+  }, [user, pathname]);
   useEffect(() => {
     const onOpen = () => { if (userRef.current) setOpen(true); };
     window.addEventListener(OPEN_WELCOME_EVENT, onOpen);
@@ -33,8 +38,17 @@ export default function WelcomeScreen() {
   }, []);
   useEffect(() => {
     if (!open) return undefined;
-    closeRef.current?.focus();
-    const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
+    if (!uiBusy()) closeRef.current?.focus(); // never steal focus from an open menu
+    const onKey = (e) => {
+      if (e.key === 'Escape') { dismiss(); return; }
+      if (e.key !== 'Tab' || !sheetRef.current) return; // keep Tab inside the sheet
+      const f = [...sheetRef.current.querySelectorAll('button, a[href], [tabindex]:not([tabindex="-1"])')];
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (!sheetRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
     // Marker for floating UI (e.g. Report a bug) to hide itself while the sheet is open; cleared on close/unmount.
@@ -53,7 +67,7 @@ export default function WelcomeScreen() {
 
   if (!open) return null;
   return (
-    <div data-testid="welcome-screen" role="dialog" aria-modal="true" aria-labelledby="welcome-title"
+    <div ref={sheetRef} data-testid="welcome-screen" role="dialog" aria-modal="true" aria-labelledby="welcome-title"
       onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}
       style={{ position: 'fixed', inset: 0, zIndex: WELCOME_Z, fontFamily: 'system-ui', background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0 }}>
       <div style={{ width: '100%', maxWidth: 560, maxHeight: '92dvh', overflowY: 'auto', background: '#f8fafc', borderRadius: wide ? 16 : '16px 16px 0 0', padding: '1rem 1rem calc(1rem + env(safe-area-inset-bottom))', boxSizing: 'border-box', margin: '0 auto', boxShadow: '0 -8px 32px rgba(0,0,0,0.25)' }}>
