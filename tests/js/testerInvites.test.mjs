@@ -8,8 +8,8 @@ import { validateInvite, inviteStatus, inviteRows, rateLimit, recentSends, redir
 const OWNER = 'owner-0000', PROFILE = 'prof-0001', T0 = Date.parse('2026-10-17T19:30:00-07:00');
 const iso = (ms) => new Date(ms).toISOString();
 
-function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id: OWNER, legal_name: 'FST Fake Trucking LLC' }], inviteError = null, memberInsertError = null, deleteUserError = null } = {}) {
-  const t = { users: users.map((u) => ({ ...u })), company_members: members.map((m) => ({ ...m })), company_profiles: profiles, invites: [], updates: [] };
+function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id: OWNER, legal_name: 'FST Fake Trucking LLC' }], inviteError = null, memberInsertError = null, deleteUserError = null, recordFailures = 0, memberFailures = Infinity } = {}) {
+  const t = { recordFailures, memberFailures, users: users.map((u) => ({ ...u })), company_members: members.map((m) => ({ ...m })), company_profiles: profiles, invites: [], updates: [] };
   const admin = {
     listUsers: async ({ page }) => ({ data: { users: page === 1 ? t.users : [] }, error: null }),
     inviteUserByEmail: async (email, opts) => {
@@ -22,13 +22,13 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
     },
     getUserById: async (id) => ({ data: { user: t.users.find((x) => x.id === id) || null }, error: null }),
     deleteUser: async (id) => { t.deleted = [...(t.deleted || []), id]; if (deleteUserError) return { error: deleteUserError }; t.users = t.users.filter((x) => x.id !== id); return { data: {}, error: null }; },
-    updateUserById: async (id, attrs) => { t.updates.push({ id, attrs }); const u = t.users.find((x) => x.id === id); if (u) Object.assign(u, attrs); return { data: { user: u }, error: null }; },
+    updateUserById: async (id, attrs) => { t.updates.push({ id, attrs }); if (t.recordFailures-- > 0) return { data: null, error: { status: 500, code: 'unexpected_failure' } }; const u = t.users.find((x) => x.id === id); if (u) Object.assign(u, attrs); return { data: { user: u }, error: null }; },
   };
   const from = (name) => {
     const st = { f: [], op: 'select' };
     const run = () => {
       if (st.op === 'delete') { t[name] = t[name].filter((r) => !st.f.every(([k, v]) => r[k] === v)); return { data: null, error: null }; }
-      if (st.op === 'insert') { if (memberInsertError) return { error: memberInsertError }; t[name].push({ ...st.payload }); return { data: null, error: null }; }
+      if (st.op === 'insert') { if (memberInsertError && t.memberFailures-- > 0) return { error: memberInsertError }; t[name].push({ ...st.payload }); return { data: null, error: null }; }
       const rows = (t[name] || []).filter((r) => st.f.every(([k, v]) => r[k] === v));
       return { data: st.one ? rows[0] || null : rows, error: null };
     };
@@ -40,7 +40,8 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
 }
 const uc = (id, meta = {}) => () => ({ auth: { getUser: async () => ({ data: { user: { id, email: `${id}@fstrucks.com`, user_metadata: meta } }, error: null }) } });
 const req = (body, method = 'POST', url = 'https://tms-app-git-feat-tester-invites-fst-tms.vercel.app/api/account/invites') => new Request(url, { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-const call = async (sb, body, who = OWNER, extra = {}) => { const r = await POST(req(body), { deps: { sb, mkUserClient: uc(who), now: () => T0, ...extra } }); return { status: r.status, j: await r.json() }; };
+const slept = []; const noSleep = async (ms) => { slept.push(ms); };
+const call = async (sb, body, who = OWNER, extra = {}) => { const r = await POST(req(body), { deps: { sb, mkUserClient: uc(who), now: () => T0, sleep: noSleep, ...extra } }); return { status: r.status, j: await r.json() }; };
 
 test('owner-only: non-owners (members, strangers) get 403, no token 401; nothing is sent', async () => {
   const sb = mockSb({ members: [{ profile_id: PROFILE, user_id: 'disp-1', role: 'dispatcher' }] });
@@ -262,4 +263,64 @@ test('(a) invite email data: company and inviter name for the template; template
   assert.deepEqual(sb.t.invites[0].opts.data, { company_name: 'FST Fake Trucking LLC', inviter_name: 'Marc Brooks' });
   const doc = readFileSync('docs/tester-invites.md', 'utf8');
   assert.match(doc, /\{\{ \.ConfirmationURL \}\}/); assert.match(doc, /\.Data\.company_name/); assert.match(doc, /Set your password/);
+});
+
+// fix/invite-list-refresh: a new invite (incl. Driver) must be in the list right after success; the only way it could
+// be missing is if BOTH the app_metadata record and the company_members link failed, which must not look like success.
+const listed = async (sb) => (await (await GET(req(null, 'GET'), { deps: { sb, mkUserClient: uc(OWNER), now: () => T0 } })).json()).invites;
+test('invite list: a new Driver invite is listed (pending, Driver, linked) right after success', async () => {
+  const sb = mockSb({ users: [{ id: 'u-2', email: 'taylor+invite2@fstrucks.com', invited_at: iso(T0 - 9e7), email_confirmed_at: iso(T0 - 8e7), app_metadata: { tester_invite: { company: PROFILE, role: 'driver' } } }], members: [{ profile_id: PROFILE, user_id: 'u-2', role: 'driver' }] });
+  const r = await call(sb, { email: 'taylor+invite3@fstrucks.com', role: 'driver' });
+  assert.equal(r.status, 200); assert.equal(r.j.ok, true); assert.equal(r.j.warning, undefined); assert.equal(r.j.listed, undefined);
+  const rows = await listed(sb);
+  assert.deepEqual(rows.map((x) => [x.email, x.status, x.role, x.linked]), [['taylor+invite3@fstrucks.com', 'pending', 'driver', true], ['taylor+invite2@fstrucks.com', 'accepted', 'driver', true]]);
+  for (const role of ['dispatcher', 'management']) {
+    await call(sb, { email: `taylor+${role}@fstrucks.com`, role });
+    assert.ok((await listed(sb)).some((x) => x.email === `taylor+${role}@fstrucks.com` && x.role === role && x.status === 'pending'));
+  }
+});
+test('invite list: either write alone keeps it listed; transient failures are retried once', async () => {
+  let sb = mockSb({ recordFailures: 2 }); // record fails twice, link works → listed via membership
+  assert.equal((await call(sb, { email: 'a@fstrucks.com' })).j.listed, undefined);
+  assert.equal((await listed(sb))[0].email, 'a@fstrucks.com');
+  sb = mockSb({ memberInsertError: { code: '42501' } }); // link fails, record works → listed (not linked yet)
+  const r = await call(sb, { email: 'b@fstrucks.com' });
+  assert.match(r.j.warning, /adding them to your company failed/); assert.equal(r.j.listed, undefined);
+  assert.deepEqual((await listed(sb)).map((x) => [x.email, x.linked]), [['b@fstrucks.com', false]]);
+  sb = mockSb({ recordFailures: 1, memberInsertError: { code: '40001' }, memberFailures: 1 }); // both fail once → retries land
+  const ok = await call(sb, { email: 'c@fstrucks.com' });
+  assert.equal(ok.j.warning, undefined); assert.equal(ok.j.linked, true);
+  assert.deepEqual((await listed(sb)).map((x) => [x.email, x.linked]), [['c@fstrucks.com', true]]);
+});
+test('invite list: if BOTH writes fail it says plainly it won’t be listed (listed:false), not a success', async () => {
+  const sb = mockSb({ recordFailures: 9, memberInsertError: { code: '42501' } });
+  const r = await call(sb, { email: 'taylor+invite3@fstrucks.com', role: 'driver' });
+  assert.equal(r.status, 200); assert.equal(r.j.listed, false); assert.equal(r.j.linked, false);
+  assert.equal(r.j.warning, 'The invite email went to taylor+invite3@fstrucks.com, but it couldn’t be saved to your company, so it won’t show in the list below. Don’t send it again (that uses another email). Contact support to link it.');
+  assert.doesNotMatch(r.j.warning, /\b(Sam|Alex|Taylor|Dakota|Marc)\b/);
+  assert.deepEqual(await listed(sb), [], 'reproduces the missing row; the message now matches it');
+  assert.equal(sb.t.invites.length, 1, 'one email, no retry of the send');
+});
+test('invite page: warnings are amber (not success green); a failed refresh keeps the list; re-fetch after send', () => {
+  const page = readFileSync('app/account/invite/page.js', 'utf8');
+  assert.match(page, /setMsg\(r\.warning \? \{ warn: true, text: r\.warning \} : \{ ok: true, text: `Invite sent to/);
+  assert.match(page, /data-kind=\{msg\.ok \? 'ok' : msg\.warn \? 'warn' : 'error'\}/);
+  assert.match(page, /prev\.invites && !d\.signedOut \? \{ \.\.\.prev, refreshError:/);
+  assert.match(page, /setF\(\(x\) => \(\{ \.\.\.x, email: '', name: '' \}\)\); load\(\);/);
+  const route = readFileSync('app/api/account/invites/route.js', 'utf8');
+  assert.match(route, /export const dynamic = 'force-dynamic'/); assert.match(route, /'Cache-Control': 'no-store'/);
+});
+
+test('invite retries: ~300 ms pause before each retry (injected, so tests stay fast); none when writes succeed', async () => {
+  const { RETRY_DELAY_MS } = await import('../../app/lib/testerInvites.js');
+  assert.equal(RETRY_DELAY_MS, 300);
+  slept.length = 0; await call(mockSb(), { email: 'ok@fstrucks.com' }); assert.deepEqual(slept, []);
+  slept.length = 0; await call(mockSb({ recordFailures: 9, memberInsertError: { code: '42501' } }), { email: 'x@fstrucks.com' });
+  assert.deepEqual(slept, [300, 300], 'one pause before the record retry, one before the link retry');
+  slept.length = 0; await call(mockSb({ recordFailures: 1 }), { email: 'y@fstrucks.com' }); assert.deepEqual(slept, [300]);
+});
+test('invite: no user-facing message names a person or bot', () => {
+  const src = readFileSync('app/lib/testerInvites.js', 'utf8') + readFileSync('app/account/invite/page.js', 'utf8') + readFileSync('app/api/account/invites/route.js', 'utf8');
+  const strings = src.match(/(['`])(?:(?!\1).)*\1/g) || [];
+  assert.deepEqual(strings.filter((x) => /\b(Sam|Alex|Taylor|Dakota|Marc)\b/.test(x)), []);
 });

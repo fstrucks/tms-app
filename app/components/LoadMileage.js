@@ -6,6 +6,7 @@ import { LoadError } from './DataState';
 import { fmtMoney } from '../lib/loads';
 import { MileageForm, EntryRow, sumBy, fmtMiles, fmtRpm } from '../lib/mileage';
 import { writeLoadMiles, milesSourceNote, hasMilesSourceColumn, extractedMiles } from '../lib/loadMiles';
+import { calculatedHint } from '../lib/loadRoute';
 
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
 const row = { display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0', fontSize: '0.9rem' };
@@ -16,7 +17,7 @@ const input = { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontS
 // Planned miles (loads.total_miles: rate con or typed; a typed value always wins) are shown with a small grey source
 // note. The mileage log total is shown separately as "actual" (Sam/Marc, Oct 18) and does not replace planned miles
 // once 20261018000300_load_miles_source.sql has run. Before that, the old trigger still copies the log total in.
-export default function LoadMileage({ load, userId, onLoadChange }) {
+export default function LoadMileage({ load, userId, onLoadChange, onPlannedCleared, refreshKey = 0 }) {
   const supabase = getSupabase();
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState(null);
@@ -27,7 +28,12 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
   const [rateConMiles, setRateConMiles] = useState(null);
   const [migrated, setMigrated] = useState(hasMilesSourceColumn(load));
 
-  const pick = (l) => ({ total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, ...(hasMilesSourceColumn(l) ? { miles_source: l.miles_source } : {}) });
+  const pick = (l) => ({ total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, ...(hasMilesSourceColumn(l) ? { miles_source: l.miles_source } : {}),
+    ...(Object.prototype.hasOwnProperty.call(l, 'calculated_miles') ? { calculated_miles: l.calculated_miles } : {}) });
+  const [usingCalc, setUsingCalc] = useState(false);
+
+  // Planned can change from outside (the map card fills empty Planned with route miles): keep the box in sync.
+  useEffect(() => { setManual(load.total_miles ?? ''); }, [load.total_miles]);
 
   async function refresh() {
     setError(null);
@@ -47,7 +53,8 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
     if (l) { setMigrated(hasMilesSourceColumn(l)); onLoadChange?.(pick(l)); setManual(l.total_miles ?? ''); }
   }
 
-  useEffect(() => { if (supabase && load?.id) refresh(); }, [load?.id]);
+  // refreshKey: the page re-fetched (re-run / route fill / tab shown again) → re-read miles too.
+  useEffect(() => { if (supabase && load?.id) refresh(); }, [load?.id, refreshKey]);
 
   async function add(r) {
     const res = await supabase.from('mileage_entries').insert({ ...r, user_id: userId, load_id: load.id });
@@ -74,11 +81,26 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
       setMigrated(m);
       onLoadChange?.({ ...row, ...(m ? { miles_source: v == null ? null : 'typed' } : {}) });
       setManual(row.total_miles ?? '');
+      // Cleared Planned → ask the map card to re-check: the server refills it from the rate con or the saved
+      // route (typed > rate con > calculated), only while it's still empty (QA #83 r3).
+      if (v == null && m) onPlannedCleared?.();
       // Before the migration the old trigger replaces typed miles with the mileage log total.
       if (v != null && row.total_miles !== v) setNotice(`Saved, but the mileage log total (${fmtMiles(row.total_miles)}) is used until the database update for typed miles is applied.`);
     } finally {
       setSavingManual(false);
     }
+  }
+
+  // "Calculated N mi · Use this" (PR B): the truck route and the rate con differ by more than 10%.
+  async function applyCalculated(miles) {
+    setUsingCalc(true); setError(null); setNotice(null);
+    try {
+      const { data, error, migrated: m } = await writeLoadMiles(supabase, { loadId: load.id, miles, source: 'calculated', select: 'total_miles, rate_per_mile' });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) { console.error('use calculated miles', error); return setError('Could not save, please try again.'); }
+      setMigrated(m);
+      onLoadChange?.({ ...row, ...(m ? { miles_source: 'calculated' } : {}) });
+    } finally { setUsingCalc(false); }
   }
 
   const list = entries || [];
@@ -88,6 +110,7 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
   const rate = load.rate != null ? Number(load.rate) : null;
   const rpm = (m) => (rate != null && m > 0 ? rate / m : null);
   const note = milesSourceNote({ load, rateConMiles, loggedTotal: total });
+  const hint = calculatedHint({ load, rateConMiles });
 
   return (
     <div style={card}>
@@ -114,6 +137,13 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
               <div style={{ ...muted, fontSize: '0.75rem' }}>{list.length ? 'from mileage log' : 'no log entries yet'}</div>
             </div>
           </div>
+          {hint && (
+            <div data-testid="calculated-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.4rem 0.6rem', margin: '0 0 0.5rem' }}>
+              <span style={{ fontSize: '0.9rem' }}>Calculated {fmtMiles(hint.miles)} <span style={{ ...muted, fontSize: '0.8rem' }}>(truck route; rate con says {fmtMiles(rateConMiles)})</span></span>
+              <button type="button" data-testid="use-calculated" disabled={usingCalc} onClick={() => applyCalculated(hint.miles)}
+                style={{ minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #2563eb', background: '#fff', color: '#1d4ed8', fontWeight: 600, opacity: usingCalc ? 0.6 : 1 }}>Use this</button>
+            </div>
+          )}
           <form onSubmit={saveManual} style={{ margin: '0.5rem 0' }} data-testid="planned-miles-form">
             <label htmlFor="load-total-miles" style={{ ...muted, fontSize: '0.85rem', display: 'block', margin: '0 0 0.25rem' }}>Planned miles (type to override)</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
