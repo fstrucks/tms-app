@@ -9,6 +9,7 @@ import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
 import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
+import { shouldCloseOnBlur } from '../../lib/menuBlur';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
@@ -28,6 +29,7 @@ export default function AccountMenu({ showEmail = false }) {
   const wrapRef = useRef(null);
   const btnRef = useRef(null);
   const itemRefs = useRef([]);
+  const pressRef = useRef(false); // a pointer press inside the menu is in progress (see lib/menuBlur)
   const menuId = useId();
   // Owner-only items (Invite testers, Bug reports) share one check, re-run when the menu opens and when the
   // session token changes; a "couldn't tell" answer keeps the last value instead of hiding them (QA #78 b).
@@ -91,7 +93,8 @@ export default function AccountMenu({ showEmail = false }) {
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0 }}
-      onBlur={(e) => { if (open && !wrapRef.current?.contains(e.relatedTarget)) setOpen(false); }}>
+      onPointerDown={() => { pressRef.current = true; const up = () => { setTimeout(() => { pressRef.current = false; }, 0); }; document.addEventListener('pointerup', up, { once: true }); document.addEventListener('pointercancel', up, { once: true }); }}
+      onBlur={(e) => { if (shouldCloseOnBlur({ open, focusStaysInside: !!wrapRef.current?.contains(e.relatedTarget), pressInside: pressRef.current })) setOpen(false); }}>
       <button ref={btnRef} type="button" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
         aria-label={`Account: ${email}`} onClick={() => setOpen((v) => !v)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 44, minWidth: 44, padding: '0 0.4rem', border: 'none', background: 'transparent', cursor: 'pointer', color: '#111827' }}>
