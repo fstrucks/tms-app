@@ -248,12 +248,12 @@ test('3: account menu gets one owner-only "Invite testers" item; keyboard nav fo
   assert.match(menu, /querySelectorAll\('\[role="?menuitem"?\]'\)/);
   const { isCompanyOwner } = await import('../../app/components/ui/InviteTestersMenuItem.js').catch(() => ({}));
   if (isCompanyOwner) { // JSX may not load under node; the source check below still runs
-    const fake = (rows) => ({ from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: rows, error: null }) }) }) }) });
+    const fake = (rows) => ({ auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) }, from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: rows, error: null }) }) }) }) });
     assert.equal(await isCompanyOwner(fake([{ id: 'p' }]), 'owner-a'), true);
     assert.equal(await isCompanyOwner(fake([]), 'member-b'), false);
   }
   const item = readFileSync('app/components/ui/InviteTestersMenuItem.js', 'utf8');
-  assert.match(item, /if \(!owner\) return null;/); assert.match(item, /eq\('owner_id', userId\)/); assert.match(item, /Invite testers/);
+  assert.match(item, /if \(!owner\) return null;/); assert.match(readFileSync('app/lib/accountOwner.js', 'utf8'), /eq\('owner_id', userId\)/); assert.match(item, /Invite testers/);
 });
 
 test('(a) invite email data: company and inviter name for the template; template doc uses {{ .ConfirmationURL }}', async () => {

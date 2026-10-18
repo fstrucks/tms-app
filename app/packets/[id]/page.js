@@ -85,6 +85,7 @@ export default function PacketPage({ params }) {
     cache.current.set(n, out); return out;
   }, [pdfReady]); // eslint-disable-line react-hooks/exhaustive-deps
   const onSave = useCallback((body) => api(`/api/packets/${id}/fields`, { method: 'PATCH', body: JSON.stringify(body) }), [id]);
+  const onReload = useCallback(() => api(`/api/packets/${id}/fields`), [id]);
   const onSign = useCallback((body) => api(`/api/packets/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }), [id]);
   // One automatic retry if the connection drops (cold start / slow fill); the server reuses a fill that already
   // finished, so a retry never fills twice.
@@ -103,6 +104,6 @@ export default function PacketPage({ params }) {
 
   if (st.loading) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><p>Loading packet…</p></main>;
   if (st.error) return <main style={{ padding: '1rem', fontFamily: 'system-ui' }}><h1>Carrier packet</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href={`/login?next=/packets/${id}`}>Sign in</a>}{st.retry && <button type="button" data-testid="fields-retry" style={{ minHeight: 44, padding: '0 1rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15 }} onClick={() => { setSt({ loading: true }); load().catch(() => setSt({ error: FIELDS_LOAD_ERROR, retry: true })); }}>Try again</button>}</main>;
-  return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review' || coiStep === 'write' || coiStep === 'review'} onBarShownChange={setBarShown} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
+  return <><PacketMapper packet={st.packet} fields={st.fields} canEdit={st.canEdit} pageCount={st.pageCount} renderPage={renderPage} onSave={onSave} onReload={onReload} onSign={onSign} onFill={onFillTracked} onClearSig={onClearSig} loadSignatures={loadSignatures} hideActionBar={sendStep === 'write' || sendStep === 'review' || coiStep === 'write' || coiStep === 'review'} onBarShownChange={setBarShown} loginHref={`/login?next=${encodeURIComponent(`/packets/${id}`)}`} />
     <div data-testid="send-wrap" style={{ padding: '0 0.75rem', paddingBottom: sendWrapPadding(barShown) }}><PacketSendBroker load={loadSend} send={onSend} filledAt={filledAt || st.packet.filled_at} onStepChange={setSendStep} />{COI_FLAG && <PacketCoiRequest load={loadCoi} send={onCoi} onStepChange={setCoiStep} />}</div></>;
 }

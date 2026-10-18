@@ -39,26 +39,41 @@ async function getFields(req, { params, deps } = {}) {
 }
 
 // Body: { upserts: [edit], deletes: [id] }. Editors only. Bank values encrypted here; confirmation enforced.
-export async function PATCH(req, { params, deps } = {}) {
+// Idempotent (QA #78 a): a new field is keyed by its client field_key, so a retried save (first reply lost)
+// updates the row the first attempt inserted instead of failing on the unique key or adding a duplicate.
+// Always answers JSON; if the edits were written but the fresh list can't be read, it says so (reload: true)
+// rather than turning a successful save into an error.
+export async function PATCH(req, ctx = {}) {
+  try { return await patchFields(req, ctx); } catch (e) {
+    console.error('[packets] fields PATCH', String(e?.message || e).slice(0, 200));
+    return json({ error: 'Couldn’t save just now. Try again.', retry: true }, 500);
+  }
+}
+async function patchFields(req, { params, deps } = {}) {
   const sb = deps?.sb || serviceClient();
   if (!sb) return json({ error: 'Storage not configured' }, 503);
   const a = await packetAccess(req, params?.id, { sb, ...(deps || {}) });
   if (a.error) return json({ error: a.error }, a.status);
   if (!a.canEdit) return json({ error: 'Drivers can view packets but not edit fields.' }, 403);
   let body; try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
-  const upserts = Array.isArray(body?.upserts) ? body.upserts : [], deletes = Array.isArray(body?.deletes) ? body.deletes.map(String) : [];
+  const raw = Array.isArray(body?.upserts) ? body.upserts : [], deletes = Array.isArray(body?.deletes) ? body.deletes.map(String) : [];
+  // The same new field twice in one request: keep the last copy.
+  const lastByKey = new Map(raw.map((u, i) => [!u?.id && u?.field_key ? String(u.field_key) : null, i]));
+  const upserts = raw.filter((u, i) => !(u && !u.id && u.field_key) || lastByKey.get(String(u.field_key)) === i);
   let existing;
   try { existing = await list(sb, a.packet.id); } catch (e) {
     return isMissingSchema(e.db) ? json({ error: MISSING_MSG, migration: MIGRATION }, 503) : json({ error: 'Could not load fields.' }, 500);
   }
   const byId = new Map(existing.map((r) => [r.id, r]));
-  if (existing.length - deletes.length + upserts.filter((u) => !u.id).length > MAX_FIELDS) return json({ error: 'Too many fields' }, 400);
+  const byKey = new Map(existing.map((r) => [r.field_key, r]));
+  const keyRow = (e) => (!e.id && e.field_key ? byKey.get(String(e.field_key).slice(0, 60)) || null : null);
+  if (existing.length - deletes.length + upserts.filter((u) => !u.id && !keyRow(u)).length > MAX_FIELDS) return json({ error: 'Too many fields' }, 400);
   let key = null;
   const encrypt = (v) => encryptField(v, key || (key = deps?.key || loadKey()));
   const errors = [];
   try {
     for (const [i, e] of upserts.entries()) {
-      const ex = e.id ? byId.get(String(e.id)) : null;
+      const ex = e.id ? byId.get(String(e.id)) : keyRow(e);
       if (e.id && !ex) { errors.push({ i, error: 'Field not found' }); continue; }
       const r = applyEdit(e, ex, { userId: a.user.id, encrypt, page: e.page_w ? { w: Number(e.page_w), h: Number(e.page_h) } : null });
       if (r.error) { errors.push({ i, id: e.id, error: r.error }); continue; }
@@ -72,6 +87,15 @@ export async function PATCH(req, { params, deps } = {}) {
     throw e;
   }
   const del = deletes.filter((d) => byId.has(d));
-  if (del.length) await sb.from('packet_fields').delete().in('id', del).eq('packet_id', a.packet.id);
-  return json({ ok: errors.length === 0, errors, fields: (await list(sb, a.packet.id)).map(toClient) }, errors.length && errors.length === upserts.length && !del.length ? 400 : 200);
+  if (del.length) {
+    const { error } = await sb.from('packet_fields').delete().in('id', del).eq('packet_id', a.packet.id);
+    if (error) errors.push({ error: 'Delete failed' });
+  }
+  const status = errors.length && errors.length === upserts.length && !del.length ? 400 : 200;
+  let fields;
+  try { fields = (await list(sb, a.packet.id)).map(toClient); } catch (e) {
+    console.error('[packets] fields PATCH re-list', e.db?.code);
+    return json({ ok: errors.length === 0, errors, reload: true }, status);
+  }
+  return json({ ok: errors.length === 0, errors, fields }, status);
 }

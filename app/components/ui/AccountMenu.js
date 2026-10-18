@@ -8,6 +8,7 @@ import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
+import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
@@ -28,6 +29,18 @@ export default function AccountMenu({ showEmail = false }) {
   const btnRef = useRef(null);
   const itemRefs = useRef([]);
   const menuId = useId();
+  // Owner-only items (Invite testers, Bug reports) share one check, re-run when the menu opens and when the
+  // session token changes; a "couldn't tell" answer keeps the last value instead of hiding them (QA #78 b).
+  const [owner, setOwner] = useState(false);
+  const [authTick, setAuthTick] = useState(0);
+  const uid = user?.id || null;
+  useEffect(() => {
+    if (!uid) { setOwner(false); return undefined; }
+    if (cachedOwner(uid)) { setOwner(true); return undefined; }
+    let on = true;
+    companyOwnerStatus(supabase, uid).then((r) => { if (on && r.definite) setOwner(r.owner); }).catch(() => {});
+    return () => { on = false; };
+  }, [uid, open, authTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!supabase) return setReady(true);
@@ -35,6 +48,7 @@ export default function AccountMenu({ showEmail = false }) {
       setUser(session?.user || null);
       if (event === 'INITIAL_SESSION') setReady(true);
       if (event === 'SIGNED_OUT') setOpen(false);
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') setAuthTick((n) => n + 1);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -98,8 +112,8 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             Company profile
           </Link>
-          <InviteTestersMenuItem userId={user.id} onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }} />
-          <BugReportsMenuItem userId={user.id} onPick={() => setOpen(false)} />
+          <InviteTestersMenuItem owner={owner} onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }} />
+          <BugReportsMenuItem owner={owner} onPick={() => setOpen(false)} />
           <Link ref={(el) => { itemRefs.current[2] = el; }} href="/packets" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             Carrier packets
