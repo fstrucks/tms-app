@@ -80,9 +80,9 @@ test('owner list: page, menu item and shared-file edits', () => {
   assert.match(page, /res\.status === 404/); assert.match(page, /Page not found/); assert.match(page, /bug-reports-setup/);
   const menu = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
   assert.match(menu, /import BugReportsMenuItem from '..\/BugReportsMenuItem'/);
-  assert.match(menu, /<BugReportsMenuItem userId=\{user\.id\} onPick=\{\(\) => setOpen\(false\)\} \/>/);
+  assert.match(menu, /<BugReportsMenuItem owner=\{owner\} onPick=\{\(\) => setOpen\(false\)\} \/>/); // shared owner check (QA #78 b)
   assert.match(menu, /querySelectorAll\('\[role=menuitem\]'\)/);
   const item = readFileSync('app/components/BugReportsMenuItem.js', 'utf8');
-  assert.match(item, /from\('company_profiles'\)\.select\('id'\)\.eq\('owner_id', userId\)/); assert.match(item, /if \(!owner\) return null/);
+  assert.match(readFileSync('app/lib/accountOwner.js', 'utf8'), /from\('company_profiles'\)\.select\('id'\)\.eq\('owner_id', userId\)/); assert.match(item, /if \(!owner\) return null/);
   assert.doesNotMatch(readFileSync('supabase/migrations/20261018000100_bug_reports.sql', 'utf8'), /owner|security definer/i, 'no migration change needed');
 });

@@ -8,6 +8,7 @@ import { dragBox, pxPerCss, parseInch, dragDelta } from '../lib/packetDrag';
 import { signTarget } from '../lib/packetSignFlow';
 import { fillBlockers, isSigField } from '../lib/packetFillReady';
 import { saveDraft, loadDraft, clearDraft, applyDraft } from '../lib/packetDraft';
+import { saveFields, saveErrorText } from '../lib/packetSave';
 import { formatPacketDate } from '../lib/packetDate';
 import { byPosition, KEY_LABELS, fieldName, rowName, BANK, SENSITIVE, STATE_COLORS, fieldState, summarize, placeBox, nudge, buildPatch, updateField, manualReasonText, unconfirmedBank } from '../lib/packetMapperModel';
 import { packetDisplayStatus, fieldSummary, ADD_FIELD_HINT, statusChipStyle } from '../lib/packetStatus';
@@ -78,7 +79,7 @@ export function BrokerField({ packetId, value, canEdit, api, onSaved }) {
 }
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
 
-export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null, layoutApi = layoutCall }) {
+export default function PacketMapper({ packet, fields: initial, canEdit, pageCount, renderPage, onSave, onSign, onFill, onClearSig, loadSignatures, hideActionBar = false, onBarShownChange, loginHref = '/login', signerName = '', initialSel = null, initialSigMenu = null, layoutApi = layoutCall, onReload = null }) {
   const [fields, setFields] = useState(initial);
   const [deleted, setDeleted] = useState([]);
   const [page, setPage] = useState(1);
@@ -202,7 +203,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     if (!placing || !canEdit || !img) return;
     const r = e.currentTarget.getBoundingClientRect(), k = img.w / r.width;
     const x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
-    const id = `tmp-${Date.now().toString(36)}`;
+    const id = `tmp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; // unique field_key: the server dedupes retries on it
     const f = { id, field_key: `u-${id.slice(4)}`, page, kind: 'text', label: '', box: placeBox(x, y, img.w, img.h), profile_key: null, value: '', confirmed: false, page_w: img.w, page_h: img.h, dirty: true, source: 'user' };
     setFields((fs) => [...fs, f]); setSel(id); setPlacing(false);
   }
@@ -313,14 +314,21 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
     const bad = fields.find((f) => f.dirty && BANK.has(f.profile_key) && f.check && !f.check.ok);
     if (bad) { setPage(bad.page); setSel(bad.id); return setMsg(bad.check.message); }
     setBusy(true); setMsg(null);
-    const r = await onSave(buildPatch(fields, deleted));
+    // A dropped reply / 5xx is checked against the server before any error is shown (QA #78 a): a save that went
+    // through says Saved and clears the draft; one that didn't keeps the edits, rebased so Save can't duplicate.
+    const reload = onReload || (() => layoutApi(`/api/packets/${packet.id}/fields`));
+    const out = await saveFields({ save: onSave, reload, patch: buildPatch(fields, deleted), dirty: fields.filter((f) => f.dirty), deleted });
     setBusy(false);
-    if (handle(r)) return;
-    if (r?.error) return setMsg(r.error);
-    if (store) clearDraft(store, packet.id);
+    const r = out.res;
+    if (out.kind === 'signedOut') return handle(r);
+    if (out.kind === 'error') {
+      if (out.fields) { base.current = out.server; setFields(out.fields); setDeleted(out.deleted); if (String(sel || '').startsWith('tmp-')) setSel(null); }
+      return setMsg(saveErrorText(r));
+    }
+    if (store) clearDraft(store, packet.id); // the server confirmed the save
     if (r?.errors?.length) setMsg(r.errors.map((x) => x.error).join(' · '));
     else setMsg('Saved.');
-    if (r?.fields) { base.current = r.fields; setFields(r.fields); setDeleted([]); setSel(null); }
+    if (out.fields) { base.current = out.fields; setFields(out.fields); setDeleted([]); setSel(null); }
   }
 
   return (
