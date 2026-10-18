@@ -6,6 +6,7 @@ import { LoadError } from './DataState';
 import { fmtMoney } from '../lib/loads';
 import { MileageForm, EntryRow, sumBy, fmtMiles, fmtRpm } from '../lib/mileage';
 import { writeLoadMiles, milesSourceNote, hasMilesSourceColumn, extractedMiles } from '../lib/loadMiles';
+import { calculatedHint } from '../lib/loadRoute';
 
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
 const row = { display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0', fontSize: '0.9rem' };
@@ -27,7 +28,12 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
   const [rateConMiles, setRateConMiles] = useState(null);
   const [migrated, setMigrated] = useState(hasMilesSourceColumn(load));
 
-  const pick = (l) => ({ total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, ...(hasMilesSourceColumn(l) ? { miles_source: l.miles_source } : {}) });
+  const pick = (l) => ({ total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, ...(hasMilesSourceColumn(l) ? { miles_source: l.miles_source } : {}),
+    ...(Object.prototype.hasOwnProperty.call(l, 'calculated_miles') ? { calculated_miles: l.calculated_miles } : {}) });
+  const [usingCalc, setUsingCalc] = useState(false);
+
+  // Planned can change from outside (the map card fills empty Planned with route miles): keep the box in sync.
+  useEffect(() => { setManual(load.total_miles ?? ''); }, [load.total_miles]);
 
   async function refresh() {
     setError(null);
@@ -81,6 +87,18 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
     }
   }
 
+  // "Calculated N mi · Use this" (PR B): the truck route and the rate con differ by more than 10%.
+  async function applyCalculated(miles) {
+    setUsingCalc(true); setError(null); setNotice(null);
+    try {
+      const { data, error, migrated: m } = await writeLoadMiles(supabase, { loadId: load.id, miles, source: 'calculated', select: 'total_miles, rate_per_mile' });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) { console.error('use calculated miles', error); return setError('Could not save, please try again.'); }
+      setMigrated(m);
+      onLoadChange?.({ ...row, ...(m ? { miles_source: 'calculated' } : {}) });
+    } finally { setUsingCalc(false); }
+  }
+
   const list = entries || [];
   const loaded = sumBy(list, (e) => e.source === 'loaded');
   const deadhead = sumBy(list, (e) => e.source === 'deadhead');
@@ -88,6 +106,7 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
   const rate = load.rate != null ? Number(load.rate) : null;
   const rpm = (m) => (rate != null && m > 0 ? rate / m : null);
   const note = milesSourceNote({ load, rateConMiles, loggedTotal: total });
+  const hint = calculatedHint({ load, rateConMiles });
 
   return (
     <div style={card}>
@@ -114,6 +133,13 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
               <div style={{ ...muted, fontSize: '0.75rem' }}>{list.length ? 'from mileage log' : 'no log entries yet'}</div>
             </div>
           </div>
+          {hint && (
+            <div data-testid="calculated-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.4rem 0.6rem', margin: '0 0 0.5rem' }}>
+              <span style={{ fontSize: '0.9rem' }}>Calculated {fmtMiles(hint.miles)} <span style={{ ...muted, fontSize: '0.8rem' }}>(truck route; rate con says {fmtMiles(rateConMiles)})</span></span>
+              <button type="button" data-testid="use-calculated" disabled={usingCalc} onClick={() => applyCalculated(hint.miles)}
+                style={{ minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #2563eb', background: '#fff', color: '#1d4ed8', fontWeight: 600, opacity: usingCalc ? 0.6 : 1 }}>Use this</button>
+            </div>
+          )}
           <form onSubmit={saveManual} style={{ margin: '0.5rem 0' }} data-testid="planned-miles-form">
             <label htmlFor="load-total-miles" style={{ ...muted, fontSize: '0.85rem', display: 'block', margin: '0 0 0.25rem' }}>Planned miles (type to override)</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>

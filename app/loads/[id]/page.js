@@ -9,6 +9,8 @@ import SignInLink from '../../components/SignInLink';
 import { useParams, useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import LoadMileage from '../../components/LoadMileage';
+import LoadRouteCard from '../../components/LoadRouteCard';
+import { stopAddressText } from '../../lib/loadRoute';
 import LoadScaleTickets from '../../components/LoadScaleTickets';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
@@ -154,6 +156,10 @@ export default function LoadDetailPage() {
                   <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}</h1>
                   {hasStatus && <StatusBadge status={load.status} />}
                 </div>
+
+                {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
+                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')}
+                  onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
 
                 <div style={s.card}>
                   <dl style={s.dl}>
