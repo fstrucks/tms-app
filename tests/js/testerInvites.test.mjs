@@ -22,7 +22,7 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
     },
     getUserById: async (id) => ({ data: { user: t.users.find((x) => x.id === id) || null }, error: null }),
     deleteUser: async (id) => { t.deleted = [...(t.deleted || []), id]; if (deleteUserError) return { error: deleteUserError }; t.users = t.users.filter((x) => x.id !== id); return { data: {}, error: null }; },
-    updateUserById: async (id, attrs) => { t.updates.push({ id, attrs }); if (t.recordFailures-- > 0) return { data: null, error: { status: 500, code: 'unexpected_failure' } }; const u = t.users.find((x) => x.id === id); if (u) Object.assign(u, attrs); return { data: { user: u }, error: null }; },
+    updateUserById: async (id, attrs) => { t.updates.push({ id, attrs }); if (id !== OWNER && t.recordFailures-- > 0) return { data: null, error: { status: 500, code: 'unexpected_failure' } }; const u = t.users.find((x) => x.id === id); if (u) Object.assign(u, attrs); return { data: { user: u }, error: null }; },
   };
   const from = (name) => {
     const st = { f: [], op: 'select' };
@@ -65,7 +65,7 @@ test('invite: calls inviteUserByEmail with redirectTo <site>/account/password + 
   assert.equal(email, 'taylor+invite1@fstrucks.com');
   assert.equal(opts.redirectTo, 'https://tms-app-git-feat-tester-invites-fst-tms.vercel.app/account/password');
   assert.deepEqual(opts.data, { full_name: 'Taylor Test (FAKE)', company_name: 'FST Fake Trucking LLC' }); // display-only values for the email template
-  assert.deepEqual(sb.t.updates[0].attrs.app_metadata.tester_invite, { by: OWNER, company: PROFILE, role: 'management', log: [iso(T0)] }); // trusted record
+  assert.deepEqual(sb.t.updates.find((x) => x.attrs.app_metadata?.tester_invite).attrs.app_metadata.tester_invite, { by: OWNER, company: PROFILE, role: 'management', log: [iso(T0)] }); // trusted record
   assert.deepEqual(sb.t.company_members, [{ profile_id: PROFILE, user_id: 'user-1', role: 'management' }]);
   // default role is driver; owner is never grantable
   const sb2 = mockSb(); await call(sb2, { email: 'taylor+invite2@fstrucks.com' });
@@ -95,7 +95,7 @@ test('resend: pending → re-invites + logs the send; accepted → no email, jus
   const r = await call(sb, { action: 'resend', email: 'TAYLOR+invite1@fstrucks.com' });
   assert.equal(r.status, 200); assert.equal(r.j.emailed, true);
   assert.equal(sb.t.invites.length, 1); assert.equal(sb.t.invites[0].email, 'taylor+invite1@fstrucks.com');
-  assert.equal(sb.t.updates[0].attrs.app_metadata.tester_invite.log.at(-1), iso(T0));
+  assert.equal(sb.t.updates.find((x) => x.attrs.app_metadata?.tester_invite).attrs.app_metadata.tester_invite.log.at(-1), iso(T0));
   assert.deepEqual(sb.t.company_members.find((m) => m.user_id === 'u-pend'), { profile_id: PROFILE, user_id: 'u-pend', role: 'dispatcher' });
   const again = await call(sb, { action: 'resend', email: 'taylor+invite1@fstrucks.com' }); // seconds later
   assert.equal(again.status, 429); assert.equal(sb.t.invites.length, 1);
@@ -323,4 +323,59 @@ test('invite: no user-facing message names a person or bot', () => {
   const src = readFileSync('app/lib/testerInvites.js', 'utf8') + readFileSync('app/account/invite/page.js', 'utf8') + readFileSync('app/api/account/invites/route.js', 'utf8');
   const strings = src.match(/(['`])(?:(?!\1).)*\1/g) || [];
   assert.deepEqual(strings.filter((x) => /\b(Sam|Alex|Taylor|Dakota|Marc)\b/.test(x)), []);
+});
+
+// fix/invite-followups: hourly-limit gap. Sends also land on the owner's app_metadata.invite_sends, so they count
+// even if the invitee's record failed or the invitee was cancelled (deleteUser drops their log).
+import { recentSends as recent2, ownerSends, existingHint } from '../../app/lib/testerInvites.js';
+const ownerRow = (sends = []) => ({ id: OWNER, email: 'owner@fstrucks.com', email_confirmed_at: iso(T0 - 9e9), app_metadata: { provider: 'email', ...(sends.length ? { invite_sends: sends } : {}) } });
+test('hourly limit: a send counts on the owner ledger even when the invitee record fails to save', async () => {
+  const sb = mockSb({ users: [ownerRow()], recordFailures: 9 });
+  await call(sb, { email: 'a@fstrucks.com' });
+  const o = sb.t.users.find((u) => u.id === OWNER);
+  assert.deepEqual(o.app_metadata.invite_sends, [iso(T0)]); assert.equal(o.app_metadata.provider, 'email', 'other app_metadata kept');
+  assert.equal(recent2(sb.t.users, OWNER, T0), 1, 'was 0 before the fix (only per-invitee logs counted)');
+});
+test('hourly limit: cancel + re-invite can’t bypass it (cancelled invitee’s log is gone, owner ledger stays)', async () => {
+  const sb = mockSb({ users: [ownerRow()] });
+  for (let i = 0; i < HOURLY_LIMIT; i++) {
+    const email = `c${i}@fstrucks.com`;
+    assert.equal((await call(sb, { email })).status, 200);
+    const u = sb.t.users.find((x) => x.email === email);
+    assert.equal((await call(sb, { action: 'cancel', email, id: u.id })).status, 200);
+  }
+  assert.equal(sb.t.users.length, 1, 'all invitees deleted');
+  const r = await call(sb, { email: 'one-more@fstrucks.com' });
+  assert.equal(r.status, 429); assert.match(r.j.error, /in the last hour/);
+  assert.equal(sb.t.invites.length, HOURLY_LIMIT, 'no 11th email');
+  const g = await (await GET(req(null, 'GET'), { deps: { sb, mkUserClient: uc(OWNER), now: () => T0 } })).json();
+  assert.equal(g.limit.used, HOURLY_LIMIT);
+});
+test('hourly limit: union with older per-invitee logs, deduped; old entries expire; resend counts once', async () => {
+  const t1 = iso(T0 - 10 * 60e3), t2 = iso(T0 - 20 * 60e3), old = iso(T0 - 2 * 3600e3);
+  const users = [ownerRow([t1, old]), { id: 'p1', email: 'p1@x.com', invited_at: t2, app_metadata: { tester_invite: { by: OWNER, company: PROFILE, log: [t1, t2] } } }];
+  assert.deepEqual(ownerSends(users, OWNER), [t1, old]);
+  assert.equal(recent2(users, OWNER, T0), 2, 't1 counted once, t2 from the invitee log, old expired');
+  const sb = mockSb({ users: [ownerRow(), { id: 'p2', email: 'p2@fstrucks.com', invited_at: iso(T0 - 600e3), app_metadata: { tester_invite: { by: OWNER, company: PROFILE, role: 'driver', log: [iso(T0 - 600e3)] } } }] });
+  assert.equal((await call(sb, { action: 'resend', email: 'p2@fstrucks.com' })).status, 200);
+  assert.equal(recent2(sb.t.users, OWNER, T0), 2, 'original + resend; resend not double-counted');
+  const sb2 = mockSb({ users: [ownerRow()], inviteError: { status: 500, code: 'unexpected_failure' } });
+  await call(sb2, { email: 'z@fstrucks.com' });
+  assert.equal(recent2(sb2.t.users, OWNER, T0), 0, 'a failed send is not counted');
+});
+test('existing hint: pending / member matches (case and spaces ignored); non-matches and partial emails → none', () => {
+  const list = [{ email: 'taylor+invite2@fstrucks.com', status: 'pending', role: 'driver' }, { email: 'taylor+driver@fstrucks.com', status: 'accepted', role: 'driver' }];
+  assert.equal(existingHint(list, ' Taylor+Invite2@FSTrucks.com ').kind, 'pending');
+  assert.match(existingHint(list, 'taylor+invite2@fstrucks.com').text, /pending invite\. Use Resend/);
+  const m = existingHint(list, 'taylor+driver@fstrucks.com'); assert.equal(m.kind, 'member'); assert.match(m.text, /already in your company \(Driver\)/);
+  assert.equal(existingHint(list, 'taylor+invite3@fstrucks.com'), null);
+  assert.equal(existingHint(list, 'taylor+invite2@'), null); assert.equal(existingHint(list, ''), null); assert.equal(existingHint(null, 'a@b.co'), null);
+});
+test('invite page: red error clears on email edit; amber existing-hint is non-blocking; server check unchanged', () => {
+  const page = readFileSync('app/account/invite/page.js', 'utf8');
+  assert.match(page, /setF\(\{ \.\.\.f, email: e\.target\.value \}\); if \(msg && !msg\.ok && !msg\.warn\) setMsg\(null\);/);
+  assert.match(page, /const hint = existingHint\(list, f\.email\)/);
+  assert.match(page, /data-testid="invite-existing-hint"/);
+  assert.doesNotMatch(page, /disabled=\{[^}]*hint/, 'hint never disables Send');
+  assert.match(readFileSync('app/lib/testerInvites.js', 'utf8'), /status: 409, code: 'already_invited'/);
 });
