@@ -17,7 +17,7 @@ const input = { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontS
 // Planned miles (loads.total_miles: rate con or typed; a typed value always wins) are shown with a small grey source
 // note. The mileage log total is shown separately as "actual" (Sam/Marc, Oct 18) and does not replace planned miles
 // once 20261018000300_load_miles_source.sql has run. Before that, the old trigger still copies the log total in.
-export default function LoadMileage({ load, userId, onLoadChange }) {
+export default function LoadMileage({ load, userId, onLoadChange, refreshKey = 0 }) {
   const supabase = getSupabase();
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState(null);
@@ -53,7 +53,8 @@ export default function LoadMileage({ load, userId, onLoadChange }) {
     if (l) { setMigrated(hasMilesSourceColumn(l)); onLoadChange?.(pick(l)); setManual(l.total_miles ?? ''); }
   }
 
-  useEffect(() => { if (supabase && load?.id) refresh(); }, [load?.id]);
+  // refreshKey: the page re-fetched (re-run / route fill / tab shown again) → re-read miles too.
+  useEffect(() => { if (supabase && load?.id) refresh(); }, [load?.id, refreshKey]);
 
   async function add(r) {
     const res = await supabase.from('mileage_entries').insert({ ...r, user_id: userId, load_id: load.id });

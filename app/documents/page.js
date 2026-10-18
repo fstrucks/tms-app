@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import { extractedWeightLb } from '../lib/loadWeight';
 import { extractedMiles, fillLinkedLoadMiles } from '../lib/loadMiles';
+import { notifyLoadChanged } from '../lib/loadSync';
 import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
@@ -161,6 +162,8 @@ export default function DocumentsPage() {
         if (m.error) console.error('[createLoad] total_miles', m.error);
       }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
+      notifyLoadChanged(loadId);
+      router.refresh();
       router.push(`/loads/${loadId}`);
     } catch (err) {
       setStatus({ type: 'error', text: err.message });
@@ -197,6 +200,10 @@ export default function DocumentsPage() {
         return;
       }
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
+      // A (re-)run can fill the linked load's miles/weight on the server: refresh any open load page (QA #82, RC-03).
+      const linkedLoad = body.loadId || docs.find((d) => d.id === id)?.load_id;
+      if (linkedLoad) notifyLoadChanged(linkedLoad);
+      router.refresh();
     } catch (err) {
       setExtractErr((m) => ({ ...m, [id]: err.message }));
     } finally {

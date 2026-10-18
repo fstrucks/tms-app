@@ -11,6 +11,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import LoadMileage from '../../components/LoadMileage';
 import LoadRouteCard from '../../components/LoadRouteCard';
 import { stopAddressText } from '../../lib/loadRoute';
+import { onLoadChanged } from '../../lib/loadSync';
 import LoadScaleTickets from '../../components/LoadScaleTickets';
 import LoadExpenses from '../../components/LoadExpenses';
 import { Loading, LoadError } from '../../components/DataState';
@@ -54,6 +55,7 @@ export default function LoadDetailPage() {
   const [alsoDocs, setAlsoDocs] = useState(false);
   const [delError, setDelError] = useState(null);
   const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
+  const [dataVer, setDataVer] = useState(0); // bumped on every re-fetch so child cards (Miles) re-read too
 
   async function fetchAll() {
     setError(null);
@@ -72,6 +74,8 @@ export default function LoadDetailPage() {
       supabase.from('mileage_entries').select('id', { count: 'exact', head: true }).eq('load_id', id),
     ]);
     setLinked({ expenses: ec || 0, mileage: mc || 0 });
+    list?.patchLoad(id, { total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, weight: l.weight });
+    setDataVer((v) => v + 1);
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
     else setDocs(d || []);
   }
@@ -87,6 +91,12 @@ export default function LoadDetailPage() {
     });
     return () => sub.subscription.unsubscribe();
   }, [id]);
+
+  // Re-fetch when this load changed elsewhere (extraction / re-run on Documents, another tab), on a back/forward
+  // cache restore, or when the tab is shown again. QA #82 (RC-03): Planned showed "—" until a browser reload.
+  const fetchRef = useRef(fetchAll); fetchRef.current = fetchAll;
+  const refreshAll = () => { router.refresh(); return fetchRef.current(); };
+  useEffect(() => onLoadChanged(id, () => { if (user) refreshAll(); }), [id, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load weight (lb): copied from the rate con on create; editable here. The Truck tab compares scale tickets with it.
   async function saveWeight(e) {
@@ -159,7 +169,7 @@ export default function LoadDetailPage() {
 
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
                 <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')}
-                  onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
+                  onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} onRouteFilled={refreshAll} />
 
                 <div style={s.card}>
                   <dl style={s.dl}>
@@ -233,7 +243,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
-                <LoadMileage load={load} userId={user.id} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
+                <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>

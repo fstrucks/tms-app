@@ -11,7 +11,7 @@ const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () =
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.5rem', marginBottom: '0.75rem' };
 const muted = { color: '#6b7280', fontSize: '0.85rem' };
 
-export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange }) {
+export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange, onRouteFilled }) {
   const [st, setSt] = useState({ state: 'loading' });
   useEffect(() => {
     let live = true;
@@ -26,8 +26,11 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange
         let j = await call('GET');
         if (live && j.state !== 'failed') setSt({ ...j, computing: !!(j.stale && j.canEdit) });
         if (live && j.stale && j.canEdit) {
+          const before = j.load;
           j = await call('POST');
           if (live) setSt(j);
+          // A new route can fill Planned miles: re-fetch the page so Miles/RPM/list never show stale values.
+          if (live && j.load && (j.load.total_miles !== before?.total_miles || j.load.calculated_miles !== before?.calculated_miles)) onRouteFilled?.();
         }
         if (live && j.load) onLoadChange?.(j.load);
         if (live && j.state === 'failed') setSt(j);
