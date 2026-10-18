@@ -96,6 +96,7 @@ export default function CompanyProfilePage() {
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Company profile</h1>
       <p style={{ color: '#6b7280', marginTop: 0 }}>Used to fill out broker carrier packets. <span style={s.badge}>Your role: {ROLE_LABELS[role] || role}</span></p>
+      {role === 'owner' && <p style={{ margin: '0 0 0.75rem' }}><a href="/account/invite" style={{ color: '#2563eb', fontWeight: 600 }}>Invite a tester</a></p>}
       {!editable && <p role="status" style={{ background: '#fef3c7', borderRadius: 8, padding: '0.6rem 0.8rem' }}>Drivers can view the company profile. Ask the owner, dispatcher or management to make changes or sign.</p>}
 
       <form onSubmit={save} noValidate>
