@@ -51,7 +51,7 @@ export default function WelcomeScreen() {
   return (
     <div data-testid="welcome-screen" role="dialog" aria-modal="true" aria-labelledby="welcome-title"
       onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0 }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, fontFamily: 'system-ui', background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0 }}>
       <div style={{ width: '100%', maxWidth: 560, maxHeight: '92dvh', overflowY: 'auto', background: '#f8fafc', borderRadius: wide ? 16 : '16px 16px 0 0', padding: '1rem 1rem calc(1rem + env(safe-area-inset-bottom))', boxSizing: 'border-box', margin: '0 auto', boxShadow: '0 -8px 32px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <h2 id="welcome-title" style={{ margin: 0, fontSize: '1.35rem' }}>Welcome to PowerHaul TMS</h2>
