@@ -68,3 +68,10 @@ test('welcome: re-open from account menu via event; shared-file edits are one im
   assert.match(comp, /window\.addEventListener\(OPEN_WELCOME_EVENT/);
   assert.match(comp, /role="dialog"/); assert.match(comp, /Escape/);
 });
+
+test('welcome: sets body marker while open (cleared on close/unmount) and sits above floating UI', () => {
+  const comp = readFileSync('app/components/WelcomeScreen.js', 'utf8');
+  assert.match(comp, /document\.body\.dataset\.welcomeOpen = '1'/);
+  assert.match(comp, /return \(\) => \{[^}]*delete document\.body\.dataset\.welcomeOpen; \}/);
+  assert.match(comp, /export const WELCOME_Z = 10000/); assert.match(comp, /zIndex: WELCOME_Z/);
+});

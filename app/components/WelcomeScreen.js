@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 import { getSupabase } from '../lib/supabase';
 import { WELCOME_CARDS, OPEN_WELCOME_EVENT, shouldShowWelcome, markWelcomeSeen } from '../lib/welcome';
 
+// Above any floating UI (Report a bug button z 60, its dialog z 2100, nav z 50).
+export const WELCOME_Z = 10000;
 const store = () => { try { return window.localStorage; } catch { return null; } };
 
 export default function WelcomeScreen() {
@@ -35,7 +37,9 @@ export default function WelcomeScreen() {
     const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+    // Marker for floating UI (e.g. Report a bug) to hide itself while the sheet is open; cleared on close/unmount.
+    document.body.dataset.welcomeOpen = '1';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; delete document.body.dataset.welcomeOpen; };
   }, [open]);
 
   function dismiss() {
@@ -51,7 +55,7 @@ export default function WelcomeScreen() {
   return (
     <div data-testid="welcome-screen" role="dialog" aria-modal="true" aria-labelledby="welcome-title"
       onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2000, fontFamily: 'system-ui', background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0 }}>
+      style={{ position: 'fixed', inset: 0, zIndex: WELCOME_Z, fontFamily: 'system-ui', background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0 }}>
       <div style={{ width: '100%', maxWidth: 560, maxHeight: '92dvh', overflowY: 'auto', background: '#f8fafc', borderRadius: wide ? 16 : '16px 16px 0 0', padding: '1rem 1rem calc(1rem + env(safe-area-inset-bottom))', boxSizing: 'border-box', margin: '0 auto', boxShadow: '0 -8px 32px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <h2 id="welcome-title" style={{ margin: 0, fontSize: '1.35rem' }}>Welcome to PowerHaul TMS</h2>
