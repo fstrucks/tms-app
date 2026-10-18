@@ -17,7 +17,7 @@ const input = { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontS
 // Planned miles (loads.total_miles: rate con or typed; a typed value always wins) are shown with a small grey source
 // note. The mileage log total is shown separately as "actual" (Sam/Marc, Oct 18) and does not replace planned miles
 // once 20261018000300_load_miles_source.sql has run. Before that, the old trigger still copies the log total in.
-export default function LoadMileage({ load, userId, onLoadChange, refreshKey = 0 }) {
+export default function LoadMileage({ load, userId, onLoadChange, onPlannedCleared, refreshKey = 0 }) {
   const supabase = getSupabase();
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState(null);
@@ -81,6 +81,9 @@ export default function LoadMileage({ load, userId, onLoadChange, refreshKey = 0
       setMigrated(m);
       onLoadChange?.({ ...row, ...(m ? { miles_source: v == null ? null : 'typed' } : {}) });
       setManual(row.total_miles ?? '');
+      // Cleared Planned → ask the map card to re-check: the server refills it from the rate con or the saved
+      // route (typed > rate con > calculated), only while it's still empty (QA #83 r3).
+      if (v == null && m) onPlannedCleared?.();
       // Before the migration the old trigger replaces typed miles with the mileage log total.
       if (v != null && row.total_miles !== v) setNotice(`Saved, but the mileage log total (${fmtMiles(row.total_miles)}) is used until the database update for typed miles is applied.`);
     } finally {

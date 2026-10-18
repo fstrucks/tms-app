@@ -280,3 +280,14 @@ export function createLimiter(limits = LIMITS, nowFn = () => Date.now()) {
 
 // Client-side: stops for pins + decoded line, from the API response.
 export const PIN_LABEL = (s, i, n) => (s.stop_type === 'pickup' ? 'P' : s.stop_type === 'delivery' ? 'D' : i === 0 ? 'P' : i === n - 1 ? 'D' : String(i + 1));
+
+// Map framing (QA #83 r3): the route line plus every pin, padded. → { kind: 'bounds' | 'point' | 'none', ... }
+export const FIT_PADDING = [28, 28];
+export function fitTarget(points) {
+  const pts = (points || []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (!pts.length) return { kind: 'none' };
+  let s = Infinity, w = Infinity, n = -Infinity, e = -Infinity;
+  for (const [la, ln] of pts) { s = Math.min(s, la); n = Math.max(n, la); w = Math.min(w, ln); e = Math.max(e, ln); }
+  if (n - s < 1e-6 && e - w < 1e-6) return { kind: 'point', point: [s, w] };
+  return { kind: 'bounds', bounds: [[s, w], [n, e]] };
+}

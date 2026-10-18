@@ -55,6 +55,7 @@ export default function LoadDetailPage() {
   const [alsoDocs, setAlsoDocs] = useState(false);
   const [delError, setDelError] = useState(null);
   const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
+  const [routeCheck, setRouteCheck] = useState(0); // bumped when Planned is cleared: the map card re-checks
   const [dataVer, setDataVer] = useState(0); // bumped on every re-fetch so child cards (Miles) re-read too
 
   async function fetchAll() {
@@ -168,7 +169,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
-                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')}
+                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck}
                   onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} onRouteFilled={refreshAll} />
 
                 <div style={s.card}>
@@ -243,7 +244,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
-                <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
+                <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onPlannedCleared={() => setRouteCheck((n) => n + 1)} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>

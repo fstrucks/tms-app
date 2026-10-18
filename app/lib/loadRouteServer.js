@@ -11,6 +11,7 @@ import {
 import { isMissing, UUID, json } from './truckServer.js';
 import { userClient, serviceClient, bearer, checkUser, jwtClaims, isAuthRejection } from './packetServer.js';
 import { isRole } from './companyRoles.js';
+import { extractedMiles, hasMilesSourceColumn } from './loadMiles.js';
 import { canEditTruck } from './truckFields.js';
 
 export const MAX_DURATION_S = 30;              // route.js maxDuration
@@ -167,12 +168,37 @@ async function readLoad(db, ownerId, loadId) {
 
 const noKeyView = (load, stops) => ({ ...viewOf(load, stops), state: 'no_key', message: ERROR_TEXT.no_key, stale: false, next: null });
 
-// GET: cached view only, never calls ORS.
+// QA #83 r3: an EMPTY Planned falls back down the chain (typed > rate con > calculated) from what's already saved:
+// the rate con's miles, else the cached route miles when that route is current for these stops. Conditional on
+// total_miles still being empty, so typed or rate con miles are never overwritten. No ORS call.
+// → { load, filled: { miles, source } | null }
+export async function fillEmptyPlanned(db, ownerId, loadId, load, stops) {
+  if (!hasMilesSourceColumn(load) || load.total_miles != null) return { load, filled: null };
+  const key = routeKey(routeStops(stops));
+  const calc = key && load.route_key === key && !load.route_error && Number(load.calculated_miles) > 0 ? Number(load.calculated_miles) : null;
+  let rc = null;
+  try {
+    const d = await db.from('documents').select('ai_extracted_data').eq('load_id', loadId).eq('user_id', ownerId).eq('doc_type', 'rate_confirmation').limit(5);
+    if (!d.error) rc = (d.data || []).map((x) => extractedMiles(x.ai_extracted_data)).find((m) => m != null) ?? null;
+  } catch {}
+  const miles = rc ?? calc;
+  if (!miles) return { load, filled: null };
+  const source = rc != null ? 'rate_con' : 'calculated';
+  try {
+    const u = await db.from('loads').update({ total_miles: miles, miles_source: source }).eq('id', loadId).eq('user_id', ownerId).is('total_miles', null).select('*');
+    if (u.error || !u.data?.[0]) return { load, filled: null };
+    return { load: { ...load, ...u.data[0] }, filled: { miles, source } };
+  } catch { return { load, filled: null }; }
+}
+
+// GET: cached view only, never calls ORS (may fill an empty Planned from saved values, see fillEmptyPlanned).
 export async function getRoute(db, ownerId, loadId, { env = process.env } = {}) {
   const r = await readLoad(db, ownerId, loadId);
   if (!r.load) return r;
-  if (!orsKey(env)) return { view: noKeyView(r.load, r.stops) };
-  return { view: viewOf(r.load, r.stops) };
+  const f = await fillEmptyPlanned(db, ownerId, loadId, r.load, r.stops);
+  const extra = f.filled ? { plannedFilled: f.filled } : {};
+  if (!orsKey(env)) return { view: { ...noKeyView(f.load, r.stops), ...extra } };
+  return { view: viewOf(f.load, r.stops, extra) };
 }
 
 // POST: one step when stale (geocode one stop, record a miss, or fetch the route), else the cache.
@@ -198,7 +224,10 @@ async function stepNow(db, ownerId, loadId, { env = process.env, fetchImpl = fet
   let { load, stops } = r;
   const rs = routeStops(stops);
   const fr = routeFreshness(load, rs, now());
-  if (fr.fresh) return { view: viewOf(load, stops, {}, now()), computed: false };
+  if (fr.fresh) {
+    const f = await fillEmptyPlanned(db, ownerId, loadId, load, stops);
+    return { view: viewOf(f.load, stops, f.filled ? { plannedFilled: f.filled } : {}, now()), computed: false };
+  }
   const deadline = Date.now() + budgetMs;
   const o = { key, fetchImpl, deadline, ...(take ? { take } : {}) };
   const stamp = new Date(now()).toISOString();
@@ -233,17 +262,20 @@ async function stepNow(db, ownerId, loadId, { env = process.env, fetchImpl = fet
   if (!sv.row && (sv.setupNeeded || sv.error)) return sv;
   load = { ...load, ...(sv.row || { route_key: fr.key, route_error: null, route_geometry: route.geometry, calculated_miles: route.miles }) };
 
-  // Planned miles: fill only when empty or already calculated (typed > rate con > calculated). Conditional
-  // updates, so a value typed meanwhile is never replaced.
-  const mp = calculatedMilesPatch(load, route.miles);
-  if (mp.total_miles != null) {
-    const fill = { total_miles: mp.total_miles, miles_source: 'calculated' };
-    let f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).is('total_miles', null).select('*');
-    if (!f.error && !f.data?.length && load.miles_source === 'calculated' && load.total_miles !== mp.total_miles)
-      f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).eq('miles_source', 'calculated').select('*');
-    if (!f.error && f.data?.[0]) load = { ...load, ...f.data[0] };
+  // Planned miles (typed > rate con > calculated): an empty Planned takes the rate con's miles, else the route;
+  // an older calculated value is refreshed. Conditional updates, so a value typed meanwhile is never replaced.
+  let filled = null;
+  if (load.total_miles == null) {
+    const f = await fillEmptyPlanned(db, ownerId, loadId, load, stops);
+    load = f.load; filled = f.filled;
+  } else {
+    const mp = calculatedMilesPatch(load, route.miles);
+    if (mp.total_miles != null && load.total_miles !== mp.total_miles) {
+      const f = await db.from('loads').update({ total_miles: mp.total_miles, miles_source: 'calculated' }).eq('id', loadId).eq('user_id', ownerId).eq('miles_source', 'calculated').select('*');
+      if (!f.error && f.data?.[0]) { load = { ...load, ...f.data[0] }; filled = { miles: mp.total_miles, source: 'calculated' }; }
+    }
   }
-  return { view: viewOf(load, stops, {}, now()), computed: true };
+  return { view: viewOf(load, stops, filled ? { plannedFilled: filled } : {}, now()), computed: true };
 }
 
 export { routeKey };

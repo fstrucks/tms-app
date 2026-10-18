@@ -13,7 +13,7 @@ const MAX_STEPS = 8; // matches loadRouteServer.MAX_STEPS
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.5rem', marginBottom: '0.75rem' };
 const muted = { color: '#6b7280', fontSize: '0.85rem' };
 
-export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange, onRouteFilled }) {
+export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0, onLoadChange, onRouteFilled }) {
   const [st, setSt] = useState({ state: 'loading' });
   useEffect(() => {
     let live = true;
@@ -25,6 +25,7 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange
       const call = (method) => callMap({ url: `/api/loads/${loadId}/map`, method, getToken: token });
       try {
         let j = await call('GET');
+        const first = j;
         const before = j.load;
         if (!live) return;
         setSt({ ...j, ...cardPhase(j) });
@@ -41,11 +42,13 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange
         if (live && steps >= MAX_STEPS) setSt((cur) => ({ ...cur, computing: false }));
         if (live && j.load) onLoadChange?.(j.load);
         // A new route can fill Planned miles: re-fetch the page so Miles/RPM/list never show stale values.
-        if (live && steps && j.load && (j.load.total_miles !== before?.total_miles || j.load.calculated_miles !== before?.calculated_miles)) onRouteFilled?.();
+        // The server filled an empty Planned (from the rate con or the saved route; QA #83 r3), or a step changed miles.
+        const filledNow = j.plannedFilled || first.plannedFilled;
+        if (live && (filledNow || (steps && j.load && (j.load.total_miles !== before?.total_miles || j.load.calculated_miles !== before?.calculated_miles)))) onRouteFilled?.();
       } catch { if (live) setSt({ state: 'failed', message: 'Couldn’t load the map.' }); }
     })();
     return () => { live = false; };
-  }, [loadId, stopsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadId, stopsKey, recheck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (st.state === 'loading') return null;
   if (st.setupNeeded || st.state === 'setup' || st.state === 'no_key' || st.state === 'failed') {
