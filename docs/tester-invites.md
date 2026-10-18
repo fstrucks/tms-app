@@ -25,3 +25,14 @@ Pending rows have a Resend button. An accepted row that isn't linked has a Link 
 - **Postmark:** the free plan allows 100 emails/month.
 
 **No SQL:** uses existing `company_members`, `company_profiles` and auth metadata only. The existing `on_auth_user_created` trigger already creates the `profiles` row for invited users.
+
+**No domain limit:** any address can be invited. `PACKET_SEND_ALLOWED_DOMAINS` only applies to packet emails.
+
+**Cancel (pending only).** The owner presses Cancel, then confirms with "Yes, cancel". The server re-reads the user from the admin API and refuses (logging the reason) unless all of these hold:
+1. **Still pending:** `invited_at` is set and there's no `email_confirmed_at` / `confirmed_at` / `last_sign_in_at`.
+2. **This company's invite:** `app_metadata.tester_invite.company` is this company. *Invites made before this PR* have no record. They're allowed only if a `company_members` row for this company exists. A record naming another company always refuses, and `user_metadata` is never trusted.
+3. **Nothing else to lose:** no membership in any other company, and they don't own a company profile.
+
+If all three hold, the server deletes this company's `company_members` row, then calls `auth.admin.deleteUser`. If the delete fails, the user is told it was partial and can retry.
+
+**Menu:** an owner-only "Invite testers" item in the account menu (`InviteTestersMenuItem`, owner = owns a `company_profiles` row, via an RLS-scoped read). Arrow-key navigation now follows DOM order, so optional items are included.

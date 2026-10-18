@@ -1,8 +1,10 @@
 // Tester invites. Owner only (checked here, server side: the caller must own a company_profiles row).
 // GET  → { invites: [...], roles, limit }   POST { email, name?, role? } → invite   POST { action:'resend', email } → resend
+// POST { action:'cancel', email, id? } → cancel a still-pending invite from this company (see cancelRefusal).
+// No domain limit on invites: outside addresses are allowed (PACKET_SEND_ALLOWED_DOMAINS is for packet emails only).
 // Uses the service-role client the app already uses (SUPABASE_SERVICE_ROLE_KEY via serviceClient) for auth.admin.
 import { serviceClient, userClient, bearer, checkUser } from '../../../lib/packetServer';
-import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends } from '../../../lib/testerInvites';
+import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends } from '../../../lib/testerInvites';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,12 @@ export async function POST(req, { deps } = {}) {
     const email = normalizeEmail(b.email);
     if (!email) return json({ error: 'Which invite? Missing email.' }, 422);
     r = await resend({ sb: c.sb, owner: c.owner, profile: c.profile, email, redirectTo, now });
+  } else if (b?.action === 'cancel') {
+    const email = normalizeEmail(b.email);
+    if (!email) return json({ error: 'Which invite? Missing email.' }, 422);
+    r = await cancelInvite({ sb: c.sb, owner: c.owner, profile: c.profile, email, id: b.id ? String(b.id) : null });
+    if (r.error) return json({ error: r.error, ...(r.code ? { code: r.code } : {}), ...(r.partial ? { partial: true } : {}) }, r.status || 500);
+    return json({ ok: true, cancelled: r.cancelled });
   } else {
     const v = validateInvite(b);
     if (v.error) return json({ error: v.error }, v.status);

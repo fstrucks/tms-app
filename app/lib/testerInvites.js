@@ -156,6 +156,60 @@ export async function resend({ sb, owner, profile, email, redirectTo, now = Date
   return { ok: true, user: u, emailed: true, linked: !m.error, ...(m.error ? { warning: 'Resent, but adding them to your company failed. Try Resend again later.' } : {}) };
 }
 
+// ---------- cancel a pending invite ----------
+// Still pending = invited, never confirmed, never signed in.
+export const isStillPending = (u) => !!u && !!u.invited_at && !u.email_confirmed_at && !u.confirmed_at && !u.last_sign_in_at;
+// Why a cancel is refused (null = allowed). Pure, so every rule is unit-tested.
+//   - must still be pending (fresh read from the admin API, right before deleting);
+//   - the invite must be this company's: the server-only record (app_metadata.tester_invite.company) says so, OR,
+//     for invites made before this PR (no record at all), there is a company_members row for this company;
+//     a record naming another company always refuses;
+//   - no membership in any other company, and they own no company profile.
+export function cancelRefusal(u, { profile, memberships = [], ownsCompany = false }) {
+  if (!u) return 'not_found';
+  if (!isStillPending(u)) return 'not_pending';
+  const rec = inviteMeta(u);
+  const hasRecord = Object.keys(rec).length > 0;
+  const here = memberships.some((m) => m.profile_id === profile.id);
+  if (hasRecord ? rec.company !== profile.id : !here) return 'other_company';
+  if (memberships.some((m) => m.profile_id !== profile.id) || ownsCompany) return 'other_membership';
+  return null;
+}
+const CANCEL_MSG = {
+  not_found: ['No invite for that email.', 404],
+  not_pending: ['They’ve already accepted (or signed in), so the invite can’t be cancelled here.', 409],
+  other_company: ['That invite isn’t from your company.', 404],
+  other_membership: ['That person also belongs to another company, so their account can’t be removed here.', 409],
+};
+export async function cancelInvite({ sb, owner, profile, email, id, users: known }) {
+  const admin = sb.auth.admin;
+  const refuse = (why, uid) => { console.warn('[invites] cancel refused', why, 'owner', owner.id, 'user', uid || '-'); const [error, status] = CANCEL_MSG[why]; return { error, status, code: why }; };
+  const all = known ? { users: known } : await listAllUsers(admin);
+  if (all.error) return { error: 'Could not check the invite. Nothing was changed.', status: 503 };
+  const listed = findByEmail(all.users, email);
+  if (!listed || (id && listed.id !== id)) return refuse('not_found', listed?.id);
+  // Fresh read right before deciding (they may have accepted since the list loaded).
+  const fresh = await admin.getUserById(listed.id);
+  if (fresh?.error) return { error: 'Could not check the invite. Nothing was changed.', status: 503 };
+  const u = fresh?.data?.user || null;
+  if (!u) return refuse('not_found', listed.id);
+  const { data: memberships, error: mErr } = await sb.from('company_members').select('profile_id, role').eq('user_id', u.id);
+  const { data: owned, error: oErr } = await sb.from('company_profiles').select('id').eq('owner_id', u.id);
+  if (mErr || oErr) return { error: 'Could not check the invite. Nothing was changed.', status: 503 };
+  const why = cancelRefusal(u, { profile, memberships: memberships || [], ownsCompany: (owned || []).length > 0 });
+  if (why) return refuse(why, u.id);
+  // Membership row first (only this company's), then the unaccepted auth user.
+  const del = await sb.from('company_members').delete().eq('profile_id', profile.id).eq('user_id', u.id);
+  if (del?.error) { console.error('[invites] cancel membership', del.error.code); return { error: 'Could not remove them from your company. Nothing else was changed.', status: 500 }; }
+  const gone = await Promise.resolve(admin.deleteUser(u.id)).catch((e) => ({ error: e }));
+  if (gone?.error) {
+    console.error('[invites] cancel deleteUser', gone.error.status || '', gone.error.code || '');
+    return { error: 'Removed from your company, but the invite itself couldn’t be deleted. The link in their email may still work; try Cancel again.', status: 502, partial: true };
+  }
+  console.info('[invites] cancelled', 'owner', owner.id, 'user', u.id, inviteMeta(u).company ? 'record' : 'legacy-membership');
+  return { ok: true, cancelled: normalizeEmail(u.email) };
+}
+
 function inviteError(error, email) {
   const code = error.code || '', status = error.status || 0;
   console.error('[invites] invite', status, code);

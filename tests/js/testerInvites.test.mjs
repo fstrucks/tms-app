@@ -8,7 +8,7 @@ import { validateInvite, inviteStatus, inviteRows, rateLimit, recentSends, redir
 const OWNER = 'owner-0000', PROFILE = 'prof-0001', T0 = Date.parse('2026-10-17T19:30:00-07:00');
 const iso = (ms) => new Date(ms).toISOString();
 
-function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id: OWNER, legal_name: 'FST Fake Trucking LLC' }], inviteError = null, memberInsertError = null } = {}) {
+function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id: OWNER, legal_name: 'FST Fake Trucking LLC' }], inviteError = null, memberInsertError = null, deleteUserError = null } = {}) {
   const t = { users: users.map((u) => ({ ...u })), company_members: members.map((m) => ({ ...m })), company_profiles: profiles, invites: [], updates: [] };
   const admin = {
     listUsers: async ({ page }) => ({ data: { users: page === 1 ? t.users : [] }, error: null }),
@@ -20,16 +20,19 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
       else u.invited_at = iso(T0);
       return { data: { user: u }, error: null };
     },
+    getUserById: async (id) => ({ data: { user: t.users.find((x) => x.id === id) || null }, error: null }),
+    deleteUser: async (id) => { t.deleted = [...(t.deleted || []), id]; if (deleteUserError) return { error: deleteUserError }; t.users = t.users.filter((x) => x.id !== id); return { data: {}, error: null }; },
     updateUserById: async (id, attrs) => { t.updates.push({ id, attrs }); const u = t.users.find((x) => x.id === id); if (u) Object.assign(u, attrs); return { data: { user: u }, error: null }; },
   };
   const from = (name) => {
     const st = { f: [], op: 'select' };
     const run = () => {
+      if (st.op === 'delete') { t[name] = t[name].filter((r) => !st.f.every(([k, v]) => r[k] === v)); return { data: null, error: null }; }
       if (st.op === 'insert') { if (memberInsertError) return { error: memberInsertError }; t[name].push({ ...st.payload }); return { data: null, error: null }; }
       const rows = (t[name] || []).filter((r) => st.f.every(([k, v]) => r[k] === v));
       return { data: st.one ? rows[0] || null : rows, error: null };
     };
-    const b = { select() { return b; }, eq(k, v) { st.f.push([k, v]); return b; }, insert(p) { st.op = 'insert'; st.payload = p; return b; },
+    const b = { select() { return b; }, eq(k, v) { st.f.push([k, v]); return b; }, insert(p) { st.op = 'insert'; st.payload = p; return b; }, delete() { st.op = 'delete'; return b; }, limit() { return b; },
       maybeSingle: async () => { st.one = true; return run(); }, then: (res, rej) => Promise.resolve().then(run).then(res, rej) };
     return b;
   };
@@ -160,4 +163,95 @@ test('security: a user who writes invited_company into their own user_metadata i
   assert.equal(g.invites.length, 0);
   assert.equal((await call(sb, { action: 'resend', email: 'sneaky@fstrucks.com' })).status, 404);
   assert.equal(sb.t.company_members.length, 0);
+});
+
+test('1: invites are NOT limited to fstrucks.com — outside addresses are invited (no domain check in the invite path)', async () => {
+  const sb = mockSb();
+  const r = await call(sb, { email: 'Tester@Example.com', name: 'Outside Tester (FAKE)' }, OWNER, {});
+  assert.equal(r.status, 200); assert.equal(sb.t.invites[0].email, 'tester@example.com');
+  // even with the packet-email domain limit configured, invites ignore it
+  const prev = process.env.PACKET_SEND_ALLOWED_DOMAINS; process.env.PACKET_SEND_ALLOWED_DOMAINS = 'fstrucks.com';
+  try { assert.equal((await call(mockSb(), { email: 'qa@gmail.test' })).status, 200); } finally { if (prev == null) delete process.env.PACKET_SEND_ALLOWED_DOMAINS; else process.env.PACKET_SEND_ALLOWED_DOMAINS = prev; }
+  assert.doesNotMatch(readFileSync('app/lib/testerInvites.js', 'utf8'), /allowedDomains|PACKET_SEND_ALLOWED_DOMAINS|fstrucks\.com['"]\)/);
+});
+
+// ---------- 2: cancel ----------
+const pendingUser = (o = {}) => ({ id: 'u-pend', email: 'test@example.com', invited_at: iso(T0 - 86400e3), email_confirmed_at: null, confirmed_at: null, last_sign_in_at: null, user_metadata: {}, app_metadata: { tester_invite: { by: OWNER, company: PROFILE, role: 'driver' } }, ...o });
+const quiet = async (fn) => { const w = console.warn, i = console.info, e = console.error; const logs = []; console.warn = (...a) => logs.push(['warn', ...a]); console.info = (...a) => logs.push(['info', ...a]); console.error = (...a) => logs.push(['error', ...a]); try { await fn(logs); } finally { console.warn = w; console.info = i; console.error = e; } };
+
+test('2 cancel: pending invite from this company → company_members row and auth user deleted; logged', () => quiet(async (logs) => {
+  const sb = mockSb({ users: [pendingUser()], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }] });
+  const r = await call(sb, { action: 'cancel', email: 'TEST@example.com', id: 'u-pend' });
+  assert.equal(r.status, 200); assert.equal(r.j.cancelled, 'test@example.com');
+  assert.deepEqual(sb.t.deleted, ['u-pend']); assert.equal(sb.t.company_members.length, 0); assert.equal(sb.t.invites.length, 0);
+  assert.ok(logs.some((l) => l[0] === 'info' && /cancelled/.test(l[1])));
+}));
+
+test('2 cancel: refuses accepted / signed-in / confirmed users, other companies’ invites, other memberships, owners; logs each; deletes nothing', () => quiet(async (logs) => {
+  const cases = [
+    ['accepted (confirmed)', pendingUser({ email_confirmed_at: iso(T0) }), [], 409, 'not_pending'],
+    ['signed in', pendingUser({ last_sign_in_at: iso(T0) }), [], 409, 'not_pending'],
+    ['confirmed_at only', pendingUser({ confirmed_at: iso(T0) }), [], 409, 'not_pending'],
+    ['never invited', pendingUser({ invited_at: null }), [], 409, 'not_pending'],
+    ['other company record', pendingUser({ app_metadata: { tester_invite: { company: 'prof-other' } } }), [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }], 404, 'other_company'],
+    ['also in another company', pendingUser(), [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }, { profile_id: 'prof-other', user_id: 'u-pend', role: 'driver' }], 409, 'other_membership'],
+    ['legacy, no record, no membership here', pendingUser({ app_metadata: {} }), [], 404, 'other_company'],
+    ['user_metadata spoof only', pendingUser({ app_metadata: {}, user_metadata: { tester_invite: { company: PROFILE } } }), [], 404, 'other_company'],
+  ];
+  for (const [name, u, members, status, code] of cases) {
+    const sb = mockSb({ users: [u], members });
+    const r = await call(sb, { action: 'cancel', email: 'test@example.com' });
+    assert.equal(r.status, status, name); assert.equal(r.j.code, code, name);
+    assert.equal((sb.t.deleted || []).length, 0, name); assert.equal(sb.t.company_members.length, members.length, name);
+  }
+  // owns a company → refused
+  const sbO = mockSb({ users: [pendingUser()], profiles: [{ id: PROFILE, owner_id: OWNER }, { id: 'prof-x', owner_id: 'u-pend' }] });
+  const o = await call(sbO, { action: 'cancel', email: 'test@example.com' });
+  assert.equal(o.j.code, 'other_membership'); assert.equal((sbO.t.deleted || []).length, 0);
+  // unknown email / id mismatch
+  assert.equal((await call(mockSb({ users: [pendingUser()] }), { action: 'cancel', email: 'nobody@example.com' })).status, 404);
+  assert.equal((await call(mockSb({ users: [pendingUser()] }), { action: 'cancel', email: 'test@example.com', id: 'u-else' })).status, 404);
+  assert.ok(logs.filter((l) => l[0] === 'warn' && /cancel refused/.test(l[1])).length >= cases.length + 1);
+}));
+
+test('2 cancel: invite made before this PR (no server record) → allowed only with this company’s membership row and still pending', () => quiet(async () => {
+  const sb = mockSb({ users: [pendingUser({ app_metadata: {} })], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }] });
+  const r = await call(sb, { action: 'cancel', email: 'test@example.com' });
+  assert.equal(r.status, 200); assert.deepEqual(sb.t.deleted, ['u-pend']);
+  const sb2 = mockSb({ users: [pendingUser({ app_metadata: {}, last_sign_in_at: iso(T0) })], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }] });
+  assert.equal((await call(sb2, { action: 'cancel', email: 'test@example.com' })).j.code, 'not_pending');
+}));
+
+test('2 cancel: re-reads the user right before deleting (accepted after the list loaded → refused); owner-only; deleteUser failure reported', () => quiet(async () => {
+  const sb = mockSb({ users: [pendingUser()], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }] });
+  sb.auth.admin.getUserById = async () => ({ data: { user: pendingUser({ last_sign_in_at: iso(T0) }) }, error: null });
+  assert.equal((await call(sb, { action: 'cancel', email: 'test@example.com' })).j.code, 'not_pending');
+  assert.equal((sb.t.deleted || []).length, 0);
+  const sbD = mockSb({ users: [pendingUser()], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }] });
+  assert.equal((await call(sbD, { action: 'cancel', email: 'test@example.com' }, 'disp-1')).status, 403);
+  assert.equal((sbD.t.deleted || []).length, 0);
+  const sbF = mockSb({ users: [pendingUser()], members: [{ profile_id: PROFILE, user_id: 'u-pend', role: 'driver' }], deleteUserError: { status: 500, message: 'Database error deleting user' } });
+  const f = await call(sbF, { action: 'cancel', email: 'test@example.com' });
+  assert.equal(f.status, 502); assert.equal(f.j.partial, true);
+}));
+
+test('2 cancel UI: Cancel on pending rows with a confirm step', () => {
+  const page = readFileSync('app/account/invite/page.js', 'utf8');
+  assert.match(page, /x\.status === 'pending' && \(confirmCancel === x\.id/);
+  assert.match(page, /Cancel this invite\?/); assert.match(page, /Yes, cancel/); assert.match(page, /action: 'cancel', email: x\.email, id: x\.id/);
+});
+
+test('3: account menu gets one owner-only "Invite testers" item; keyboard nav follows DOM order', async () => {
+  const menu = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
+  assert.match(menu, /import InviteTestersMenuItem from '\.\/InviteTestersMenuItem';/);
+  assert.equal((menu.match(/<InviteTestersMenuItem /g) || []).length, 1);
+  assert.match(menu, /querySelectorAll\('\[role="menuitem"\]'\)/);
+  const { isCompanyOwner } = await import('../../app/components/ui/InviteTestersMenuItem.js').catch(() => ({}));
+  if (isCompanyOwner) { // JSX may not load under node; the source check below still runs
+    const fake = (rows) => ({ from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: rows, error: null }) }) }) }) });
+    assert.equal(await isCompanyOwner(fake([{ id: 'p' }]), 'owner-a'), true);
+    assert.equal(await isCompanyOwner(fake([]), 'member-b'), false);
+  }
+  const item = readFileSync('app/components/ui/InviteTestersMenuItem.js', 'utf8');
+  assert.match(item, /if \(!owner\) return null;/); assert.match(item, /eq\('owner_id', userId\)/); assert.match(item, /Invite testers/);
 });

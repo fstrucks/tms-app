@@ -23,6 +23,7 @@ export default function InviteTesterPage() {
   const [f, setF] = useState({ email: '', name: '', role: '' });
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState(null); // { ok, text }
+  const [confirmCancel, setConfirmCancel] = useState(null); // row id awaiting "Yes, cancel"
 
   const load = useCallback(async () => {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
@@ -47,6 +48,15 @@ export default function InviteTesterPage() {
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'resend', email }) });
     setBusy(null);
     setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: r.warning || r.message || `Invite resent to ${email}.` });
+    load();
+  }
+
+  async function cancel(x) {
+    if (busy) return;
+    setBusy(`cancel:${x.id}`); setMsg(null);
+    const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'cancel', email: x.email, id: x.id }) });
+    setBusy(null); setConfirmCancel(null);
+    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: `Invite to ${r.cancelled} cancelled.` });
     load();
   }
 
@@ -80,7 +90,12 @@ export default function InviteTesterPage() {
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name ? `${x.name} · ` : ''}{x.email}</div>
                   <div style={s.muted}><span style={badge(x.status)}>{x.status === 'pending' ? 'Pending' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
                 </div>
-                {(x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
+                {confirmCancel !== x.id && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
+                {x.status === 'pending' && (confirmCancel === x.id
+                  ? <span data-testid="cancel-confirm" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 13 }}>Cancel this invite?</span>
+                      <button type="button" style={{ ...s.small, borderColor: '#b91c1c', color: '#b91c1c' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
+                      <button type="button" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(null)}>Keep</button></span>
+                  : <button type="button" data-testid="invite-cancel" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(x.id)}>Cancel</button>)}
               </li>
             ))}
           </ul>
