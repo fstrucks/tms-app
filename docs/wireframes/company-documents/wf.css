@@ -1,0 +1,57 @@
+/* Company Documents vault — static wireframe styles (not app code). */
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111827;background:#f3f4f6;font-size:15px}
+.wf-banner{background:#fde68a;color:#78350f;font-size:12px;font-weight:700;letter-spacing:.04em;text-align:center;padding:4px 0}
+.topnav{background:#fff;border-bottom:1px solid #e5e7eb}
+.topnav .in{max-width:1120px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;gap:6px}
+.topnav b{margin-right:16px}
+.topnav a{color:#374151;text-decoration:none;padding:8px 12px;border-radius:8px}
+.topnav a.on{background:#eff6ff;color:#1d4ed8;font-weight:600}
+.topnav .acct{margin-left:auto;width:34px;height:34px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151}
+.page{max-width:1120px;margin:0 auto;padding:24px}
+h1{font-size:1.6rem;margin:0 0 4px}
+.muted{color:#6b7280}
+.small{font-size:13px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:1.1rem;margin:0}
+.card h3{font-size:1rem;margin:14px 0 6px}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.ok{background:#dcfce7;color:#166534}
+.miss{background:#fee2e2;color:#b91c1c}
+.soon{background:#fef3c7;color:#92400e}
+.na{background:#f1f5f9;color:#475569}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border-radius:8px;border:1px solid #d1d5db;background:#fff;font-size:15px;font-weight:600;color:#111827;white-space:nowrap}
+.btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.btn.outline{border:2px solid #2563eb;color:#1d4ed8;background:#eff6ff}
+.btn.sm{min-height:36px;font-size:14px;padding:0 10px}
+.row{display:flex;align-items:center;gap:12px}
+.grow{flex:1;min-width:0}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:13.5px;padding:8px 10px;border-radius:8px;margin-top:8px}
+.note.err{background:#fef2f2;color:#b91c1c}
+.note.warn{background:#fffbeb;color:#92400e}
+.note.info{background:#eff6ff;color:#1e3a8a}
+.callout{position:absolute;background:#fef9c3;border:1.5px dashed #ca8a04;color:#713f12;font-size:12.5px;line-height:1.35;padding:7px 9px;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.08);z-index:5}
+.callout b.n{display:inline-flex;width:18px;height:18px;border-radius:50%;background:#ca8a04;color:#fff;font-size:11px;align-items:center;justify-content:center;margin-right:4px}
+.badge-n{display:inline-flex;width:18px;height:18px;border-radius:50%;background:#ca8a04;color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;vertical-align:middle}
+table.vault{width:100%;border-collapse:collapse;margin-top:10px}
+table.vault th{text-align:left;font-size:12.5px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.03em;padding:8px;border-bottom:1px solid #e5e7eb}
+table.vault td{padding:12px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.earlier{background:#f9fafb;border:1px solid #f1f5f9;border-radius:8px;padding:6px 10px;margin-top:8px;font-size:13.5px}
+.earlier summary,.disc{color:#374151;font-weight:600;font-size:13.5px}
+.earlier .v{display:flex;gap:10px;padding:6px 0;border-top:1px dashed #e5e7eb;align-items:center}
+.ghost{background:repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 6px,#e5e7eb 6px,#e5e7eb 12px);border-radius:8px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12.5px;margin-top:8px}
+/* phone frame */
+.phone{width:390px;background:#fff;border:1px solid #d1d5db;position:relative;overflow:hidden}
+.phone .bar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:600;border-bottom:1px solid #e5e7eb}
+.phone .content{padding:16px}
+.phone .bottomnav{position:sticky;bottom:0;display:flex;border-top:1px solid #e5e7eb;background:#fff}
+.phone .bottomnav span{flex:1;text-align:center;font-size:11px;padding:6px 0 10px;color:#6b7280}
+.phone .bottomnav span i{display:block;font-style:normal;font-size:18px}
+.phone .bottomnav span.on{color:#1d4ed8;font-weight:700}
+.item{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-top:10px}
+.item .t{font-weight:700}
+.flow{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.flow .box{flex:1;border:1.5px solid #9ca3af;border-radius:10px;padding:10px;background:#fff;font-size:14px}
+.flow .arr{font-size:22px;color:#6b7280}

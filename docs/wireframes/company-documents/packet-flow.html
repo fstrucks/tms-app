@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Vault → packets and broker sends — desktop</title><link rel="stylesheet" href="wf.css">
+<style>body{width:1280px}.cols{display:grid;grid-template-columns:640px 1fr;gap:28px}</style></head><body>
+<div class="wf-banner">WIREFRAME — how packets and broker sends pull from the vault — desktop 1280px</div>
+<div class="page">
+ <h1>Vault → carrier packets → Send to broker</h1>
+ <p class="muted" style="margin:0 0 16px">Nothing is re-uploaded per broker. The send always uses the current version of each document.</p>
+ <div class="card"><div class="flow">
+  <div class="box"><b>Company documents</b><br><span class="small muted">current W-9 · COI · MC Authority · NOA</span></div><span class="arr">→</span>
+  <div class="box"><b>Carrier packet</b><br><span class="small muted">filled + signed (existing)</span></div><span class="arr">→</span>
+  <div class="box"><b>Send to broker draft</b><br><span class="small muted">attachments pre-ticked from the vault</span></div><span class="arr">→</span>
+  <div class="box"><b>Postmark email</b><br><span class="small muted">packet PDF + vault PDFs</span></div><span class="arr">→</span>
+  <div class="box"><b>Send history</b><br><span class="small muted">records which version went</span></div>
+ </div>
+ <div class="muted small" style="margin-top:10px">Also: packet fields that ask for “W-9 attached / COI attached” show ✓ when the vault has a current one. The COI request email to the agent (existing) is unchanged.</div></div>
+ <div class="cols"><div>
+  <section class="card">
+   <h2>Send to broker</h2>
+   <div class="small" style="font-weight:600;margin:10px 0 4px">To</div><div class="btn" style="width:100%;justify-content:flex-start;font-weight:400">carriers@examplebroker.com</div>
+   <div class="small" style="font-weight:600;margin:10px 0 4px">Subject</div><div class="btn" style="width:100%;justify-content:flex-start;font-weight:400">Completed carrier packet – FS Trucks LLC</div>
+   <h3>Attachments</h3>
+   <div style="font-size:14px">
+    <div class="row" style="padding:6px 0;border-top:1px solid #f1f5f9">☑ <span class="grow">Carrier_Packet_ExampleBroker-filled.pdf</span><span class="muted small">packet</span></div>
+    <div class="row" style="padding:6px 0;border-top:1px solid #f1f5f9">☑ <span class="grow">W-9 <span class="muted small">(uploaded Oct 15, 2026)</span></span><span class="pill ok">vault</span></div>
+    <div class="row" style="padding:6px 0;border-top:1px solid #f1f5f9">☑ <span class="grow">COI <span class="muted small">(expires Mar 1, 2027)</span></span><span class="pill ok">vault</span></div>
+    <div class="row" style="padding:6px 0;border-top:1px solid #f1f5f9">☑ <span class="grow">MC Authority <span class="muted small">(uploaded Oct 15, 2026)</span></span><span class="pill ok">vault</span></div>
+    <div class="row" style="padding:6px 0;border-top:1px solid #f1f5f9;color:#9ca3af">☐ <span class="grow">NOA: not on file</span><a style="color:#1d4ed8;font-weight:600">Add in Company documents</a></div>
+   </div>
+   <div class="note warn">COI: 1 suggested cargo policy isn’t confirmed yet. You can still send.</div>
+   <div class="muted small" style="margin-top:6px">Total 2.4 MB of 10 MB email limit.</div>
+   <div class="row" style="margin-top:12px"><span class="btn grow">Cancel</span><span class="btn primary grow">Review &amp; send</span></div>
+  </section>
+ </div><div>
+  <div class="callout" style="position:static;margin-bottom:12px"><b>Today</b> <code>postmarkSend</code> attaches only the filled packet PDF. The build adds the vault’s current docs as extra Postmark attachments (one PDF each; photos converted to PDF). Each is a checkbox, pre-ticked when on file. Unticking is per-send only.</div>
+  <div class="callout" style="position:static;margin-bottom:12px"><b>Warnings, not blocks:</b> missing doc → greyed row with a link; expired COI or gap notes from <code>coiGaps</code> (with the load date) → amber note. Expired COI is unticked by default (pick 4).</div>
+  <div class="callout" style="position:static;margin-bottom:12px"><b>Who can see the docs:</b> the server route reads the owner’s vault with the service client filtered to <code>user_id = owner</code>, the same pattern as the Truck tab. Dispatcher/management use the owner’s documents. Drivers can only view them.</div>
+  <div class="callout" style="position:static"><b>Size guard:</b> Postmark caps a message at 10 MB, so the draft shows the running total and blocks sending above the cap.</div>
+ </div></div>
+</div></body></html>

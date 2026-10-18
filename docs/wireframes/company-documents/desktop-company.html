@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Company Documents vault — desktop (1280)</title><link rel="stylesheet" href="wf.css">
+<style>body{width:1280px}.cols{display:grid;grid-template-columns:780px 1fr;gap:28px}.side .callout{position:static;margin-bottom:12px}</style></head><body>
+<div class="wf-banner">WIREFRAME — Company Documents vault — desktop 1280px — not built, for Marc's review</div>
+<div class="topnav"><div class="in"><b>PowerHaul TMS</b><a>Home</a><a>Stats</a><a>Loads</a><a>Documents</a><a>Expenses</a><a>Truck</a><span class="acct">M</span></div></div>
+<div class="page">
+ <h1>Company profile</h1>
+ <p class="muted" style="margin:0 0 14px">Used to fill out broker carrier packets. <span class="pill na">Your role: Owner</span></p>
+ <div class="cols"><div>
+  <div class="card row"><div class="grow"><h2>Company info</h2><div class="muted small">FS Trucks LLC · MC 123456 · DOT 3456789 · EIN ••-•••6789</div></div><span class="btn sm">Edit</span></div>
+  <div class="card row"><div class="grow"><h2>Authorized signer</h2><div class="muted small">Marc Brooks, Owner · signature on file (Oct 15)</div></div><span class="btn sm">Edit</span></div>
+
+  <!-- NEW CARD -->
+  <section class="card" style="border:2px solid #2563eb">
+   <div class="row"><div class="grow"><h2>Company documents <span class="badge-n">1</span></h2>
+     <div class="muted small">What brokers ask for. Packets and broker emails attach these automatically.</div></div>
+     <span class="pill soon">3 of 4 on file</span></div>
+   <table class="vault">
+    <thead><tr><th style="width:26%">Document</th><th style="width:14%">Status</th><th style="width:13%">Uploaded</th><th style="width:15%">Expires</th><th style="text-align:right">Actions</th></tr></thead>
+    <tbody>
+     <tr><td><b>W-9</b><div class="muted small ell">W9_FS_Trucks_2026_signed.pdf</div></td>
+         <td><span class="pill ok">✓ On file</span></td><td>Oct 15, 2026</td><td class="muted">No expiry</td>
+         <td style="text-align:right;white-space:nowrap"><span class="btn sm">View</span> <span class="btn sm outline">Replace ▾</span></td></tr>
+     <tr><td><b>Certificate of Insurance (COI)</b> <span class="badge-n">2</span><div class="muted small ell">COI_Progressive_2026-27.pdf</div></td>
+         <td><span class="pill soon">⚠ Check notes</span></td><td>Oct 17, 2026</td><td><b>Mar 1, 2027</b><div class="muted small">from Insurance → Policies</div></td>
+         <td style="text-align:right;white-space:nowrap"><span class="btn sm">View</span> <span class="btn sm outline">Replace ▾</span></td></tr>
+     <tr><td colspan="5" style="padding-top:0">
+        <div class="note warn" style="margin-top:0">1 suggested cargo policy needs your confirmation. <a style="color:#1d4ed8;font-weight:600">Go to Insurance ↓</a></div>
+        <details class="earlier" open><summary>Earlier versions (2) <span class="badge-n">3</span></summary>
+          <div class="v"><span class="grow ell">COI_Progressive_2025-26.pdf</span><span class="muted small">Uploaded Oct 13, 2026 · expired Mar 1, 2026</span><span class="btn sm">View</span><span class="btn sm" style="border-style:dashed;color:#9ca3af">Make current (pick 1B only)</span></div>
+          <div class="v"><span class="grow ell">COI_scan_Oct10.jpg</span><span class="muted small">Uploaded Oct 10, 2026</span><span class="btn sm">View</span><span class="btn sm" style="border-style:dashed;color:#9ca3af">Make current (pick 1B only)</span></div>
+        </details></td></tr>
+     <tr><td><b>MC Authority</b><div class="muted small ell">MC123456_Authority_Letter.pdf</div></td>
+         <td><span class="pill ok">✓ On file</span></td><td>Oct 15, 2026</td><td class="muted">No expiry</td>
+         <td style="text-align:right;white-space:nowrap"><span class="btn sm">View</span> <span class="btn sm outline">Replace ▾</span></td></tr>
+     <tr style="background:#fff7f7"><td><b>NOA</b> <span class="pill na">New</span><div class="muted small">Notice of assignment (from your factoring company)</div></td>
+         <td><span class="pill miss">✕ Missing</span></td><td class="muted">—</td><td class="muted">No expiry</td>
+         <td style="text-align:right;white-space:nowrap"><span class="btn sm primary">Upload or scan ▾</span></td></tr>
+    </tbody></table>
+   <div class="legend"><span class="pill ok">✓ On file</span><span class="pill soon">⚠ Expires in 30 days / check notes</span><span class="pill miss">✕ Missing or expired</span><span class="muted">· Only the current version shows; older ones fold into “Earlier versions”.</span></div>
+  </section>
+
+  <!-- EXISTING CARD (unchanged except the link) -->
+  <section class="card">
+   <div class="row"><h2 class="grow">Insurance <span class="badge-n">2</span></h2><span class="muted small">existing card — app/company/CompanyInsurance.js</span></div>
+   <h3>Insurance agent</h3><div class="ghost" style="height:44px"></div>
+   <h3>Coverage minimums</h3><div class="muted small">Auto liability $1,000,000 · Cargo $100,000</div>
+   <h3>Policies</h3>
+   <ul style="margin:0 0 6px;padding-left:18px;font-size:14px"><li style="color:#92400e">1 suggested policy needs your confirmation.</li></ul>
+   <div style="font-size:14px;border-top:1px solid #f1f5f9;padding:8px 0"><b>Auto liability</b> $1,000,000 · Progressive #PA-88213 · 2026-03-01 → 2027-03-01</div>
+   <div style="font-size:14px;border-top:1px solid #f1f5f9;padding:8px 0"><b>Cargo</b> $100,000 · Progressive #PC-11902 · 2026-03-01 → 2027-03-01 <span class="pill soon">Suggested – check it</span> <span class="btn sm">Confirm</span></div>
+   <h3>Read a COI you uploaded</h3>
+   <div class="btn sm" style="width:100%">Suggest policies from current COI (COI_Progressive_2026-27.pdf)</div>
+   <div class="muted small" style="margin-top:6px">“Upload COI” here now opens the vault’s COI upload instead of /documents?type=coi.</div>
+  </section>
+ </div>
+
+ <div class="side">
+  <div class="callout"><b class="n">1</b><b>New card</b> on the Company page, between Authorized signer and Insurance. Always 4 rows in this order: W-9, COI, MC Authority, NOA. Header shows “N of 4 on file”.</div>
+  <div class="callout" style="margin-top:110px"><b class="n">2</b><b>COI ↔ Insurance tie-in.</b> COI “Expires” = earliest expiry of the confirmed auto liability + cargo policies in Insurance (no typing twice). The same <code>coiGaps</code> → <code>companyGapNotes</code> + <code>suggestedExpiredNotes</code> notes that Insurance already shows are summarised under the COI row, with a jump link. Status: red if missing/expired/below minimum, amber if expiring ≤30 days or unconfirmed, green otherwise.</div>
+  <div class="callout"><b class="n">3</b><b>Earlier versions</b> are collapsed by default (shown open here). Current = newest upload of that type, so uploading a new one moves the old one down automatically. “Make current” is only in option 1B (see picks).</div>
+  <div class="callout" style="margin-top:40px"><b>Replace ▾ / Upload or scan ▾</b> opens the existing UploadMenu (Take photo · Photo library · Choose file · Scan document). Type is preset and Load is always “No load”. Drivers see View only.</div>
+  <div class="callout" style="margin-top:20px"><b>NOA</b> is a new doc type <code>noa</code>. No SQL: <code>documents.doc_type</code> is plain text with no check constraint.</div>
+ </div></div>
+</div></body></html>

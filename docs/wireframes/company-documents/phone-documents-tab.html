@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Documents tab after the move — phone (390)</title><link rel="stylesheet" href="wf.css">
+<style>body{width:390px;background:#fff}</style></head><body>
+<div class="phone">
+<div class="wf-banner">WIREFRAME · phone 390px · Documents tab (load paperwork only)</div>
+<div class="bar"><span>PowerHaul TMS</span><span style="width:30px;height:30px;border-radius:50%;background:#e5e7eb;display:inline-flex;align-items:center;justify-content:center">M</span></div>
+<div class="content">
+ <h1 style="font-size:1.4rem">Documents</h1>
+ <div class="note info" style="margin:6px 0 12px">W-9, COI, MC Authority and NOA now live in <a style="color:#1d4ed8;font-weight:600">Company → Company documents</a>.</div>
+ <div class="card" style="padding:12px">
+  <b>Upload load paperwork</b>
+  <div class="small" style="font-weight:600;margin:8px 0 4px">Document type</div>
+  <div class="btn" style="width:100%;justify-content:space-between;font-weight:400">Rate confirmation (reads load details) <span>▾</span></div>
+  <div class="small muted" style="margin:6px 0">List: Rate confirmation · BOL · POD · Lumper receipt · Scale ticket · Other. <s>W-9 · COI · MC Authority</s> removed.</div>
+  <div class="btn outline" style="width:100%">Upload ▾</div>
+ </div>
+ <div class="card" style="padding:12px">
+  <div class="row"><b class="grow">Uploaded documents</b></div>
+  <div style="border-top:1px solid #f1f5f9;padding:10px 0"><div class="ell">UberFreight_RC_EXL-58-3391.pdf</div><div class="muted small">Rate confirmation · Oct 18 · Load #EXL-58-3391</div></div>
+  <div style="border-top:1px solid #f1f5f9;padding:10px 0"><div class="ell">BOL_DBP-REF-7731.jpg</div><div class="muted small">Bill of lading · Oct 17 · Load #DBP-REF-7731</div></div>
+  <div style="border-top:1px solid #f1f5f9;padding:10px 0"><div class="ell">POD_SFB-100272.pdf</div><div class="muted small">Proof of delivery · Oct 16 · Load #SFB-100272</div></div>
+  <div style="border-top:1px solid #f1f5f9;padding:10px 0"><div class="ell">Lumper_HyVee_1016.jpg</div><div class="muted small">Lumper receipt · Oct 16 · Load #SFB-100272</div></div>
+  <div style="border-top:1px solid #f1f5f9;padding:10px 0"><div class="ell">CAT_scale_1015.jpg</div><div class="muted small">Scale ticket · Oct 15 · No load</div></div>
+  <div class="note warn">Receipts stay on Expenses (unchanged). A rate con upload that turns out to be a COI is filed into Company documents, with a link there.</div>
+ </div>
+ <div class="callout" style="position:static;margin-top:4px">Company types are filtered out of this list and the type pickers (here, Scanner, Change type) using <code>isCompanyDocType()</code> + <code>noa</code>. Nothing is deleted or moved in storage.</div>
+</div>
+<div class="bottomnav"><span><i>🏠</i>Home</span><span><i>📊</i>Stats</span><span><i>🚚</i>Loads</span><span class="on"><i>📄</i>Docs</span><span><i>🧾</i>Expenses</span><span><i>🚛</i>Truck</span></div>
+</div></body></html>
