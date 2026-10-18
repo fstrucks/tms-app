@@ -59,7 +59,7 @@ export default function CompanyProfilePage() {
     const v = validateProfile(body);
     setErrors(v); if (Object.keys(v).length) return;
     setBusy(true);
-    try { apply(await api('PUT', body)); setEin(''); setMsg('Company profile saved.'); }
+    try { const j = await api('PUT', body); apply(j); setEin(''); setMsg(j.notice || 'Company profile saved.'); }
     catch (err) { setErrors(err.errors || {}); setMsg(err.message); }
     finally { setBusy(false); }
   }
@@ -112,6 +112,7 @@ export default function CompanyProfilePage() {
                       autoCapitalize={k === 'state' ? 'characters' : undefined} maxLength={k === 'state' ? 2 : undefined} aria-invalid={!!errors[k]} />
                   : <div id={`cp-${k}`} style={s.ro}>{form[k] || '—'}</div>}
                 {errors[k] && <p style={s.err}>{errors[k]}</p>}
+                {k === 'owner_name' && <p style={{ color: '#6b7280', fontSize: 13, margin: '0.35rem 0 0' }}>{state.columns?.owner_name === false ? 'Saving the owner name needs a database update that hasn’t been applied yet.' : 'Fills “Owner name” on carrier packets.'}</p>}
               </div>
             ))}
           </div>
