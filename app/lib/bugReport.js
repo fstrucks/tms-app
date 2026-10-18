@@ -43,3 +43,15 @@ export function buildBugRow(body, user) {
     expected: clip(b.expected, BUG_LIMITS.expected), page_url: clip(b.page_url, BUG_LIMITS.page_url),
     user_agent: clip(b.user_agent, BUG_LIMITS.user_agent), viewport: clip(b.viewport, BUG_LIMITS.viewport), screenshot_path: shot } };
 }
+
+// Hide the floating button while another sheet (e.g. the welcome screen) marks <body data-welcome-open>.
+// No polling: a MutationObserver on that one attribute. Returns an unsubscribe fn.
+export const COVER_ATTR = 'data-welcome-open';
+export function watchCovered(body, cb, MO = typeof MutationObserver === 'undefined' ? null : MutationObserver) {
+  if (!body) return () => {};
+  const check = () => cb(body.hasAttribute(COVER_ATTR));
+  check();
+  if (!MO) return () => {};
+  const mo = new MO(check); mo.observe(body, { attributes: true, attributeFilter: [COVER_ATTR] });
+  return () => mo.disconnect();
+}

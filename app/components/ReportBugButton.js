@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSupabase } from '../lib/supabase';
-import { captureContext, checkScreenshot, screenshotPath, isBugButtonHidden, SETUP_MSG } from '../lib/bugReport';
+import { captureContext, checkScreenshot, screenshotPath, isBugButtonHidden, SETUP_MSG, watchCovered } from '../lib/bugReport';
 
 const field = { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 8, padding: '0.6rem 0.7rem', fontSize: 16, fontFamily: 'inherit' };
 const label = { display: 'block', fontWeight: 600, margin: '0.75rem 0 0.3rem' };
@@ -20,6 +20,8 @@ export default function ReportBugButton() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { kind: 'error'|'ok'|'setup', text }
   const [wide, setWide] = useState(false);
+  const [covered, setCovered] = useState(false);
+  useEffect(() => watchCovered(document.body, setCovered), []);
   const firstRef = useRef(null);
   const fileRef = useRef(null);
 
@@ -76,7 +78,7 @@ export default function ReportBugButton() {
       <button type="button" data-testid="report-bug-button" onClick={() => { setOpen(true); setMsg(null); }}
         style={{ position: 'fixed', right: 12, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px)', zIndex: 60, minHeight: 40, padding: '0 0.85rem',
           border: '1px solid #e2e8f0', borderRadius: 999, background: '#fff', color: '#334155', fontSize: 14, fontWeight: 600, fontFamily: 'system-ui',
-          boxShadow: '0 4px 14px rgba(15,23,42,0.15)', cursor: 'pointer', display: open ? 'none' : 'inline-flex', alignItems: 'center', gap: 6 }}>
+          boxShadow: '0 4px 14px rgba(15,23,42,0.15)', cursor: 'pointer', display: open || covered ? 'none' : 'inline-flex', alignItems: 'center', gap: 6 }}>
         <span aria-hidden="true">🐞</span>Report a bug
       </button>
       {open && (

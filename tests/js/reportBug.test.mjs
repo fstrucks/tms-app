@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import { POST } from '../../app/api/bug-reports/route.js';
-import { buildBugRow, captureContext, checkScreenshot, screenshotPath, isBugButtonHidden, BUG_MIGRATION, SCREENSHOT_MAX_BYTES } from '../../app/lib/bugReport.js';
+import { watchCovered, COVER_ATTR, buildBugRow, captureContext, checkScreenshot, screenshotPath, isBugButtonHidden, BUG_MIGRATION, SCREENSHOT_MAX_BYTES } from '../../app/lib/bugReport.js';
 
 const U = { id: '00000000-0000-4000-8000-00000000aaaa', email: 'tester@example.test' };
 const req = (body, token = 'fake') => new Request('http://x/api/bug-reports', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
@@ -72,4 +72,19 @@ test('bug report: layout change is one import + one mount line; button hides on 
   const comp = readFileSync('app/components/ReportBugButton.js', 'utf8');
   assert.match(comp, /isBugButtonHidden\(pathname\)/); assert.match(comp, /storage\.from\('documents'\)\.upload/);
   assert.match(comp, /j\.setupNeeded/);
+});
+
+test('bug button: hides while <body data-welcome-open> is set, via MutationObserver (no polling)', () => {
+  const attrs = new Set(); let observer = null;
+  const body = { hasAttribute: (a) => attrs.has(a) };
+  class MO { constructor(cb) { this.cb = cb; observer = this; } observe(t, o) { this.opts = o; } disconnect() { this.off = true; } }
+  const seen = []; const stop = watchCovered(body, (v) => seen.push(v), MO);
+  assert.deepEqual(observer.opts, { attributes: true, attributeFilter: [COVER_ATTR] });
+  attrs.add(COVER_ATTR); observer.cb(); attrs.delete(COVER_ATTR); observer.cb();
+  assert.deepEqual(seen, [false, true, false]);
+  stop(); assert.equal(observer.off, true);
+  assert.equal(COVER_ATTR, 'data-welcome-open');
+  const comp = readFileSync('app/components/ReportBugButton.js', 'utf8');
+  assert.match(comp, /watchCovered\(document\.body, setCovered\)/); assert.match(comp, /open \|\| covered \? 'none'/);
+  assert.doesNotMatch(comp, /setInterval/);
 });
