@@ -14,9 +14,10 @@ import { isRole } from './companyRoles.js';
 import { canEditTruck } from './truckFields.js';
 
 export const MAX_DURATION_S = 30;              // route.js maxDuration
-export const STEP_BUDGET_MS = 22_000;          // one POST step must finish (and answer) well inside maxDuration
-export const ORS_GEOCODE_TIMEOUT_MS = 6_000;   // per geocode call (at most 2 per step)
-export const ORS_ROUTE_TIMEOUT_MS = 18_000;    // directions call (long truck routes can take 10s+)
+export const STEP_BUDGET_MS = 15_000;          // ORS work in one POST step (QA #83 r2: was 22 s)
+export const ORS_GEOCODE_TIMEOUT_MS = 5_000;   // per geocode call (at most 2 per step)
+export const ORS_ROUTE_TIMEOUT_MS = 12_000;    // directions call (was 18 s)
+export const HANDLER_DEADLINE_MS = 20_000;     // the whole request (auth + DB + ORS) always answers by then; < maxDuration
 export const MAX_STEPS = 8;                    // the page stops asking after this many steps
 const limiter = createLimiter();
 const inflight = new Map(); // `${ownerId}:${loadId}` → Promise (one step per load per instance at a time)
@@ -57,16 +58,27 @@ export async function mapCtx(req, { mkUserClient = userClient, sb: svc, mkServic
 
 const left = (deadline) => (deadline ? deadline - Date.now() : Infinity);
 
+// One ORS call with a hard timeout: AbortController + our own timer (also covers a stalled body read), so it
+// always settles by `t` even if the connection hangs. Never throws.
 async function orsFetch(fetchImpl, url, init, timeoutMs, deadline) {
   const t = Math.min(timeoutMs, left(deadline) - 1_500);
   if (!(t > 500)) return { ok: false, status: null, body: null, timedOut: true, skipped: true };
-  try {
-    const res = await fetchImpl(url, { ...init, cache: 'no-store', signal: AbortSignal.timeout(t) });
+  const ac = new AbortController();
+  let timer;
+  const timeUp = new Promise((resolve) => { timer = setTimeout(() => { ac.abort(); resolve({ ok: false, status: null, body: null, timedOut: true }); }, t); });
+  const work = (async () => {
+    const res = await fetchImpl(url, { ...init, cache: 'no-store', signal: ac.signal });
     let body = null; try { body = await res.json(); } catch {}
     return { ok: res.ok, status: res.status, body };
-  } catch (e) {
-    return { ok: false, status: null, body: null, timedOut: e?.name === 'TimeoutError' || e?.name === 'AbortError' };
-  }
+  })().catch((e) => ({ ok: false, status: null, body: null, timedOut: ac.signal.aborted || e?.name === 'TimeoutError' || e?.name === 'AbortError' }));
+  try { return await Promise.race([work, timeUp]); } finally { clearTimeout(timer); }
+}
+
+// Resolve with `fallback()` if `p` hasn't settled by `ms` (the work may finish in the background).
+export async function withDeadline(p, ms, fallback) {
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve(fallback()), ms); });
+  try { return await Promise.race([p, late]); } finally { clearTimeout(timer); }
 }
 
 // One stop → { lat, lng, precision } | { error } | null (not found). Structured search first, then free text; a

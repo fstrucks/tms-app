@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtMiles } from '../lib/mileage';
+import { callMap, cardPhase } from '../lib/mapClient';
 
 const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: '#f1f5f9' }} /> });
 
@@ -21,34 +22,23 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange
         if (fresh) { try { await supabase.auth.refreshSession(); } catch {} }
         return (await supabase.auth.getSession())?.data?.session?.access_token || '';
       };
-      // Every answer is JSON; a dropped connection or non-JSON answer becomes a calm "failed" state.
-      const call = async (method) => {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          let res, j;
-          try {
-            res = await fetch(`/api/loads/${loadId}/map`, { method, cache: 'no-store', headers: { Authorization: `Bearer ${await token(attempt > 0)}` } });
-            j = await res.json().catch(() => null);
-          } catch { return { state: 'failed', message: 'Couldn’t reach the map just now. It will try again next time you open this load.' }; }
-          if (res.status === 401 && attempt === 0) continue; // token just expired: refresh once and retry
-          if (res.ok && j) return j;
-          return { state: 'failed', message: j?.error || 'Couldn’t load the map.' };
-        }
-        return { state: 'failed', message: 'Your sign-in expired. Please sign in again.' };
-      };
+      const call = (method) => callMap({ url: `/api/loads/${loadId}/map`, method, getToken: token });
       try {
         let j = await call('GET');
         const before = j.load;
         if (!live) return;
-        setSt({ ...j, computing: !!(j.stale && j.canEdit) });
-        // One short step per POST (geocode a stop, or the route), so no request runs long (QA #83).
+        setSt({ ...j, ...cardPhase(j) });
+        // One short step per POST (geocode a stop, or the route), so no request runs long (QA #83). Any failed or
+        // retry-later answer ends the loading state right away (QA #83 r2: never "Finding…" next to an error).
         let steps = 0;
-        while (live && j.stale && j.canEdit && j.next && j.state !== 'failed' && steps < MAX_STEPS) {
+        while (live && cardPhase(j, { steps, max: MAX_STEPS }).computing) {
           steps += 1;
           j = await call('POST');
           if (!live) break;
-          if (j.state === 'failed') { const msg = j.message; setSt((cur) => (cur.stops ? { ...cur, computing: false, message: msg } : j)); break; }
-          setSt({ ...j, computing: !!(j.stale && j.next && steps < MAX_STEPS) });
+          if (j.state === 'failed') { const msg = j.message; setSt((cur) => (cur.stops ? { ...cur, computing: false, message: msg } : { ...j, computing: false })); break; }
+          setSt({ ...j, ...cardPhase(j, { steps, max: MAX_STEPS }) });
         }
+        if (live && steps >= MAX_STEPS) setSt((cur) => ({ ...cur, computing: false }));
         if (live && j.load) onLoadChange?.(j.load);
         // A new route can fill Planned miles: re-fetch the page so Miles/RPM/list never show stale values.
         if (live && steps && j.load && (j.load.total_miles !== before?.total_miles || j.load.calculated_miles !== before?.calculated_miles)) onRouteFilled?.();
@@ -75,7 +65,7 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, onLoadChange
         </span>
         {cityOnly && <span style={muted} data-testid="route-approx">Some pins are approximate (street not found; city or ZIP used)</span>}
       </div>
-      {st.message && <p role="status" data-testid="route-message" style={{ color: '#92400e', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
+      {!st.computing && st.message && <p role="status" data-testid="route-message" style={{ color: '#92400e', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
     </div>
   );
 }

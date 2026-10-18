@@ -359,10 +359,10 @@ test('API never crashes without JSON: an unexpected throw → 500 JSON with stat
   }
 });
 
-test('client: steps POST while `next` is set (capped), keeps pins on a failed step, refreshes the token once on 401', () => {
+test('client: steps POST while a step is to come (capped), keeps pins on a failed step', () => {
   const card = read('app/components/LoadRouteCard.js');
-  assert.match(card, /while \(live && j\.stale && j\.canEdit && j\.next && j\.state !== 'failed' && steps < MAX_STEPS\)/);
-  assert.match(card, /res\.status === 401 && attempt === 0/); assert.match(card, /refreshSession\(\)/);
+  assert.match(card, /while \(live && cardPhase\(j, \{ steps, max: MAX_STEPS \}\)\.computing\)/);
+  assert.match(card, /callMap\(\{ url: `\/api\/loads\/\$\{loadId\}\/map`, method, getToken: token \}\)/); assert.match(card, /refreshSession\(\)/);
   assert.match(card, /cur\.stops \? \{ \.\.\.cur, computing: false, message: msg \}/);
   assert.match(card, /Some pins are approximate/);
 });
@@ -371,7 +371,7 @@ test('client: steps POST while `next` is set (capped), keeps pins on a failed st
 test('map: Leaflet lazy-loaded (ssr off), OSM tiles per policy, required attribution, phone friendly', () => {
   const card = read('app/components/LoadRouteCard.js');
   assert.match(card, /dynamic\(\(\) => import\('\.\/RouteMap'\), \{ ssr: false/);
-  assert.match(card, /method: 'GET'|call\('GET'\)/); assert.match(card, /j\.stale && j\.canEdit/);
+  assert.match(card, /call\('GET'\)/); assert.match(card, /cardPhase\(j, \{ steps, max: MAX_STEPS \}\)\.computing/);
   const map = read('app/components/RouteMap.js');
   assert.match(map, /https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png/);
   assert.match(map, /maxZoom: 19/);

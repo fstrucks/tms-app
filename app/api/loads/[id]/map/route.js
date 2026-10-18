@@ -6,11 +6,11 @@
 // Every path answers JSON, including unexpected errors (QA #83: the browser saw ERR_CONNECTION_CLOSED).
 import { json } from '../../../../lib/truckServer';
 import { serviceClient } from '../../../../lib/packetServer';
-import { mapCtx, getRoute, ensureRoute } from '../../../../lib/loadRouteServer';
+import { mapCtx, getRoute, ensureRoute, withDeadline, HANDLER_DEADLINE_MS } from '../../../../lib/loadRouteServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30; // a step's budget is 22 s (geocode 2 × 6 s, or directions 18 s)
+export const maxDuration = 30; // every request answers by HANDLER_DEADLINE_MS (20 s); ORS work per step ≤ 15 s
 
 const SETUP = { setupNeeded: true, state: 'setup', message: 'The map needs a database update that hasn’t been applied yet.' };
 
@@ -25,19 +25,27 @@ const crashed = (where, e) => {
   return json({ error: 'Couldn’t load the map. Try again.', state: 'failed', retry: true }, 500);
 };
 
+// QA #83 r2: always reply before maxDuration, even if something below hangs.
+const late = () => json({ error: 'The map service didn’t answer. The route will be tried again in a few minutes.', state: 'failed', retry: true, late: true }, 503);
+const deadlineOf = (deps) => deps?.deadlineMs ?? HANDLER_DEADLINE_MS;
+
 export async function GET(req, { params, deps } = {}) {
-  try {
-    const c = await mapCtx(req, deps); if (c.res) return c.res;
-    return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), c.canEdit);
-  } catch (e) { return crashed('GET', e); }
+  return withDeadline((async () => {
+    try {
+      const c = await mapCtx(req, deps); if (c.res) return c.res;
+      return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), c.canEdit);
+    } catch (e) { return crashed('GET', e); }
+  })(), deadlineOf(deps), late);
 }
 
 export async function POST(req, { params, deps } = {}) {
-  try {
-    const c = await mapCtx(req, deps); if (c.res) return c.res;
-    if (!c.canEdit) return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), false);
-    let shared = deps?.shared;
-    if (shared === undefined) { try { shared = serviceClient(); } catch { shared = null; } }
-    return respond(await ensureRoute(c.db, c.ownerId, params?.id, { ...(deps?.route || {}), shared }), true);
-  } catch (e) { return crashed('POST', e); }
+  return withDeadline((async () => {
+    try {
+      const c = await mapCtx(req, deps); if (c.res) return c.res;
+      if (!c.canEdit) return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), false);
+      let shared = deps?.shared;
+      if (shared === undefined) { try { shared = serviceClient(); } catch { shared = null; } }
+      return respond(await ensureRoute(c.db, c.ownerId, params?.id, { ...(deps?.route || {}), shared }), true);
+    } catch (e) { return crashed('POST', e); }
+  })(), deadlineOf(deps), late);
 }
