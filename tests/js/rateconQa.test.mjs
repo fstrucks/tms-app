@@ -31,7 +31,7 @@ test('Scan rate con uploads + extracts immediately via the same uploadRateCon as
 });
 
 test('Extraction asks for equipment_type; card shows Equipment', () => {
-  assert.match(route, /'rate', 'equipment_type', 'weight', 'notes'\]/); // weight added in PR #69 fix A
+  assert.match(route, /'rate', 'equipment_type', 'weight', 'total_miles', 'notes'\]/); // weight added in PR #69 fix A
   assert.match(route, /equipment_type: \{ \.\.\.str, description:/);
   assert.match(docs, /\['Equipment', x\.equipment_type\]/);
   assert.match(docs, /\['Shipper', fmtParty\(x\.shipper\)\]/);

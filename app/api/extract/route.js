@@ -4,6 +4,7 @@ import { classifyDocText, decideDocKind } from '../../lib/docClassify';
 import { loadPdfjs } from '../../lib/packetPdfText';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { fillLinkedLoadWeight } from '../../lib/loadWeightFill';
+import { parseTripMiles, fillLinkedLoadMiles } from '../../lib/loadMiles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,7 @@ const stop = { type: ['object', 'null'], additionalProperties: false, required: 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'weight', 'notes'],
+  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'weight', 'total_miles', 'notes'],
   properties: {
     // Classification: a COI uploaded through the rate-con path must not be saved as a rate confirmation.
     document_kind: { type: 'string', enum: ['rate_confirmation', 'coi', 'other'], description: 'coi = certificate of insurance / ACORD 25' },
@@ -43,6 +44,8 @@ const schema = {
     equipment_type: { ...str, description: 'Trailer/equipment required, as written, e.g. "53\' Dry Van", "Reefer", "Flatbed"' },
     // Truck tab compares scale tickets with this (PR #69 fix A). Text as printed; parsed to weight_lb below.
     weight: { ...str, description: 'Total cargo/load weight exactly as printed, with units, e.g. "38,500 lbs"' },
+    // PR A (rate con miles): the trip distance the broker prints. Copied to an EMPTY loads.total_miles only.
+    total_miles: { type: ['number', 'null'], description: 'Total (or loaded) trip miles for the whole load as printed by the broker, e.g. "Miles (loaded) 626", "Distance 314mi", "Linehaul (1,270 mi)". null if not printed. Never from driving directions.' },
     notes: str,
   },
 };
@@ -157,7 +160,7 @@ export async function POST(req) {
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units.' },
+            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units. total_miles is the total or loaded trip distance for the whole load (pickup to final delivery) as a number, only when the document prints it as a load figure, e.g. a Miles / Loaded miles / Distance / Total miles field, or the miles on a linehaul or per-mile charge line ("626 mi x $0.40/mi", "Linehaul (1,270 mi)"). IGNORE any miles that appear only inside driving directions, route or turn-by-turn instructions, or facility/gate directions (e.g. "17.2 miles north to a 4-way stop", "exit 562 then 1.1 miles"): those are never the trip distance. Do not add segments up, do not estimate from addresses, and use null when no trip distance is printed.' },
             filePart,
           ],
         }],
@@ -181,7 +184,7 @@ export async function POST(req) {
 
   const { document_kind: aiKind, heading_text: aiText, ...loadData } = extracted || {};
   if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi') return reclassifyCoi(admin, doc, user, finish);
-  extracted = { ...loadData, weight_lb: parseWeightLb(loadData.weight) };
+  extracted = { ...loadData, total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
   const { error: upErr } = await admin.from('documents').update({ ai_extracted_data: extracted })
     .eq('id', doc.id).eq('user_id', user.id);
   if (upErr) { await finish('error'); return fail(500, GENERIC, 'save', upErr.message); }
@@ -189,8 +192,11 @@ export async function POST(req) {
   // Re-run on a rate con that already has a load: fill that load's weight if it's empty (never overwrite).
   const lw = await fillLinkedLoadWeight(userDb, { loadId: doc.load_id, userId: user.id, weight: extracted.weight_lb });
   if (lw.error) console.error('[extract] load weight', lw.error.message || lw.error);
+  // Same for miles: fill the linked load's total_miles only if it's empty (a typed or earlier value always wins).
+  const lm = await fillLinkedLoadMiles(userDb, { loadId: doc.load_id, userId: user.id, miles: extracted.total_miles });
+  if (lm.error) console.error('[extract] load miles', lm.error.message || lm.error);
   await finish('success');
-  return json({ data: extracted, ...(lw.filled ? { loadWeightFilled: lw.weight } : {}) });
+  return json({ data: extracted, ...(lw.filled ? { loadWeightFilled: lw.weight } : {}), ...(lm.filled ? { loadMilesFilled: lm.miles } : {}) });
 }
 
 // Text of the first pages of a digital PDF (empty for scans or on any error).
