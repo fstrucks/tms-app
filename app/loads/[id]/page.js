@@ -21,6 +21,7 @@ import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
+import { takeSeededLoad } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -43,7 +44,8 @@ export default function LoadDetailPage() {
   const list = useLoads(); // shared list (desktop left pane); kept in sync on status change
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
-  const [load, setLoad] = useState(null);
+  // Just created on /loads/new? Show it at once; fetchAll() still refreshes it (#86 QA).
+  const [load, setLoad] = useState(() => (isLoadId(id) ? takeSeededLoad(id) : null));
   const [docs, setDocs] = useState([]);
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);

@@ -77,7 +77,7 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
 // Inserts the load, then its two stops. If the stops fail, the half-made load is removed again.
 // Returns { ok: true, id } or { ok: false, error }.
 export async function createManualLoad(supabase, built) {
-  const { data: row, error } = await supabase.from('loads').insert(built.load).select('id').single();
+  const { data: row, error } = await supabase.from('loads').insert(built.load).select('*').single();
   if (error || !row?.id) {
     // miles_source missing (20261018000300 not applied): retry once without it rather than failing.
     if (error && /miles_source/.test(error.message || '') && 'miles_source' in built.load) {
@@ -86,10 +86,12 @@ export async function createManualLoad(supabase, built) {
     }
     return { ok: false, error: "Couldn't create the load. Please try again.", cause: error };
   }
-  const { error: se } = await supabase.from('stops').insert(built.stops.map((s) => ({ ...s, load_id: row.id })));
+  const { data: stops, error: se } = await supabase.from('stops').insert(built.stops.map((s) => ({ ...s, load_id: row.id }))).select('*');
   if (se) {
     await supabase.from('loads').delete().eq('id', row.id);
     return { ok: false, error: "Couldn't save the pickup and delivery. The load was not created. Please try again.", cause: se };
   }
-  return { ok: true, id: row.id };
+  // load: the saved row + stops, handed to the load page so it can show at once (see loadSeed.js).
+  const sorted = [...(stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  return { ok: true, id: row.id, load: { ...row, stops: sorted } };
 }

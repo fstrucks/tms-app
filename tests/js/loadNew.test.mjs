@@ -62,9 +62,9 @@ function fakeSb({ failLoad, failStops, missingMilesSource } = {}) {
         calls.push(['insert', t, rows]);
         if (t === 'loads') {
           const err = failLoad ? { message: 'boom' } : (missingMilesSource && 'miles_source' in rows ? { message: "Could not find the 'miles_source' column of 'loads'" } : null);
-          return { select: () => ({ single: async () => (err ? { data: null, error: err } : { data: { id: 'L-new' }, error: null }) }) };
+          return { select: () => ({ single: async () => (err ? { data: null, error: err } : { data: { id: 'L-new', ...rows }, error: null }) }) };
         }
-        return Promise.resolve({ error: failStops ? { message: 'stops boom' } : null });
+        return { select: async () => (failStops ? { data: null, error: { message: 'stops boom' } } : { data: rows.slice().reverse().map((r, i) => ({ id: 'S' + i, ...r })), error: null }) };
       },
       delete: () => ({ eq: async (c, v) => { calls.push(['delete', t, v]); return { error: null }; } }),
     }),
@@ -75,7 +75,9 @@ function fakeSb({ failLoad, failStops, missingMilesSource } = {}) {
 test('createManualLoad: inserts load then both stops linked to it', async () => {
   const { sb, calls } = fakeSb();
   const r = await createManualLoad(sb, buildNewLoad({ ...good, miles: '327' }, { userId: 'u1' }));
-  assert.deepEqual(r, { ok: true, id: 'L-new' });
+  assert.equal(r.ok, true); assert.equal(r.id, 'L-new');
+  assert.equal(r.load.id, 'L-new'); assert.equal(r.load.total_miles, 327);
+  assert.deepEqual(r.load.stops.map((s) => s.stop_type), ['pickup', 'delivery']); // sorted by sequence for the load page
   assert.deepEqual(calls.map((c) => c[1]), ['loads', 'stops']);
   assert.ok(calls[1][2].every((s) => s.load_id === 'L-new'));
 });
@@ -101,4 +103,23 @@ test('createManualLoad: tolerates a database without loads.miles_source', async 
   assert.equal(r.ok, true);
   assert.equal(calls.filter((c) => c[1] === 'loads').length, 2);
   assert.ok(!('miles_source' in calls[1][2]) && calls[1][2].total_miles === 327);
+});
+
+test('#86 QA: one column below 640px; short Miles placeholder', () => {
+  const page = read('app/loads/new/page.js');
+  assert.equal((page.match(/className="newload-grid"/g) || []).length, 2);
+  assert.doesNotMatch(page, /gridTemplateColumns/); // an inline grid would override the media query
+  assert.match(page, /placeholder="Blank = calculate"/);
+  const css = read('app/globals.css');
+  assert.match(css, /\.newload-grid \{ display: grid; grid-template-columns: 1fr;/);
+  assert.match(css, /@media \(min-width: 640px\) \{ \.newload-grid \{ grid-template-columns: repeat\(auto-fit, minmax\(150px, 1fr\)\); \} \}/);
+});
+
+test('#86 QA: the created load is handed to /loads/[id] once, so it shows without "Loading load…"', async () => {
+  const { seedLoad, takeSeededLoad } = await import('../../app/lib/loadSeed.js');
+  seedLoad({ id: 'abc', stops: [] });
+  assert.deepEqual(takeSeededLoad('abc'), { id: 'abc', stops: [] });
+  assert.equal(takeSeededLoad('abc'), null); // one read only; later visits fetch as before
+  assert.match(read('app/loads/new/page.js'), /seedLoad\(r\.load\);[\s\S]*router\.replace\(`\/loads\/\$\{r\.id\}`\)/);
+  assert.match(read('app/loads/[id]/page.js'), /useState\(\(\) => \(isLoadId\(id\) \? takeSeededLoad\(id\) : null\)\)/);
 });

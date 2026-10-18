@@ -7,12 +7,12 @@ import SignInLink from '../../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { useLoads } from '../LoadsData';
 import { EMPTY_NEW_LOAD, buildNewLoad, createManualLoad } from '../../lib/loadNew';
+import { seedLoad } from '../../lib/loadSeed';
 
 // /loads/new: create a load by hand (no rate con). A static segment, so Next.js serves it before /loads/[id].
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
   card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' },
   label: { display: 'block', fontSize: '0.85rem', color: '#374151' },
   input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', marginTop: 4, background: '#fff', color: '#111827' },
   err: { color: '#b91c1c', fontSize: '0.8rem', margin: '0.2rem 0 0' },
@@ -66,6 +66,7 @@ export default function NewLoadPage() {
       if (!(await hasSession(supabase))) return setSaveError('Your session has expired. Please sign in again.');
       const r = await createManualLoad(supabase, built);
       if (!r.ok) { console.error('[loads/new] create', r.cause); return setSaveError(r.error); }
+      seedLoad(r.load); // the load page shows it at once, no loading skeleton
       list?.reload();
       router.replace(`/loads/${r.id}`);
     } finally { setSaving(false); }
@@ -86,11 +87,11 @@ export default function NewLoadPage() {
             <p style={{ ...s.muted, marginTop: 0 }}>Have a rate confirmation? Upload it on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load" instead. Fields marked * are required.</p>
             <div style={s.card}>
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Load</h2>
-              <div style={s.grid}>
+              <div className="newload-grid">
                 <Field name="broker_name" label="Broker" placeholder="Sample Freight" {...f} />
                 <Field name="broker_load_number" label="Load #" placeholder="SFB-100300" {...f} />
                 <Field name="rate" label="Rate ($)" inputMode="decimal" placeholder="1,280" required {...f} />
-                <Field name="miles" label="Miles" inputMode="numeric" placeholder="Leave empty to calculate" {...f} />
+                <Field name="miles" label="Miles" inputMode="numeric" placeholder="Blank = calculate" {...f} />
                 <Field name="weight" label="Weight (lb)" inputMode="numeric" placeholder="38,500" {...f} />
                 <Field name="commodity" label="Commodity" placeholder="Paper goods" {...f} />
                 <Field name="equipment_type" label="Equipment" placeholder="Dry van" {...f} />
@@ -99,7 +100,7 @@ export default function NewLoadPage() {
             {[['pu', 'Pickup'], ['del', 'Delivery']].map(([p, title]) => (
               <div key={p} style={s.card}>
                 <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>{title}</h2>
-                <div style={s.grid}>
+                <div className="newload-grid">
                   <Field name={`${p}_company`} label="Company" {...f} />
                   <Field name={`${p}_address`} label="Street address" {...f} />
                   <Field name={`${p}_city`} label="City" required {...f} />
