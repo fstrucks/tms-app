@@ -388,3 +388,80 @@ test('QA f: Send to broker GET still answers when the vault part fails; the pane
   const ui = read('app/packets/PacketSendBroker.js');
   assert.match(ui, /data-testid="send-load-error"/);
 });
+
+// ---- #89 re-QA (Taylor) ----
+import { coiCoverage, fmtSize, fmtMB, sentence } from '../../app/lib/companyDocs.js';
+const pol = (coverage, limit_amount, expiry_date, o = {}) => ({ owner_id: OWNER, coverage, limit_amount, expiry_date, effective_date: '2026-01-01', confirmed: true, ...o });
+const AUTO = pol('auto_liability', 1000000, '2027-03-01');
+
+test('re-QA 2: each coverage is judged by its best valid confirmed policy (older $50k cargo next to a new $100k)', () => {
+  const policies = [AUTO, pol('cargo', 50000, '2027-02-01'), pol('cargo', 100000, '2027-05-01')];
+  const st = vaultStatus({ type: 'coi', current: doc(3, 'coi', '2026-10-02T10:00:00Z') }, { policies, today: TODAY });
+  assert.equal(st.level, 'ok'); assert.equal(st.text, 'On file'); assert.equal(st.note, null);
+  assert.equal(coiCoverage(policies, null, TODAY).best.cargo.limit_amount, 100000);
+  // only the $50k one → still below the minimum, without a double period
+  const low = vaultStatus({ type: 'coi', current: doc(3, 'coi', '2026-10-02T10:00:00Z') }, { policies: [AUTO, pol('cargo', 50000, '2027-02-01')], today: TODAY });
+  assert.equal(low.level, 'bad'); assert.match(low.note, /Cargo limit \$50,000 is below the \$100,000 minimum\.$/);
+});
+
+test('re-QA 2: expired, not-yet-effective and unconfirmed policies never count as the best', () => {
+  const C = { type: 'coi', current: doc(3, 'coi', '2026-10-02T10:00:00Z') };
+  // an expired $1M cargo does not hide that the valid one is only $50k
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 1000000, '2026-09-01'), pol('cargo', 50000, '2027-02-01')], today: TODAY }).level, 'bad');
+  // an expired old policy next to a good valid one doesn't flag the COI
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 50000, '2026-09-01'), pol('cargo', 100000, '2027-05-01')], today: TODAY }).level, 'ok');
+  // future-dated only → red
+  const fut = vaultStatus(C, { policies: [AUTO, pol('cargo', 100000, '2027-12-01', { effective_date: '2026-12-01' })], today: TODAY });
+  assert.equal(fut.level, 'bad'); assert.match(fut.note, /isn’t effective until 2026-12-01/);
+  // only expired → "Expired"
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 100000, '2026-10-01')], today: TODAY }).text, 'Expired');
+  // unconfirmed $100k doesn't rescue a confirmed $50k
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 50000, '2027-02-01'), pol('cargo', 100000, '2027-05-01', { confirmed: false })], today: TODAY }).level, 'bad');
+  // tie on limit → the later expiry is used
+  assert.equal(coiCoverage([AUTO, pol('cargo', 100000, '2026-11-01'), pol('cargo', 100000, '2027-05-01')], null, TODAY).best.cargo.expiry_date, '2027-05-01');
+});
+
+test('re-QA 3: the best policy expiring within 30 days turns the COI amber', () => {
+  const C = { type: 'coi', current: doc(3, 'coi', '2026-10-02T10:00:00Z') };
+  const policies = [AUTO, pol('cargo', 50000, '2027-02-01'), pol('cargo', 100000, '2026-11-05')];
+  const st = vaultStatus(C, { policies, today: TODAY });
+  assert.equal(st.level, 'warn'); assert.equal(st.text, 'Expires within 30 days'); assert.equal(st.expiry, '2026-11-05');
+  assert.equal(coiExpiry(policies, TODAY), '2026-11-05');
+  // day 31 is green
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 100000, '2026-11-18')], today: TODAY }).level, 'ok');
+  assert.equal(vaultStatus(C, { policies: [AUTO, pol('cargo', 100000, '2026-11-17')], today: TODAY }).level, 'warn');
+});
+
+test('re-QA 2: adding a policy refreshes the vault COI row right away (event after every successful Insurance change)', () => {
+  const ins = read('app/company/CompanyInsurance.js'), vault = read('app/company/CompanyDocuments.js');
+  assert.match(ins, /runInner[\s\S]*?notifyVault\(\)/);
+  assert.match(ins, /Add policy/); assert.match(ins, /\/api\/company\/insurance\/policies', \{ method: 'POST'[\s\S]*?\.then/);
+  assert.match(vault, /addEventListener\(INSURANCE_CHANGED_EVENT/);
+});
+
+test('re-QA 1: every COI that is not current is grouped under "Earlier COIs (n)", whatever page uploaded it', () => {
+  const ins = read('app/company/CompanyInsurance.js');
+  // the list is every coi row (no file_path / vault-only filter), so Insurance-page uploads are grouped too
+  assert.match(ins, /from\('documents'\)\.select\('id,original_filename,created_at'\)\.eq\('doc_type', 'coi'\)\.order\('created_at', \{ ascending: false \}\)/);
+  assert.doesNotMatch(ins, /docs\.map\(/);
+  assert.match(ins, /Earlier COIs \(\{docs\.length - 1\}\)/);
+  assert.match(ins, /showEarlier && docs\.slice\(1\)\.map/);
+  // the vault agrees on "current": newest coi row, Insurance-page uploads included
+  const g = groupVault([doc(3, 'coi', '2026-10-02T10:00:00Z', { file_path: `${OWNER}/insurance/fake-coi.jpg`, original_filename: 'fake-coi.jpg' }),
+    doc(6, 'coi', '2026-10-03T10:00:00Z', { file_path: `${OWNER}/insurance/fake-coi.jpg`, original_filename: 'fake-coi.jpg' }),
+    doc(7, 'coi', '2026-10-18T10:00:00Z', { original_filename: 'COI_DemoCarrier_VAULT-02_FAKE.pdf' })]).find((x) => x.type === 'coi');
+  assert.equal(g.current.id, id(7)); assert.equal(g.earlier.length, 2);
+  // preview build tag so a stale open tab is obvious
+  assert.match(read('app/company/CompanyDocuments.js'), /NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA/);
+});
+
+test('re-QA minor: sizes under 0.1 MB show in KB (attachments and total); one period before "It\'s unticked"', () => {
+  assert.equal(fmtSize(48_000), '48 KB'); assert.equal(fmtSize(99_499), '99 KB'); assert.equal(fmtSize(100_000), '0.1 MB');
+  assert.equal(fmtSize(2_400_000), '2.4 MB'); assert.equal(fmtSize(300), '1 KB'); assert.equal(fmtSize(0), '0 KB'); assert.equal(fmtMB, fmtSize);
+  const ui = read('app/packets/PacketSendBroker.js');
+  assert.match(ui, /fmtMB\(o\.size\)/); assert.match(ui, /Total \$\{fmtMB\(size\.raw\)\}/);
+  assert.equal(sentence('Cargo limit $50,000 is below the $100,000 minimum.'), 'Cargo limit $50,000 is below the $100,000 minimum.');
+  const opts = sendAttachmentOptions(groupVault([doc(3, 'coi', '2026-10-02T10:00:00Z')]), { policies: [AUTO, pol('cargo', 50000, '2027-02-01')], today: TODAY });
+  const coi = opts.find((o) => o.type === 'coi');
+  assert.ok(coi.warning); assert.doesNotMatch(coi.warning, /\.\./); assert.match(coi.warning, /minimum\. It's unticked/);
+});

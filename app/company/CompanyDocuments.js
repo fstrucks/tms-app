@@ -29,6 +29,9 @@ export function Pill({ status }) {
   return <span data-testid="vault-pill" style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 999, background: c.bg, color: c.fg, fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>{c.icon} {status?.text || 'Missing'}</span>;
 }
 
+// Preview-only build tag (#89 QA) so testers can tell which commit their open tab is running.
+const BUILD = process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' ? String(process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) : '';
+
 export default function CompanyDocuments() {
   const [st, setSt] = useState({ loading: true });
   const [busy, setBusy] = useState(null); // type being uploaded
@@ -145,6 +148,7 @@ export default function CompanyDocuments() {
         <Scanner initialFiles={scan.files} loads={[]} typeIds={[scan.type]} onClose={() => setScan(null)}
           onSave={async (sc) => { const type = scan.type; setScan(null); await upload(type, sc.file); return null; }} />
       )}
+      {BUILD && <p data-testid="build-tag" style={{ color: '#9ca3af', fontSize: 12, margin: '0.75rem 0 0' }}>Preview build {BUILD}. If this doesn’t match the PR head, reload the page.</p>}
     </section>
   );
 }

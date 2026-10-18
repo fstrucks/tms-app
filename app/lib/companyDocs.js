@@ -1,7 +1,6 @@
 // Company Documents vault (PR #84; Marc's picks 1A, 2C, 3A, 4A, 5B, 6A, Oct 18 3:10 PM PT). Pure helpers, used by
 // the Company page card, /api/company/documents and the Send to broker route. No I/O here.
-import { coiGaps } from './coiGaps.js';
-import { companyGapNotes } from './coiRequest.js';
+import { minimumsFrom, COVERAGE_LABELS, REQUIRED_COVERAGES } from './coiGaps.js';
 
 // Always four rows, in this order.
 export const VAULT_TYPES = [
@@ -31,7 +30,9 @@ export const MAX_VAULT_FILE_BYTES = 7_500_000;
 export const MAX_SEND_RAW_BYTES = 7_500_000;
 export const POSTMARK_MAX_ENCODED_BYTES = 10_000_000;
 export const encodedSize = (n) => 4 * Math.ceil(Math.max(0, Number(n) || 0) / 3);
-export const fmtMB = (n) => `${(Math.max(0, Number(n) || 0) / 1_000_000).toFixed(1)} MB`;
+// "2.4 MB"; under 0.1 MB it's shown in KB ("48 KB") so small files don't read as "0.0 MB" (#89 QA).
+export const fmtSize = (n) => { const b = Math.max(0, Number(n) || 0); return b < 100_000 ? `${Math.max(b > 0 ? 1 : 0, Math.round(b / 1000))} KB` : `${(b / 1_000_000).toFixed(1)} MB`; };
+export const fmtMB = fmtSize;
 
 export const VAULT_UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 // → null when OK, else a message.
@@ -64,11 +65,42 @@ export function groupVault(docs = []) {
 const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
 const addDays = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-// Pick 3A: only the COI has an expiry: the earliest expiry of the CONFIRMED auto liability and cargo policies.
-export function coiExpiry(policies = []) {
-  const dates = policies.filter((p) => p && p.confirmed && ['auto_liability', 'cargo'].includes(p.coverage)).map((p) => day(p.expiry_date)).filter(Boolean).sort();
-  return dates[0] || null;
+// COI rule (#89 QA): each required coverage (auto liability, cargo) is judged by its BEST VALID CONFIRMED policy:
+// in effect (effective date empty or ≤ today) and not expired (expiry empty or ≥ today), highest limit wins, then the
+// later expiry. An older, smaller or expired policy next to a good one doesn't count against the COI.
+// Unconfirmed AI suggestions never count. → { notes: [{ code, severity, coverage, text }], expiry, best: { cov: policy } }
+const usd = (n) => `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+const lim = (p) => (p?.limit_amount === null || p?.limit_amount === undefined || p?.limit_amount === '' || !Number.isFinite(Number(p.limit_amount)) ? null : Number(p.limit_amount));
+export function coiCoverage(policies = [], profile = null, today) {
+  const t = day(today) || new Date().toISOString().slice(0, 10);
+  const mins = minimumsFrom(profile);
+  const notes = [], best = {}, expiries = [];
+  for (const cov of REQUIRED_COVERAGES) {
+    const label = COVERAGE_LABELS[cov];
+    const rows = policies.filter((p) => p && p.confirmed && p.coverage === cov);
+    if (!rows.length) { notes.push({ code: 'missing', severity: 'error', coverage: cov, text: `${label} coverage is missing.` }); continue; }
+    const valid = rows.filter((p) => (!day(p.effective_date) || day(p.effective_date) <= t) && (!day(p.expiry_date) || day(p.expiry_date) >= t));
+    if (!valid.length) {
+      // a row that starts later (and hasn't already expired) → "not effective yet"; otherwise it's expired
+      const future = rows.filter((p) => day(p.effective_date) > t && !(day(p.expiry_date) && day(p.expiry_date) < t)).map((p) => day(p.effective_date)).sort()[0];
+      const last = rows.map((p) => day(p.expiry_date)).filter((d) => d && d < t).sort().at(-1);
+      notes.push(future
+        ? { code: 'not_effective', severity: 'error', coverage: cov, text: `${label} policy isn’t effective until ${future}.` }
+        : { code: 'expired', severity: 'error', coverage: cov, text: `${label} policy expired ${last}.` });
+      continue;
+    }
+    const b = [...valid].sort((x, y) => (lim(y) ?? -1) - (lim(x) ?? -1) || String(day(y.expiry_date) || '9999').localeCompare(String(day(x.expiry_date) || '9999')))[0];
+    best[cov] = b;
+    if (lim(b) === null) notes.push({ code: 'limit_unknown', severity: 'warn', coverage: cov, text: `${label} limit isn’t entered.` });
+    else if (lim(b) < mins[cov]) notes.push({ code: 'below_min', severity: 'error', coverage: cov, text: `${label} limit ${usd(lim(b))} is below the ${usd(mins[cov])} minimum.` });
+    if (day(b.expiry_date)) expiries.push(day(b.expiry_date));
+    else notes.push({ code: 'expiry_unknown', severity: 'warn', coverage: cov, text: `${label} policy has no expiry date.` });
+  }
+  return { notes, expiry: expiries.sort()[0] || null, best };
 }
+
+// Pick 3A: only the COI has an expiry: the earliest expiry of the best valid auto liability and cargo policies.
+export function coiExpiry(policies = [], today) { return coiCoverage(policies, null, today).expiry; }
 
 // → { level: 'ok' | 'warn' | 'bad', text, expiry, expiryText, note, hint }
 export function vaultStatus(group, { policies = [], profile = null, today } = {}) {
@@ -85,14 +117,13 @@ export function vaultStatus(group, { policies = [], profile = null, today } = {}
   //   2. amber "Expires within 30 days" (shown even when there are also amber notes)
   //   3. amber "Check notes": limit or expiry not entered on a confirmed policy
   //   4. green "On file"
-  const exp = coiExpiry(policies);
-  const notes = companyGapNotes(coiGaps({ policies, profile, today: t })).filter((n) => n.code !== 'unconfirmed');
+  const { notes, expiry: exp } = coiCoverage(policies, profile, t);
   const err = notes.find((n) => n.severity === 'error');
   const warn = notes.find((n) => n.severity === 'warn');
   const pending = policies.filter((p) => p && !p.confirmed).length;
   const hint = pending ? `${pending} suggested polic${pending === 1 ? 'y' : 'ies'} in Insurance still need${pending === 1 ? 's' : ''} your review. ${pending === 1 ? 'It doesn’t' : 'They don’t'} count until confirmed.` : null;
   const expiryText = exp ? `Expires ${exp}` : 'Expiry not entered';
-  if (err) return { level: 'bad', text: exp && exp < t ? 'Expired' : 'Check notes', expiry: exp, expiryText, note: err.text, hint };
+  if (err) return { level: 'bad', text: err.code === 'expired' ? 'Expired' : 'Check notes', expiry: exp, expiryText, note: err.text, hint };
   if (exp && exp <= addDays(t, 30)) return { level: 'warn', text: 'Expires within 30 days', expiry: exp, expiryText, note: warn?.text || null, hint };
   if (warn) return { level: 'warn', text: 'Check notes', expiry: exp, expiryText, note: warn.text, hint };
   return { level: 'ok', text: 'On file', expiry: exp, expiryText, note: null, hint };
@@ -134,7 +165,10 @@ export function sendAttachmentOptions(groups, ctx = {}) {
     if (!g.current) return { type: g.type, label: t.label, available: false, checked: false };
     const flagged = g.type === 'coi' && st.level === 'bad';
     return { type: g.type, label: t.label, available: true, id: g.current.id, filename: attachmentFilename(g.type), checked: !flagged,
-      warning: flagged ? `COI: ${st.note || st.text}. It's unticked; you can still send it.` : (g.type === 'coi' && st.level === 'warn' ? `COI: ${st.note || st.text}.` : null) };
+      warning: flagged ? `COI: ${sentence(st.note || st.text)} It's unticked; you can still send it.` : (g.type === 'coi' && st.level === 'warn' ? `COI: ${sentence(st.note || st.text)}` : null) };
   });
 }
 export const attachmentFilename = (type) => `${VAULT_TYPES.find((t) => t.id === type)?.file || 'Document'}.pdf`;
+
+// One sentence with exactly one closing period (#89 QA: "…minimum.. It's unticked").
+export const sentence = (t) => `${String(t || '').trim().replace(/[.\s]+$/, '')}.`;
