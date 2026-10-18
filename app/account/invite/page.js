@@ -6,6 +6,7 @@ import { makeApi } from '../../lib/packetApi';
 import { ROLE_LABELS } from '../../lib/companyRoles';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
+import { existingHint } from '../../lib/testerInvites';
 
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
@@ -66,13 +67,15 @@ export default function InviteTesterPage() {
   if (st.loading) return <main style={s.main}><p>Loading…</p></main>;
   if (st.error) return <main style={s.main}><h1>Invite a tester</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/account/invite">Sign in</a>}</main>;
   const list = st.invites || [];
+  const hint = existingHint(list, f.email);
   return (
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Invite a tester</h1>
       <p style={{ ...s.muted, marginTop: 0 }}>They get an email to set a password, then join {st.company || 'your company'}.{st.limit ? ` ${Math.max(0, st.limit.hourly - st.limit.used)} of ${st.limit.hourly} invites left this hour.` : ''}</p>
       <form method="post" action={fallbackAction('/account/invite')} onSubmit={send} noValidate data-auth-form="invite" style={s.card} data-testid="invite-form">
         <label htmlFor="inv-email" style={{ ...s.label, marginTop: 0 }}>Email</label>
-        <input id="inv-email" style={s.input} type="email" inputMode="email" autoComplete="off" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@example.com" />
+        <input id="inv-email" style={s.input} type="email" inputMode="email" autoComplete="off" required value={f.email} onChange={(e) => { setF({ ...f, email: e.target.value }); if (msg && !msg.ok && !msg.warn) setMsg(null); }} placeholder="name@example.com" />
+        {hint && <p role="status" data-testid="invite-existing-hint" style={{ fontSize: 13, color: '#92400e', background: '#fffbeb', borderRadius: 8, padding: '0.45rem 0.6rem', margin: '0.4rem 0 0' }}>{hint.text}</p>}
         <label htmlFor="inv-name" style={s.label}>Name (optional)</label>
         <input id="inv-name" style={s.input} maxLength={80} autoComplete="off" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <label htmlFor="inv-role" style={s.label}>Access</label>
