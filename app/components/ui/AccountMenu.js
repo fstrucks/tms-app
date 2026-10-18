@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
+import { openWelcome } from '../../lib/welcome';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
@@ -101,7 +102,8 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             Carrier packets
           </Link>
-          <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
+          <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>Welcome tour</button>
+          <button ref={(el) => { itemRefs.current[4] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
             style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>
             {busy ? 'Signing out…' : 'Sign out'}
           </button>
