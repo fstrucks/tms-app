@@ -133,3 +133,9 @@ test('dev/welcome-reset: clears only the signed-in user’s own flag (metadata n
   assert.match(comp, /setTimeout\(\(\) => \{ cancel = whenUiIdle\(show\); \}, qaDelayMs\(ss\)\)/); assert.match(comp, /clearQaDelay\(ss\); setOpen\(true\)/);
   assert.match(readFileSync('app/dev/welcome-reset/WelcomeResetQA.js', 'utf8'), /Welcome reset\. Go to another page to see it\./);
 });
+
+test('welcome: "What PowerHaul TMS does" card is the approved paragraph, word for word', () => {
+  const what = WELCOME_CARDS.find((c) => c.id === 'what');
+  assert.equal(what.title, 'What PowerHaul TMS does');
+  assert.deepEqual(what.lines, ['PowerHaul TMS reads your rate confirmations for you. Just scan one, and it turns into a load automatically. From there, you can track your loads, mileage, expenses, truck and weekly numbers all in one place. When a broker needs your carrier packet, you can put it together and send it right from the app.']);
+});
