@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { safeNext } from '../lib/safeNext';
 import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
+import { useHydrated, fallbackAction, NOJS_MSG } from '../lib/authForms';
 import { readCredentials, validateCredentials, submitDisabled } from '../lib/loginForm';
 
 const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('next'));
@@ -24,6 +25,8 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
   const pwRef = useRef(null);
+  const hydrated = useHydrated();
+  const nojs = hydrated && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('nojs') === '1';
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -92,7 +95,7 @@ export default function LoginPage() {
         ) : (
           // noValidate: our own plain message ("Enter your email and password.") instead of the browser's tip,
           // which some phones never show. The fields stay `required` for autofill/accessibility hints.
-          <form onSubmit={handleSubmit} noValidate>
+          <form method="post" action={fallbackAction('/login')} onSubmit={handleSubmit} noValidate data-auth-form="login">
             <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Email</label>
             <input id="email" name="email" type="email" required autoComplete="email" value={email}
               onChange={(e) => setEmail(e.target.value)} onInput={(e) => setEmail(e.currentTarget.value)} style={s.input} placeholder="you@example.com" />
@@ -103,9 +106,9 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)} onInput={(e) => setPassword(e.currentTarget.value)} style={s.input} />
               </>
             )}
-            <p id="login-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || ''}</p>
+            <p id="login-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || (nojs ? NOJS_MSG : '')}</p>
             {/* Never disabled for empty-looking fields: autofill can fill them without React noticing. Checked on submit. */}
-            <button type="submit" disabled={submitDisabled(sending)} style={{ ...s.btn, opacity: submitDisabled(sending) ? 0.6 : 1 }}>
+            <button type="submit" disabled={!hydrated || submitDisabled(sending)} style={{ ...s.btn, opacity: !hydrated || submitDisabled(sending) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
             </button>
             {usePw && (
