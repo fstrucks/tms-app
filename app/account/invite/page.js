@@ -30,8 +30,9 @@ export default function InviteTesterPage() {
   const load = useCallback(async () => {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
     const d = await api('/api/account/invites');
-    if (d.error) return setSt({ error: d.error, signedOut: d.signedOut, notOwner: d.status === 403 });
-    setSt(d); setF((x) => ({ ...x, role: x.role || d.defaultRole }));
+    // A failed refresh after an action keeps the list on screen (only the first load shows a full-page error).
+    if (d.error) return setSt((prev) => (prev.invites && !d.signedOut ? { ...prev, refreshError: 'Couldn’t refresh the list. Reload the page to see the latest.' } : { error: d.error, signedOut: d.signedOut, notOwner: d.status === 403 }));
+    setSt(d); setF((x) => ({ ...x, role: x.role || d.defaultRole })); // fresh data clears any refreshError
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -41,7 +42,7 @@ export default function InviteTesterPage() {
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ email: f.email, name: f.name, role: f.role }) });
     setBusy(null);
     if (r.error) return setMsg({ ok: false, text: r.error });
-    setMsg({ ok: true, text: r.warning || `Invite sent to ${r.email}. They’ll get an email to set their password.` });
+    setMsg(r.warning ? { warn: true, text: r.warning } : { ok: true, text: `Invite sent to ${r.email}. They’ll get an email to set their password.` });
     setF((x) => ({ ...x, email: '', name: '' })); load();
   }
   async function again(email) {
@@ -49,7 +50,7 @@ export default function InviteTesterPage() {
     setBusy(email); setMsg(null);
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'resend', email }) });
     setBusy(null);
-    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: r.warning || r.message || `Invite resent to ${email}.` });
+    setMsg(r.error ? { ok: false, text: r.error } : r.warning ? { warn: true, text: r.warning } : { ok: true, text: r.message || `Invite resent to ${email}.` });
     load();
   }
 
@@ -80,10 +81,11 @@ export default function InviteTesterPage() {
         </select>
         <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>Driver: view and upload. Dispatcher / Management: can also edit packets and the company profile.</p>
         <button type="submit" style={{ ...s.btn, opacity: !hydrated || busy ? 0.6 : 1 }} disabled={!hydrated || !!busy}>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button>
-        {msg && <p role={msg.ok ? 'status' : 'alert'} style={{ fontSize: 14, color: msg.ok ? '#065f46' : '#b91c1c', margin: '0.6rem 0 0' }}>{msg.text}</p>}
+        {msg && <p role={msg.ok ? 'status' : 'alert'} data-testid="invite-msg" data-kind={msg.ok ? 'ok' : msg.warn ? 'warn' : 'error'} style={{ fontSize: 14, color: msg.ok ? '#065f46' : msg.warn ? '#92400e' : '#b91c1c', margin: '0.6rem 0 0' }}>{msg.text}</p>}
       </form>
       <section style={s.card}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Invited</h2>
+        {st.refreshError && <p role="alert" data-testid="invite-refresh-error" style={{ ...s.muted, color: '#92400e' }}>{st.refreshError}</p>}
         {!list.length ? <p style={s.muted}>No one yet.</p> : (
           <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0' }}>
             {list.map((x) => (

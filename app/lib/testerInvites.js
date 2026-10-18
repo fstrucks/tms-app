@@ -131,8 +131,17 @@ export async function invite({ sb, owner, profile, input, redirectTo, now = Date
   if (error) return inviteError(error, input.email);
   const user = data?.user;
   if (!user?.id) return { error: 'The invite didn’t return a user. Check the list before trying again.', status: 502 };
-  await record(admin, user, owner.id, profile, input.role, [new Date(now).toISOString()]);
-  const m = await ensureMembership(sb, profile, user.id, input.role);
+  // The list shows an invite only if at least one of these two writes landed (inviteRows: app_metadata record OR
+  // company_members row). Each is retried once; if both still fail the invite would be invisible AND stranded
+  // (re-invite → 409 "use Resend", Resend → 404 "not your company"), so say so plainly instead of a success.
+  const log = [new Date(now).toISOString()];
+  const recErr = (await record(admin, user, owner.id, profile, input.role, log)) && (await record(admin, user, owner.id, profile, input.role, log));
+  let m = await ensureMembership(sb, profile, user.id, input.role);
+  if (m.error) m = await ensureMembership(sb, profile, user.id, input.role);
+  if (m.error && recErr) {
+    console.error('[invites] invite sent but not recorded or linked', 'owner', owner.id, 'user', user.id, m.error.code || '');
+    return { ok: true, user, linked: false, listed: false, warning: `The invite email went to ${input.email}, but it couldn’t be saved to your company, so it won’t show in the list below. Don’t send it again (that uses another email). Ask Sam to link it.` };
+  }
   if (m.error) { console.error('[invites] link', m.error.code); return { ok: true, user, linked: false, warning: 'The invite was sent, but adding them to your company failed. Press Resend later to retry the link (it won’t email if they already accepted).' }; }
   return { ok: true, user, linked: true, role: m.role };
 }

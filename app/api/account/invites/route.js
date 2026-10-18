@@ -58,5 +58,5 @@ export async function POST(req, { deps } = {}) {
     r = await invite({ sb: c.sb, owner: c.owner, profile: c.profile, input: v, redirectTo, now });
   }
   if (r.error) return json({ error: r.error, ...(r.code ? { code: r.code } : {}) }, r.status || 500);
-  return json({ ok: true, emailed: r.emailed !== false, linked: r.linked, ...(r.message ? { message: r.message } : {}), ...(r.warning ? { warning: r.warning } : {}), email: normalizeEmail(r.user?.email) });
+  return json({ ok: true, emailed: r.emailed !== false, linked: r.linked, ...(r.listed === false ? { listed: false } : {}), ...(r.message ? { message: r.message } : {}), ...(r.warning ? { warning: r.warning } : {}), email: normalizeEmail(r.user?.email) });
 }
