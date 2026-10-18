@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { formatPacketDate, formatSentAt } from '../lib/packetDate';
 import { capLabel } from '../lib/sendCap';
+import { checkSendSize, fmtMB } from '../lib/companyDocs';
 import { newSendKey as newKey, attemptOutcome, outsideRecipients, primaryButtonStyle, autoCcFor } from '../lib/packetSendClient';
 
 const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' };
@@ -22,8 +23,9 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   const [key, setKey] = useState(null); // one idempotency key per send attempt; reused on retries of that attempt
   const [again, setAgain] = useState(false); // "already sent, send again?" confirm showing
   const [warn, setWarn] = useState(null);
+  const [att, setAtt] = useState({}); // PR #84: vault type → ticked
   useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
-  useEffect(() => { load().then((j) => { if (!j.error) { setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); } }); }, [load, filledAt]);
+  useEffect(() => { load().then((j) => { if (!j.error) { setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); setAtt((a) => vaultDefaults(j, a)); } }); }, [load, filledAt]);
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
@@ -32,12 +34,19 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   const capFull = !!info.sendCap && info.sendCap.used >= info.sendCap.cap;
   const confirmedSends = (info.sends || []).filter((x) => x.confirmed || x.postmark_message_id);
   const lastSend = confirmedSends[0] || info.sends?.[0];
+  // PR #84 (6A): each ticked vault file goes as its own PDF. Running total vs the 7.5 MB raw / 10 MB encoded cap.
+  const vaultOpts = info.vault?.options || [];
+  const ticked = vaultOpts.filter((o) => o.available && att[o.type]);
+  const size = checkSendSize([info.vault?.packetSize || 0, ...ticked.map((o) => o.size || 0)]);
+  const sizeKnown = info.vault?.packetSize != null && ticked.every((o) => o.size != null);
+  const attachNames = [info.filename, ...ticked.map((o) => o.filename)];
   const finish = (r) => { setInfo((i) => ({ ...i, sends: r.sends || i.sends, sent_at: r.sent_at, sendCap: r.sendCap || i.sendCap })); setWarn(r.warning || null); setStep('done'); setOk(false); setAgain(false); setKey(null); };
   const doSend = async (resend = false) => {
     if (!resend && info.sends?.length) return setAgain(true); // ask first: "already sent on X. Send again?"
     const k = key || newKey(); if (!key) setKey(k);
     setBusy(true); setErr(null); setAgain(false);
-    const r = await send({ ...d, confirm: true, idempotencyKey: k, ...(resend ? { resend: true } : {}) });
+    const r = await send({ ...d, confirm: true, idempotencyKey: k, attachDocumentIds: ticked.map((o) => o.id), ...(resend ? { resend: true } : {}) });
+    if (r.refresh) { const h = await load().catch(() => null); if (h && !h.error) { setInfo(h); setAtt((a) => vaultDefaults(h, a)); } }
     if (r.ok) { setBusy(false); return finish(r); }
     if (r.sends) setInfo((i) => ({ ...i, sends: r.sends }));
     if (r.sendCap) setInfo((i) => ({ ...i, sendCap: r.sendCap }));
@@ -79,7 +88,17 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
           <label style={lab} htmlFor="ps-body">Message</label>
           <textarea id="ps-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD({ ...d, body: e.target.value })} />
           {copyTo && <p data-testid="send-copy" style={{ fontSize: 13, color: '#6b7280', margin: '0.4rem 0 0' }}>A copy goes to {copyTo}.</p>}
-          <p style={{ fontSize: 13, color: '#6b7280' }}>Attachment: {info.filename}</p>
+          {vaultOpts.length > 0 ? <fieldset data-testid="send-attachments" style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.6rem', margin: '0.6rem 0' }}>
+            <legend style={{ fontSize: 13, fontWeight: 600, padding: '0 4px' }}>Attachments</legend>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40 }}><input type="checkbox" checked disabled style={{ width: 20, height: 20 }} /> {info.filename}{info.vault?.packetSize != null ? ` (${fmtMB(info.vault.packetSize)})` : ''}</label>
+            {vaultOpts.map((o) => o.available
+              ? <div key={o.type}><label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40 }}>
+                  <input type="checkbox" data-testid={`attach-${o.type}`} checked={!!att[o.type]} onChange={(e) => setAtt((a) => ({ ...a, [o.type]: e.target.checked }))} style={{ width: 20, height: 20 }} />
+                  {o.label} <span style={{ color: '#6b7280' }}>{o.filename}{o.size != null ? ` (${fmtMB(o.size)})` : ''}</span></label>
+                  {o.warning && <p role="note" style={{ fontSize: 13, color: '#92400e', margin: '0 0 0.3rem 28px' }}>{o.warning}</p>}</div>
+              : <p key={o.type} style={{ fontSize: 13, color: '#9ca3af', margin: '0.2rem 0' }}>{o.label}: not on file. <a href="/company#company-documents" style={{ color: '#2563eb' }}>Add it</a></p>)}
+            <p data-testid="send-size" style={{ fontSize: 13, margin: '0.3rem 0 0', color: size.ok ? '#6b7280' : '#b91c1c' }}>{sizeKnown ? `Total ${fmtMB(size.raw)} of 7.5 MB.` : 'Total size is checked when you send (limit 7.5 MB).'}{!size.ok ? ' Too large: untick a file.' : ''}</p>
+          </fieldset> : <p style={{ fontSize: 13, color: '#6b7280' }}>Attachment: {info.filename}</p>}
           {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
@@ -93,7 +112,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             <dt style={{ fontWeight: 600 }}>To</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.to).join(', ')}</dd>
             {reviewCc.length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd data-testid="send-review-cc" style={{ margin: '0 0 0.3rem' }}>{reviewCc.join(', ')}</dd></>}
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
-            <dt style={{ fontWeight: 600 }}>Attachment</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.filename}{filledAt ? ` (filled ${formatPacketDate(filledAt)})` : ''}</dd>
+            <dt style={{ fontWeight: 600 }}>{attachNames.length > 1 ? 'Attachments' : 'Attachment'}</dt><dd data-testid="send-review-attachments" style={{ margin: '0 0 0.3rem' }}>{info.filename}{filledAt ? ` (filled ${formatPacketDate(filledAt)})` : ''}{ticked.length ? `, ${ticked.map((o) => o.filename).join(', ')}` : ''}</dd>
           </dl>
           {info.sendCap && <p data-testid="send-cap" style={{ fontSize: 13, color: info.sendCap.used >= info.sendCap.cap ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
@@ -109,9 +128,16 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             </div></div>
           : <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull || !size.ok)} disabled={!ok || busy || capFull || !size.ok} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div>}
         </div>}
     </section>
   );
+}
+
+// Default ticks (4A): on-file vault docs ticked, a flagged COI unticked. Keeps the user's own choices across reloads.
+function vaultDefaults(info, prev = {}) {
+  const out = {};
+  for (const o of info?.vault?.options || []) if (o.available) out[o.type] = Object.prototype.hasOwnProperty.call(prev, o.type) ? prev[o.type] : !!o.checked;
+  return out;
 }

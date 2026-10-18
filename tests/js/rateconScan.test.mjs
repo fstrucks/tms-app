@@ -33,7 +33,7 @@ test('Scanner: Rate con is first only with allowRateCon (no default type); hides
 
 test('Documents: one scanner; ratecon -> uploadRateCon path, BOL/POD -> uploadScan', () => {
   assert.match(docs, /<UploadMenu [^>]*onScan=\{openScanner\}/);
-  assert.match(docs, /<Scanner allowRateCon initialFiles=\{scanFiles\}/);
+  assert.match(docs, /<Scanner allowRateCon typeIds=\{DOCUMENTS_SCAN_TYPE_IDS\} initialFiles=\{scanFiles\}/); // PR #84: no company types
   assert.match(docs, /if \(scan\.docType === 'ratecon'\) return applyRateConScan\(scan\);\s*const err = await uploadScan/);
   const fn = docs.slice(docs.indexOf('function applyRateConScan'), docs.indexOf('async function saveScan'));
   assert.match(fn, /pickFile\(pdf\);\s*uploadRateCon\(pdf\);/);

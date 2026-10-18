@@ -1,5 +1,5 @@
 import { serviceClient, userClient, bearer, isAuthRejection } from '../../../../lib/packetServer';
-import { UPLOAD_TYPES } from '../../../../lib/docTypes';
+import { CHANGE_TYPES } from '../../../../lib/docTypes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export async function PATCH(req, { params, deps } = {}) {
   if (!token) return json({ error: 'Sign in again.' }, 401);
   if (!UUID.test(params?.id || '')) return json({ error: 'Document not found.' }, 404);
   let b; try { b = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
-  if (!UPLOAD_TYPES.some((t) => t.id === b?.docType)) return json({ error: 'Pick a document type.' }, 422);
+  if (!CHANGE_TYPES.some((t) => t.id === b?.docType)) return json({ error: 'Pick a document type.' }, 422);
   const sb = deps?.sb || serviceClient();
   if (!sb) return json({ error: 'Storage not configured.' }, 503);
   const uc = (deps?.mkUserClient || userClient)(token);

@@ -3,7 +3,6 @@
 // Policies typed in by owner/management are confirmed; AI suggestions from an uploaded COI stay
 // unconfirmed until confirmed here. Upload COI / declarations docs with the existing Scan/Upload (type "COI").
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { COVERAGES, COVERAGE_LABELS, coiGaps } from '../lib/coiGaps';
@@ -56,7 +55,7 @@ export default function CompanyInsurance() {
     {ed ? <input id={`ins-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: '#b91c1c' } : null) }} value={obj[k]} onChange={(e) => set({ ...obj, [k]: e.target.value })} {...extra} /> : <div style={{ padding: '0.6rem 0' }}>{obj[k] || '—'}</div>}
     {errors[k] && <p style={s.err}>{errors[k]}</p>}</div>;
   return (
-    <section style={s.card} aria-label="Insurance" data-testid="company-insurance">
+    <section style={s.card} id="company-insurance" aria-label="Insurance" data-testid="company-insurance">
       <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Insurance</h2>
       {st.setupNeeded && <p style={{ color: '#92400e', fontSize: 14 }}>Insurance info needs a database update that hasn’t been applied yet.</p>}
       <h3 style={{ fontSize: '1rem', margin: '0.75rem 0 0' }}>Insurance agent</h3>
@@ -97,8 +96,8 @@ export default function CompanyInsurance() {
         {field(np, setNp, 'expiry_date', 'Expiry date', { type: 'date' })}
         <button type="button" style={{ ...s.btn, ...(busy ? { opacity: 0.6 } : null) }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'POST', body: JSON.stringify(np) }), 'Policy added.').then((r) => { if (r) { setNp(BLANK); reload(); } })}>Add policy</button>
         <h4 style={{ fontSize: 15, margin: '1rem 0 0.25rem' }}>Read a COI you uploaded</h4>
-        <Link href="/documents?type=coi" prefetch={false} data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</Link>
-        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI or declarations page (Document type is set to COI for you), then come back here.</p>
+        <a href="#vault-coi" data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</a>
+        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI in Company documents above, then come back here.</p>
           : docs.map((d) => <button key={d.id} type="button" data-testid="suggest-btn" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left', ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : null) }} disabled={busy} aria-busy={reading === d.id}
             onClick={async () => {
               setReading(d.id);
@@ -108,7 +107,7 @@ export default function CompanyInsurance() {
               if (Array.isArray(r.policies)) setSt((x) => ({ ...x, policies: r.policies })); // refresh the list in place
               setMsg(suggestMessage(r));
             }}>
-            {reading === d.id ? 'Reading COI…' : `Suggest policies from ${d.original_filename || 'COI'}`}</button>)}
+            {reading === d.id ? 'Reading COI…' : `Suggest policies from ${d.original_filename || 'COI'}${docs[0]?.id === d.id ? ' (current)' : ''}`}</button>)}
       </>}
       {msg && <p role="status" style={{ marginTop: '0.75rem', fontSize: 14 }}>{msg}</p>}
     </section>

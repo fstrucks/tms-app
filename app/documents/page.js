@@ -6,7 +6,7 @@ import UploadMenu from '../components/UploadMenu';
 import { extractedWeightLb } from '../lib/loadWeight';
 import { extractedMiles, fillLinkedLoadMiles } from '../lib/loadMiles';
 import { notifyLoadChanged } from '../lib/loadSync';
-import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
+import { UPLOAD_TYPES, CHANGE_TYPES, DOCUMENTS_SCAN_TYPE_IDS, isDocumentsTabDoc, isCompanyDocType, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
@@ -76,7 +76,7 @@ export default function DocumentsPage() {
   // Both pickers feed the same state. Validate the real type/extension right away (the simple
   // accept list no longer filters, so unsupported files are caught here).
   // Upload type: rate confirmation (default; AI extraction, and COIs are auto-detected) or a fixed type.
-  // /documents?type=coi presets COI (Company → Insurance → Upload COI).
+  // ?type=<id> presets an upload type (company types moved to Company → Company documents in PR #84).
   const [uploadType, setUploadType] = useState('rate_confirmation');
   // Change type on saved documents: owner/management only (server enforces). Never re-runs extraction by itself.
   const [canChangeType, setCanChangeType] = useState(false);
@@ -97,6 +97,11 @@ export default function DocumentsPage() {
     setTypeBusy((m) => ({ ...m, [d.id]: false }));
     // Failure: the row keeps the old type (select is controlled by d.doc_type, which we don't touch).
     if (!r.ok) return setTypeErr((m) => ({ ...m, [d.id]: { error: r.error, docType } }));
+    // PR #84: a company type moves the file to Company → Company documents, so it leaves this list.
+    if (isCompanyDocType(r.docType)) {
+      setDocs((list) => list.filter((x) => x.id !== d.id));
+      return setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)} and moved to Company → Company documents.` });
+    }
     setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: r.docType } : x)));
     setTypeChanged((m) => ({ ...m, [d.id]: r.offerRead }));
     setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)}.${r.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
@@ -195,8 +200,8 @@ export default function DocumentsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
       if (body.reclassified === 'coi') {
-        setDocs((list) => list.map((d) => (d.id === id ? { ...d, doc_type: 'coi', ai_extracted_data: null } : d)));
-        setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI. Open Company → Insurance to read it.' });
+        setDocs((list) => list.filter((d) => d.id !== id)); // PR #84: COIs live in Company → Company documents
+        setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI in Company → Company documents. Open Company → Insurance to read it.' });
         return;
       }
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
@@ -239,7 +244,7 @@ export default function DocumentsPage() {
       return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
     }
     setRefreshErr(null);
-    setDocs(data || []);
+    setDocs((data || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
     setListState('ready');
   }
 
@@ -399,6 +404,7 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
+            <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: '#2563eb' }}>Company → Company documents</a>.</p>
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
@@ -411,10 +417,10 @@ export default function DocumentsPage() {
                     {canChangeType && (
                       <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
                         <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
-                        <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={UPLOAD_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
+                        <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={CHANGE_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
                           onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: '100%', minWidth: 0 }}>
-                          {!UPLOAD_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
-                          {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
+                          {!CHANGE_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
+                          {CHANGE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
                         </select>
                       </label>
                     )}
@@ -457,7 +463,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
-      {scanFiles && <Scanner allowRateCon initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
+      {scanFiles && <Scanner allowRateCon typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }

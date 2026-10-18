@@ -86,11 +86,13 @@ export function validateSend(b, env = process.env) {
 
 // One Postmark /email call. fetchImpl is injected (tests use a mock; nothing real is sent in tests).
 // → { messageId } | { error, code? } (definitely not sent) | { error, unknown: true } (timed out: may have sent).
-export async function postmarkSend({ token, from, replyTo, stream, to, cc, subject, body, pdf, filename, timeoutMs = POSTMARK_TIMEOUT_MS }, fetchImpl = fetch) {
+// extra: more PDF attachments after the packet (PR #84 vault files, each its own PDF): [{ name, bytes }].
+export async function postmarkSend({ token, from, replyTo, stream, to, cc, subject, body, pdf, filename, extra = [], timeoutMs = POSTMARK_TIMEOUT_MS }, fetchImpl = fetch) {
+  const files = [...(pdf ? [{ name: filename, bytes: pdf }] : []), ...(extra || [])];
   const payload = {
     From: from, To: to.join(', '), ...(cc.length ? { Cc: cc.join(', ') } : {}), ...(replyTo ? { ReplyTo: replyTo } : {}),
     Subject: subject, TextBody: body, MessageStream: stream, TrackOpens: false,
-    ...(pdf ? { Attachments: [{ Name: filename, Content: Buffer.from(pdf).toString('base64'), ContentType: 'application/pdf' }] } : {}),
+    ...(files.length ? { Attachments: files.map((f) => ({ Name: f.name, Content: Buffer.from(f.bytes).toString('base64'), ContentType: 'application/pdf' })) } : {}),
   };
   let r;
   try {

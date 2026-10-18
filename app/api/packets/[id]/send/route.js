@@ -1,6 +1,9 @@
 import { serviceClient, packetAccess, isMissingSchema } from '../../../../lib/packetServer';
 import { randomUUID } from 'node:crypto';
 import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
+import { vaultSendOptions, loadVaultAttachments } from '../../../../lib/vaultSend';
+import { fileSizes } from '../../../../lib/vaultServer';
+import { MAX_SEND_RAW_BYTES } from '../../../../lib/companyDocs';
 import { canSend, validateSend, packetCcEmail, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 
 export const runtime = 'nodejs';
@@ -14,7 +17,7 @@ const json = (b, s = 200) => Response.json(b, { status: s, headers: { 'Cache-Con
 const SETUP = { error: 'Sending needs a database update that hasn’t been applied yet. Nothing was sent.', migration: SEND_MIGRATION };
 
 // confirmed = Postmark accepted it. A row without a message id is a claimed attempt whose result is unknown.
-const shape = (r) => ({ id: r.id, sent_at: r.sent_at, sent_by: r.sent_by, to: r.to_emails || [], cc: r.cc_emails || [], subject: r.subject, postmark_message_id: r.postmark_message_id, confirmed: !!r.postmark_message_id });
+const shape = (r) => ({ id: r.id, sent_at: r.sent_at, sent_by: r.sent_by, to: r.to_emails || [], cc: r.cc_emails || [], subject: r.subject, postmark_message_id: r.postmark_message_id, confirmed: !!r.postmark_message_id, attached: Array.isArray(r.attached_document_ids) ? r.attached_document_ids : [] });
 async function history(sb, packetId) {
   const { data, error } = await sb.from('packet_sends').select('*').eq('packet_id', packetId).order('sent_at', { ascending: false });
   if (error) return { error };
@@ -32,7 +35,15 @@ export async function GET(req, { params, deps } = {}) {
   const h = await history(sb, a.packet.id);
   const cfg = senderConfig(env);
   const u = await monthlyUsage(sb, env);
+  // PR #84: current vault files offered as extra attachments (owner/management only; W-9 / NOA are theirs to see).
+  let vault = null;
+  if (canSend(a.role)) {
+    const v = await vaultSendOptions(sb, a.packet.owner_id, { profile });
+    const sizes = a.packet.filled_path ? await fileSizes(sb, [a.packet.filled_path]) : {};
+    vault = { options: v.options, packetSize: sizes[a.packet.filled_path] ?? null, maxRaw: MAX_SEND_RAW_BYTES };
+  }
   return json({
+    vault,
     sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining },
     canSend: canSend(a.role), filled: !!a.packet.filled_path, filled_at: a.packet.filled_at ?? null, sent_at: a.packet.sent_at ?? null,
     from: cfg.from, replyTo: cfg.replyTo, autoCc: packetCcEmail(env), allowedDomains: allowedDomains(env), configured: !!cfg.token,
@@ -86,10 +97,18 @@ export async function POST(req, { params, deps } = {}) {
   const { data: pdfBlob } = await sb.storage.from('documents').download(a.packet.filled_path);
   if (!pdfBlob) return json({ error: 'Could not open the filled PDF. Fill the packet again. Nothing was sent.' }, 404);
   const pdf = new Uint8Array(await pdfBlob.arrayBuffer());
+  // PR #84: ticked vault files (current versions only), each as its own PDF; packet + files capped at 7.5 MB raw /
+  // 10 MB encoded. The recipients are still the ones validateSend() allowed above (#64 domain limit unchanged).
+  const va = await loadVaultAttachments(sb, a.packet.owner_id, b.attachDocumentIds, pdf);
+  if (va.error) return json({ error: va.error, ...(va.tooLarge ? { tooLarge: true } : {}), ...(va.refresh ? { refresh: true } : {}) }, va.status);
 
   const claimedAt = new Date().toISOString();
   const row = { id: key, packet_id: a.packet.id, owner_id: a.packet.owner_id, sent_by: a.user.id, sent_at: claimedAt, to_emails: v.to, cc_emails: v.cc, from_email: cfg.from, reply_to: cfg.replyTo || null, subject: v.subject, filled_path: a.packet.filled_path, postmark_message_id: null };
-  const claim = await sb.from('packet_sends').insert(row);
+  // Pick 5B: record which vault versions went out. Until 20261018000500 is applied the column is missing:
+  // claim again without it (the send still works; the list is only in the email).
+  let claim = await sb.from('packet_sends').insert(va.ids.length ? { ...row, attached_document_ids: va.ids } : row);
+  let recordedIds = va.ids.length > 0;
+  if (claim.error && va.ids.length && isMissingSchema(claim.error)) { recordedIds = false; claim = await sb.from('packet_sends').insert(row); }
   if (claim.error) {
     if (claim.error.code === '23505') { // a concurrent request with the same key won the claim
       const { data: again } = await sb.from('packet_sends').select('*').eq('id', key).maybeSingle();
@@ -100,7 +119,7 @@ export async function POST(req, { params, deps } = {}) {
     return isMissingSchema(claim.error) ? json(SETUP, 503) : json({ error: 'Could not record the send. Nothing was sent. Try again.' }, 500);
   }
 
-  const r = await postmarkSend({ ...cfg, to: v.to, cc: v.cc, subject: v.subject, body: v.body, pdf, filename: attachmentName(a.packet), timeoutMs: POSTMARK_TIMEOUT_MS }, deps?.fetch || fetch);
+  const r = await postmarkSend({ ...cfg, to: v.to, cc: v.cc, subject: v.subject, body: v.body, pdf, filename: attachmentName(a.packet), extra: va.attachments.map((x) => ({ name: x.name, bytes: x.bytes })), timeoutMs: POSTMARK_TIMEOUT_MS }, deps?.fetch || fetch);
   if (r.error && !r.unknown) {
     // Definitely not sent: release the claim so history stays truthful and the same key can retry.
     const { error: dErr } = await sb.from('packet_sends').delete().eq('id', key);
@@ -126,8 +145,8 @@ export async function POST(req, { params, deps } = {}) {
     console.error('[packets] send log threw (email was sent)', e?.message, r.messageId);
     warnings.push('The email was sent, but saving it to the send history failed.');
   }
-  const done = { ...row, sent_at: now, postmark_message_id: r.messageId || 'sent' };
-  return json({ ok: true, id: key, messageId: r.messageId, sent_at: now, sendCap: { used: usage.used + 1, cap: usage.cap, remaining: Math.max(0, usage.cap - usage.used - 1) }, logged: !warnings.length, ...(warnings.length ? { warning: warnings[0] } : {}), sends: [shape(done), ...rows.map(shape)] });
+  const done = { ...row, ...(recordedIds ? { attached_document_ids: va.ids } : {}), sent_at: now, postmark_message_id: r.messageId || 'sent' };
+  return json({ ok: true, id: key, messageId: r.messageId, sent_at: now, sendCap: { used: usage.used + 1, cap: usage.cap, remaining: Math.max(0, usage.cap - usage.used - 1) }, logged: !warnings.length, attachedCount: va.ids.length, ...(warnings.length ? { warning: warnings[0] } : {}), sends: [shape(done), ...rows.map(shape)] });
 }
 
 function repeat(r, rows) {
