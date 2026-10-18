@@ -4,6 +4,7 @@ import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import { extractedWeightLb } from '../lib/loadWeight';
+import { extractedMiles, fillLinkedLoadMiles } from '../lib/loadMiles';
 import { UPLOAD_TYPES, uploadTypeFromQuery, canChangeDocType, saveDocType } from '../lib/docTypes';
 import dynamic from 'next/dynamic';
 
@@ -151,6 +152,13 @@ export default function DocumentsPage() {
       if (wt) {
         const { error: wErr } = await supabase.from('loads').update({ weight: wt }).eq('id', loadId).is('weight', null);
         if (wErr) console.error('[createLoad] weight', wErr);
+      }
+      // Rate con trip miles → loads.total_miles (planned miles), only while it's empty; tagged miles_source='rate_con'
+      // once the 20261018000300 migration has run (works without it too). Best effort, like weight.
+      const mi = extractedMiles(doc.ai_extracted_data);
+      if (mi) {
+        const m = await fillLinkedLoadMiles(supabase, { loadId, userId: null, miles: mi });
+        if (m.error) console.error('[createLoad] total_miles', m.error);
       }
       setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
       router.push(`/loads/${loadId}`);
@@ -466,6 +474,7 @@ function Summary({ x }) {
     ['Rate', typeof x.rate === 'number' ? fmtMoney(x.rate) : null],
     ['Equipment', x.equipment_type],
     ['Weight', extractedWeightLb(x) ? `${extractedWeightLb(x).toLocaleString('en-US')} lb` : null],
+    ['Miles', extractedMiles(x) ? `${extractedMiles(x).toLocaleString('en-US')} mi` : null],
     ['Shipper', fmtParty(x.shipper)],
     ['Pickup', fmtStop(x.pickup)],
     ['Receiver', fmtParty(x.receiver)],

@@ -64,9 +64,9 @@ test('A: rate con weight text → whole pounds (numbers, commas, units, k, kg)',
 
 test('A: the rate con reader asks for weight and saves weight_lb; create-load copies it to loads.weight', () => {
   const ex = readFileSync(new URL('../../app/api/extract/route.js', import.meta.url), 'utf8');
-  assert.match(ex, /'equipment_type', 'weight', 'notes'\]/);
+  assert.match(ex, /'equipment_type', 'weight', 'total_miles', 'notes'\]/);
   assert.match(ex, /weight: \{ \.\.\.str, description: 'Total cargo\/load weight exactly as printed/);
-  assert.match(ex, /extracted = \{ \.\.\.loadData, weight_lb: parseWeightLb\(loadData\.weight\) \}/);
+  assert.match(ex, /extracted = \{ \.\.\.loadData, (?:total_miles: parseTripMiles\(loadData\.total_miles\), )?weight_lb: parseWeightLb\(loadData\.weight\) \}/);
   const docs = readFileSync(new URL('../../app/documents/page.js', import.meta.url), 'utf8');
   const fn = docs.slice(docs.indexOf('async function createLoad'), docs.indexOf("router.push(`/loads/${loadId}`)"));
   assert.match(fn, /const wt = extractedWeightLb\(doc\.ai_extracted_data\);/);
