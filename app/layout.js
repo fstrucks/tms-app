@@ -1,5 +1,6 @@
 import './globals.css';
 import AppNav from './components/AppNav';
+import WelcomeScreen from './components/WelcomeScreen';
 
 export const metadata = {
   title: { default: 'PowerHaul TMS', template: '%s | PowerHaul TMS' },
@@ -17,6 +18,7 @@ export default function RootLayout({ children }) {
       <body>
         <AppNav />
         <div className="app-container">{children}</div>
+        <WelcomeScreen />
       </body>
     </html>
   );
