@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
@@ -63,7 +64,7 @@ export default function AccountMenu({ showEmail = false }) {
 
   const email = user.email || 'Account';
   const onKey = (e) => {
-    const items = itemRefs.current.filter(Boolean);
+    const items = [...(wrapRef.current?.querySelectorAll('[role=menuitem]') || [])];
     const i = items.indexOf(document.activeElement);
     if (e.key === 'Escape') { e.preventDefault(); setOpen(false); btnRef.current?.focus(); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
@@ -96,6 +97,7 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             Company profile
           </Link>
+          <BugReportsMenuItem userId={user.id} onPick={() => setOpen(false)} />
           <Link ref={(el) => { itemRefs.current[2] = el; }} href="/packets" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
             Carrier packets
