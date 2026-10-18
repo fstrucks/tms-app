@@ -5,3 +5,9 @@
 export function shouldCloseOnBlur({ open, focusStaysInside, pressInside }) {
   return !!open && !focusStaysInside && !pressInside;
 }
+
+// How long after the press ends to keep treating it as "inside". A tap's compatibility mouse events and the
+// resulting focus change arrive after pointerup/touchend, so touch (and pen) need a short grace period.
+export function pressEndDelay(pointerType) {
+  return pointerType === 'mouse' ? 0 : 500;
+}

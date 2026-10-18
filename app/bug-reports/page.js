@@ -61,7 +61,7 @@ export default function BugReportsPage() {
             <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{r.what_happened}</div>
             {r.expected && <><div style={s.label}>Expected</div><div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{r.expected}</div></>}
             <div style={{ ...s.meta, marginTop: 8 }}>
-              Page: {r.page_url ? <a href={r.page_url} title={r.page_url} style={{ color: '#2563eb' }}>{path}</a> : '—'}<br />
+              Page: {r.page_url ? <a href={path.startsWith('/') && !path.startsWith('//') ? path : undefined} title={r.page_url} style={{ color: '#2563eb' }}>{path}</a> : '—'}<br />
               Device: {deviceLabel(r.user_agent || '')}{r.viewport ? ` · ${r.viewport}` : ''}
               <details style={{ display: 'inline' }}><summary style={{ display: 'inline', cursor: 'pointer', color: '#2563eb', marginLeft: 6 }}>user agent</summary><div>{r.user_agent}</div></details>
             </div>

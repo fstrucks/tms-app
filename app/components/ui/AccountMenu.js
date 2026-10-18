@@ -3,13 +3,14 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import InviteTestersMenuItem from './InviteTestersMenuItem';
 import Link from 'next/link';
+import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
 import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
-import { shouldCloseOnBlur } from '../../lib/menuBlur';
+import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
@@ -63,6 +64,18 @@ export default function AccountMenu({ showEmail = false }) {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
+  // A press (mouse, touch or pen) that starts inside the menu: blur during it must not close the menu.
+  function notePress(kind) {
+    pressRef.current = true;
+    const end = () => {
+      document.removeEventListener('pointerup', end); document.removeEventListener('pointercancel', end);
+      document.removeEventListener('touchend', end); document.removeEventListener('touchcancel', end);
+      setTimeout(() => { pressRef.current = false; }, pressEndDelay(kind));
+    };
+    document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+    document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
+  }
+
   async function signOut() {
     setBusy(true); setErr(null);
     try {
@@ -88,12 +101,12 @@ export default function AccountMenu({ showEmail = false }) {
     else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
     else if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
     else if (e.key === 'End') { e.preventDefault(); items[items.length - 1]?.focus(); }
-    else if (e.key === 'Tab') setOpen(false);
+    else if (e.key === 'Tab') { btnRef.current?.focus(); flushSync(() => setOpen(false)); } // Tab continues from the account button, not from <body>
   };
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0 }}
-      onPointerDown={() => { pressRef.current = true; const up = () => { setTimeout(() => { pressRef.current = false; }, 0); }; document.addEventListener('pointerup', up, { once: true }); document.addEventListener('pointercancel', up, { once: true }); }}
+      onPointerDown={(e) => notePress(e.pointerType || 'mouse')} onTouchStart={() => notePress('touch')}
       onBlur={(e) => { if (shouldCloseOnBlur({ open, focusStaysInside: !!wrapRef.current?.contains(e.relatedTarget), pressInside: pressRef.current })) setOpen(false); }}>
       <button ref={btnRef} type="button" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
         aria-label={`Account: ${email}`} onClick={() => setOpen((v) => !v)}
@@ -104,8 +117,8 @@ export default function AccountMenu({ showEmail = false }) {
         {showEmail && <span className="account-email" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{email}</span>}
       </button>
       {open && (
-        <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey}
-          style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem' }}>
+        <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey} tabIndex={-1}
+          style={{ outline: 'none', position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem' }}>
           <div style={{ padding: '0.6rem 0.8rem', color: '#6b7280', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{email}</div>
           <Link ref={(el) => { itemRefs.current[0] = el; }} href="/account/password" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
