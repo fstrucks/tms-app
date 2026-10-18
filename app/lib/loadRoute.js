@@ -64,45 +64,53 @@ export function routeKey(stops) {
 }
 
 // Does this stop need a (new) geocode? Yes when it was never found, or its address changed since.
-export const needsGeocode = (stop) => !!stopAddressText(stop) && (stop.lat == null || stop.lng == null || stop.geocode_address !== stopAddressText(stop));
+// A stop needs a (new) lookup when its current address text was never looked up. A lookup that found nothing is
+// remembered too (geocode_address set, lat null), so a bad address isn't looked up again until it changes.
+export const needsGeocode = (stop) => !!stopAddressText(stop) && stop.geocode_address !== stopAddressText(stop);
+export const isPinned = (stop) => stop?.lat != null && stop?.lng != null;
 
 const CA_PROVINCES = new Set(['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT']);
 export const stopCountry = (stop) => (CA_PROVINCES.has(String(stop?.state || '').toUpperCase()) ? 'CA' : 'US');
 
-// Geocode attempts for a stop, best first: the street address, then city/state/zip. → [{ path, params, precision }]
+// Geocode attempts for a stop, best first (QA #83: structured search finds more, and falls back to the ZIP/city
+// centroid by itself): 1) structured (street + city + state + zip), 2) free text. → [{ path, params }]
 export function geocodeAttempts(stop) {
   const country = stopCountry(stop);
   const out = [];
-  const cityLine = [[stop.city, stop.state].filter(Boolean).join(', '), stop.zip].filter(Boolean).join(' ');
+  const p = { country, size: '1' };
+  if (stop.address_line1) p.address = [stop.address_line1, stop.address_line2].filter(Boolean).join(' ');
+  if (stop.city) p.locality = stop.city;
+  if (stop.state) p.region = stop.state;
+  if (stop.zip) p.postalcode = String(stop.zip);
+  if (p.address || p.locality || p.postalcode) out.push({ path: ORS_GEOCODE_STRUCTURED_PATH, params: p });
   if (stop.address_line1) {
-    out.push({ path: ORS_GEOCODE_PATH, precision: 'street',
-      params: { text: [stop.address_line1, stop.address_line2, cityLine].filter(Boolean).join(', '), 'boundary.country': country, size: '1' } });
-  }
-  if (stop.city || stop.zip) {
-    const p = { country, size: '1' };
-    if (stop.city) p.locality = stop.city;
-    if (stop.state) p.region = stop.state;
-    if (stop.zip) p.postalcode = String(stop.zip);
-    out.push({ path: ORS_GEOCODE_STRUCTURED_PATH, precision: 'city', params: p });
+    const cityLine = [[stop.city, stop.state].filter(Boolean).join(', '), stop.zip].filter(Boolean).join(' ');
+    out.push({ path: ORS_GEOCODE_PATH, params: { text: [stop.address_line1, stop.address_line2, cityLine].filter(Boolean).join(', '), 'boundary.country': country, size: '1' } });
   }
   return out;
 }
 
 const STREET_LAYERS = new Set(['address', 'venue', 'street']);
 const CITY_LAYERS = new Set(['locality', 'localadmin', 'postalcode', 'borough', 'neighbourhood', 'county', 'macrocounty']);
-// Pick the point from a Pelias FeatureCollection, or null. Rejects a wrong-state match and low-confidence hits.
-export function pickGeocode(json, stop, precision) {
+export const MIN_STREET_CONFIDENCE = 0.5;
+// Pick the point from a Pelias FeatureCollection → { lat, lng, precision: 'street' | 'city' } or null.
+// Street-level layers with confidence >= 0.5 count as 'street'; city/ZIP-level layers as 'city'. A match in another
+// state is rejected (only compared when both are 2-letter codes, so "Texas" vs "TX" never rejects).
+export function pickGeocode(json, stop) {
   const f = json?.features?.[0];
   const c = f?.geometry?.coordinates;
   if (!f || !Array.isArray(c) || c.length < 2) return null;
   const [lng, lat] = c.map(Number);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   const p = f.properties || {};
-  const layers = precision === 'street' ? STREET_LAYERS : CITY_LAYERS;
-  if (p.layer && !layers.has(p.layer)) return null;
-  if (precision === 'street' && p.confidence != null && Number(p.confidence) < 0.7) return null;
-  const st = String(stop?.state || '').toUpperCase();
-  if (st && p.region_a && String(p.region_a).toUpperCase() !== st) return null;
+  const st = String(stop?.state || '').trim().toUpperCase();
+  const ra = String(p.region_a || '').trim().toUpperCase();
+  if (st.length === 2 && ra.length === 2 && st !== ra) return null;
+  let precision = null;
+  if (STREET_LAYERS.has(p.layer) && (p.confidence == null || Number(p.confidence) >= MIN_STREET_CONFIDENCE)) precision = 'street';
+  else if (CITY_LAYERS.has(p.layer)) precision = 'city';
+  else if (!p.layer) precision = 'city';
+  if (!precision) return null;
   return { lat, lng, precision, label: p.label || null };
 }
 
@@ -209,18 +217,23 @@ export const ERROR_TEXT = {
   too_few: 'Add a pickup and a delivery address to see the route.',
 };
 
-// Is the cached route current for these stops? → { fresh, retryInMs }
+// What's the next step for these stops? → { fresh, key, next: 'geocode' | 'route' | 'miss' | null, retryInMs, reason }
+// Work is done one short step per request (QA #83): geocode ONE stop, or fetch the route, never both.
 export function routeFreshness(load, stops, now = Date.now()) {
   const key = routeKey(stops);
-  if (!key) return { fresh: true, key: null, reason: 'too_few' };
-  if (load?.route_key !== key) return { fresh: false, key, reason: 'changed' };
-  if (stops.some(needsGeocode) && !PERMANENT_ERRORS.has(load.route_error)) return { fresh: false, key, reason: 'stops' };
-  if (!load.route_error) return { fresh: true, key };
-  if (PERMANENT_ERRORS.has(load.route_error)) return { fresh: true, key };
-  const wait = RETRY_AFTER_MS[load.route_error] ?? 10 * 60_000;
-  const at = load.route_computed_at ? Date.parse(load.route_computed_at) : 0;
-  const left = at + wait - now;
-  return left > 0 ? { fresh: true, key, retryInMs: left } : { fresh: false, key, reason: 'retry' };
+  if (!key) return { fresh: true, key: null, next: null, reason: 'too_few' };
+  const sameKey = load?.route_key === key;
+  const err = load?.route_error || null;
+  if (sameKey && err && !PERMANENT_ERRORS.has(err)) {
+    const wait = RETRY_AFTER_MS[err] ?? 10 * 60_000;
+    const at = load.route_computed_at ? Date.parse(load.route_computed_at) : 0;
+    const left = at + wait - now;
+    if (left > 0) return { fresh: true, key, next: null, retryInMs: left, reason: 'cooldown' };
+  }
+  if (stops.some(needsGeocode)) return { fresh: false, key, next: 'geocode', reason: sameKey ? 'stops' : 'changed' };
+  if (stops.some((s) => !isPinned(s))) return sameKey && err === 'geocode_miss' ? { fresh: true, key, next: null } : { fresh: false, key, next: 'miss' };
+  if (sameKey && (!err || err === 'no_route') && (err || load.calculated_miles != null)) return { fresh: true, key, next: null };
+  return { fresh: false, key, next: 'route', reason: sameKey ? 'retry' : 'changed' };
 }
 
 // Patch for loads after a successful route. Planned (total_miles) only when it's empty or already calculated,

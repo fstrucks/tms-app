@@ -1,23 +1,67 @@
 // Server side of the load map (PR B). Calls OpenRouteService (HeiGIT) with ORS_API_KEY; the key never leaves the
 // server and is never logged. Results are cached on stops/loads (see loadRoute.js), so ORS is only called when
 // stop addresses change (or after a cool-down for a temporary failure).
+// QA #83: each POST does ONE short step (geocode one stop, or fetch the route) inside a time budget well under the
+// function's maxDuration, and returns JSON; the page calls again while there's a next step.
 import {
   ORS_BASE, ORS_DIRECTIONS_PATH, ERROR_TEXT, PERMANENT_ERRORS, LIMITS,
-  routeStops, routeFreshness, needsGeocode, stopAddressText, geocodeAttempts, pickGeocode,
+  routeStops, routeKey, routeFreshness, needsGeocode, isPinned, stopAddressText, geocodeAttempts, pickGeocode,
   parseDirections, classifyOrsError, calculatedMilesPatch, hasRouteColumns, hasStopGeoColumns, createLimiter,
 } from './loadRoute.js';
-import { isMissing, UUID } from './truckServer.js';
+import { isMissing, UUID, json } from './truckServer.js';
+import { userClient, serviceClient, bearer, checkUser, jwtClaims, isAuthRejection } from './packetServer.js';
+import { isRole } from './companyRoles.js';
+import { canEditTruck } from './truckFields.js';
 
-export const ORS_TIMEOUT_MS = 10_000;          // geocoding
-export const ORS_ROUTE_TIMEOUT_MS = 25_000;    // directions (long truck routes can take 10s+); maxDuration is 60
+export const MAX_DURATION_S = 30;              // route.js maxDuration
+export const STEP_BUDGET_MS = 22_000;          // one POST step must finish (and answer) well inside maxDuration
+export const ORS_GEOCODE_TIMEOUT_MS = 6_000;   // per geocode call (at most 2 per step)
+export const ORS_ROUTE_TIMEOUT_MS = 18_000;    // directions call (long truck routes can take 10s+)
+export const MAX_STEPS = 8;                    // the page stops asking after this many steps
 const limiter = createLimiter();
-const inflight = new Map(); // loadId → Promise (one compute per load per instance at a time)
+const inflight = new Map(); // `${ownerId}:${loadId}` → Promise (one step per load per instance at a time)
 
 export const orsKey = (env = process.env) => (env.ORS_API_KEY || '').trim() || null;
 
-async function orsFetch(fetchImpl, url, init, timeoutMs) {
+const PGRST_JWT = new Set(['PGRST301', 'PGRST302', 'PGRST303']);
+// Like truckCtx, plus the fields-API fallback: when Supabase Auth can't answer, the token is still verified by the
+// database (PostgREST checks the JWT on the packet_role call). → { db, user, ownerId, role, canEdit } | { res }
+export async function mapCtx(req, { mkUserClient = userClient, sb: svc, mkService = serviceClient, authRetryMs } = {}) {
+  const token = bearer(req);
+  if (!token) return { res: json({ error: 'Sign in first. Open the load page; this address only answers the app.', state: 'failed' }, 401) };
+  const uc = mkUserClient(token);
+  const who = await checkUser(uc, token, authRetryMs != null ? { retryMs: authRetryMs } : {});
+  if (who.rejected) return { res: json({ error: 'Your sign-in expired. Please sign in again.', state: 'failed', auth: true }, 401) };
+  let user = who.user || null;
+  if (who.unavailable) {
+    const c = jwtClaims(token);
+    if (!c?.sub) return { res: json({ error: 'Couldn’t check your sign-in just now. Try again.', state: 'failed', retry: true }, 503) };
+    if ((c.exp && c.exp * 1000 < Date.now()) || (c.role && c.role !== 'authenticated')) return { res: json({ error: 'Your sign-in expired. Please sign in again.', state: 'failed', auth: true }, 401) };
+    console.error('[map] auth check unavailable, verifying via database');
+    user = { id: c.sub, verified: 'database' };
+  }
+  const { data: profiles, error } = await uc.from('company_profiles').select('*').limit(1);
+  if (error && (PGRST_JWT.has(error.code) || isAuthRejection(error))) return { res: json({ error: 'Your sign-in expired. Please sign in again.', state: 'failed', auth: true }, 401) };
+  if (error && !isMissing(error)) return { res: json({ error: 'Could not load your company.', state: 'failed' }, 500) };
+  const ownerId = profiles?.[0]?.owner_id || user.id;
+  const { data: role, error: rErr } = await uc.rpc('packet_role', { p_owner: ownerId });
+  if (rErr && (PGRST_JWT.has(rErr.code) || isAuthRejection(rErr))) return { res: json({ error: 'Your sign-in expired. Please sign in again.', state: 'failed', auth: true }, 401) };
+  if (!isRole(role)) return { res: json({ error: 'Not allowed.', state: 'failed' }, 403) };
+  let db = uc;
+  if (ownerId !== user.id) {
+    db = svc || mkService();
+    if (!db) return { res: json({ error: 'The map isn’t set up for team members yet.', state: 'failed' }, 503) };
+  }
+  return { db, user, ownerId, role, canEdit: canEditTruck(role) };
+}
+
+const left = (deadline) => (deadline ? deadline - Date.now() : Infinity);
+
+async function orsFetch(fetchImpl, url, init, timeoutMs, deadline) {
+  const t = Math.min(timeoutMs, left(deadline) - 1_500);
+  if (!(t > 500)) return { ok: false, status: null, body: null, timedOut: true, skipped: true };
   try {
-    const res = await fetchImpl(url, { ...init, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetchImpl(url, { ...init, cache: 'no-store', signal: AbortSignal.timeout(t) });
     let body = null; try { body = await res.json(); } catch {}
     return { ok: res.ok, status: res.status, body };
   } catch (e) {
@@ -25,31 +69,35 @@ async function orsFetch(fetchImpl, url, init, timeoutMs) {
   }
 }
 
-// One stop → { lat, lng, precision } | { error } | null (not found). Street address first, then city/state/zip.
-export async function geocodeStop(stop, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_TIMEOUT_MS } = {}) {
+// One stop → { lat, lng, precision } | { error } | null (not found). Structured search first, then free text; a
+// street-level hit wins, else the best city/ZIP-level hit.
+export async function geocodeStop(stop, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_GEOCODE_TIMEOUT_MS, deadline = null } = {}) {
+  let best = null, lastErr = null;
   for (const a of geocodeAttempts(stop)) {
-    if (!take('geocode')) return { error: 'rate_limited' };
+    if (!take('geocode')) return best || { error: 'rate_limited' };
     const qs = new URLSearchParams(a.params).toString();
-    const r = await orsFetch(fetchImpl, `${ORS_BASE}${a.path}?${qs}`, { headers: { Authorization: key, Accept: 'application/json' } }, timeoutMs);
+    const r = await orsFetch(fetchImpl, `${ORS_BASE}${a.path}?${qs}`, { headers: { Authorization: key, Accept: 'application/json' } }, timeoutMs, deadline);
     if (!r.ok) {
       const code = classifyOrsError(r);
-      if (code === 'no_route') continue; // a 400/404 for this query: try the next, broader one
-      return { error: code };
+      if (code === 'no_route') continue; // a 400/404 for this query: try the next one
+      lastErr = code; continue;
     }
-    const hit = pickGeocode(r.body, stop, a.precision);
-    if (hit) return hit;
+    const hit = pickGeocode(r.body, stop);
+    if (hit?.precision === 'street') return hit;
+    if (hit && !best) best = hit;
   }
-  return null;
+  if (best) return best;
+  return lastErr ? { error: lastErr } : null;
 }
 
-export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS } = {}) {
+export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null } = {}) {
   if (!take('directions')) return { error: 'rate_limited' };
   const r = await orsFetch(fetchImpl, `${ORS_BASE}${ORS_DIRECTIONS_PATH}`, {
     method: 'POST',
     headers: { Authorization: key, 'Content-Type': 'application/json', Accept: 'application/json' },
-    // radiuses: a city-level point may be off the road network; allow snapping up to 5 km.
+    // radiuses: a city/ZIP-level point may be off the road network; allow snapping up to 5 km.
     body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: points.map(() => 5000) }),
-  }, timeoutMs);
+  }, timeoutMs, deadline);
   if (!r.ok) return { error: classifyOrsError(r) };
   const parsed = parseDirections(r.body);
   return parsed || { error: 'no_route' };
@@ -72,23 +120,21 @@ export async function underSharedLimit(db, now = Date.now()) {
 }
 
 // What the map card needs. Never includes the key.
-export function viewOf(load, stops, extra = {}) {
+export function viewOf(load, stops, extra = {}, now = Date.now()) {
   const rs = routeStops(stops);
-  const fr = routeFreshness(load, rs);
-  const missed = rs.filter((s) => s.lat == null || s.lng == null);
+  const fr = routeFreshness(load, rs, now);
+  const current = fr.key && load.route_key === fr.key;
+  const missed = rs.filter((s) => !needsGeocode(s) && !isPinned(s));
   let state = 'ready', message = null;
   if (fr.reason === 'too_few') { state = 'too_few'; message = ERROR_TEXT.too_few; }
-  else if (load.route_error) {
-    state = 'error';
-    message = load.route_error === 'geocode_miss'
-      ? ERROR_TEXT.geocode_miss.replace('{stops}', missed.map((s) => `the ${s.stop_type || 'stop'} address`).join(' and ') || 'a stop address')
-      : ERROR_TEXT[load.route_error] || ERROR_TEXT.upstream;
-  }
+  else if (missed.length && (!fr.next || fr.next === 'miss' || current)) {
+    state = 'error'; message = ERROR_TEXT.geocode_miss.replace('{stops}', missed.map((s) => `the ${s.stop_type || 'stop'} address`).join(' and '));
+  } else if (current && load.route_error) { state = 'error'; message = ERROR_TEXT[load.route_error] || ERROR_TEXT.upstream; }
   return {
-    state, message, stale: !fr.fresh, retryInMs: fr.retryInMs ?? null,
+    state, message, stale: !fr.fresh, next: fr.fresh ? null : fr.next, retryInMs: fr.retryInMs ?? null,
     stops: rs.map((s) => ({ id: s.id, stop_type: s.stop_type, sequence: s.sequence, city: s.city, state: s.state, lat: s.lat ?? null, lng: s.lng ?? null, precision: s.geocode_precision ?? null })),
-    geometry: PERMANENT_ERRORS.has(load.route_error) ? null : load.route_geometry || null,
-    calculated_miles: load.calculated_miles ?? null,
+    geometry: current && !PERMANENT_ERRORS.has(load.route_error) ? load.route_geometry || null : null,
+    calculated_miles: current ? load.calculated_miles ?? null : null,
     load: { total_miles: load.total_miles ?? null, rate_per_mile: load.rate_per_mile ?? null, calculated_miles: load.calculated_miles ?? null, ...(Object.prototype.hasOwnProperty.call(load, 'miles_source') ? { miles_source: load.miles_source } : {}) },
     ...extra,
   };
@@ -97,7 +143,7 @@ export function viewOf(load, stops, extra = {}) {
 async function readLoad(db, ownerId, loadId) {
   if (!UUID.test(loadId || '')) return { notFound: true };
   const l = await db.from('loads').select('*').eq('id', loadId).eq('user_id', ownerId).maybeSingle();
-  if (l.error) return { error: 'Could not load the load.' };
+  if (l.error) return isMissing(l.error) ? { setupNeeded: true } : { error: 'Could not load the load.' };
   if (!l.data) return { notFound: true };
   if (!hasRouteColumns(l.data)) return { setupNeeded: true };
   const s = await db.from('stops').select('*').eq('load_id', loadId).order('sequence');
@@ -107,78 +153,85 @@ async function readLoad(db, ownerId, loadId) {
   return { load: l.data, stops };
 }
 
+const noKeyView = (load, stops) => ({ ...viewOf(load, stops), state: 'no_key', message: ERROR_TEXT.no_key, stale: false, next: null });
+
 // GET: cached view only, never calls ORS.
 export async function getRoute(db, ownerId, loadId, { env = process.env } = {}) {
   const r = await readLoad(db, ownerId, loadId);
   if (!r.load) return r;
-  if (!orsKey(env)) return { view: { ...viewOf(r.load, r.stops), state: 'no_key', message: ERROR_TEXT.no_key, stale: false } };
+  if (!orsKey(env)) return { view: noKeyView(r.load, r.stops) };
   return { view: viewOf(r.load, r.stops) };
 }
 
-// POST: compute when stale (addresses changed / never done / cool-down over), else return the cache.
+// POST: one step when stale (geocode one stop, record a miss, or fetch the route), else the cache.
 export async function ensureRoute(db, ownerId, loadId, opts = {}) {
   const k = `${ownerId}:${loadId}`;
   if (inflight.has(k)) return inflight.get(k);
-  const p = ensureRouteNow(db, ownerId, loadId, opts).finally(() => inflight.delete(k));
+  const p = stepNow(db, ownerId, loadId, opts).finally(() => inflight.delete(k));
   inflight.set(k, p);
   return p;
 }
 
-async function ensureRouteNow(db, ownerId, loadId, { env = process.env, fetchImpl = fetch, take, shared = null, now = () => Date.now() } = {}) {
+async function saveLoad(db, ownerId, loadId, patch) {
+  const u = await db.from('loads').update(patch).eq('id', loadId).eq('user_id', ownerId).select('*');
+  if (u.error) return isMissing(u.error) ? { setupNeeded: true } : { error: 'Could not save the route.' };
+  return { row: u.data?.[0] || null };
+}
+
+async function stepNow(db, ownerId, loadId, { env = process.env, fetchImpl = fetch, take, shared = null, now = () => Date.now(), budgetMs = STEP_BUDGET_MS } = {}) {
   const r = await readLoad(db, ownerId, loadId);
   if (!r.load) return r;
   const key = orsKey(env);
-  if (!key) return { view: { ...viewOf(r.load, r.stops), state: 'no_key', message: ERROR_TEXT.no_key, stale: false } };
+  if (!key) return { view: noKeyView(r.load, r.stops) };
   let { load, stops } = r;
   const rs = routeStops(stops);
   const fr = routeFreshness(load, rs, now());
-  if (fr.fresh) return { view: viewOf(load, stops), computed: false };
-  if (!(await underSharedLimit(shared, now()))) return { view: { ...viewOf(load, stops), state: 'error', message: ERROR_TEXT.rate_limited, stale: true }, computed: false };
-
-  const o = { key, fetchImpl, ...(take ? { take } : {}) };
+  if (fr.fresh) return { view: viewOf(load, stops, {}, now()), computed: false };
+  const deadline = Date.now() + budgetMs;
+  const o = { key, fetchImpl, deadline, ...(take ? { take } : {}) };
   const stamp = new Date(now()).toISOString();
-  let failure = null;
-  const updatedStops = new Map();
-  for (const s of rs) {
-    if (!needsGeocode(s)) continue;
+  const fail = async (code, extra = {}) => {
+    const patch = { route_key: fr.key, route_computed_at: stamp, route_error: code, ...extra };
+    // Permanent failure, or any failure for changed addresses: drop the old route so a stale number isn't offered.
+    if (PERMANENT_ERRORS.has(code) || load.route_key !== fr.key) { patch.calculated_miles = null; patch.route_geometry = null; }
+    const s = await saveLoad(db, ownerId, loadId, patch);
+    if (!s.row) return s.setupNeeded || s.error ? s : { view: viewOf({ ...load, ...patch }, stops, {}, now()), computed: true };
+    return { view: viewOf(s.row, stops, {}, now()), computed: true };
+  };
+
+  if (fr.next === 'geocode') {
+    const s = rs.find(needsGeocode);
     const g = await geocodeStop(s, o);
-    if (g?.error) { failure = g.error; break; }
+    if (g?.error) return fail(g.error);
     const patch = g
       ? { lat: g.lat, lng: g.lng, geocoded_at: stamp, geocode_address: stopAddressText(s), geocode_precision: g.precision }
       : { lat: null, lng: null, geocoded_at: stamp, geocode_address: stopAddressText(s), geocode_precision: null };
     const u = await db.from('stops').update(patch).eq('id', s.id).eq('load_id', loadId);
     if (u.error) return isMissing(u.error) ? { setupNeeded: true } : { error: 'Could not save the stop location.' };
-    updatedStops.set(s.id, patch);
-    if (!g) failure = failure || 'geocode_miss';
+    stops = stops.map((x) => (x.id === s.id ? { ...x, ...patch } : x));
+    return { view: viewOf(load, stops, {}, now()), computed: true };
   }
-  stops = stops.map((s) => (updatedStops.has(s.id) ? { ...s, ...updatedStops.get(s.id) } : s));
-  const pts = routeStops(stops);
+  if (fr.next === 'miss') return fail('geocode_miss');
 
-  let patch;
-  if (failure) patch = { route_key: fr.key, route_computed_at: stamp, route_error: failure, ...(failure === 'geocode_miss' ? { route_geometry: null } : {}) };
-  else {
-    const route = await fetchRoute(pts.map((s) => ({ lat: s.lat, lng: s.lng })), o);
-    if (route.error) patch = { route_key: fr.key, route_computed_at: stamp, route_error: route.error, ...(route.error === 'no_route' ? { route_geometry: null } : {}) };
-    else patch = { route_key: fr.key, route_computed_at: stamp, route_error: null, route_geometry: route.geometry, calculated_miles: route.miles };
-  }
-  // A permanent failure, or any failure for changed addresses, clears the old route, so a stale number isn't offered.
-  if (patch.route_error && (PERMANENT_ERRORS.has(patch.route_error) || load.route_key !== fr.key)) { patch.calculated_miles = null; patch.route_geometry = null; }
-
-  const u = await db.from('loads').update(patch).eq('id', loadId).eq('user_id', ownerId).select('*');
-  if (u.error) return isMissing(u.error) ? { setupNeeded: true } : { error: 'Could not save the route.' };
-  load = { ...load, ...(u.data?.[0] || patch) };
+  // next === 'route'
+  if (!(await underSharedLimit(shared, now()))) return fail('rate_limited');
+  const route = await fetchRoute(rs.map((s) => ({ lat: s.lat, lng: s.lng })), o);
+  if (route.error) return fail(route.error);
+  const sv = await saveLoad(db, ownerId, loadId, { route_key: fr.key, route_computed_at: stamp, route_error: null, route_geometry: route.geometry, calculated_miles: route.miles });
+  if (!sv.row && (sv.setupNeeded || sv.error)) return sv;
+  load = { ...load, ...(sv.row || { route_key: fr.key, route_error: null, route_geometry: route.geometry, calculated_miles: route.miles }) };
 
   // Planned miles: fill only when empty or already calculated (typed > rate con > calculated). Conditional
   // updates, so a value typed meanwhile is never replaced.
-  if (!patch.route_error && patch.calculated_miles) {
-    const mp = calculatedMilesPatch(load, patch.calculated_miles);
-    if (mp.total_miles != null) {
-      const fill = { total_miles: mp.total_miles, miles_source: 'calculated' };
-      let f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).is('total_miles', null).select('*');
-      if (!f.error && !f.data?.length && load.miles_source === 'calculated' && load.total_miles !== mp.total_miles)
-        f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).eq('miles_source', 'calculated').select('*');
-      if (!f.error && f.data?.[0]) load = { ...load, ...f.data[0] };
-    }
+  const mp = calculatedMilesPatch(load, route.miles);
+  if (mp.total_miles != null) {
+    const fill = { total_miles: mp.total_miles, miles_source: 'calculated' };
+    let f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).is('total_miles', null).select('*');
+    if (!f.error && !f.data?.length && load.miles_source === 'calculated' && load.total_miles !== mp.total_miles)
+      f = await db.from('loads').update(fill).eq('id', loadId).eq('user_id', ownerId).eq('miles_source', 'calculated').select('*');
+    if (!f.error && f.data?.[0]) load = { ...load, ...f.data[0] };
   }
-  return { view: viewOf(load, stops), computed: true };
+  return { view: viewOf(load, stops, {}, now()), computed: true };
 }
+
+export { routeKey };

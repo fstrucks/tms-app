@@ -6,9 +6,9 @@ import { fakeSupabase } from './fakeSupabase.mjs';
 import {
   routeKey, routeStops, stopAddressText, needsGeocode, geocodeAttempts, pickGeocode, decodePolyline, encodePolyline,
   simplifyLine, parseDirections, classifyOrsError, routeFreshness, calculatedMilesPatch, calculatedHint, createLimiter,
-  LIMITS, ORS_BASE, ORS_DIRECTIONS_PATH, ORS_GEOCODE_PATH,
+  LIMITS, ORS_BASE, ORS_DIRECTIONS_PATH, ORS_GEOCODE_PATH, ORS_GEOCODE_STRUCTURED_PATH,
 } from '../../app/lib/loadRoute.js';
-import { ensureRoute, getRoute, geocodeStop, fetchRoute, underSharedLimit } from '../../app/lib/loadRouteServer.js';
+import { ensureRoute, getRoute, geocodeStop, fetchRoute, underSharedLimit, MAX_DURATION_S, STEP_BUDGET_MS, ORS_ROUTE_TIMEOUT_MS, ORS_GEOCODE_TIMEOUT_MS, MAX_STEPS } from '../../app/lib/loadRouteServer.js';
 import * as MAP from '../../app/api/loads/[id]/map/route.js';
 
 const OWNER = '00000000-0000-4000-8000-00000000aaaa', DRIVER = '00000000-0000-4000-8000-00000000bbbb';
@@ -32,7 +32,8 @@ function fakeOrs({ geocode = {}, directions = { status: 200, body: { routes: [{ 
     const u = new URL(url);
     const respond = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
     if (u.pathname === ORS_DIRECTIONS_PATH) return respond(directions.status, directions.body);
-    const text = u.searchParams.get('text') || `${u.searchParams.get('locality')}|${u.searchParams.get('postalcode')}`;
+    const sp = u.searchParams;
+    const text = sp.get('text') || [sp.get('address'), sp.get('locality'), sp.get('postalcode')].filter(Boolean).join('|');
     for (const [needle, res] of Object.entries(geocode)) if (text.includes(needle)) return typeof res === 'function' ? res() : respond(200, res);
     if (text.includes('Dock')) return respond(200, feature(-96.8, 32.78));
     if (text.includes('Warehouse')) return respond(200, feature(-95.37, 29.76));
@@ -41,6 +42,12 @@ function fakeOrs({ geocode = {}, directions = { status: 200, body: { routes: [{ 
   return { impl, calls, geocodes: () => calls.filter((c) => !c.url.includes('directions')), routes: () => calls.filter((c) => c.url.includes('directions')) };
 }
 const allow = () => true;
+// The page calls POST once per step until nothing is stale (QA #83: short requests).
+async function runSteps(db, opts, max = MAX_STEPS) {
+  let r, n = 0;
+  do { r = await ensureRoute(db, OWNER, L1, opts); n += 1; } while (r.view?.stale && r.view?.next && n < max);
+  return { ...r, steps: n };
+}
 
 // ---------- pure helpers ----------
 test('route key: same addresses → same key (formatting ignored); any address change → new key; needs 2 stops', () => {
@@ -55,24 +62,28 @@ test('route key: same addresses → same key (formatting ignored); any address c
   assert.deepEqual(routeStops([delivery, { id: 'x', sequence: 0 }, pickup]).map((s) => s.id), ['s1', 's2']);
 });
 
-test('geocode: street address first, then city/state/zip (structured); Canada by province', () => {
+test('geocode: structured search first (street + city + state + zip), then free text; Canada by province', () => {
   const a = geocodeAttempts(pickup);
   assert.equal(a.length, 2);
-  assert.equal(a[0].path, ORS_GEOCODE_PATH); assert.equal(a[0].precision, 'street');
-  assert.equal(a[0].params.text, '100 Example Dock Rd, Dallas, TX 75201'); assert.equal(a[0].params['boundary.country'], 'US');
-  assert.equal(a[1].precision, 'city'); assert.deepEqual(a[1].params, { country: 'US', size: '1', locality: 'Dallas', region: 'TX', postalcode: '75201' });
+  assert.equal(a[0].path, ORS_GEOCODE_STRUCTURED_PATH);
+  assert.deepEqual(a[0].params, { country: 'US', size: '1', address: '100 Example Dock Rd', locality: 'Dallas', region: 'TX', postalcode: '75201' });
+  assert.equal(a[1].path, ORS_GEOCODE_PATH);
+  assert.equal(a[1].params.text, '100 Example Dock Rd, Dallas, TX 75201'); assert.equal(a[1].params['boundary.country'], 'US');
   assert.equal(geocodeAttempts({ city: 'Testville', state: 'ON' })[0].params.country, 'CA');
-  assert.equal(geocodeAttempts({ address_line1: null, city: 'Dallas', state: 'TX' }).length, 1, 'no street → city only');
+  assert.equal(geocodeAttempts({ address_line1: null, city: 'Dallas', state: 'TX' }).length, 1, 'no street → structured city only');
 });
 
-test('pickGeocode rejects a wrong-state match, low confidence and a city hit for a street query', () => {
-  assert.deepEqual(pickGeocode(feature(-96.8, 32.78), pickup, 'street'), { lat: 32.78, lng: -96.8, precision: 'street', label: null });
-  assert.equal(pickGeocode(feature(-96.8, 32.78, { region_a: 'OK' }), pickup, 'street'), null);
-  assert.equal(pickGeocode(feature(-96.8, 32.78, { confidence: 0.4 }), pickup, 'street'), null);
-  assert.equal(pickGeocode(feature(-96.8, 32.78, { layer: 'locality' }), pickup, 'street'), null);
-  assert.ok(pickGeocode(feature(-96.8, 32.78, { layer: 'locality' }), pickup, 'city'));
-  assert.equal(pickGeocode({ features: [] }, pickup, 'street'), null);
-  assert.equal(pickGeocode(feature(-500, 32), pickup, 'street'), null);
+test('pickGeocode: street ≥ 0.5 confidence; city/ZIP centroid = city; wrong 2-letter state rejected; "Texas" vs TX ok', () => {
+  assert.deepEqual(pickGeocode(feature(-96.8, 32.78), pickup), { lat: 32.78, lng: -96.8, precision: 'street', label: null });
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { confidence: 0.55 }), pickup).precision, 'street', 'loosened from 0.7');
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { confidence: 0.3 }), pickup), null);
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { region_a: 'OK' }), pickup), null);
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { region_a: 'TX' }), { ...pickup, state: 'Texas' }).precision, 'street');
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { layer: 'postalcode', confidence: 0.8 }), pickup).precision, 'city');
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { layer: 'locality', confidence: 0.6 }), pickup).precision, 'city');
+  assert.equal(pickGeocode(feature(-96.8, 32.78, { layer: 'country' }), pickup), null);
+  assert.equal(pickGeocode({ features: [] }, pickup), null);
+  assert.equal(pickGeocode(feature(-500, 32), pickup), null);
 });
 
 test('polyline: decodes the reference example, round-trips, simplifies long routes', () => {
@@ -97,18 +108,25 @@ test('directions parse (units=mi) and ORS error codes', () => {
   assert.equal(classifyOrsError({ timedOut: true }), 'timeout');
 });
 
-test('freshness: recompute only when addresses change; temporary failures cool down; misses wait for an address change', () => {
+test('freshness: one step at a time; recompute only when addresses change; cool-downs; misses wait for an address change', () => {
   const k = routeKey([pickup, delivery]);
-  const geo = [{ ...pickup, lat: 1, lng: 1, geocode_address: stopAddressText(pickup) }, { ...delivery, lat: 2, lng: 2, geocode_address: stopAddressText(delivery) }];
-  assert.equal(routeFreshness({ route_key: null }, geo).fresh, false);
-  assert.equal(routeFreshness({ route_key: k, route_error: null }, geo).fresh, true);
-  assert.equal(routeFreshness({ route_key: k }, [geo[0], { ...geo[1], city: 'Katy' }]).fresh, false, 'address changed');
+  const g = (s, lat) => ({ ...s, lat, lng: lat, geocode_address: stopAddressText(s), geocode_precision: lat == null ? null : 'street' });
+  const geo = [g(pickup, 1), g(delivery, 2)];
+  assert.equal(routeFreshness({ route_key: null }, [pickup, delivery]).next, 'geocode');
+  assert.equal(routeFreshness({ route_key: null }, geo).next, 'route');
+  assert.equal(routeFreshness({ route_key: k, route_error: null, calculated_miles: 239 }, geo).fresh, true);
+  assert.equal(routeFreshness({ route_key: k, calculated_miles: 239 }, [geo[0], { ...geo[1], city: 'Katy' }]).next, 'geocode', 'address changed');
   const now = Date.parse('2026-10-18T19:00:00Z');
   const rl = { route_key: k, route_error: 'rate_limited', route_computed_at: '2026-10-18T18:55:00Z' };
   assert.equal(routeFreshness(rl, geo, now).fresh, true); assert.equal(routeFreshness(rl, geo, now).retryInMs, 5 * 60_000);
-  assert.equal(routeFreshness(rl, geo, now + 6 * 60_000).fresh, false);
-  assert.equal(routeFreshness({ route_key: k, route_error: 'geocode_miss', route_computed_at: '2020-01-01T00:00:00Z' }, [geo[0], delivery], now).fresh, true);
-  assert.equal(needsGeocode(geo[0]), false); assert.equal(needsGeocode({ ...geo[0], zip: '75202' }), true);
+  assert.equal(routeFreshness(rl, geo, now + 6 * 60_000).next, 'route');
+  assert.equal(routeFreshness(rl, [geo[0], delivery], now).fresh, true, 'a geocode cool-down also waits');
+  const missed = [geo[0], g(delivery, null)];
+  assert.equal(routeFreshness({ route_key: null }, missed).next, 'miss');
+  assert.equal(routeFreshness({ route_key: k, route_error: 'geocode_miss', route_computed_at: '2020-01-01T00:00:00Z' }, missed, now).fresh, true);
+  assert.equal(routeFreshness({ route_key: k, route_error: 'no_route' }, geo).fresh, true);
+  assert.equal(needsGeocode(geo[0]), false); assert.equal(needsGeocode(missed[1]), false, 'a remembered miss is not looked up again');
+  assert.equal(needsGeocode({ ...geo[0], zip: '75202' }), true);
 });
 
 test('precedence: calculated fills Planned only when empty or already calculated (typed > rate con > calculated)', () => {
@@ -146,15 +164,28 @@ test('shared limit counts recent route attempts in the database (best effort)', 
   assert.equal(await underSharedLimit({ from: () => { throw new Error('x'); } }), true);
 });
 
-// ---------- server: ensureRoute ----------
-test('first view computes once: geocodes both stops, saves lat/lng + geocoded_at, route miles, fills empty Planned', async () => {
+// ---------- server: ensureRoute (one step per call) ----------
+test('time limits: every step fits well inside maxDuration (QA #83)', () => {
+  assert.ok(STEP_BUDGET_MS + 3_000 <= MAX_DURATION_S * 1000);
+  assert.ok(ORS_ROUTE_TIMEOUT_MS < STEP_BUDGET_MS && 2 * ORS_GEOCODE_TIMEOUT_MS < STEP_BUDGET_MS);
+  const src = read('app/api/loads/[id]/map/route.js');
+  assert.match(src, new RegExp(`export const maxDuration = ${MAX_DURATION_S};`));
+});
+
+test('each POST does one short step: geocode stop 1, geocode stop 2, then the route; never geocode + route together', async () => {
   const db = fakeSupabase({ tables: seed() });
   const ors = fakeOrs();
-  const r = await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
-  assert.equal(r.computed, true);
-  assert.equal(ors.geocodes().length, 2); assert.equal(ors.routes().length, 1);
+  const opts = { env, fetchImpl: ors.impl, take: allow };
+  let r = await ensureRoute(db, OWNER, L1, opts);
+  assert.equal(r.view.stale, true); assert.equal(r.view.next, 'geocode'); assert.equal(ors.geocodes().length, 1); assert.equal(ors.routes().length, 0);
+  assert.equal(r.view.stops[0].lat, 32.78, 'the first pin shows right away');
+  r = await ensureRoute(db, OWNER, L1, opts);
+  assert.equal(r.view.next, 'route'); assert.equal(ors.geocodes().length, 2); assert.equal(ors.routes().length, 0);
+  r = await ensureRoute(db, OWNER, L1, opts);
+  assert.equal(r.view.stale, false); assert.equal(ors.routes().length, 1); assert.equal(ors.geocodes().length, 2);
   const [g, d] = [ors.geocodes()[0], ors.routes()[0]];
-  assert.ok(g.url.startsWith(`${ORS_BASE}/pelias/v1/search?`)); assert.equal(g.init.headers.Authorization, FAKE_KEY);
+  assert.ok(g.url.startsWith(`${ORS_BASE}/pelias/v1/search/structured?`)); assert.equal(g.init.headers.Authorization, FAKE_KEY);
+  assert.ok(g.init.signal, 'every ORS call has a timeout');
   const body = JSON.parse(d.init.body);
   assert.equal(d.url, `${ORS_BASE}${ORS_DIRECTIONS_PATH}`); assert.equal(body.units, 'mi'); assert.deepEqual(body.coordinates, [[-96.8, 32.78], [-95.37, 29.76]]);
   const s1 = db.db.stops.find((s) => s.id === 's1');
@@ -162,70 +193,78 @@ test('first view computes once: geocodes both stops, saves lat/lng + geocoded_at
   const l = db.db.loads[0];
   assert.equal(l.calculated_miles, 239); assert.equal(l.total_miles, 239); assert.equal(l.miles_source, 'calculated');
   assert.equal(l.route_key, routeKey([pickup, delivery])); assert.equal(l.route_error, null); assert.ok(l.route_geometry);
-  assert.equal(r.view.state, 'ready'); assert.equal(r.view.calculated_miles, 239); assert.equal(r.view.stale, false);
+  assert.equal(r.view.state, 'ready'); assert.equal(r.view.calculated_miles, 239); assert.ok(r.view.geometry);
   assert.equal(r.view.load.total_miles, 239); assert.equal(r.view.stops.length, 2);
   assert.ok(!JSON.stringify(r).includes(FAKE_KEY), 'the key never goes back to the browser');
 
-  // Second view (and GET): cached, ORS not called again.
-  const again = await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
-  assert.equal(again.computed, false); assert.equal(ors.calls.length, 3);
+  // Cached: POST and GET don't call ORS again.
+  assert.equal((await ensureRoute(db, OWNER, L1, opts)).computed, false); assert.equal(ors.calls.length, 3);
   const got = await getRoute(db, OWNER, L1, { env });
   assert.equal(got.view.calculated_miles, 239); assert.equal(got.view.stale, false); assert.equal(ors.calls.length, 3);
 
-  // Delivery address changes → only that stop is geocoded again, and the route recomputed.
+  // Delivery address changes → only that stop is looked up again, then the route.
   db.db.stops.find((s) => s.id === 's2').address_line1 = '300 Sample Warehouse Way';
-  assert.equal((await getRoute(db, OWNER, L1, { env })).view.stale, true);
-  await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
-  assert.equal(ors.geocodes().length, 3); assert.equal(ors.routes().length, 2);
+  const st = await getRoute(db, OWNER, L1, { env });
+  assert.equal(st.view.stale, true); assert.equal(st.view.geometry, null, 'old line hidden for new addresses');
+  const done = await runSteps(db, opts);
+  assert.equal(done.steps, 2); assert.equal(ors.geocodes().length, 3); assert.equal(ors.routes().length, 2);
+});
+
+test('a slow ORS can never outlast the step budget (timeouts capped by the deadline)', async () => {
+  const db = fakeSupabase({ tables: seed() });
+  const hang = (url, init) => new Promise((_, rej) => init.signal.addEventListener('abort', () => { const e = new Error('t'); e.name = 'TimeoutError'; rej(e); }));
+  const t0 = Date.now();
+  const keep = setInterval(() => {}, 50); // AbortSignal.timeout timers don't keep Node's test loop alive
+  const r = await ensureRoute(db, OWNER, L1, { env, fetchImpl: hang, take: allow, budgetMs: 2_500 }).finally(() => clearInterval(keep));
+  assert.ok(Date.now() - t0 < 2_400, 'answered before the budget');
+  assert.equal(db.db.loads[0].route_error, 'timeout'); assert.match(r.view.message, /didn’t answer/);
 });
 
 test('typed and rate con miles are never replaced; calculated goes in its own column', async () => {
   for (const [tm, src] of [[300, 'typed'], [280, 'rate_con']]) {
     const db = fakeSupabase({ tables: seed({ total_miles: tm, miles_source: src }) });
-    await ensureRoute(db, OWNER, L1, { env, fetchImpl: fakeOrs().impl, take: allow });
+    await runSteps(db, { env, fetchImpl: fakeOrs().impl, take: allow });
     const l = db.db.loads[0];
     assert.equal(l.total_miles, tm); assert.equal(l.miles_source, src); assert.equal(l.calculated_miles, 239);
   }
   const db = fakeSupabase({ tables: seed({ total_miles: 250, miles_source: 'calculated' }) });
-  await ensureRoute(db, OWNER, L1, { env, fetchImpl: fakeOrs().impl, take: allow });
+  await runSteps(db, { env, fetchImpl: fakeOrs().impl, take: allow });
   assert.equal(db.db.loads[0].total_miles, 239, 'an older calculated value is refreshed');
 });
 
-test('street not found → falls back to city/state/zip and still routes', async () => {
+test('street not found → city/ZIP centroid ("city"), and it still routes', async () => {
   const db = fakeSupabase({ tables: seed() });
-  const ors = fakeOrs({ geocode: { 'Warehouse': { features: [] }, 'Houston|77002': feature(-95.36, 29.75, { layer: 'locality' }) } });
-  const r = await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
+  const ors = fakeOrs({ geocode: { 'Warehouse': feature(-95.36, 29.75, { layer: 'postalcode', confidence: 0.8 }) } });
+  const r = await runSteps(db, { env, fetchImpl: ors.impl, take: allow });
   const s2 = db.db.stops.find((s) => s.id === 's2');
   assert.equal(s2.geocode_precision, 'city'); assert.equal(s2.lat, 29.75);
-  assert.ok(ors.geocodes()[2].url.includes('/pelias/v1/search/structured?'));
   assert.equal(r.view.state, 'ready'); assert.equal(db.db.loads[0].calculated_miles, 239);
 });
 
 test('geocode miss: no directions call, pins what it found, clear message, not retried until the address changes', async () => {
   const db = fakeSupabase({ tables: seed() });
-  const ors = fakeOrs({ geocode: { 'Warehouse': { features: [] }, 'Houston': { features: [] } } });
-  const r = await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
+  const ors = fakeOrs({ geocode: { 'Warehouse': { features: [] } } });
+  const r = await runSteps(db, { env, fetchImpl: ors.impl, take: allow });
   assert.equal(ors.routes().length, 0);
   assert.equal(r.view.state, 'error'); assert.match(r.view.message, /Couldn’t find the delivery address on the map/);
   assert.equal(r.view.stops.find((s) => s.id === 's1').lat, 32.78);
   assert.equal(db.db.loads[0].route_error, 'geocode_miss'); assert.equal(db.db.loads[0].total_miles, null);
   const n = ors.calls.length;
-  await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
+  await runSteps(db, { env, fetchImpl: ors.impl, take: allow });
   assert.equal(ors.calls.length, n, 'no repeat lookups for the same bad address');
 });
 
 test('rate limited (429 or our own limiter): saved as a temporary error with a cool-down; Planned untouched', async () => {
   const db = fakeSupabase({ tables: seed() });
   const ors = fakeOrs({ directions: { status: 429, body: { error: 'Rate limit exceeded' } } });
-  const r = await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
+  const r = await runSteps(db, { env, fetchImpl: ors.impl, take: allow });
   assert.equal(db.db.loads[0].route_error, 'rate_limited'); assert.equal(db.db.loads[0].total_miles, null);
-  assert.match(r.view.message, /busy/); assert.ok(r.view.retryInMs > 0);
-  await ensureRoute(db, OWNER, L1, { env, fetchImpl: ors.impl, take: allow });
+  assert.match(r.view.message, /busy/); assert.ok(r.view.retryInMs > 0); assert.equal(r.view.stale, false);
+  await runSteps(db, { env, fetchImpl: ors.impl, take: allow });
   assert.equal(ors.routes().length, 1, 'waits for the cool-down');
-  // Own limiter says no → ORS isn't called at all.
   const db2 = fakeSupabase({ tables: seed() });
   const ors2 = fakeOrs();
-  await ensureRoute(db2, OWNER, L1, { env, fetchImpl: ors2.impl, take: () => false });
+  await runSteps(db2, { env, fetchImpl: ors2.impl, take: () => false });
   assert.equal(ors2.calls.length, 0); assert.equal(db2.db.loads[0].route_error, 'rate_limited');
 });
 
@@ -233,6 +272,10 @@ test('timeouts / network errors are temporary; geocodeStop and fetchRoute never 
   const boom = async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; };
   assert.deepEqual(await geocodeStop(pickup, { key: FAKE_KEY, fetchImpl: boom, take: allow }), { error: 'timeout' });
   assert.deepEqual(await fetchRoute([{ lat: 1, lng: 1 }, { lat: 2, lng: 2 }], { key: FAKE_KEY, fetchImpl: async () => { throw new Error('net'); }, take: allow }), { error: 'upstream' });
+  // structured times out but free text answers → still pinned
+  let n = 0;
+  const flaky = async (url) => { n += 1; if (n === 1) { const e = new Error('t'); e.name = 'TimeoutError'; throw e; } return { ok: true, status: 200, json: async () => feature(-96.8, 32.78) }; };
+  assert.equal((await geocodeStop(pickup, { key: FAKE_KEY, fetchImpl: flaky, take: allow })).precision, 'street');
 });
 
 test('no ORS_API_KEY: nothing is called, a calm note is shown', async () => {
@@ -252,7 +295,6 @@ test('before the migration: setupNeeded, no ORS calls, nothing written', async (
   assert.equal((await getRoute(db, OWNER, L1, { env })).setupNeeded, true);
   assert.equal(ors.calls.length, 0);
   assert.equal(db.calls.filter((c) => c.op === 'update').length, 0);
-  // loads migrated but stops not (or the reverse) → still setupNeeded.
   const db2 = fakeSupabase({ tables: { loads: [{ ...baseLoad }], stops: oldStops } });
   assert.equal((await ensureRoute(db2, OWNER, L1, { env, fetchImpl: ors.impl, take: allow })).setupNeeded, true);
 });
@@ -266,28 +308,63 @@ test('fewer than two addresses: no ORS call, "too_few" state', async () => {
 
 // ---------- API route ----------
 const req = (method = 'GET', auth = 'Bearer t') => new Request(`http://x/api/loads/${L1}/map`, { method, headers: auth ? { authorization: auth } : {} });
-test('API: GET is cache-only; POST computes for the owner; drivers get the cached view; sign-in required', async () => {
+test('API: GET is cache-only; POST steps for the owner; drivers get the cached view; sign-in required', async () => {
   const data = fakeSupabase({ tables: seed(), user: { id: OWNER }, role: 'owner' });
   const ors = fakeOrs();
-  const deps = { mkUserClient: () => data, shared: null, route: { env, fetchImpl: ors.impl, take: allow } };
+  const deps = { mkUserClient: () => data, authRetryMs: 0, shared: null, route: { env, fetchImpl: ors.impl, take: allow } };
   const g = await (await MAP.GET(req(), { params: { id: L1 }, deps })).json();
-  assert.equal(g.stale, true); assert.equal(ors.calls.length, 0);
-  const p = await MAP.POST(req('POST'), { params: { id: L1 }, deps });
-  assert.equal(p.headers.get('cache-control'), 'no-store');
-  const pj = await p.json();
+  assert.equal(g.stale, true); assert.equal(g.next, 'geocode'); assert.equal(ors.calls.length, 0);
+  let pj;
+  for (let i = 0; i < 3; i++) {
+    const p = await MAP.POST(req('POST'), { params: { id: L1 }, deps });
+    assert.equal(p.headers.get('cache-control'), 'no-store');
+    pj = await p.json();
+  }
   assert.equal(pj.calculated_miles, 239); assert.equal(pj.canEdit, true); assert.ok(!JSON.stringify(pj).includes(FAKE_KEY));
 
   const d2 = fakeSupabase({ tables: seed(), user: { id: DRIVER }, role: 'driver' });
   const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWNER }] }, user: { id: DRIVER }, role: 'driver' });
   const ors2 = fakeOrs();
-  const dj = await (await MAP.POST(req('POST'), { params: { id: L1 }, deps: { mkUserClient: () => uc, sb: d2, shared: null, route: { env, fetchImpl: ors2.impl, take: allow } } })).json();
+  const dj = await (await MAP.POST(req('POST'), { params: { id: L1 }, deps: { mkUserClient: () => uc, sb: d2, authRetryMs: 0, shared: null, route: { env, fetchImpl: ors2.impl, take: allow } } })).json();
   assert.equal(dj.canEdit, false); assert.equal(ors2.calls.length, 0);
 
-  assert.equal((await MAP.GET(req('GET', null), { params: { id: L1 }, deps })).status, 401);
+  const noTok = await MAP.GET(req('GET', null), { params: { id: L1 }, deps });
+  assert.equal(noTok.status, 401); assert.match((await noTok.json()).error, /Sign in first/);
   assert.equal((await MAP.GET(req(), { params: { id: 'nope' }, deps })).status, 404);
   const pre = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWNER }], loads: [{ id: L1, user_id: OWNER }], stops: [] }, user: { id: OWNER } });
-  const sj = await (await MAP.GET(req(), { params: { id: L1 }, deps: { mkUserClient: () => pre, route: { env } } })).json();
+  const sj = await (await MAP.GET(req(), { params: { id: L1 }, deps: { mkUserClient: () => pre, authRetryMs: 0, route: { env } } })).json();
   assert.equal(sj.setupNeeded, true); assert.equal(sj.state, 'setup');
+});
+
+test('API auth: falls back to the database token check when Supabase Auth is down (like the fields API)', async () => {
+  const data = fakeSupabase({ tables: seed(), user: null, role: 'owner' });
+  data.auth.getUser = async () => ({ data: null, error: { status: 503, message: 'upstream unavailable' } });
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const tok = `${b64({ alg: 'HS256' })}.${b64({ sub: OWNER, role: 'authenticated', exp: Math.floor(Date.now() / 1000) + 600 })}.sig`;
+  const j = await (await MAP.GET(req('GET', `Bearer ${tok}`), { params: { id: L1 }, deps: { mkUserClient: () => data, authRetryMs: 0, route: { env } } })).json();
+  assert.equal(j.state, 'ready'); assert.equal(j.stale, true);
+  const old = `${b64({ alg: 'HS256' })}.${b64({ sub: OWNER, role: 'authenticated', exp: 1 })}.sig`;
+  assert.equal((await MAP.GET(req('GET', `Bearer ${old}`), { params: { id: L1 }, deps: { mkUserClient: () => data, authRetryMs: 0, route: { env } } })).status, 401);
+  // A rejected token (Auth answers 401) → 401, not 503.
+  const rej = fakeSupabase({ tables: seed() });
+  rej.auth.getUser = async () => ({ data: null, error: { status: 401, message: 'invalid JWT' } });
+  assert.equal((await MAP.GET(req(), { params: { id: L1 }, deps: { mkUserClient: () => rej, authRetryMs: 0 } })).status, 401);
+});
+
+test('API never crashes without JSON: an unexpected throw → 500 JSON with state "failed"', async () => {
+  const bad = { auth: { getUser: async () => { throw new TypeError('boom'); } }, from: () => { throw new TypeError('boom'); }, rpc: async () => { throw new TypeError('boom'); } };
+  for (const fn of [MAP.GET, MAP.POST]) {
+    const r = await fn(req(fn === MAP.POST ? 'POST' : 'GET'), { params: { id: L1 }, deps: { mkUserClient: () => bad, authRetryMs: 0 } });
+    assert.ok([500, 503].includes(r.status)); const j = await r.json(); assert.equal(j.state, 'failed'); assert.ok(j.error);
+  }
+});
+
+test('client: steps POST while `next` is set (capped), keeps pins on a failed step, refreshes the token once on 401', () => {
+  const card = read('app/components/LoadRouteCard.js');
+  assert.match(card, /while \(live && j\.stale && j\.canEdit && j\.next && j\.state !== 'failed' && steps < MAX_STEPS\)/);
+  assert.match(card, /res\.status === 401 && attempt === 0/); assert.match(card, /refreshSession\(\)/);
+  assert.match(card, /cur\.stops \? \{ \.\.\.cur, computing: false, message: msg \}/);
+  assert.match(card, /Some pins are approximate/);
 });
 
 // ---------- UI / files ----------
