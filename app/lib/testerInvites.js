@@ -111,9 +111,11 @@ async function record(admin, user, ownerId, profile, role, log) {
   return r?.error || null;
 }
 
+export const RETRY_DELAY_MS = 300; // short pause before retrying a failed write (injectable for tests)
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const inviterName = (o) => cleanName(o?.user_metadata?.full_name || o?.user_metadata?.name || '') || null;
 // New invite. → { ok, user, linked, warning? } | { error, status, code? }
-export async function invite({ sb, owner, profile, input, redirectTo, now = Date.now(), users: known }) {
+export async function invite({ sb, owner, profile, input, redirectTo, now = Date.now(), users: known, sleep = wait }) {
   const admin = sb.auth.admin;
   const all = known ? { users: known } : await listAllUsers(admin);
   if (all.error) return { error: 'Could not check existing accounts. Nothing was sent.', status: 503 };
@@ -135,12 +137,13 @@ export async function invite({ sb, owner, profile, input, redirectTo, now = Date
   // company_members row). Each is retried once; if both still fail the invite would be invisible AND stranded
   // (re-invite → 409 "use Resend", Resend → 404 "not your company"), so say so plainly instead of a success.
   const log = [new Date(now).toISOString()];
-  const recErr = (await record(admin, user, owner.id, profile, input.role, log)) && (await record(admin, user, owner.id, profile, input.role, log));
+  let recErr = await record(admin, user, owner.id, profile, input.role, log);
+  if (recErr) { await sleep(RETRY_DELAY_MS); recErr = await record(admin, user, owner.id, profile, input.role, log); }
   let m = await ensureMembership(sb, profile, user.id, input.role);
-  if (m.error) m = await ensureMembership(sb, profile, user.id, input.role);
+  if (m.error) { await sleep(RETRY_DELAY_MS); m = await ensureMembership(sb, profile, user.id, input.role); }
   if (m.error && recErr) {
     console.error('[invites] invite sent but not recorded or linked', 'owner', owner.id, 'user', user.id, m.error.code || '');
-    return { ok: true, user, linked: false, listed: false, warning: `The invite email went to ${input.email}, but it couldn’t be saved to your company, so it won’t show in the list below. Don’t send it again (that uses another email). Ask Sam to link it.` };
+    return { ok: true, user, linked: false, listed: false, warning: `The invite email went to ${input.email}, but it couldn’t be saved to your company, so it won’t show in the list below. Don’t send it again (that uses another email). Contact support to link it.` };
   }
   if (m.error) { console.error('[invites] link', m.error.code); return { ok: true, user, linked: false, warning: 'The invite was sent, but adding them to your company failed. Press Resend later to retry the link (it won’t email if they already accepted).' }; }
   return { ok: true, user, linked: true, role: m.role };

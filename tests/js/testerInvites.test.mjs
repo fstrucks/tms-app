@@ -40,7 +40,8 @@ function mockSb({ users = [], members = [], profiles = [{ id: PROFILE, owner_id:
 }
 const uc = (id, meta = {}) => () => ({ auth: { getUser: async () => ({ data: { user: { id, email: `${id}@fstrucks.com`, user_metadata: meta } }, error: null }) } });
 const req = (body, method = 'POST', url = 'https://tms-app-git-feat-tester-invites-fst-tms.vercel.app/api/account/invites') => new Request(url, { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-const call = async (sb, body, who = OWNER, extra = {}) => { const r = await POST(req(body), { deps: { sb, mkUserClient: uc(who), now: () => T0, ...extra } }); return { status: r.status, j: await r.json() }; };
+const slept = []; const noSleep = async (ms) => { slept.push(ms); };
+const call = async (sb, body, who = OWNER, extra = {}) => { const r = await POST(req(body), { deps: { sb, mkUserClient: uc(who), now: () => T0, sleep: noSleep, ...extra } }); return { status: r.status, j: await r.json() }; };
 
 test('owner-only: non-owners (members, strangers) get 403, no token 401; nothing is sent', async () => {
   const sb = mockSb({ members: [{ profile_id: PROFILE, user_id: 'disp-1', role: 'dispatcher' }] });
@@ -295,7 +296,8 @@ test('invite list: if BOTH writes fail it says plainly it won’t be listed (lis
   const sb = mockSb({ recordFailures: 9, memberInsertError: { code: '42501' } });
   const r = await call(sb, { email: 'taylor+invite3@fstrucks.com', role: 'driver' });
   assert.equal(r.status, 200); assert.equal(r.j.listed, false); assert.equal(r.j.linked, false);
-  assert.match(r.j.warning, /won’t show in the list below/); assert.match(r.j.warning, /Don’t send it again/);
+  assert.equal(r.j.warning, 'The invite email went to taylor+invite3@fstrucks.com, but it couldn’t be saved to your company, so it won’t show in the list below. Don’t send it again (that uses another email). Contact support to link it.');
+  assert.doesNotMatch(r.j.warning, /\b(Sam|Alex|Taylor|Dakota|Marc)\b/);
   assert.deepEqual(await listed(sb), [], 'reproduces the missing row; the message now matches it');
   assert.equal(sb.t.invites.length, 1, 'one email, no retry of the send');
 });
@@ -307,4 +309,18 @@ test('invite page: warnings are amber (not success green); a failed refresh keep
   assert.match(page, /setF\(\(x\) => \(\{ \.\.\.x, email: '', name: '' \}\)\); load\(\);/);
   const route = readFileSync('app/api/account/invites/route.js', 'utf8');
   assert.match(route, /export const dynamic = 'force-dynamic'/); assert.match(route, /'Cache-Control': 'no-store'/);
+});
+
+test('invite retries: ~300 ms pause before each retry (injected, so tests stay fast); none when writes succeed', async () => {
+  const { RETRY_DELAY_MS } = await import('../../app/lib/testerInvites.js');
+  assert.equal(RETRY_DELAY_MS, 300);
+  slept.length = 0; await call(mockSb(), { email: 'ok@fstrucks.com' }); assert.deepEqual(slept, []);
+  slept.length = 0; await call(mockSb({ recordFailures: 9, memberInsertError: { code: '42501' } }), { email: 'x@fstrucks.com' });
+  assert.deepEqual(slept, [300, 300], 'one pause before the record retry, one before the link retry');
+  slept.length = 0; await call(mockSb({ recordFailures: 1 }), { email: 'y@fstrucks.com' }); assert.deepEqual(slept, [300]);
+});
+test('invite: no user-facing message names a person or bot', () => {
+  const src = readFileSync('app/lib/testerInvites.js', 'utf8') + readFileSync('app/account/invite/page.js', 'utf8') + readFileSync('app/api/account/invites/route.js', 'utf8');
+  const strings = src.match(/(['`])(?:(?!\1).)*\1/g) || [];
+  assert.deepEqual(strings.filter((x) => /\b(Sam|Alex|Taylor|Dakota|Marc)\b/.test(x)), []);
 });
