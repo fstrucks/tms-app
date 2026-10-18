@@ -24,8 +24,11 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   const [again, setAgain] = useState(false); // "already sent, send again?" confirm showing
   const [warn, setWarn] = useState(null);
   const [att, setAtt] = useState({}); // PR #84: vault type → ticked
+  const [loadErr, setLoadErr] = useState(null); // GET failed: show it instead of hiding Send to broker
+  const [tries, setTries] = useState(0);
   useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
-  useEffect(() => { load().then((j) => { if (!j.error) { setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); setAtt((a) => vaultDefaults(j, a)); } }); }, [load, filledAt]);
+  useEffect(() => { load().then((j) => { if (j.error) return setLoadErr(j.error); setLoadErr(null); setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); setAtt((a) => vaultDefaults(j, a)); }, () => setLoadErr('Network problem.')); }, [load, filledAt, tries]);
+  if (!info && loadErr) return <section aria-label="Send to broker" data-testid="send-load-error" style={box}><h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker</h2><p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Couldn’t load the send options. {loadErr}</p><button style={btn} onClick={() => setTries((n) => n + 1)}>Retry</button></section>;
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);

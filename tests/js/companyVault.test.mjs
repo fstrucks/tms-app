@@ -324,3 +324,67 @@ test('migration 5B: additive, nullable, idempotent, not referenced as applied', 
   assert.match(m, /alter table public\.packet_sends add column if not exists attached_document_ids uuid\[\] null;/);
   assert.doesNotMatch(m.replace(/^--.*$/gm, ''), /\b(drop|delete|update|truncate|grant|policy)\b/i);
 });
+
+// ---------- #89 QA round 1 ----------
+test('QA c: unconfirmed suggestions (even expired) never block On file; ≤30 days is amber; order red > 30-day amber > notes > green', () => {
+  const coi = groupVault(DOCS()).find((x) => x.type === 'coi');
+  const expiredSuggestion = { owner_id: OWNER, coverage: 'cargo', limit_amount: 100000, expiry_date: '2026-01-01', confirmed: false };
+  const ok = vaultStatus(coi, { policies: [...POLICIES, expiredSuggestion], today: TODAY });
+  assert.equal(ok.level, 'ok'); assert.equal(ok.text, 'On file');
+  assert.match(ok.hint, /1 suggested policy .* still needs your review/);
+  const soon = vaultStatus(coi, { policies: [...POLICIES, expiredSuggestion], today: '2027-01-15' });
+  assert.equal(soon.level, 'warn'); assert.equal(soon.text, 'Expires within 30 days');
+  const soonWithNotes = vaultStatus(coi, { policies: [POLICIES[0], { ...POLICIES[1], limit_amount: null }], today: '2027-01-15' });
+  assert.equal(soonWithNotes.text, 'Expires within 30 days'); // not hidden behind "Check notes"
+  assert.equal(vaultStatus(coi, { policies: [POLICIES[0], { ...POLICIES[1], limit_amount: null }], today: TODAY }).text, 'Check notes');
+  assert.equal(vaultStatus(coi, { policies: [POLICIES[0], { ...POLICIES[1], expiry_date: '2026-10-01' }], today: TODAY }).level, 'bad'); // confirmed + expired
+  assert.equal(vaultStatus(coi, { policies: [POLICIES[0], expiredSuggestion], today: TODAY }).level, 'bad'); // cargo only suggested = missing
+});
+
+test('QA a: Insurance shows ONE Suggest button for the current COI; earlier versions collapsed with dates', () => {
+  const ui = read('app/company/CompanyInsurance.js');
+  assert.match(ui, /suggestBtn\(docs\[0\], `Suggest policies from \$\{docs\[0\]\.original_filename \|\| 'COI'\} \(current\)`\)/);
+  assert.match(ui, /showEarlier && docs\.slice\(1\)\.map/);
+  assert.match(ui, /data-testid="suggest-earlier-toggle"/);
+  assert.doesNotMatch(ui, /: docs\.map\(\(d\) => <button/);
+  // pre-vault #66 behaviour kept: Suggest saves rows as unconfirmed suggestions that need Confirm
+  const route = read('app/api/company/insurance/suggest/route.js');
+  assert.match(route, /saved with confirmed = false/);
+});
+
+test('QA b: Insurance changes refresh the vault COI row (and vault changes refresh the Insurance COI list)', () => {
+  const ins = read('app/company/CompanyInsurance.js');
+  assert.match(ins, /if \(ok\) setMsg\(ok\); notifyVault\(\); return r;/);
+  assert.match(ins, /window\.addEventListener\(VAULT_CHANGED_EVENT/);
+  const v = read('app/company/CompanyDocuments.js');
+  assert.match(v, /window\.addEventListener\(INSURANCE_CHANGED_EVENT, h\)/);
+  assert.match(v, /clearErrors\(\); changed\(\);/);
+});
+
+test('QA d: the file-type error clears on the next pick or the next successful action', () => {
+  const v = read('app/company/CompanyDocuments.js');
+  const up = v.slice(v.indexOf('async function upload'), v.indexOf('async function view'));
+  assert.match(up, /setMsg\(null\); clearErrors\(\);\s*const contentType/); // a new pick clears first
+  assert.match(v, /onScan=\{\(files\) => \{ clearErrors\(\);/);
+  assert.match(v.slice(v.indexOf('async function view'), v.indexOf('async function remove')), /clearErrors\(\);/);
+});
+
+test('QA e: row buttons stack full width below 640px', () => {
+  const css = read('app/globals.css');
+  assert.match(css, /@media \(max-width: 639\.98px\) \{\s*\.vault-actions \{ flex-direction: column; align-items: stretch; \}/);
+  assert.match(css, /\.vault-actions > \* \{ width: 100%;/);
+  assert.match(read('app/company/CompanyDocuments.js'), /className="vault-actions"/);
+});
+
+test('QA f: Send to broker GET still answers when the vault part fails; the panel shows an error instead of vanishing', async () => {
+  const db = fakeDb({ packet: pkt() });
+  db.storage.from = () => ({ list: async () => { throw new Error('storage down (FAKE)'); }, download: async () => { throw new Error('x'); } });
+  const real = db.from;
+  db.from = (t) => { if (t === 'insurance_policies') throw new Error('boom (FAKE)'); return real(t); };
+  const res = await SEND.GET(sreq(null, 'GET'), { params: { id: PID }, deps: { sb: db, mkUserClient: suc('owner'), env: ENV } });
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.canSend, true); assert.ok(Array.isArray(j.vault.options));
+  const ui = read('app/packets/PacketSendBroker.js');
+  assert.match(ui, /data-testid="send-load-error"/);
+});

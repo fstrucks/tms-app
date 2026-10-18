@@ -37,10 +37,13 @@ export async function GET(req, { params, deps } = {}) {
   const u = await monthlyUsage(sb, env);
   // PR #84: current vault files offered as extra attachments (owner/management only; W-9 / NOA are theirs to see).
   let vault = null;
+  // Never let the vault part break the draft: on any failure the panel still shows, with the packet PDF only.
   if (canSend(a.role)) {
-    const v = await vaultSendOptions(sb, a.packet.owner_id, { profile });
-    const sizes = a.packet.filled_path ? await fileSizes(sb, [a.packet.filled_path]) : {};
-    vault = { options: v.options, packetSize: sizes[a.packet.filled_path] ?? null, maxRaw: MAX_SEND_RAW_BYTES };
+    try {
+      const v = await vaultSendOptions(sb, a.packet.owner_id, { profile });
+      const sizes = a.packet.filled_path ? await fileSizes(sb, [a.packet.filled_path]) : {};
+      vault = { options: v.options || [], packetSize: sizes[a.packet.filled_path] ?? null, maxRaw: MAX_SEND_RAW_BYTES };
+    } catch (e) { console.error('[packets] send vault options', e?.message); vault = { options: [], packetSize: null, maxRaw: MAX_SEND_RAW_BYTES, error: true }; }
   }
   return json({
     vault,

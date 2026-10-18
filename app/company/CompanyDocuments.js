@@ -8,7 +8,7 @@ import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import UploadMenu from '../components/UploadMenu';
 import ConfirmButton from '../components/ui/ConfirmButton';
-import { checkVaultUpload, deleteCurrentPrompt, VAULT_TYPES } from '../lib/companyDocs';
+import { checkVaultUpload, deleteCurrentPrompt, VAULT_TYPES, INSURANCE_CHANGED_EVENT, VAULT_CHANGED_EVENT } from '../lib/companyDocs';
 
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -40,9 +40,14 @@ export default function CompanyDocuments() {
   const apply = useCallback((j) => { if (j.error) return setSt((x) => ({ ...x, loading: false, error: x.vault ? null : j.error })); setSt({ ...j, loading: false }); }, []);
   const reload = useCallback(() => api(URL_).then(apply), [apply]);
   useEffect(() => { reload(); }, [reload]);
+  // (#89 QA) The COI row follows Insurance: re-read after any policy change there, no page reload needed.
+  useEffect(() => { const h = () => reload(); window.addEventListener(INSURANCE_CHANGED_EVENT, h); return () => window.removeEventListener(INSURANCE_CHANGED_EVENT, h); }, [reload]);
+  const changed = () => { try { window.dispatchEvent(new Event(VAULT_CHANGED_EVENT)); } catch { /* not in a browser */ } };
+  // (#89 QA) An old error (e.g. "Use a PDF, JPEG or PNG file.") clears on the next pick or the next action that works.
+  const clearErrors = () => setErr({});
 
   async function upload(type, file) {
-    setMsg(null); setErr((e) => ({ ...e, [type]: null }));
+    setMsg(null); clearErrors();
     const contentType = guessType(file);
     const bad = checkVaultUpload({ size: file?.size, contentType });
     if (bad) return setErr((e) => ({ ...e, [type]: bad }));
@@ -55,18 +60,21 @@ export default function CompanyDocuments() {
       const done = await api(URL_, { method: 'POST', body: JSON.stringify({ action: 'finish', docType: type, path: start.path, filename: file.name }) });
       if (done.error) return setErr((e) => ({ ...e, [type]: done.error }));
       apply(done);
+      clearErrors(); changed();
       setMsg(`Saved ${file.name}.`);
     } finally { setBusy(null); }
   }
   async function view(id) {
     const r = await api(`${URL_}?view=${encodeURIComponent(id)}`);
     if (r.error || !r.url) return setMsg(r.error || 'Couldn’t open the file.');
+    clearErrors();
     window.open(r.url, '_blank', 'noopener');
   }
   async function remove(type, id) {
     const r = await api(`${URL_}?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     if (r.error) { setErr((e) => ({ ...e, [type]: r.error })); return false; }
     apply(r);
+    clearErrors(); changed();
     setMsg(r.warning || 'Deleted.');
     return true;
   }
@@ -98,17 +106,17 @@ export default function CompanyDocuments() {
                 {r.status.note && <p style={{ fontSize: 14, color: r.status.level === 'bad' ? '#b91c1c' : '#92400e', margin: '0.35rem 0 0' }}>{r.status.note} <a href="#company-insurance" style={{ color: '#2563eb' }}>Go to Insurance ↓</a></p>}
                 {r.type === 'coi' && !r.status.note && r.current && r.status.expiryText === 'Expiry not entered' && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>Enter the policy dates in <a href="#company-insurance" style={{ color: '#2563eb' }}>Insurance ↓</a> to track the expiry.</p>}
                 {r.status.hint && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{r.status.hint}</p>}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: '0.5rem', alignItems: 'flex-start' }}>
-                  {r.current && <button type="button" style={s.btn} onClick={() => view(r.current.id)} data-testid="vault-view">View</button>}
+                <div className="vault-actions" data-testid="vault-actions">
+                  {r.current && <button type="button" className="vault-btn" style={s.btn} onClick={() => view(r.current.id)} data-testid="vault-view">View</button>}
                   {st.canManage && (
-                    <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+                    <div className="vault-upload">
                       <UploadMenu label={busy === r.type ? 'Uploading…' : r.current ? 'Replace ▾' : 'Upload or scan ▾'} disabled={!!busy}
-                        onFile={(f) => upload(r.type, f)} onScan={(files) => setScan({ type: r.type, files })} />
+                        onFile={(f) => upload(r.type, f)} onScan={(files) => { clearErrors(); setScan({ type: r.type, files }); }} />
                     </div>
                   )}
-                  {st.canManage && r.current && (
+                  {st.canManage && r.current && (<div className="vault-delete">
                     <ConfirmButton label="Delete" prompt={deleteCurrentPrompt({ type: r.type, label: r.label, earlier: r.earlier }, fmtDate)} onConfirm={() => remove(r.type, r.current.id)} />
-                  )}
+                  </div>)}
                 </div>
                 {r.earlier?.length > 0 && (
                   <div style={{ marginTop: '0.5rem' }}>

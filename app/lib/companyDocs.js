@@ -1,7 +1,7 @@
 // Company Documents vault (PR #84; Marc's picks 1A, 2C, 3A, 4A, 5B, 6A, Oct 18 3:10 PM PT). Pure helpers, used by
 // the Company page card, /api/company/documents and the Send to broker route. No I/O here.
 import { coiGaps } from './coiGaps.js';
-import { companyGapNotes, suggestedExpiredNotes } from './coiRequest.js';
+import { companyGapNotes } from './coiRequest.js';
 
 // Always four rows, in this order.
 export const VAULT_TYPES = [
@@ -12,6 +12,10 @@ export const VAULT_TYPES = [
 ];
 export const VAULT_TYPE_IDS = VAULT_TYPES.map((t) => t.id);
 export const isVaultType = (t) => VAULT_TYPE_IDS.includes(t);
+// Fired by the Insurance card after any change; the vault card re-reads so the COI row updates without a reload.
+export const INSURANCE_CHANGED_EVENT = 'ph:insurance-changed';
+// Fired by the vault card after an upload or delete; the Insurance card re-reads its COI list.
+export const VAULT_CHANGED_EVENT = 'ph:vault-changed';
 export const vaultLabel = (t) => VAULT_TYPES.find((x) => x.id === t)?.label || t;
 
 // Pick 2C. Upload / replace / delete: owner + management (same as Insurance).
@@ -75,15 +79,23 @@ export function vaultStatus(group, { policies = [], profile = null, today } = {}
     if (group.type === 'w9' && day(group.current.created_at) && day(group.current.created_at) < addDays(t, -365)) hint = 'This W-9 is over a year old. Some brokers want a current-year W-9.';
     return { level: 'ok', text: 'On file', expiry: null, expiryText: 'No expiry', note: null, hint };
   }
+  // Status order (#89 QA): only CONFIRMED policies count. Unconfirmed AI suggestions (even expired ones) never change
+  // the pill; they show as a grey hint to review in Insurance.
+  //   1. red: a confirmed-policy problem (missing coverage, below minimum, expired, not yet effective)
+  //   2. amber "Expires within 30 days" (shown even when there are also amber notes)
+  //   3. amber "Check notes": limit or expiry not entered on a confirmed policy
+  //   4. green "On file"
   const exp = coiExpiry(policies);
-  const notes = [...companyGapNotes(coiGaps({ policies, profile, today: t })), ...(suggestedExpiredNotes(policies, t) || []).map((x) => (typeof x === 'string' ? { severity: 'warn', text: x } : x))];
+  const notes = companyGapNotes(coiGaps({ policies, profile, today: t })).filter((n) => n.code !== 'unconfirmed');
   const err = notes.find((n) => n.severity === 'error');
   const warn = notes.find((n) => n.severity === 'warn');
+  const pending = policies.filter((p) => p && !p.confirmed).length;
+  const hint = pending ? `${pending} suggested polic${pending === 1 ? 'y' : 'ies'} in Insurance still need${pending === 1 ? 's' : ''} your review. ${pending === 1 ? 'It doesn’t' : 'They don’t'} count until confirmed.` : null;
   const expiryText = exp ? `Expires ${exp}` : 'Expiry not entered';
-  if (err) return { level: 'bad', text: exp && exp < t ? 'Expired' : 'Check notes', expiry: exp, expiryText, note: err.text, hint: null };
-  if (exp && exp <= addDays(t, 30)) return { level: 'warn', text: 'Expires within 30 days', expiry: exp, expiryText, note: warn?.text || null, hint: null };
-  if (warn) return { level: 'warn', text: 'Check notes', expiry: exp, expiryText, note: warn.text, hint: null };
-  return { level: 'ok', text: 'On file', expiry: exp, expiryText, note: null, hint: null };
+  if (err) return { level: 'bad', text: exp && exp < t ? 'Expired' : 'Check notes', expiry: exp, expiryText, note: err.text, hint };
+  if (exp && exp <= addDays(t, 30)) return { level: 'warn', text: 'Expires within 30 days', expiry: exp, expiryText, note: warn?.text || null, hint };
+  if (warn) return { level: 'warn', text: 'Check notes', expiry: exp, expiryText, note: warn.text, hint };
+  return { level: 'ok', text: 'On file', expiry: exp, expiryText, note: null, hint };
 }
 
 const fileInfo = (d) => (d ? { id: d.id, original_filename: d.original_filename || null, created_at: d.created_at, load_id: d.load_id ?? null } : null);
