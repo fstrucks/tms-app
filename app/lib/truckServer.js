@@ -3,7 +3,7 @@
 // (dispatcher / management / driver, via company_members + packet_role) can't pass own-row RLS on the owner's
 // rows, so their requests use the service client and EVERY query is filtered by user_id = ownerId.
 // Drivers are read-only (canEditTruck), and the server enforces it.
-import { userClient, serviceClient, bearer, isAuthRejection } from './packetServer.js';
+import { userClient, serviceClient, bearer, isAuthRejection, checkUser, jwtClaims } from './packetServer.js';
 import { isRole } from './companyRoles.js';
 import { canEditTruck, weightChecks, latestWeight } from './truckFields.js';
 
@@ -13,25 +13,45 @@ export const SETUP = { error: 'The Truck tab needs a database update that hasn�
 export const READ_ONLY_MSG = 'Drivers can view the Truck tab but not change it.';
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const PGRST_JWT = new Set(['PGRST301', 'PGRST302', 'PGRST303']);
+const isJwtError = (e) => !!e && (PGRST_JWT.has(e.code) || isAuthRejection(e));
+const UNAVAILABLE = 'Couldn’t check your sign-in just now. Try again.';
+const EXPIRED = 'Your sign-in expired. Please sign in again.';
+
 // → { db, user, ownerId, role, canEdit } | { res }
-export async function truckCtx(req, { mkUserClient = userClient, sb: svc, mkService = serviceClient } = {}) {
+// Same Auth handling as the map and packet endpoints (PROD smoke after #86): one quick retry of the Auth check, and
+// when Supabase Auth still can't answer (5xx, rate limit, network) the token is verified by the database instead
+// (PostgREST checks the JWT signature on the company_profiles read and the packet_role call). Before this, a single
+// Auth hiccup right after the New load redirect showed a red "Couldn't check your sign-in" on the Scale tickets card.
+export async function truckCtx(req, { mkUserClient = userClient, sb: svc, mkService = serviceClient, authRetryMs } = {}) {
   const token = bearer(req);
   if (!token) return { res: json({ error: 'Sign in first.' }, 401) };
   const uc = mkUserClient(token);
-  const { data: u, error: uErr } = await uc.auth.getUser(token);
-  if (uErr && !isAuthRejection(uErr)) return { res: json({ error: 'Couldn’t check your sign-in just now. Try again.' }, 503) };
-  if (!u?.user) return { res: json({ error: 'Your sign-in expired. Please sign in again.' }, 401) };
+  const who = await checkUser(uc, token, authRetryMs != null ? { retryMs: authRetryMs } : {});
+  if (who.rejected) return { res: json({ error: EXPIRED, auth: true }, 401) };
+  let user = who.user || null;
+  if (who.unavailable) {
+    const c = jwtClaims(token);
+    if (!c?.sub) return { res: json({ error: UNAVAILABLE, retry: true }, 503) };
+    if ((c.exp && c.exp * 1000 < Date.now()) || (c.role && c.role !== 'authenticated')) return { res: json({ error: EXPIRED, auth: true }, 401) };
+    const e = who.error;
+    console.error('[truck] auth check unavailable, verifying via database', e?.status ?? '', e?.code ?? '', String(e?.message || e || '').slice(0, 160));
+    user = { id: c.sub, email: c.email || null, verified: 'database' };
+  }
   const { data: profiles, error } = await uc.from('company_profiles').select('*').limit(1);
+  if (isJwtError(error)) return { res: json({ error: EXPIRED, auth: true }, 401) };
   if (error && !isMissing(error)) return { res: json({ error: 'Could not load your company.' }, 500) };
-  const ownerId = profiles?.[0]?.owner_id || u.user.id;
-  const { data: role } = await uc.rpc('packet_role', { p_owner: ownerId });
+  const ownerId = profiles?.[0]?.owner_id || user.id;
+  const { data: role, error: rErr } = await uc.rpc('packet_role', { p_owner: ownerId });
+  if (isJwtError(rErr)) return { res: json({ error: EXPIRED, auth: true }, 401) };
+  if (rErr && who.unavailable) return { res: json({ error: UNAVAILABLE, retry: true }, 503) }; // database couldn't vouch either
   if (!isRole(role)) return { res: json({ error: 'Not allowed.' }, 403) };
   let db = uc;
-  if (ownerId !== u.user.id) {
+  if (ownerId !== user.id) {
     db = svc || mkService();
     if (!db) return { res: json({ error: 'The Truck tab isn’t set up for team members yet.' }, 503) };
   }
-  return { db, user: u.user, ownerId, role, canEdit: canEditTruck(role) };
+  return { db, user, ownerId, role, canEdit: canEditTruck(role) };
 }
 
 // Everything the Truck tab shows, for one truck. → data | { setupNeeded } | { error }
