@@ -1,4 +1,5 @@
 import './globals.css';
+import ReportBugButton from './components/ReportBugButton';
 import AppNav from './components/AppNav';
 import WelcomeScreen from './components/WelcomeScreen';
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <ReportBugButton />
         <AppNav />
         <div className="app-container">{children}</div>
         <WelcomeScreen />
