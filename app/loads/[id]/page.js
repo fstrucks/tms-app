@@ -20,6 +20,7 @@ import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { parseWeightLb } from '../../lib/loadWeight';
+import { isLoadId } from '../../lib/loadNew';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 
 // Loaded only when "Scan BOL/POD" is tapped.
@@ -61,6 +62,8 @@ export default function LoadDetailPage() {
   async function fetchAll() {
     setError(null);
     const ver = statusVer.current;
+    // Not a load id (e.g. an old link or a typo): say so instead of querying loads.id = '<text>' and waiting forever.
+    if (!isLoadId(id)) return setError({ retry: false, text: 'Load not found.' });
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
