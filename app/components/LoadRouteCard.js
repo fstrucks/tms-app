@@ -1,0 +1,74 @@
+'use client';
+// Top of the load page: map with pickup/delivery pins and the truck route, plus calculated route miles (PR B).
+// Reads the cached route (GET). Only when the server says it's stale (addresses changed / never computed) does it
+// ask for a compute (POST), so OpenRouteService isn't called on every page view. Leaflet is lazy-loaded.
+import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { fmtMiles } from '../lib/mileage';
+import { callMap, cardPhase } from '../lib/mapClient';
+
+const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: '#f1f5f9' }} /> });
+
+const MAX_STEPS = 8; // matches loadRouteServer.MAX_STEPS
+const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.5rem', marginBottom: '0.75rem' };
+const muted = { color: '#6b7280', fontSize: '0.85rem' };
+
+export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0, onLoadChange, onRouteFilled }) {
+  const [st, setSt] = useState({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const token = async (fresh) => {
+        if (fresh) { try { await supabase.auth.refreshSession(); } catch {} }
+        return (await supabase.auth.getSession())?.data?.session?.access_token || '';
+      };
+      const call = (method) => callMap({ url: `/api/loads/${loadId}/map`, method, getToken: token });
+      try {
+        let j = await call('GET');
+        const first = j;
+        const before = j.load;
+        if (!live) return;
+        setSt({ ...j, ...cardPhase(j) });
+        // One short step per POST (geocode a stop, or the route), so no request runs long (QA #83). Any failed or
+        // retry-later answer ends the loading state right away (QA #83 r2: never "Finding…" next to an error).
+        let steps = 0;
+        while (live && cardPhase(j, { steps, max: MAX_STEPS }).computing) {
+          steps += 1;
+          j = await call('POST');
+          if (!live) break;
+          if (j.state === 'failed') { const msg = j.message; setSt((cur) => (cur.stops ? { ...cur, computing: false, message: msg } : { ...j, computing: false })); break; }
+          setSt({ ...j, ...cardPhase(j, { steps, max: MAX_STEPS }) });
+        }
+        if (live && steps >= MAX_STEPS) setSt((cur) => ({ ...cur, computing: false }));
+        if (live && j.load) onLoadChange?.(j.load);
+        // A new route can fill Planned miles: re-fetch the page so Miles/RPM/list never show stale values.
+        // The server filled an empty Planned (from the rate con or the saved route; QA #83 r3), or a step changed miles.
+        const filledNow = j.plannedFilled || first.plannedFilled;
+        if (live && (filledNow || (steps && j.load && (j.load.total_miles !== before?.total_miles || j.load.calculated_miles !== before?.calculated_miles)))) onRouteFilled?.();
+      } catch { if (live) setSt({ state: 'failed', message: 'Couldn’t load the map.' }); }
+    })();
+    return () => { live = false; };
+  }, [loadId, stopsKey, recheck]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (st.state === 'loading') return null;
+  if (st.setupNeeded || st.state === 'setup' || st.state === 'no_key' || st.state === 'failed') {
+    return <p data-testid="route-map-note" style={{ ...muted, margin: '0 0 0.75rem' }}>{st.message}</p>;
+  }
+  if (st.state === 'too_few') return null;
+  const pinned = (st.stops || []).filter((s) => s.lat != null);
+  const cityOnly = pinned.some((s) => s.precision === 'city');
+  return (
+    <div style={card} data-testid="load-route-card">
+      {pinned.length > 0 ? <RouteMap stops={st.stops} geometry={st.geometry} />
+        : <div style={{ height: 120, borderRadius: 10, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', ...muted }}>{st.computing ? 'Finding the route…' : 'No map yet'}</div>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '0.4rem 0.25rem 0' }}>
+        <span style={{ fontSize: '0.9rem' }}>
+          {st.computing ? <span style={muted}>Finding the truck route…</span>
+            : st.calculated_miles ? <>Truck route <strong data-testid="route-miles">{fmtMiles(st.calculated_miles)}</strong></> : null}
+        </span>
+        {cityOnly && <span style={muted} data-testid="route-approx">Some pins are approximate (street not found; city or ZIP used)</span>}
+      </div>
+      {!st.computing && st.message && <p role="status" data-testid="route-message" style={{ color: '#92400e', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
+    </div>
+  );
+}

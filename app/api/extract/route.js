@@ -196,7 +196,7 @@ export async function POST(req) {
   const lm = await fillLinkedLoadMiles(userDb, { loadId: doc.load_id, userId: user.id, miles: extracted.total_miles });
   if (lm.error) console.error('[extract] load miles', lm.error.message || lm.error);
   await finish('success');
-  return json({ data: extracted, ...(lw.filled ? { loadWeightFilled: lw.weight } : {}), ...(lm.filled ? { loadMilesFilled: lm.miles } : {}) });
+  return json({ data: extracted, ...(doc.load_id ? { loadId: doc.load_id } : {}), ...(lw.filled ? { loadWeightFilled: lw.weight } : {}), ...(lm.filled ? { loadMilesFilled: lm.miles } : {}) });
 }
 
 // Text of the first pages of a digital PDF (empty for scans or on any error).
