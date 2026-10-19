@@ -1,9 +1,9 @@
 'use client';
 
 // /dispatch/boards: Load boards (phase 1). Buttons open each board's own site (config: lib/loadBoards.js), and
-// "Save a load from a board" creates a load with any number of stops (2–20). Phase 1 saving is owner-only: the
-// load is inserted under the owner's RLS, then public.dispatch_save_stops saves the stops. Management and
-// dispatchers see the form disabled until the dispatcher create-load function exists. No board APIs yet.
+// "Save a load from a board" creates a load with any number of stops (2–20). The owner's load is inserted under the
+// owner's RLS, then public.dispatch_save_stops saves the stops. Management and dispatchers save through
+// public.dispatch_create_load (migration 20261019000100): one call, the load goes on the OWNER's account. No board APIs yet.
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -13,7 +13,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import { fmtMoney } from '../../lib/loads';
 import { pickupStop, deliveryStop } from '../../lib/loadTabs';
 import { companyOwnerStatus } from '../../lib/accountOwner';
-import { fetchDispatchContext, fetchDispatchLoads, BOARDS_LOAD_ERROR, formToStops, blankStop, saveStops } from '../../lib/dispatch';
+import { fetchDispatchContext, fetchDispatchLoads, BOARDS_LOAD_ERROR, formToStops, blankStop, saveStops, createLoad } from '../../lib/dispatch';
 import { LOAD_BOARDS, OTHER_BOARD, EMPTY_BOARD_FORM, buildBoardLoad, createBoardLoad, boardLoads, showDispatchNav } from '../../lib/loadBoards';
 import DispatchHeaderLinks from '../DispatchHeaderLinks';
 import { Loading, LoadError } from '../../components/DataState';
@@ -97,7 +97,7 @@ export default function LoadBoardsPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k) => (v) => { setForm((f) => ({ ...f, [k]: v })); setMsg(null); };
-  const canSave = state.role === 'owner';
+  const canSave = state.role === 'owner' || ((state.role === 'management' || state.role === 'dispatcher') && !!state.company?.owner_id);
 
   async function save(e) {
     e.preventDefault();
@@ -108,9 +108,11 @@ export default function LoadBoardsPage() {
     if (!b.load || !st.payload) return setMsg({ err: true, text: 'Check the highlighted fields.' });
     setSaving(true); setMsg(null);
     try {
-      const r = await createBoardLoad(supabase, { load: b.load, stops: st.payload }, { saveStops });
+      const r = state.role === 'owner'
+        ? await createBoardLoad(supabase, { load: b.load, stops: st.payload }, { saveStops })
+        : await createLoad(supabase, state.company.owner_id, b.load, st.payload);
       if (!r.ok) { console.error('[boards] save', r.cause); return setMsg({ err: true, text: r.error }); }
-      router.push(`/loads/${r.id}`);
+      router.push(loadHref(r.id));
     } finally { setSaving(false); }
   }
 
@@ -141,7 +143,7 @@ export default function LoadBoardsPage() {
             <form onSubmit={save} noValidate data-testid="board-form">
               <section style={s.card} aria-labelledby="boards-save">
                 <h2 id="boards-save" style={{ fontSize: '1.05rem', marginTop: 0 }}>Save a load from a board</h2>
-                {!canSave && <p style={s.note} data-testid="boards-disabled-note">For now only the company owner can save loads from a board. You can open the boards above and edit the owner’s loads in Dispatch.</p>}
+                {state.role !== 'owner' && <p style={s.note} data-testid="boards-owner-note">The load is saved to the owner’s account, so the owner sees it in Loads.</p>}
                 <fieldset disabled={!canSave} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                   <div style={s.grid2}>
                     <label style={s.label}>Load board *

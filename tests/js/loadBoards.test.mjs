@@ -80,11 +80,14 @@ test('list: only loads with a board line, newest first', () => {
   assert.deepEqual(out.map((l) => [l.id, l.board]), [[3, 'Truckstop'], [2, 'DAT One']]);
 });
 
-test('page: owner-only saving, disabled form + note for management/dispatchers, header links, shared stops editor', () => {
+test('page: owner, management and dispatchers can save (owner via RLS insert, staff via dispatch_create_load), header links, shared stops editor', () => {
   const page = read('app/dispatch/boards/page.js');
-  assert.match(page, /const canSave = state\.role === 'owner';/);
+  assert.match(page, /const canSave = state\.role === 'owner' \|\| \(\(state\.role === 'management' \|\| state\.role === 'dispatcher'\) && !!state\.company\?\.owner_id\);/);
   assert.match(page, /<fieldset disabled=\{!canSave\}/);
-  assert.match(page, /data-testid="boards-disabled-note"/);
+  assert.doesNotMatch(page, /boards-disabled-note/);
+  assert.match(page, /data-testid="boards-owner-note"/);
+  assert.match(page, /createLoad\(supabase, state\.company\.owner_id, b\.load, st\.payload\)/);
+  assert.match(page, /router\.push\(loadHref\(r\.id\)\)/);
   assert.match(page, /disabled=\{!canSave \|\| saving\}/);
   assert.match(page, /<StopsEditor stops=\{stops\}[^\n]*disabled=\{!canSave\} testId="board-stops"/);
   assert.match(page, /target="_blank" rel="noopener noreferrer"/);

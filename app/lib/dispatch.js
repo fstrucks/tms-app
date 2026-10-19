@@ -104,7 +104,8 @@ export function formToPatch(form, original) {
   if (miles !== num(o.total_miles)) patch.total_miles = miles;
   if (weight !== num(o.weight)) patch.weight = weight === null ? null : Math.round(weight);
   if ((f.assigned_driver_user_id || '') !== (o.assigned_driver_user_id || '')) patch.assigned_driver_user_id = f.assigned_driver_user_id || null;
-  if (f.show_rate_to_driver !== o.show_rate_to_driver) patch.show_rate_to_driver = f.show_rate_to_driver;
+  const show = !!f.show_rate_to_driver && !!f.assigned_driver_user_id; // no driver → show rate is off (checkbox disabled)
+  if (show !== !!o.show_rate_to_driver) patch.show_rate_to_driver = show;
   return { errors, patch };
 }
 
@@ -266,4 +267,36 @@ export async function resolveDispatchAccess(supabase, opts) {
   if (!mine.definite) return { status: 'unknown', error: new Error('roles unknown') };
   if ((await sessionUid(supabase)) !== uid) return { status: 'unknown', error: new Error('session changed') }; // answer may be for someone else
   return { status: 'not-member', roles: mine.roles };
+}
+
+// ---------- New load (management / dispatcher; migration 20261019000100) ----------
+// public.dispatch_create_load(p_owner, p_load, p_stops) creates the load under the company OWNER's account
+// (loads.user_id = owner) with its stops in one transaction, and returns the new id. The database checks the role.
+ERRORS.not_signed_in = 'Your session has expired. Please sign in again.';
+export const CREATE_SETUP_MSG = 'Creating loads here needs a database update that hasn’t been applied yet.';
+export const NEW_LOAD_KEYS = ['status', ...LOAD_TEXT_FIELDS, 'rate', 'total_miles', 'weight', 'assigned_driver_user_id', 'show_rate_to_driver'];
+
+// New-load form → { errors, load } (same checks as the edit form; empty fields are left out).
+export function formToNewLoad(form) {
+  const { errors: e0, patch } = formToPatch({ ...loadToForm(), ...(form || {}) }, {});
+  const errors = { ...(e0 || {}) };
+  // Broker is required on the dispatcher New load form (UI rule, same as Load boards; the RPC and /loads/new allow none).
+  if (!String((form && form.broker_name) || '').trim()) errors.broker_name = 'Enter the broker.';
+  if (!patch || errors.broker_name) return { errors, load: null };
+  const load = { status: (form && form.status) || 'booked' };
+  for (const k of NEW_LOAD_KEYS) if (k in patch && patch[k] !== null && patch[k] !== '') load[k] = patch[k];
+  if (!load.assigned_driver_user_id) load.show_rate_to_driver = false;
+  return { errors, load };
+}
+
+// → { ok, id } | { ok: false, error, setup? }
+export async function createLoad(supabase, ownerId, load, stops) {
+  const clean = Object.fromEntries(Object.entries(load || {}).filter(([k]) => NEW_LOAD_KEYS.includes(k)));
+  const { data, error } = await supabase.rpc('dispatch_create_load', { p_owner: ownerId, p_load: clean, p_stops: stops });
+  if (error) {
+    if (isMissingFunction(error)) return { ok: false, setup: true, error: CREATE_SETUP_MSG, cause: error };
+    return { ok: false, error: errorText(error, 'Couldn’t save the load. Please try again.'), cause: error };
+  }
+  const id = (data && data.dispatch_create_load) || data;
+  return id ? { ok: true, id: String(id) } : { ok: false, error: 'Couldn’t save the load. Please try again.' };
 }

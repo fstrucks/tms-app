@@ -211,11 +211,11 @@ export default function DispatchLoadPage() {
                   </select>
                 )}
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.show_rate_to_driver} onChange={(e) => set('show_rate_to_driver')(e.target.checked)} style={{ width: 22, height: 22 }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: form.assigned_driver_user_id ? 'pointer' : 'default' }}>
+                <input type="checkbox" checked={form.show_rate_to_driver && !!form.assigned_driver_user_id} disabled={!form.assigned_driver_user_id} onChange={(e) => set('show_rate_to_driver')(e.target.checked)} style={{ width: 22, height: 22 }} />
                 <span>Show rate to driver</span>
               </label>
-              <p data-testid="driver-rate-help" style={{ ...s.muted, margin: 0 }}>{driverRateHelp(form.show_rate_to_driver, load.show_rate_to_driver === true)}</p>
+              <p data-testid="driver-rate-help" style={{ ...s.muted, margin: 0 }}>{form.assigned_driver_user_id ? driverRateHelp(form.show_rate_to_driver, load.show_rate_to_driver === true) : 'Pick a driver to choose whether they see the rate.'}</p>
             </div>
 
             <StopsEditor stops={stops} setStops={setStops} stopErrors={stopErrors} browserTz={browserTz} onEdit={() => setMsg(null)} />
