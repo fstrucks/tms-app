@@ -12,9 +12,9 @@ const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchPar
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem' },
-  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #d1d5db' },
-  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--border)' },
+  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.75rem' },
 };
 
 export default function LoginPage() {
@@ -82,15 +82,15 @@ export default function LoginPage() {
 
   return (
     <main style={s.main}>
-      <p><Link href="/" style={{ color: '#2563eb' }}>← Home</Link></p>
+      <p><Link href="/" style={{ color: 'var(--primary)' }}>← Home</Link></p>
       <h1 style={{ fontSize: '1.5rem' }}>Sign in to PowerHaul TMS</h1>
-      {supabaseConfigError && <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>}
+      {supabaseConfigError && <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>}
       <div style={s.card}>
         {sent ? (
           <>
-            <p style={{ color: '#15803d', fontWeight: 600 }}>Check your email</p>
+            <p style={{ color: 'var(--success)', fontWeight: 600 }}>Check your email</p>
             <p>We sent a sign-in link to <strong>{email}</strong>. Open the link on this device (in this browser) to finish signing in.</p>
-            <button style={{ ...s.btn, background: '#6b7280' }} onClick={() => setSent(false)}>Use a different email</button>
+            <button style={{ ...s.btn, background: 'var(--text-muted)' }} onClick={() => setSent(false)}>Use a different email</button>
           </>
         ) : (
           // noValidate: our own plain message ("Enter your email and password.") instead of the browser's tip,
@@ -106,7 +106,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)} onInput={(e) => setPassword(e.currentTarget.value)} style={s.input} />
               </>
             )}
-            <p id="login-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? undefined : 0 }}>{error || (nojs ? NOJS_MSG : '')}</p>
+            <p id="login-error" role="alert" aria-live="assertive" style={{ color: 'var(--danger)', margin: error ? undefined : 0 }}>{error || (nojs ? NOJS_MSG : '')}</p>
             {/* Never disabled for empty-looking fields: autofill can fill them without React noticing. Checked on submit. */}
             <button type="submit" disabled={!hydrated || submitDisabled(sending)} style={{ ...s.btn, opacity: !hydrated || submitDisabled(sending) ? 0.6 : 1 }}>
               {sending ? (usePw ? 'Signing in…' : 'Sending…') : (usePw ? 'Sign in' : 'Send magic link')}
@@ -114,11 +114,11 @@ export default function LoginPage() {
             {usePw && (
               <p style={{ margin: '0.5rem 0 0' }}>
                 <Link href={'/forgot-password' + (email ? '?email=' + encodeURIComponent(email) : '')}
-                  style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Forgot password?</Link>
+                  style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Forgot password?</Link>
               </p>
             )}
             <button type="button" onClick={() => { setUsePw(!usePw); setError(null); }}
-              style={{ background: 'none', border: 'none', color: '#2563eb', marginTop: '0.75rem', padding: '0.5rem 0', minHeight: 44 }}>
+              style={{ background: 'none', border: 'none', color: 'var(--primary)', marginTop: '0.75rem', padding: '0.5rem 0', minHeight: 44 }}>
               {usePw ? 'Email me a sign-in link instead' : 'Sign in with a password instead'}
             </button>
           </form>

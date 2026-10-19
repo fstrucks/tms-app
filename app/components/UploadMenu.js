@@ -28,9 +28,9 @@ export const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, padd
 
 const st = {
   wrap: { position: 'relative' },
-  trigger: { width: '100%', minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', touchAction: 'manipulation' },
-  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 1000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem', margin: 0, listStyle: 'none' },
-  item: { display: 'block', boxSizing: 'border-box', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', touchAction: 'manipulation' },
+  trigger: { width: '100%', minHeight: 48, padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--primary)', background: 'var(--info-bg)', color: 'var(--primary)', touchAction: 'manipulation' },
+  menu: { position: 'absolute', left: 0, right: 0, top: 'calc(100% + 4px)', zIndex: 1000, background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, boxShadow: '0 8px 24px var(--shadow)', padding: '0.25rem', margin: 0, listStyle: 'none' },
+  item: { display: 'block', boxSizing: 'border-box', cursor: 'pointer', WebkitTapHighlightColor: 'transparent', width: '100%', textAlign: 'left', minHeight: 48, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', touchAction: 'manipulation' },
 };
 
 export default function UploadMenu({ onFile, onScan, disabled = false, label = 'Upload' }) {

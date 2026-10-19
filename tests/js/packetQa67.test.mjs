@@ -22,7 +22,7 @@ test('unnamed fields: "Name N fields" (amber, To do) beats Ready / Needs signatu
   const d = packetDisplayStatus({ status: 'review' }, sum);
   assert.deepEqual([d.key, d.label], ['needs_names', 'Name 3 fields']);
   assert.match(d.color, /^#[0-9a-f]{6}$/);
-  assert.equal(DISPLAY.needs_names.color, '#d97706'); // amber, same as the badge
+  assert.equal(DISPLAY.needs_names.color, '#c2410c'); // amber, same as the badge
   assert.equal(namesLabel(1), 'Name 1 field');
   // Beats Needs signature and Ready to fill out.
   assert.equal(packetDisplayStatus({ status: 'review' }, { ...sum, sigTotal: 1, sigSigned: 0 }).key, 'needs_names');

@@ -21,18 +21,18 @@ import {
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
-  label: { display: 'block', fontSize: '0.85rem', color: '#374151' },
-  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', marginTop: 4, background: '#fff', color: '#111827' },
-  err: { color: '#b91c1c', fontSize: '0.8rem', margin: '0.2rem 0 0' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  link: { color: '#2563eb' },
-  small: { minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, cursor: 'pointer' },
-  pri: { minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: 16, cursor: 'pointer' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)' },
+  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', marginTop: 4, background: 'var(--surface)', color: 'var(--text)' },
+  err: { color: 'var(--danger)', fontSize: '0.8rem', margin: '0.2rem 0 0' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  link: { color: 'var(--primary)' },
+  small: { minHeight: 36, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14, cursor: 'pointer' },
+  pri: { minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, fontSize: 16, cursor: 'pointer' },
 };
 
 function Field({ label, value, onChange, error, type = 'text', inputMode, placeholder, required, textarea }) {
-  const style = { ...s.input, ...(error ? { borderColor: '#b91c1c' } : null), ...(textarea ? { minHeight: 96, padding: '8px 10px', resize: 'vertical', fontFamily: 'inherit' } : null) };
+  const style = { ...s.input, ...(error ? { borderColor: 'var(--danger)' } : null), ...(textarea ? { minHeight: 96, padding: '8px 10px', resize: 'vertical', fontFamily: 'inherit' } : null) };
   return (
     <label style={s.label}>
       {label}{required ? ' *' : ''}
@@ -145,21 +145,21 @@ export default function DispatchLoadPage() {
   return (
     <main style={s.main}>
       <p style={{ margin: '0 0 0.25rem' }}><Link href="/dispatch" style={{ ...s.link, display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Dispatch</Link></p>
-      {supabaseConfigError ? <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>
+      {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to view this load.</p>
         : state.status === 'loading' ? <Loading label="Loading load…" />
         : state.status === 'error' ? <LoadError message={state.text} onRetry={fetchLoad} />
         : state.status === 'setup' ? <p style={s.muted}>{SETUP_MSG}</p>
         : state.status === 'not-member' ? <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
-        : state.status === 'missing' ? <p style={{ color: '#b91c1c' }}>Load not found.</p>
+        : state.status === 'missing' ? <p style={{ color: 'var(--danger)' }}>Load not found.</p>
         : (
           <form onSubmit={save} noValidate data-testid="dispatch-load-form">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>{load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}</h1>
               <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <StatusBadge status={load.status} />
-                {load.has_rate_con && <button type="button" onClick={openRateCon} disabled={rcBusy} style={{ ...s.small, minHeight: 44, borderColor: '#2563eb', color: '#1d4ed8', fontWeight: 600 }}>📄 Rate con</button>}
+                {load.has_rate_con && <button type="button" onClick={openRateCon} disabled={rcBusy} style={{ ...s.small, minHeight: 44, borderColor: 'var(--primary)', color: 'var(--primary)', fontWeight: 600 }}>📄 Rate con</button>}
               </span>
             </div>
             <p style={{ ...s.muted, marginTop: 0 }}>Rate {fmtMoney(load.rate)}{load.rate_per_mile != null ? ` · ${fmtMoney(load.rate_per_mile)}/mi` : ''}</p>
@@ -184,7 +184,7 @@ export default function DispatchLoadPage() {
                 <Field label="Instructions" textarea value={form.special_instructions} onChange={set('special_instructions')} error={errors.special_instructions} />
                 <Field label="Notes (the assigned driver sees these)" textarea value={form.notes} onChange={set('notes')} error={errors.notes} />
                 {notesMayShowPay(form.notes) && !form.show_rate_to_driver && (
-                  <p role="status" data-testid="notes-pay-warning" style={{ margin: 0, padding: '0.5rem 0.7rem', borderRadius: 8, background: '#fef3c7', color: '#92400e', fontSize: '0.85rem' }}>
+                  <p role="status" data-testid="notes-pay-warning" style={{ margin: 0, padding: '0.5rem 0.7rem', borderRadius: 8, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: '0.85rem' }}>
                     These notes look like they mention pay. The driver can read notes even with “Show rate to driver” off, so remove any amounts you don’t want him to see.
                   </p>
                 )}
@@ -195,7 +195,7 @@ export default function DispatchLoadPage() {
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Driver</h2>
               <label style={s.label}>Assigned driver
                 {driverOpts.loading ? (
-                  <select disabled aria-busy="true" data-testid="driver-picker-loading" value="" style={{ ...s.input, color: '#6b7280' }}><option value="">Loading drivers…</option></select>
+                  <select disabled aria-busy="true" data-testid="driver-picker-loading" value="" style={{ ...s.input, color: 'var(--text-muted)' }}><option value="">Loading drivers…</option></select>
                 ) : (
                   <select value={form.assigned_driver_user_id} onChange={(e) => set('assigned_driver_user_id')(e.target.value)} style={s.input}>
                     <option value="">Not assigned</option>
@@ -216,7 +216,7 @@ export default function DispatchLoadPage() {
               {stops.map((x, i) => {
                 const e = stopErrors[x.key] || {};
                 return (
-                  <fieldset key={x.key} data-testid="dispatch-stop" style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '0.6rem 0.7rem', margin: '0 0 0.6rem' }}>
+                  <fieldset key={x.key} data-testid="dispatch-stop" style={{ border: '1px solid var(--divider)', borderRadius: 10, padding: '0.6rem 0.7rem', margin: '0 0 0.6rem' }}>
                     <legend style={{ fontWeight: 600, padding: '0 4px' }}>Stop {i + 1}</legend>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
                       <select aria-label={`Stop ${i + 1} type`} value={x.stop_type} onChange={(ev) => setStop(x.key, 'stop_type')(ev.target.value)} style={{ ...s.small, minHeight: 36 }}>
@@ -224,7 +224,7 @@ export default function DispatchLoadPage() {
                       </select>
                       <button type="button" data-compact onClick={() => setStops((l) => moveStop(l, i, -1))} disabled={i === 0} style={s.small} aria-label={`Move stop ${i + 1} up`}>↑</button>
                       <button type="button" data-compact onClick={() => setStops((l) => moveStop(l, i, 1))} disabled={i === stops.length - 1} style={s.small} aria-label={`Move stop ${i + 1} down`}>↓</button>
-                      <button type="button" data-compact onClick={() => setStops((l) => l.filter((y) => y.key !== x.key))} disabled={stops.length <= 2} style={{ ...s.small, color: '#b91c1c', borderColor: '#fecaca' }}>Remove</button>
+                      <button type="button" data-compact onClick={() => setStops((l) => l.filter((y) => y.key !== x.key))} disabled={stops.length <= 2} style={{ ...s.small, color: 'var(--danger)', borderColor: 'var(--danger-border)' }}>Remove</button>
                     </div>
                     <div className="dispatch-stop-grid">
                       <Field label="Company" value={x.company_name} onChange={setStop(x.key, 'company_name')} />
@@ -247,8 +247,8 @@ export default function DispatchLoadPage() {
               </div>
             </div>
 
-            {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? '#b91c1c' : '#15803d' }}>{msg.text}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + 8px)', background: '#fff', padding: '0.5rem 0' }}>
+            {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)' }}>{msg.text}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + 8px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
               <button type="button" onClick={() => apply(load)} disabled={saving} style={{ ...s.small, minHeight: 44 }}>Discard changes</button>
               <button type="submit" disabled={saving} style={s.pri}>{saving ? 'Saving…' : 'Save changes'}</button>
             </div>

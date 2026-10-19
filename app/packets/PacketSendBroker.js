@@ -7,11 +7,11 @@ import { capLabel } from '../lib/sendCap';
 import { checkSendSize, fmtMB } from '../lib/companyDocs';
 import { newSendKey as newKey, attemptOutcome, outsideRecipients, primaryButtonStyle, autoCcFor } from '../lib/packetSendClient';
 
-const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' };
-const primary = { ...btn, border: 0, background: '#2563eb', color: '#fff', fontWeight: 600, width: '100%' };
-const input = { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' };
+const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 15, touchAction: 'manipulation' };
+const primary = { ...btn, border: 0, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, width: '100%' };
+const input = { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid var(--border)', boxSizing: 'border-box' };
 const lab = { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' };
-const box = { border: '1px solid #d1d5db', borderRadius: 12, padding: '0.75rem', margin: '1rem auto', maxWidth: 536, fontFamily: 'system-ui', background: '#fff' };
+const box = { border: '1px solid var(--border)', borderRadius: 12, padding: '0.75rem', margin: '1rem auto', maxWidth: 536, fontFamily: 'system-ui', background: 'var(--surface)' };
 
 export default function PacketSendBroker({ load, send, filledAt, onStepChange }) {
   const [info, setInfo] = useState(null);
@@ -28,7 +28,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   const [tries, setTries] = useState(0);
   useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
   useEffect(() => { load().then((j) => { if (j.error) return setLoadErr(j.error); setLoadErr(null); setInfo(j); setD((x) => ({ ...x, subject: x.subject || j.draft.subject, body: x.body || j.draft.body })); setAtt((a) => vaultDefaults(j, a)); }, () => setLoadErr('Network problem.')); }, [load, filledAt, tries]);
-  if (!info && loadErr) return <section aria-label="Send to broker" data-testid="send-load-error" style={box}><h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker</h2><p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Couldn’t load the send options. {loadErr}</p><button style={btn} onClick={() => setTries((n) => n + 1)}>Retry</button></section>;
+  if (!info && loadErr) return <section aria-label="Send to broker" data-testid="send-load-error" style={box}><h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker</h2><p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>Couldn’t load the send options. {loadErr}</p><button style={btn} onClick={() => setTries((n) => n + 1)}>Retry</button></section>;
   if (!info || (!info.canSend && !info.sends?.length)) return null;
   const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const outside = outsideRecipients(list(d.to).join(','), list(d.cc).join(','), info.allowedDomains);
@@ -70,15 +70,15 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   };
   return (
     <section aria-label="Send to broker" style={box}>
-      <h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker {info.sends?.length > 0 && <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: '#059669' }}>Sent</span>}</h2>
+      <h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker {info.sends?.length > 0 && <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: 'var(--on-success)', background: 'var(--success-solid)' }}>Sent</span>}</h2>
       {info.sends?.length > 0 && <ul style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>
         {info.sends.map((s) => <li key={s.id || s.sent_at} data-testid="send-row">{s.confirmed || s.postmark_message_id ? 'Sent' : 'Not confirmed:'} {formatSentAt(s.sent_at)} to {(s.to || []).join(', ')}{s.cc?.length ? ` (cc ${s.cc.join(', ')})` : ''}</li>)}
       </ul>}
-      {info.setupNeeded && <p style={{ fontSize: 14, color: '#92400e' }}>Sending needs a database update that hasn’t been applied yet.</p>}
-      {!info.canSend ? null : !info.filled ? <p style={{ fontSize: 14, color: '#6b7280' }}>Fill the packet first, then you can email it to the broker.</p>
+      {info.setupNeeded && <p style={{ fontSize: 14, color: 'var(--warning)' }}>Sending needs a database update that hasn’t been applied yet.</p>}
+      {!info.canSend ? null : !info.filled ? <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Fill the packet first, then you can email it to the broker.</p>
         : step === 'closed' || step === 'done' ? <>
-          {step === 'done' && <p role="status" style={{ fontSize: 14, color: '#065f46' }}>Sent. Broker replies go to {info.replyTo}.</p>}
-          {step === 'done' && warn && <p role="alert" style={{ fontSize: 14, color: '#92400e' }}>{warn}</p>}
+          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>Sent. Broker replies go to {info.replyTo}.</p>}
+          {step === 'done' && warn && <p role="alert" style={{ fontSize: 14, color: 'var(--warning)' }}>{warn}</p>}
           <button style={primary} onClick={() => { setStep('write'); setErr(null); setWarn(null); }}>{info.sends?.length ? 'Send again…' : 'Send to broker…'}</button>
         </>
         : step === 'write' ? <form onSubmit={(e) => { e.preventDefault(); setStep('review'); setOk(false); setAgain(false); setKey(null); }}>
@@ -90,19 +90,19 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
           <input id="ps-subj" style={input} required maxLength={200} value={d.subject} onChange={(e) => setD({ ...d, subject: e.target.value })} />
           <label style={lab} htmlFor="ps-body">Message</label>
           <textarea id="ps-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD({ ...d, body: e.target.value })} />
-          {copyTo && <p data-testid="send-copy" style={{ fontSize: 13, color: '#6b7280', margin: '0.4rem 0 0' }}>A copy goes to {copyTo}.</p>}
-          {vaultOpts.length > 0 ? <fieldset data-testid="send-attachments" style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.6rem', margin: '0.6rem 0' }}>
+          {copyTo && <p data-testid="send-copy" style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0.4rem 0 0' }}>A copy goes to {copyTo}.</p>}
+          {vaultOpts.length > 0 ? <fieldset data-testid="send-attachments" style={{ border: '1px solid var(--divider)', borderRadius: 8, padding: '0.5rem 0.6rem', margin: '0.6rem 0' }}>
             <legend style={{ fontSize: 13, fontWeight: 600, padding: '0 4px' }}>Attachments</legend>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40 }}><input type="checkbox" checked disabled style={{ width: 20, height: 20 }} /> {info.filename}{info.vault?.packetSize != null ? ` (${fmtMB(info.vault.packetSize)})` : ''}</label>
             {vaultOpts.map((o) => o.available
               ? <div key={o.type}><label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40 }}>
                   <input type="checkbox" data-testid={`attach-${o.type}`} checked={!!att[o.type]} onChange={(e) => setAtt((a) => ({ ...a, [o.type]: e.target.checked }))} style={{ width: 20, height: 20 }} />
-                  {o.label} <span style={{ color: '#6b7280' }}>{o.filename}{o.size != null ? ` (${fmtMB(o.size)})` : ''}</span></label>
-                  {o.warning && <p role="note" style={{ fontSize: 13, color: '#92400e', margin: '0 0 0.3rem 28px' }}>{o.warning}</p>}</div>
-              : <p key={o.type} style={{ fontSize: 13, color: '#9ca3af', margin: '0.2rem 0' }}>{o.label}: not on file. <a href="/company#company-documents" style={{ color: '#2563eb' }}>Add it</a></p>)}
-            <p data-testid="send-size" style={{ fontSize: 13, margin: '0.3rem 0 0', color: size.ok ? '#6b7280' : '#b91c1c' }}>{sizeKnown ? `Total ${fmtMB(size.raw)} of 7.5 MB.` : 'Total size is checked when you send (limit 7.5 MB).'}{!size.ok ? ' Too large: untick a file.' : ''}</p>
-          </fieldset> : <p style={{ fontSize: 13, color: '#6b7280' }}>Attachment: {info.filename}</p>}
-          {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
+                  {o.label} <span style={{ color: 'var(--text-muted)' }}>{o.filename}{o.size != null ? ` (${fmtMB(o.size)})` : ''}</span></label>
+                  {o.warning && <p role="note" style={{ fontSize: 13, color: 'var(--warning)', margin: '0 0 0.3rem 28px' }}>{o.warning}</p>}</div>
+              : <p key={o.type} style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0.2rem 0' }}>{o.label}: not on file. <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Add it</a></p>)}
+            <p data-testid="send-size" style={{ fontSize: 13, margin: '0.3rem 0 0', color: size.ok ? 'var(--text-muted)' : 'var(--danger)' }}>{sizeKnown ? `Total ${fmtMB(size.raw)} of 7.5 MB.` : 'Total size is checked when you send (limit 7.5 MB).'}{!size.ok ? ' Too large: untick a file.' : ''}</p>
+          </fieldset> : <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Attachment: {info.filename}</p>}
+          {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
             <button type="submit" style={primaryButtonStyle({ ...primary, flex: 2 }, outside.length > 0)} disabled={outside.length > 0} aria-disabled={outside.length > 0}>Review email</button>
@@ -117,21 +117,21 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
             <dt style={{ fontWeight: 600 }}>{attachNames.length > 1 ? 'Attachments' : 'Attachment'}</dt><dd data-testid="send-review-attachments" style={{ margin: '0 0 0.3rem' }}>{info.filename}{filledAt ? ` (filled ${formatPacketDate(filledAt)})` : ''}{ticked.length ? `, ${ticked.map((o) => o.filename).join(', ')}` : ''}</dd>
           </dl>
-          {info.sendCap && <p data-testid="send-cap" style={{ fontSize: 13, color: info.sendCap.used >= info.sendCap.cap ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
+          {info.sendCap && <p data-testid="send-cap" style={{ fontSize: 13, color: info.sendCap.used >= info.sendCap.cap ? 'var(--danger)' : 'var(--text-muted)', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
+          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, margin: '0.5rem 0', minHeight: 44 }}>
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} style={{ width: 22, height: 22 }} /> I reviewed this email and the attached PDF.
           </label>
-          {err && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>{err}</p>}
-          {again && lastSend ? <div role="alertdialog" aria-label="Send again?" data-testid="send-again" style={{ border: '1px solid #f59e0b', background: '#fffbeb', borderRadius: 8, padding: '0.6rem', fontSize: 14 }}>
+          {err && <p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>{err}</p>}
+          {again && lastSend ? <div role="alertdialog" aria-label="Send again?" data-testid="send-again" style={{ border: '1px solid var(--warning-border)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.6rem', fontSize: 14 }}>
             <p style={{ margin: '0 0 0.5rem' }}>{lastSend.confirmed || lastSend.postmark_message_id ? `This packet was already sent on ${formatSentAt(lastSend.sent_at)} to ${(lastSend.to || []).join(', ')}.` : `An earlier send on ${formatSentAt(lastSend.sent_at)} wasn’t confirmed and may have gone out.`} Send again?</p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button style={{ ...btn, flex: 1 }} onClick={() => setAgain(false)} disabled={busy}>Cancel</button>
-              <button style={{ ...primary, flex: 2, background: '#b45309' }} disabled={busy} onClick={() => doSend(true)}>{busy ? 'Sending…' : 'Yes, send again'}</button>
+              <button style={{ ...primary, flex: 2, background: 'var(--warning)' }} disabled={busy} onClick={() => doSend(true)}>{busy ? 'Sending…' : 'Yes, send again'}</button>
             </div></div>
           : <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull || !size.ok)} disabled={!ok || busy || capFull || !size.ok} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success-solid)', color: 'var(--on-success)' }, !ok || busy || capFull || !size.ok)} disabled={!ok || busy || capFull || !size.ok} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div>}
         </div>}
     </section>

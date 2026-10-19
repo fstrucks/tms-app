@@ -26,7 +26,7 @@ test('labelled, full width, tall, high contrast, above the action buttons', () =
   assert.match(footer, /<select ref=\{typeRef\} id=\{ids\.type\}/);
   const sel = footer.slice(footer.indexOf('<select ref={typeRef}'), footer.indexOf('</select>'));
   assert.match(sel, /width: '100%', minHeight: 56, fontSize: 17/);
-  assert.match(sel, /border: typeErr \? '2px solid #dc2626' : '2px solid #1d4ed8'/);
+  assert.match(sel, /border: typeErr \? '2px solid (#dc2626|var\(--danger\))' : '2px solid (#1d4ed8|var\(--primary\))'/);
   const type = footer.indexOf('id={ids.type}');
   assert.ok(type < footer.indexOf('htmlFor={ids.camera}'), 'above Add page');
   assert.ok(type < footer.indexOf('htmlFor={ids.choose}'), 'above Choose photo');

@@ -30,12 +30,12 @@ const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr:
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
-  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  link: { color: '#2563eb' },
-  btn: { minHeight: 44, minWidth: 64, padding: '0.5rem 0.9rem', fontSize: '0.9rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid var(--divider)' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  link: { color: 'var(--primary)' },
+  btn: { minHeight: 44, minWidth: 64, padding: '0.5rem 0.9rem', fontSize: '0.9rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' },
   dl: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.35rem 0.75rem', margin: 0, fontSize: '0.9rem' },
 };
 
@@ -200,25 +200,25 @@ export default function LoadDetailPage() {
                   </dl>
                   {weightEdit === null ? (
                     <button type="button" data-testid="edit-weight" onClick={() => { setWeightErr(null); setWeightEdit(load.weight != null ? String(load.weight) : ''); }}
-                      style={{ marginTop: '0.5rem', minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14 }}>
+                      style={{ marginTop: '0.5rem', minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14 }}>
                       {load.weight != null ? 'Edit weight' : 'Add weight'}
                     </button>
                   ) : (
                     <form onSubmit={saveWeight} data-testid="weight-form" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '0.5rem' }}>
                       <label style={{ flex: '1 1 160px' }}><span style={s.muted}>Weight (lb)</span>
                         <input id="load-weight" inputMode="numeric" value={weightEdit} onChange={(e) => setWeightEdit(e.target.value)} placeholder="38,500"
-                          style={{ display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db' }} />
+                          style={{ display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)' }} />
                       </label>
-                      <button type="button" onClick={() => setWeightEdit(null)} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' }}>Cancel</button>
-                      <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600 }}>Save</button>
-                      {weightErr && <p role="alert" style={{ color: '#b91c1c', fontSize: 14, margin: 0, flexBasis: '100%' }}>{weightErr}</p>}
+                      <button type="button" onClick={() => setWeightEdit(null)} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}>Cancel</button>
+                      <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 14px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600 }}>Save</button>
+                      {weightErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: 14, margin: 0, flexBasis: '100%' }}>{weightErr}</p>}
                     </form>
                   )}
                   {hasStatus && (
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>
                       <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
-                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' }}>
+                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' }}>
                         {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
                         {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
                       </select>
@@ -262,9 +262,9 @@ export default function LoadDetailPage() {
                 <div style={s.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                     <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Documents</h2>
-                    <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: '#fff', color: '#1d4ed8', border: '1px solid #2563eb' }}>🧾 Scan BOL/POD</button>
+                    <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan BOL/POD</button>
                   </div>
-                  {scanMsg && <p role="status" style={{ color: '#15803d', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
+                  {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
                   {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (
                     <div key={d.id} style={s.row}>
                       <div style={{ minWidth: 0 }}>
@@ -275,7 +275,7 @@ export default function LoadDetailPage() {
                     </div>
                   ))}
                 </div>
-                <div style={{ ...s.card, borderColor: '#fecaca' }}>
+                <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
                   <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
                   {docs.length > 0 && (

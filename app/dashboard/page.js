@@ -10,13 +10,13 @@ import { fetchPaged, buildWeeks, localISO, aggregate, summarize, REVENUE_RULE } 
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' },
   row: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.88rem', padding: '0.15rem 0' },
-  muted: { color: '#6b7280' },
-  error: { color: '#b91c1c' },
-  link: { color: '#2563eb' },
-  tab: (on) => ({ minHeight: 36, minWidth: 72, padding: '0.4rem 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111', fontSize: '0.9rem' }),
+  muted: { color: 'var(--text-muted)' },
+  error: { color: 'var(--danger)' },
+  link: { color: 'var(--primary)' },
+  tab: (on) => ({ minHeight: 36, minWidth: 72, padding: '0.4rem 0.9rem', borderRadius: 8, border: '1px solid var(--border)', background: on ? 'var(--primary)' : 'var(--surface)', color: on ? 'var(--on-primary)' : 'var(--text)', fontSize: '0.9rem' }),
 };
 
 const mi = (n) => `${Math.round(n).toLocaleString('en-US')} mi`;
@@ -37,18 +37,18 @@ function Chart({ rows }) {
   const netPts = rows.map((w, i) => `${pad + i * slot + slot / 2},${Math.min(H - 2, Math.max(2, y(w.net)))}`).join(' ');
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Weekly revenue, expenses and net" style={{ display: 'block' }}>
-      <line x1={pad} x2={W} y1={zero} y2={zero} stroke="#e5e7eb" />
+      <line x1={pad} x2={W} y1={zero} y2={zero} stroke="var(--divider)" />
       {rows.map((w, i) => {
         const x = pad + i * slot + 2;
         return (
           <g key={w.key}>
-            <rect x={x} y={y(w.revenue)} width={bw} height={Math.max(0, zero - y(w.revenue))} fill="#2563eb" rx="2"><title>{`${range(w)} revenue ${fmtMoney(w.revenue)}`}</title></rect>
-            <rect x={x + bw + 1} y={y(w.expenseTotal)} width={bw} height={Math.max(0, zero - y(w.expenseTotal))} fill="#f87171" rx="2"><title>{`${range(w)} expenses ${fmtMoney(w.expenseTotal)}`}</title></rect>
-            <text x={x + bw} y={H - 4} fontSize="8" textAnchor="middle" fill="#6b7280">{w.start.getMonth() + 1}/{w.start.getDate()}</text>
+            <rect x={x} y={y(w.revenue)} width={bw} height={Math.max(0, zero - y(w.revenue))} fill="var(--primary)" rx="2"><title>{`${range(w)} revenue ${fmtMoney(w.revenue)}`}</title></rect>
+            <rect x={x + bw + 1} y={y(w.expenseTotal)} width={bw} height={Math.max(0, zero - y(w.expenseTotal))} fill="var(--danger-border)" rx="2"><title>{`${range(w)} expenses ${fmtMoney(w.expenseTotal)}`}</title></rect>
+            <text x={x + bw} y={H - 4} fontSize="8" textAnchor="middle" fill="var(--text-muted)">{w.start.getMonth() + 1}/{w.start.getDate()}</text>
           </g>
         );
       })}
-      <polyline points={netPts} fill="none" stroke="#059669" strokeWidth="1.5" />
+      <polyline points={netPts} fill="none" stroke="var(--success)" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -58,8 +58,8 @@ function MiniBar({ w, max }) {
   const pct = (v) => `${Math.min(100, (v / max) * 100)}%`;
   return (
     <svg width="100%" height="14" style={{ display: 'block', margin: '0.35rem 0' }} aria-hidden="true">
-      <rect x="0" y="1" width={pct(w.revenue)} height="5" rx="2" fill="#2563eb" />
-      <rect x="0" y="8" width={pct(w.expenseTotal)} height="5" rx="2" fill="#f87171" />
+      <rect x="0" y="1" width={pct(w.revenue)} height="5" rx="2" fill="var(--primary)" />
+      <rect x="0" y="8" width={pct(w.expenseTotal)} height="5" rx="2" fill="var(--danger-border)" />
     </svg>
   );
 }
@@ -69,7 +69,7 @@ function Stats({ w, cats }) {
     <>
       <div style={s.row}><span style={s.muted}>Delivered revenue ({w.loads} load{w.loads === 1 ? '' : 's'})</span><strong>{fmtMoney(w.revenue)}</strong></div>
       {w.missingRate > 0 && (
-        <div style={{ ...s.row, fontSize: '0.8rem', color: '#b45309' }}><span>{w.missingRate} load{w.missingRate === 1 ? '' : 's'} missing rate</span><span>not in revenue</span></div>
+        <div style={{ ...s.row, fontSize: '0.8rem', color: 'var(--warning)' }}><span>{w.missingRate} load{w.missingRate === 1 ? '' : 's'} missing rate</span><span>not in revenue</span></div>
       )}
       <div style={s.row}><span style={s.muted}>Load miles</span><span>{mi(w.rpmMiles)}</span></div>
       <div style={s.row}><span style={s.muted}>Logged loaded / deadhead</span><span>{mi(w.miles.loaded)} / {mi(w.miles.deadhead)}</span></div>
@@ -79,12 +79,12 @@ function Stats({ w, cats }) {
       )}
       <div style={s.row}><span style={s.muted}>Loaded RPM (rate ÷ load miles)</span><strong>{rpm(w.loadedRpm)}</strong></div>
       <div style={s.row}><span style={s.muted}>All-in RPM (revenue ÷ logged loaded + deadhead)</span><strong>{rpm(w.allInRpm)}</strong></div>
-      <div style={{ borderTop: '1px solid #f1f5f9', margin: '0.35rem 0' }} />
+      <div style={{ borderTop: '1px solid var(--divider)', margin: '0.35rem 0' }} />
       {cats.filter((c) => w.expenses[c] > 0).map((c) => (
         <div key={c} style={{ ...s.row, fontSize: '0.82rem' }}><span style={{ ...s.muted, textTransform: 'capitalize' }}>{c}</span><span>{fmtMoney(w.expenses[c])}</span></div>
       ))}
       <div style={s.row}><span style={s.muted}>Expenses</span><span>{fmtMoney(w.expenseTotal)}</span></div>
-      <div style={{ ...s.row, fontWeight: 700 }}><span>Net</span><span style={{ color: w.net < 0 ? '#b91c1c' : '#065f46' }}>{fmtMoney(w.net)}</span></div>
+      <div style={{ ...s.row, fontWeight: 700 }}><span>Net</span><span style={{ color: w.net < 0 ? 'var(--danger)' : 'var(--success)' }}>{fmtMoney(w.net)}</span></div>
     </>
   );
 }
@@ -191,9 +191,9 @@ export default function DashboardPage() {
                   </div>
                   <Chart rows={rows} />
                   <div style={{ display: 'flex', gap: '0.9rem', fontSize: '0.75rem', ...s.muted, marginBottom: '0.4rem' }}>
-                    <span><span style={{ color: '#2563eb' }}>■</span> Delivered revenue</span>
-                    <span><span style={{ color: '#f87171' }}>■</span> Expenses</span>
-                    <span><span style={{ color: '#059669' }}>—</span> Net</span>
+                    <span><span style={{ color: 'var(--primary)' }}>■</span> Delivered revenue</span>
+                    <span><span style={{ color: 'var(--danger-border)' }}>■</span> Expenses</span>
+                    <span><span style={{ color: 'var(--success)' }}>—</span> Net</span>
                   </div>
                   <p style={{ ...s.muted, fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
                     Delivered revenue {REVENUE_RULE === 'completed_only' ? 'counts delivered / invoiced / paid loads only' : 'excludes cancelled / canceled / TONU / void loads'}.

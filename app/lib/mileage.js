@@ -68,22 +68,22 @@ export function LoadPicker({ value, onChange, style }) {
         <option value="">No load</option>
         {rows.map((l) => <option key={l.id} value={l.id}>{loadLabel(l)}</option>)}
       </select>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
         <span>{failed ? 'Could not load loads.' : busy ? 'Searching…' : `${rows.length} shown`}</span>
         {hasMore && <button type="button" data-compact onClick={() => setLimit((n) => n + PAGE)}
-          style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.85rem', minHeight: 36, padding: '0 0.75rem' }}>Load more</button>}
+          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.85rem', minHeight: 36, padding: '0 0.75rem' }}>Load more</button>}
       </div>
     </div>
   );
 }
 
 const st = {
-  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' },
+  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' },
   cell: { display: 'block', minWidth: 0 },
-  label: { display: 'block', fontSize: '0.85rem', color: '#374151', marginBottom: '0.25rem' },
+  label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '0.25rem' },
   grid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.6rem' },
-  btn: { width: '100%', padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
-  tab: (on) => ({ flex: 1, padding: '0.5rem', borderRadius: 8, border: '1px solid #d1d5db', background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111', fontSize: '0.9rem' }),
+  btn: { width: '100%', padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.75rem' },
+  tab: (on) => ({ flex: 1, padding: '0.5rem', borderRadius: 8, border: '1px solid var(--border)', background: on ? 'var(--primary)' : 'var(--surface)', color: on ? 'var(--on-primary)' : 'var(--text)', fontSize: '0.9rem' }),
 };
 
 // onSubmit(row) must return { error } like supabase-js.
@@ -160,12 +160,12 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
           <input value={notes} onChange={(e) => setNotes(e.target.value)} style={st.input} /></label>
       </div>
       {mode === 'odometer' && computed !== null && (
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', color: computed > 0 ? '#15803d' : '#b91c1c' }}>
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', color: computed > 0 ? 'var(--success)' : 'var(--danger)' }}>
           {computed > 0 ? `= ${fmtMiles(computed)}` : 'End must be greater than start'}
         </p>
       )}
-      {err && <p style={{ color: '#b91c1c', margin: '0.5rem 0 0' }}>{err}</p>}
-      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem' }}>
+      {err && <p style={{ color: 'var(--danger)', margin: '0.5rem 0 0' }}>{err}</p>}
+      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem' }}>
         <button type="submit" disabled={saving} style={{ ...st.btn, width: '100%', minHeight: 48, marginTop: 0, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add miles'}</button>
       </div>
     </form>
@@ -174,17 +174,17 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
 
 export function EntryRow({ e, onDelete, loadLink }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0', borderBottom: '1px solid #f1f5f9' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0', borderBottom: '1px solid var(--divider)' }}>
       <div style={{ minWidth: 0 }}>
-        <div><strong>{fmtMiles(e.miles)}</strong> <span style={{ color: '#6b7280', fontSize: '0.85rem' }}>· {e.source || '—'} · {fmtEntryDate(e.entry_date)}</span></div>
+        <div><strong>{fmtMiles(e.miles)}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>· {e.source || '—'} · {fmtEntryDate(e.entry_date)}</span></div>
         {e.start_odometer != null && e.end_odometer != null && (
-          <div style={{ color: '#6b7280', fontSize: '0.8rem' }}>Odo {e.start_odometer.toLocaleString()} → {e.end_odometer.toLocaleString()}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Odo {e.start_odometer.toLocaleString()} → {e.end_odometer.toLocaleString()}</div>
         )}
         {loadLink}
-        {e.notes && <div style={{ color: '#6b7280', fontSize: '0.8rem', wordBreak: 'break-word' }}>{e.notes}</div>}
+        {e.notes && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', wordBreak: 'break-word' }}>{e.notes}</div>}
       </div>
       <button onClick={() => window.confirm('Delete this entry?') && onDelete(e)}
-        style={{ background: 'none', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 8, padding: '0.35rem 0.7rem', fontSize: '0.85rem' }}>Delete</button>
+        style={{ background: 'none', border: '1px solid var(--danger-border)', color: 'var(--danger)', borderRadius: 8, padding: '0.35rem 0.7rem', fontSize: '0.85rem' }}>Delete</button>
     </div>
   );
 }

@@ -13,12 +13,12 @@ import { fetchDriverChoices, driverLabel, driverRateHelp } from '../../lib/loadD
 // /loads/new: create a load by hand (no rate con). A static segment, so Next.js serves it before /loads/[id].
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
-  label: { display: 'block', fontSize: '0.85rem', color: '#374151' },
-  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', marginTop: 4, background: '#fff', color: '#111827' },
-  err: { color: '#b91c1c', fontSize: '0.8rem', margin: '0.2rem 0 0' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  link: { color: '#2563eb' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)' },
+  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', marginTop: 4, background: 'var(--surface)', color: 'var(--text)' },
+  err: { color: 'var(--danger)', fontSize: '0.8rem', margin: '0.2rem 0 0' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  link: { color: 'var(--primary)' },
 };
 
 function Field({ name, label, form, setForm, errors, type = 'text', inputMode, placeholder, required }) {
@@ -28,7 +28,7 @@ function Field({ name, label, form, setForm, errors, type = 'text', inputMode, p
       <input name={name} type={type} inputMode={inputMode} placeholder={placeholder} value={form[name]}
         aria-invalid={errors[name] ? 'true' : undefined}
         onChange={(e) => setForm((f) => ({ ...f, [name]: e.target.value }))}
-        style={{ ...s.input, ...(errors[name] ? { borderColor: '#b91c1c' } : null) }} />
+        style={{ ...s.input, ...(errors[name] ? { borderColor: 'var(--danger)' } : null) }} />
       {errors[name] && <p style={s.err}>{errors[name]}</p>}
     </label>
   );
@@ -88,7 +88,7 @@ export default function NewLoadPage() {
         <Link href="/loads" style={{ ...s.link, display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Loads</Link>
       </p>
       <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0' }}>New load</h1>
-      {supabaseConfigError ? <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>
+      {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to add a load.</p>
         : (
@@ -138,11 +138,11 @@ export default function NewLoadPage() {
                 <p data-testid="driver-rate-help" style={{ ...s.muted, margin: 0 }}>{driverRateHelp(form.show_rate_to_driver === true)}</p>
               </div>
             )}
-            {saveError && <p role="alert" style={{ color: '#b91c1c' }}>{saveError}</p>}
-            {Object.keys(errors).length > 0 && <p role="alert" style={{ color: '#b91c1c' }}>Please fix the highlighted fields.</p>}
+            {saveError && <p role="alert" style={{ color: 'var(--danger)' }}>{saveError}</p>}
+            {Object.keys(errors).length > 0 && <p role="alert" style={{ color: 'var(--danger)' }}>Please fix the highlighted fields.</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <Link href="/loads" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, border: '1px solid #d1d5db', color: '#111827', textDecoration: 'none' }}>Cancel</Link>
-              <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: 16 }}>
+              <Link href="/loads" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', color: 'var(--text)', textDecoration: 'none' }}>Cancel</Link>
+              <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, fontSize: 16 }}>
                 {saving ? 'Creating…' : 'Create load'}
               </button>
             </div>

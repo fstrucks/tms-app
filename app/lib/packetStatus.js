@@ -33,12 +33,12 @@ export const DISPLAY = {
   received: { label: PACKET_STATUS_LABELS.received, color: '#6b7280' },
   processing: { label: PACKET_STATUS_LABELS.processing, color: '#6b7280' },
   error: { label: PACKET_STATUS_LABELS.error, color: '#b91c1c' },
-  needs_fields: { label: 'Needs fields', color: '#d97706' },
-  needs_names: { label: 'Name fields', color: '#d97706' }, // amber, same as the badge; label gets the count: "Name 3 fields"
+  needs_fields: { label: 'Needs fields', color: '#c2410c' },
+  needs_names: { label: 'Name fields', color: '#c2410c' }, // amber, same as the badge; label gets the count: "Name 3 fields"
   needs_signature: { label: 'Needs signature', color: '#7c3aed' },
   ready: { label: PACKET_STATUS_LABELS.review, color: '#2563eb' },
   signed: { label: PACKET_STATUS_LABELS.signed, color: '#0f766e' },
-  filled: { label: 'Filled', color: '#16a34a' },
+  filled: { label: 'Filled', color: '#166534' },
   sent: { label: PACKET_STATUS_LABELS.sent, color: '#15803d' },
   archived: { label: PACKET_STATUS_LABELS.archived, color: '#4b5563' },
 };
