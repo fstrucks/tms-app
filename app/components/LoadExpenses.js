@@ -35,22 +35,22 @@ export default function LoadExpenses({ loadId, rate }) {
   const total = sumAmounts(rows);
   const hasRate = rate != null && rate !== '';
   const net = hasRate ? Number(rate) - total : null;
-  const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
+  const card = { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
   const row = { display: 'flex', justifyContent: 'space-between', padding: '0.35rem 0', fontSize: '0.9rem' };
 
   return (
     <div style={card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Expenses</h2>
-        <Link href={`/expenses?load=${loadId}`} style={{ color: '#2563eb', fontSize: '0.9rem' }}>Add / view</Link>
+        <Link href={`/expenses?load=${loadId}`} style={{ color: 'var(--primary)', fontSize: '0.9rem' }}>Add / view</Link>
       </div>
       {error && <div style={{ marginTop: '0.5rem' }}><LoadError message={error} subtle={rows !== null} onRetry={fetchRows} /></div>}
-      {rows === null ? (!error && <p role="status" style={{ color: '#6b7280', fontSize: '0.85rem' }}>Loading…</p>) : (
+      {rows === null ? (!error && <p role="status" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading…</p>) : (
         <>
-          <div style={row}><span style={{ color: '#6b7280' }}>Expenses ({rows.length})</span><span>{fmtMoney(total)}</span></div>
-          <div style={{ ...row, fontWeight: 600, borderTop: '1px solid #f1f5f9' }}>
+          <div style={row}><span style={{ color: 'var(--text-muted)' }}>Expenses ({rows.length})</span><span>{fmtMoney(total)}</span></div>
+          <div style={{ ...row, fontWeight: 600, borderTop: '1px solid var(--divider)' }}>
             <span>Net</span>
-            <span style={{ color: net != null && net < 0 ? '#b91c1c' : 'inherit' }}>{net != null ? fmtMoney(net) : '—'}</span>
+            <span style={{ color: net != null && net < 0 ? 'var(--danger)' : 'inherit' }}>{net != null ? fmtMoney(net) : '—'}</span>
           </div>
         </>
       )}

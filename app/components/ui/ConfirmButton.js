@@ -36,7 +36,7 @@ export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confir
     if (el && el.isConnected) el.focus(); else triggerRef.current?.focus();
   }, [asking]);
 
-  const red = { border: '1px solid #fecaca', color: '#b91c1c', background: '#fff' };
+  const red = { border: '1px solid var(--danger-border)', color: 'var(--danger)', background: 'var(--surface)' };
   const base = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, fontSize: '0.9rem', cursor: 'pointer' };
   const cancel = () => { focusAfter.current = 'trigger'; setAsking(false); };
 
@@ -61,15 +61,15 @@ export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confir
   }
 
   if (!asking) {
-    return <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setAsking(true)} style={{ ...base, ...(danger ? red : { border: '1px solid #d1d5db', background: '#fff' }) }}>{label}</button>;
+    return <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setAsking(true)} style={{ ...base, ...(danger ? red : { border: '1px solid var(--border)', background: 'var(--surface)' }) }}>{label}</button>;
   }
   return (
     <span ref={groupRef} role="group" className="confirm-group" aria-label={ariaLabel || prompt || `${label}?`} style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, maxWidth: '100%' }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } }}>
-      {prompt && <span className="confirm-prompt" aria-hidden="true" style={{ fontSize: '0.9rem', color: '#374151' }}>{prompt}</span>}
+      {prompt && <span className="confirm-prompt" aria-hidden="true" style={{ fontSize: '0.9rem', color: 'var(--text)' }}>{prompt}</span>}
       <button type="button" disabled={busy} onClick={confirm}
-        style={{ ...base, border: 'none', background: danger ? '#b91c1c' : '#2563eb', color: '#fff' }}>{busy ? '…' : confirmLabel}</button>
-      <button ref={cancelRef} type="button" disabled={busy} onClick={cancel} style={{ ...base, border: '1px solid #d1d5db', background: '#fff', color: '#111827' }}>Cancel</button>
+        style={{ ...base, border: 'none', background: danger ? 'var(--danger)' : 'var(--primary)', color: 'var(--on-primary)' }}>{busy ? '…' : confirmLabel}</button>
+      <button ref={cancelRef} type="button" disabled={busy} onClick={cancel} style={{ ...base, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }}>Cancel</button>
     </span>
   );
 }

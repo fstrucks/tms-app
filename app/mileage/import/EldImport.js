@@ -7,17 +7,17 @@ import { FIELDS, parseCsv, detectMapping, buildRows, missingRequired, toInsertRo
   mappingToNames, mappingFromNames, mappingFits, importedUrl } from '../../lib/eldCsv';
 
 const st = {
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', minWidth: 0 },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  ok: { color: '#15803d' },
-  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #6b7280', background: '#fff', color: '#111827', colorScheme: 'light' },
-  label: { display: 'block', fontSize: '0.85rem', color: '#374151', marginBottom: '0.25rem' },
-  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, background: '#2563eb', color: '#fff', fontSize: '1rem', cursor: 'pointer', textAlign: 'center' },
-  btn: { width: '100%', minHeight: 48, padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
-  btn2: { minHeight: 44, padding: '0 0.9rem', fontSize: '0.95rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#111' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', minWidth: 0 },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  ok: { color: 'var(--success)' },
+  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'light' },
+  label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '0.25rem' },
+  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '1rem', cursor: 'pointer', textAlign: 'center' },
+  btn: { width: '100%', minHeight: 48, padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' },
+  btn2: { minHeight: 44, padding: '0 0.9rem', fontSize: '0.95rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' },
-  row: (bad) => ({ padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9', color: bad ? '#b91c1c' : '#111827', fontSize: '0.9rem', wordBreak: 'break-word' }),
+  row: (bad) => ({ padding: '0.5rem 0', borderBottom: '1px solid var(--divider)', color: bad ? 'var(--danger)' : 'var(--text)', fontSize: '0.9rem', wordBreak: 'break-word' }),
 };
 
 // supabase/userId may be null (signed-out demo): everything works except saving.
@@ -153,11 +153,11 @@ export default function EldImport({ supabase, userId, onImported }) {
             <div key={b.line} style={st.row(b.errors.length && !b.duplicate)} data-row-status={b.duplicate ? 'dup' : b.errors.length ? 'error' : 'ok'}>
               <strong>Row {b.line}</strong>{' '}
               {b.value ? `${b.value.entry_date} · ${b.value.truck_label || '—'} · ${b.value.jurisdiction} · ${b.value.miles.toLocaleString('en-US')} mi${b.value.fuel_gallons ? ` · ${b.value.fuel_gallons} gal` : ''}` : b.raw.join(', ')}
-              {b.errors.length > 0 && <div style={{ fontSize: '0.8rem', color: b.duplicate ? '#6b7280' : '#b91c1c' }}>{b.errors.join('; ')}</div>}
+              {b.errors.length > 0 && <div style={{ fontSize: '0.8rem', color: b.duplicate ? 'var(--text-muted)' : 'var(--danger)' }}>{b.errors.join('; ')}</div>}
             </div>
           ))}
           {rows.length > preview.length && <button type="button" onClick={() => setShowAll(true)} style={{ ...st.btn2, marginTop: '0.5rem' }}>Show all {rows.length} rows</button>}
-          <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', background: '#fff', padding: '0.6rem 0 0.2rem' }}>
+          <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', background: 'var(--surface)', padding: '0.6rem 0 0.2rem' }}>
             <button type="button" disabled={busy || !good.length || !supabase || !userId} onClick={doImport}
               style={{ ...st.btn, opacity: busy || !good.length || !supabase || !userId ? 0.6 : 1 }}>
               {busy ? 'Importing…' : `Import ${good.length} row${good.length === 1 ? '' : 's'}`}</button>

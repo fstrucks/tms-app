@@ -121,7 +121,7 @@ test('cap reached → "Monthly limit reached"; Send now uses #65 disabled style 
   assert.equal(capLabel({ used: 1, cap: 0 }), 'Monthly limit reached'); assert.equal(capLabel({ used: 80, cap: 80 }), 'Monthly limit reached'); assert.equal(capLabel({ used: 3, cap: 80 }), '3 of 80 used this month');
   for (const f of ['PacketCoiRequest.js', 'PacketSendBroker.js']) {
     const s = read(`../../app/packets/${f}`);
-    assert.match(s, /primaryButtonStyle\(\{ \.\.\.primary, flex: 2, background: '#059669' \}, !ok \|\| busy \|\| capFull( \|\| !size\.ok)?\)\} disabled=\{!ok \|\| busy \|\| capFull( \|\| !size\.ok)?\}/, f); // PR #84 adds the attachment size cap on the broker send
+    assert.match(s, /primaryButtonStyle\(\{ \.\.\.primary, flex: 2, background: '(#059669|var\(--success\))' \}, !ok \|\| busy \|\| capFull( \|\| !size\.ok)?\)\} disabled=\{!ok \|\| busy \|\| capFull( \|\| !size\.ok)?\}/, f); // PR #84 adds the attachment size cap on the broker send
     assert.match(s, /'Monthly limit reached\. Nothing more can be sent this month\.'/, f);
     assert.doesNotMatch(s, /opacity: ok && !busy/, f);
   }

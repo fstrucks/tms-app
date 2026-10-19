@@ -8,10 +8,10 @@ import { MileageForm, EntryRow, sumBy, fmtMiles, fmtRpm } from '../lib/mileage';
 import { writeLoadMiles, milesSourceNote, hasMilesSourceColumn, extractedMiles } from '../lib/loadMiles';
 import { calculatedHint } from '../lib/loadRoute';
 
-const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
+const card = { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' };
 const row = { display: 'flex', justifyContent: 'space-between', padding: '0.3rem 0', fontSize: '0.9rem' };
-const muted = { color: '#6b7280' };
-const input = { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #d1d5db' };
+const muted = { color: 'var(--text-muted)' };
+const input = { width: '100%', boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--border)' };
 
 // Miles section for one load. onLoadChange receives { total_miles, rate_per_mile[, miles_source] } after the DB recalculates.
 // Planned miles (loads.total_miles: rate con or typed; a typed value always wins) are shown with a small grey source
@@ -116,32 +116,32 @@ export default function LoadMileage({ load, userId, onLoadChange, onPlannedClear
     <div style={card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Miles</h2>
-        <button onClick={() => setShowForm((v) => !v)} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.9rem' }}>
+        <button onClick={() => setShowForm((v) => !v)} style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.9rem' }}>
           {showForm ? 'Cancel' : '+ Add miles'}
         </button>
       </div>
-      {error && entries !== null && <p style={{ color: '#b91c1c' }}>{error}</p>}
+      {error && entries !== null && <p style={{ color: 'var(--danger)' }}>{error}</p>}
       {entries === null ? (error ? <div style={{ marginTop: '0.5rem' }}><LoadError message={error} onRetry={refresh} /></div>
         : <p role="status" style={{ ...muted, fontSize: '0.85rem' }}>Loading…</p>) : (
         <>
           {/* Marc, Oct 18: "I like seeing both". Planned (typed > rate con > calculated) next to Actual (log sum). */}
           <div data-testid="miles-both" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', margin: '0.5rem 0' }}>
-            <div style={{ background: '#f8fafc', borderRadius: 8, padding: '0.5rem 0.6rem', minWidth: 0 }}>
+            <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '0.5rem 0.6rem', minWidth: 0 }}>
               <div style={{ ...muted, fontSize: '0.8rem' }}>Planned</div>
               <div data-testid="planned-miles" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{load.total_miles > 0 ? fmtMiles(load.total_miles) : '—'}</div>
               {note && <div data-testid="miles-source" style={{ ...muted, fontSize: '0.75rem' }}>{note}</div>}
             </div>
-            <div style={{ background: '#f8fafc', borderRadius: 8, padding: '0.5rem 0.6rem', minWidth: 0 }}>
+            <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '0.5rem 0.6rem', minWidth: 0 }}>
               <div style={{ ...muted, fontSize: '0.8rem' }}>Actual</div>
               <div data-testid="actual-total" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{list.length ? fmtMiles(total) : '—'}</div>
               <div style={{ ...muted, fontSize: '0.75rem' }}>{list.length ? 'from mileage log' : 'no log entries yet'}</div>
             </div>
           </div>
           {hint && (
-            <div data-testid="calculated-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.4rem 0.6rem', margin: '0 0 0.5rem' }}>
+            <div data-testid="calculated-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 8, padding: '0.4rem 0.6rem', margin: '0 0 0.5rem' }}>
               <span style={{ fontSize: '0.9rem' }}>Calculated {fmtMiles(hint.miles)} <span style={{ ...muted, fontSize: '0.8rem' }}>(truck route; rate con says {fmtMiles(rateConMiles)})</span></span>
               <button type="button" data-testid="use-calculated" disabled={usingCalc} onClick={() => applyCalculated(hint.miles)}
-                style={{ minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #2563eb', background: '#fff', color: '#1d4ed8', fontWeight: 600, opacity: usingCalc ? 0.6 : 1 }}>Use this</button>
+                style={{ minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid var(--primary)', background: 'var(--surface)', color: 'var(--primary)', fontWeight: 600, opacity: usingCalc ? 0.6 : 1 }}>Use this</button>
             </div>
           )}
           <form onSubmit={saveManual} style={{ margin: '0.5rem 0' }} data-testid="planned-miles-form">
@@ -150,19 +150,19 @@ export default function LoadMileage({ load, userId, onLoadChange, onPlannedClear
               <input id="load-total-miles" inputMode="numeric" pattern="[0-9]*" placeholder="Total miles" value={manual}
                 onChange={(e) => setManual(e.target.value.replace(/\D/g, ''))} style={{ ...input, flex: '1 1 auto', minWidth: 0 }} />
               <button type="submit" disabled={savingManual}
-                style={{ padding: '0 1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', whiteSpace: 'nowrap', minWidth: 72, flexShrink: 0, opacity: savingManual ? 0.6 : 1 }}>Save</button>
+                style={{ padding: '0 1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', whiteSpace: 'nowrap', minWidth: 72, flexShrink: 0, opacity: savingManual ? 0.6 : 1 }}>Save</button>
             </div>
-            {notice && <p role="status" style={{ color: '#92400e', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>{notice}</p>}
+            {notice && <p role="status" style={{ color: 'var(--warning)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>{notice}</p>}
             {load.total_miles > 0 && (
               <div style={{ ...row, marginTop: '0.4rem' }}><span style={muted}>RPM</span><strong>{load.rate_per_mile != null ? `${fmtMoney(load.rate_per_mile)}/mi` : fmtRpm(rpm(load.total_miles))}</strong></div>
             )}
           </form>
           {list.length > 0 ? (
-            <div style={{ margin: '0.75rem 0 0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #f1f5f9' }} data-testid="actual-miles">
+            <div style={{ margin: '0.75rem 0 0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--divider)' }} data-testid="actual-miles">
               <div style={{ ...muted, fontSize: '0.85rem', fontWeight: 600 }}>Actual (mileage log)</div>
               <div style={row}><span style={muted}>Loaded</span><span>{fmtMiles(loaded)}</span></div>
               <div style={row}><span style={muted}>Deadhead</span><span>{fmtMiles(deadhead)}</span></div>
-              <div style={{ ...row, borderTop: '1px solid #f1f5f9' }}><span style={muted}>Loaded RPM</span><strong>{fmtRpm(rpm(loaded))}</strong></div>
+              <div style={{ ...row, borderTop: '1px solid var(--divider)' }}><span style={muted}>Loaded RPM</span><strong>{fmtRpm(rpm(loaded))}</strong></div>
               <div style={row}><span style={muted}>All-in RPM (loaded + deadhead)</span><strong>{fmtRpm(rpm(loaded + deadhead))}</strong></div>
               {rate == null && <p style={{ ...muted, fontSize: '0.8rem', margin: '0.25rem 0 0' }}>Add a rate to see RPM.</p>}
               {!migrated && <p style={{ ...muted, fontSize: '0.8rem', margin: '0.25rem 0 0' }}>Until the database update is applied, the mileage log total also replaces planned miles.</p>}

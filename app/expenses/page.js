@@ -141,18 +141,18 @@ async function prepareReceipt(file) {
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 720, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
-  label: { display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem', color: '#374151' },
-  input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid #d1d5db', marginTop: '0.2rem', background: '#fff' },
-  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff' },
-  auto: { background: '#fefce8', borderColor: '#ca8a04', boxShadow: '0 0 0 1px #ca8a04' },
-  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
-  small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  ok: { color: '#15803d' },
-  link: { color: '#2563eb' },
+  label: { display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem', color: 'var(--text)' },
+  input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid var(--border)', marginTop: '0.2rem', background: 'var(--surface)' },
+  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' },
+  auto: { background: 'var(--warning-bg)', borderColor: 'var(--warning)', boxShadow: '0 0 0 1px var(--warning)' },
+  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
+  small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  ok: { color: 'var(--success)' },
+  link: { color: 'var(--primary)' },
 };
 
 const loadLabel = (l) => (l ? `${l.broker_load_number ? '#' + l.broker_load_number : 'Load'}${l.broker_name ? ' · ' + l.broker_name : ''}` : '');
@@ -509,7 +509,7 @@ function ExpensesInner() {
                 <input type="date" value={form.expense_date} onChange={set('expense_date')} style={{ ...s.input, ...(autoFilled.has('expense_date') ? s.auto : null) }} required />
               </label>
               <label style={s.label}>Vendor / description
-                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
+                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot var(--text), I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
               </label>
               <label style={s.label}>Load (optional)
                 <select value={form.load_id} onChange={set('load_id')} style={s.input}>
@@ -525,8 +525,8 @@ function ExpensesInner() {
                 <div aria-live="polite" aria-atomic="true">
                   {file && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
-                      {preview && <img src={preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>
+                      {preview && <img src={preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--divider)', flexShrink: 0 }} />}
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                         <span style={{ position: 'absolute', width: 1, height: 1, margin: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Selected receipt: </span>{file.name}
                       </span>
                       <button type="button" disabled={saving} onClick={clearReceipt} style={{ ...s.small, minWidth: 44, minHeight: 44, opacity: saving ? 0.6 : 1 }} aria-label="Remove selected receipt">✕</button>
@@ -536,8 +536,8 @@ function ExpensesInner() {
                 <div role="status" aria-live="polite" aria-atomic="true">
                   {ai.state !== 'idle' && (
                     <p style={{ margin: '0.5rem 0 0', padding: '0.5rem 0.6rem', borderRadius: 8, fontSize: '0.9rem',
-                      background: ai.state === 'done' ? '#fefce8' : ai.state === 'error' ? '#f9fafb' : '#eff6ff',
-                      color: ai.state === 'done' ? '#854d0e' : ai.state === 'error' ? '#374151' : '#1d4ed8' }}>
+                      background: ai.state === 'done' ? 'var(--warning-bg)' : ai.state === 'error' ? 'var(--surface-2)' : 'var(--info-bg)',
+                      color: ai.state === 'done' ? 'var(--warning)' : ai.state === 'error' ? 'var(--text)' : 'var(--primary)' }}>
                       {ai.state === 'reading' && <span aria-hidden="true">⏳ </span>}{ai.text}
                     </p>
                   )}
@@ -583,7 +583,7 @@ function ExpensesInner() {
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <button onClick={() => edit(x)} style={s.small}>Edit</button>
                   {x.documents?.file_path && <button onClick={() => viewReceipt(x.documents)} style={s.small}>Receipt</button>}
-                  <button onClick={() => remove(x)} style={{ ...s.small, color: '#b91c1c' }}>Delete</button>
+                  <button onClick={() => remove(x)} style={{ ...s.small, color: 'var(--danger)' }}>Delete</button>
                 </div>
               </div>
             ))}

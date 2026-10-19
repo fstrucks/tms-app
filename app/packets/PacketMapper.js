@@ -19,14 +19,14 @@ import { getSupabase } from '../lib/supabase';
 
 const s = {
   main: { padding: '0.75rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto', paddingBottom: 110 },
-  muted: { color: '#6b7280', fontSize: 14, margin: '0.25rem 0' },
-  banner: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: 14, margin: '0.5rem 0' },
-  ro: { background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: 14, margin: '0.5rem 0' },
-  btn: { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' },
-  primary: { minHeight: 48, borderRadius: 8, border: 0, background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: 16, width: '100%' },
-  input: { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' }, // 16px: no iOS zoom
+  muted: { color: 'var(--text-muted)', fontSize: 14, margin: '0.25rem 0' },
+  banner: { background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: 14, margin: '0.5rem 0' },
+  ro: { background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: 14, margin: '0.5rem 0' },
+  btn: { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 15, touchAction: 'manipulation' },
+  primary: { minHeight: 48, borderRadius: 8, border: 0, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, fontSize: 16, width: '100%' },
+  input: { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid var(--border)', boxSizing: 'border-box' }, // 16px: no iOS zoom
   lab: { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' },
-  chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: '#fff', background: c }),
+  chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: 'var(--on-primary)', background: c }),
 };
 let defaultLayoutApi = null; // lazy: GET/POST /api/packets/[id]/layout with the signed-in session
 const layoutCall = (...a) => (defaultLayoutApi || (defaultLayoutApi = makeApi(() => getSupabase()?.auth))).call(...a);
@@ -74,7 +74,7 @@ export function BrokerField({ packetId, value, canEdit, api, onSaved }) {
     <input id="packet-broker" data-testid="broker-input" type="text" autoComplete="organization" maxLength={120} placeholder="Broker company name" style={s.input}
       value={txt} onChange={(e) => { setTxt(e.target.value); setState(null); }} onBlur={save}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />
-    {state && <p role="status" style={{ ...s.muted, fontSize: 13, color: state === 'saving' || state === 'saved' ? '#6b7280' : '#b91c1c' }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Broker saved.' : state}</p>}
+    {state && <p role="status" style={{ ...s.muted, fontSize: 13, color: state === 'saving' || state === 'saved' ? 'var(--text-muted)' : 'var(--danger)' }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Broker saved.' : state}</p>}
   </div>;
 }
 const STATE_TEXT = { sign: 'Needs signature', unmapped: 'Needs a name', confirm: 'Confirm bank #', check: 'Check value', ok: 'OK', skip: 'Left blank' };
@@ -340,9 +340,9 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <span style={{ ...s.muted, margin: 0 }}>{packet.source === 'email' ? 'Emailed' : 'Uploaded'}{packet.created_at ? ` ${formatListTime(packet.created_at)}` : ''}{packet.page_count ? ` · ${packet.page_count} page${packet.page_count === 1 ? '' : 's'}` : ''}</span>
       </div>
       <BrokerField packetId={packet.id} value={brokerName} canEdit={canEdit} api={layoutApi} onSaved={(r) => { setBrokerName(r.broker_name || null); setLayoutTick((n) => n + 1); }} />
-      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name, total: fields.length }, { canEdit, placed: placedCount(fields), total: fields.length }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: '#eff6ff', borderColor: '#93c5fd' }}>
+      {(() => { const b = layoutBanner(layoutInfo && { ...layoutInfo, broker_name: brokerName ?? layoutInfo.broker_name, total: fields.length }, { canEdit, placed: placedCount(fields), total: fields.length }); return b && <div role="status" data-testid="layout-banner" data-kind={b.kind} style={{ ...s.banner, background: 'var(--info-bg)', borderColor: 'var(--primary-soft)' }}>
         <p style={{ margin: 0 }}>{b.text}</p>
-        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' || b.action === 'names' ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
+        {b.action && <button type="button" style={{ ...s.btn, marginTop: 8, ...(b.action === 'apply' || b.action === 'names' ? { background: 'var(--primary)', color: 'var(--on-primary)', borderColor: 'var(--primary)' } : null) }} disabled={busy} onClick={() => layoutAction(b.action)}>{b.button}</button>}
       </div>; })()}
       {packet.manual_reason && <p role="status" style={s.banner}>{manualReasonText(packet.manual_reason, canEdit)}</p>}
       {packet.status === 'processing' && <p role="status" style={s.banner}>Finding fields… this usually takes a few seconds.</p>}
@@ -362,10 +362,10 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <button style={s.btn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} aria-label="Previous page">‹</button>
         <span style={{ flex: 1, textAlign: 'center', fontSize: 15 }}>Page {page} of {pageCount || 1}</span>
         <button style={s.btn} onClick={() => setPage((p) => Math.min(pageCount || 1, p + 1))} disabled={page >= (pageCount || 1)} aria-label="Next page">›</button>
-        {canEdit && <button style={{ ...s.btn, ...(placing ? { background: '#2563eb', color: '#fff', borderColor: '#2563eb' } : null) }} onClick={() => setPlacing((v) => !v)}>{placing ? 'Tap page…' : '＋ Add field'}</button>}
+        {canEdit && <button style={{ ...s.btn, ...(placing ? { background: 'var(--primary)', color: 'var(--on-primary)', borderColor: 'var(--primary)' } : null) }} onClick={() => setPlacing((v) => !v)}>{placing ? 'Tap page…' : '＋ Add field'}</button>}
       </div>
       <div style={{ overflowX: zoom > 1 ? 'auto' : 'hidden', WebkitOverflowScrolling: 'touch', borderRadius: 6 }}>
-      <div ref={wrap} onClick={tapPage} data-testid="page" style={{ touchAction: dragging ? 'none' : 'auto', position: 'relative', width: `${zoom * 100}%`, border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden', background: '#fff', cursor: placing ? 'crosshair' : 'default', aspectRatio: img ? `${img.w} / ${img.h}` : '8.5 / 11' }}>
+      <div ref={wrap} onClick={tapPage} data-testid="page" style={{ touchAction: dragging ? 'none' : 'auto', position: 'relative', width: `${zoom * 100}%`, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: img ? 'var(--paper)' : 'var(--surface)', cursor: placing ? 'crosshair' : 'default', aspectRatio: img ? `${img.w} / ${img.h}` : '8.5 / 11' }}>
         {img ? <img src={img.url} alt={`Page ${page}`} style={{ width: '100%', display: 'block' }} draggable={false} /> : (imgErr ? <p role="alert" style={{ ...s.muted, padding: '1rem' }}>Couldn’t show this page. Reload to try again.</p> : <p style={{ ...s.muted, padding: '1rem' }}>Loading page…</p>)}
         {img && scale > 0 && onPage.map((f) => {
           const st = fieldState(f), [x0, y0, x1, y1] = f.box;
@@ -390,12 +390,12 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         <button style={{ ...s.btn, minHeight: 36, fontSize: 14 }} onClick={() => setZoom((z) => (z === 1 ? 2.5 : 1))}>{zoom === 1 ? '🔍 Zoom in' : 'Fit to width'}</button>
       </div>
 
-      {signedOut && <p role="alert" style={{ ...s.banner, background: '#fef2f2', borderColor: '#fca5a5' }}>You were signed out. <a href={loginHref}>Sign in again</a>. Your unsaved changes are kept on this device and come back after you sign in.</p>}
-      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section role="dialog" aria-label="Signature options" data-testid="sig-sheet" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 60, maxWidth: 560, margin: '0 auto', boxSizing: 'border-box', border: '2px solid #059669', borderBottom: 'none', borderRadius: '12px 12px 0 0', padding: '0.75rem', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))', background: '#f0fdf4', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
+      {signedOut && <p role="alert" style={{ ...s.banner, background: 'var(--danger-bg)', borderColor: 'var(--danger-border)' }}>You were signed out. <a href={loginHref}>Sign in again</a>. Your unsaved changes are kept on this device and come back after you sign in.</p>}
+      {canEdit && sigMenu && (() => { const f = fields.find((x) => x.id === sigMenu); return f && <section role="dialog" aria-label="Signature options" data-testid="sig-sheet" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 60, maxWidth: 560, margin: '0 auto', boxSizing: 'border-box', border: '2px solid var(--success)', borderBottom: 'none', borderRadius: '12px 12px 0 0', padding: '0.75rem', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))', background: 'var(--success-bg)', boxShadow: '0 -6px 20px var(--shadow)' }}>
         <p style={{ margin: '0 0 0.5rem' }}>Signed by <strong>{f.signer_name || 'signer'}</strong>{f.signed_at ? ` on ${formatPacketDate(f.signed_at)}` : ''}.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={{ ...s.btn, flex: 1 }} onClick={() => reSign(f.id)} disabled={busy}>Re-sign</button>
-          <button style={{ ...s.btn, flex: 1, color: '#b91c1c', borderColor: '#fca5a5' }} onClick={() => clearSig(f.id)} disabled={busy}>Clear signature</button>
+          <button style={{ ...s.btn, flex: 1, color: 'var(--danger)', borderColor: 'var(--danger-border)' }} onClick={() => clearSig(f.id)} disabled={busy}>Clear signature</button>
           <button style={s.btn} onClick={() => setSigMenu(null)} aria-label="Close signature options">✕</button>
         </div></section>; })()}
       {signing && <SignaturePad title="Sign the packet" initialName={signerName} onDone={doSign} onCancel={() => { setSigning(null); setSel(null); }} />}
@@ -412,18 +412,18 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
       {/* Hidden while the Send-to-broker write/review step is open (it covered Edit / Send now on iPhone), unless
           there are unsaved field edits that still need the Save button. */}
-      {barShown && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: '#fff', borderTop: '1px solid #e5e7eb', padding: '0.6rem 0.75rem' }}>
+      {barShown && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: 'var(--surface)', borderTop: '1px solid var(--divider)', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
-            : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#b91c1c' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
+            : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: 'var(--danger)' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}
           {filled?.url && <a href={filled.url} download={filled.filename} data-testid="download-filled" role="button"
             style={{ ...s.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', marginBottom: 6, boxSizing: 'border-box' }}>⬇ Download filled PDF</a>}
-          {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={busy} onClick={discard}>Discard changes</button>}
+          {dirty && <button type="button" style={{ ...s.btn, width: '100%', marginBottom: 6, color: 'var(--danger)', borderColor: 'var(--danger-border)' }} disabled={busy} onClick={discard}>Discard changes</button>}
           {dirty || !onFill
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
-              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: '#92400e' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
-              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: '#059669', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
+              {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: 'var(--warning)' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
+              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: 'var(--success)', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
             </>}
         </div>
       </div>}
@@ -438,25 +438,25 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
   const rs = (dw, dh) => img && onChange({ box: dragBox(f.box, 'resize', dw, dh, img.w, img.h) });
   const setIn = (w, h) => { if (!img) return; const W = w == null ? null : Number(w) * DPI_PX, H = h == null ? null : Number(h) * DPI_PX; if ((W != null && !(W > 0)) || (H != null && !(H > 0))) return; rs(W == null ? 0 : W - (f.box[2] - f.box[0]), H == null ? 0 : H - (f.box[3] - f.box[1])); };
   return (
-    <section aria-label="Edit field" style={{ border: '2px solid #2563eb', borderRadius: 12, padding: '0.75rem', margin: '0.75rem 0', background: '#f8fafc' }}>
+    <section aria-label="Edit field" style={{ border: '2px solid var(--primary)', borderRadius: 12, padding: '0.75rem', margin: '0.75rem 0', background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <strong>{f.label ? `“${f.label}”` : 'New field'}</strong>
         {(canEdit || !(f.kind === 'signature' || f.profile_key === 'signature')) && <button style={s.btn} onClick={onClose}>Done</button>}
       </div>
-      {canEdit && <p data-testid="editor-save-hint" style={{ ...s.muted, fontSize: 13, color: f.dirty ? '#92400e' : '#6b7280' }}>{f.dirty ? 'Changed. Tap Save changes at the bottom to keep it.' : 'Done closes this panel. Tap Save changes at the bottom to keep edits.'}</p>}
-      {f.source === 'model' && f.confidence < 0.6 && <p style={{ ...s.muted, color: '#b45309' }}>Low confidence name. Please check it.</p>}
+      {canEdit && <p data-testid="editor-save-hint" style={{ ...s.muted, fontSize: 13, color: f.dirty ? 'var(--warning)' : 'var(--text-muted)' }}>{f.dirty ? 'Changed. Tap Save changes at the bottom to keep it.' : 'Done closes this panel. Tap Save changes at the bottom to keep edits.'}</p>}
+      {f.source === 'model' && f.confidence < 0.6 && <p style={{ ...s.muted, color: 'var(--warning)' }}>Low confidence name. Please check it.</p>}
       <label style={s.lab} htmlFor="pf-key">Name</label>
       <select id="pf-key" style={s.input} disabled={dis} value={selectValue(f.profile_key)} onChange={(e) => onChange({ profile_key: keyFromSelect(e.target.value, f) })}>
         <option value="">Choose…</option>
         {nameSelectRows(KEY_LABELS, f.kind).map((o) => o.heading
-          ? <option key={o.value} value={o.value} disabled data-heading="1" style={{ fontWeight: 700, color: '#6b7280' }}>{o.label}</option>
+          ? <option key={o.value} value={o.value} disabled data-heading="1" style={{ fontWeight: 700, color: 'var(--text-muted)' }}>{o.label}</option>
           : <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       {nameGroup(KEY_LABELS, f.kind, f.profile_key) && <p data-testid="name-group" style={{ ...s.muted, fontSize: 13 }}>Group: {nameGroup(KEY_LABELS, f.kind, f.profile_key)}</p>}
       {isCustomKey(f.profile_key) && <>
         <label style={s.lab} htmlFor="pf-custom">{CUSTOM_LABEL}</label>
         <input id="pf-custom" style={s.input} disabled={dis} maxLength={60} placeholder="e.g. Dispatcher name" value={f.profile_key.slice(7)} onChange={(e) => onChange({ profile_key: customKey(e.target.value) })} />
-        {!customName(f.profile_key) && <p style={{ ...s.muted, color: '#b45309' }}>Type a name for this field.</p>}
+        {!customName(f.profile_key) && <p style={{ ...s.muted, color: 'var(--warning)' }}>Type a name for this field.</p>}
       </>}
       {f.profile_key === SKIP_KEY && <p style={s.muted}>This field will be left blank on the filled PDF.</p>}
       <label style={s.lab} htmlFor="pf-kind">Type</label>
@@ -470,10 +470,10 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
         <input id="pf-val" style={s.input} disabled={dis} value={f.value || ''} autoComplete="off" inputMode={bank ? 'numeric' : undefined}
           placeholder={sensitive && f.has_value ? 'Saved. Type to replace' : ''} onFocus={(e) => { if (sensitive && /^•/.test(e.target.value)) onChange({ value: '' }); }}
           onChange={(e) => onChange({ value: e.target.value })} />
-        {f.check && !f.check.ok && <p style={{ ...s.muted, color: '#b45309' }}>{f.check.message}</p>}
+        {f.check && !f.check.ok && <p style={{ ...s.muted, color: 'var(--warning)' }}>{f.check.message}</p>}
       </>}
       {f.kind === 'signature' && <p style={s.muted}>Tap this signature box on the page to sign it.</p>}
-      {bank && <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: '0.75rem', padding: '0.6rem', borderRadius: 8, background: f.confirmed ? '#f0fdf4' : '#fef2f2', border: `1px solid ${f.confirmed ? '#86efac' : '#fca5a5'}` }}>
+      {bank && <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: '0.75rem', padding: '0.6rem', borderRadius: 8, background: f.confirmed ? 'var(--success-bg)' : 'var(--danger-bg)', border: `1px solid ${f.confirmed ? 'var(--success-bg)' : 'var(--danger-border)'}` }}>
         <input type="checkbox" style={{ width: 24, height: 24, flex: 'none' }} disabled={dis || !(f.value || f.has_value)} checked={!!f.confirmed} onChange={(e) => onChange({ confirmed: e.target.checked })} />
         <span style={{ fontSize: 14 }}>I checked this {f.profile_key === 'bank_routing' ? 'routing' : 'account'} number against my bank records. Required before signing.</span>
       </label>}
@@ -490,7 +490,7 @@ function FieldEditor({ f, canEdit, onChange, onClose, onDelete, img }) {
           <InchInput label="Width (in)" aria="Width in inches" step="0.1" px={f.box[2] - f.box[0]} onApply={(v) => setIn(v, null)} />
           <InchInput label="Height (in)" aria="Height in inches" step="0.05" px={f.box[3] - f.box[1]} onApply={(v) => setIn(null, v)} />
         </div>
-        <button style={{ ...s.btn, width: '100%', marginTop: '0.75rem', color: '#b91c1c', borderColor: '#fca5a5' }} onClick={onDelete}>Remove field</button>
+        <button style={{ ...s.btn, width: '100%', marginTop: '0.75rem', color: 'var(--danger)', borderColor: 'var(--danger-border)' }} onClick={onDelete}>Remove field</button>
       </>}
     </section>
   );

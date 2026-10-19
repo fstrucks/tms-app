@@ -55,13 +55,13 @@ async function convertHeicToJpeg(file) {
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 640, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
-  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
+  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.75rem' },
   input: { width: '100%', fontSize: '1rem' },
-  item: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  ok: { color: '#15803d' },
+  item: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  ok: { color: 'var(--success)' },
 };
 
 export default function DocumentsPage() {
@@ -377,23 +377,23 @@ export default function DocumentsPage() {
               <legend style={{ display: 'block', padding: 0, marginBottom: '0.5rem', fontWeight: 600 }}>Upload Rate Confirmations, POD, BOL and other documents</legend>
               <label htmlFor="upload-type" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '0 0 0.3rem' }}>Document type</label>
               <select id="upload-type" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
-                style={{ width: '100%', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.6rem', marginBottom: '0.5rem', background: '#fff' }}>
+                style={{ width: '100%', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.6rem', marginBottom: '0.5rem', background: 'var(--surface)' }}>
                 {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
                 {file && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111827' }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                       <span style={{ position: 'absolute', width: 1, height: 1, margin: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Selected file: </span>{file.name}
                     </span>
                     <button type="button" onClick={() => { setFile(null); setFileKey((k) => k + 1); }} aria-label="Remove selected file"
-                      style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff' }}>✕</button>
+                      style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}>✕</button>
                   </div>
                 )}
               </div>
             </fieldset>
-            <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: '#fff', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
+            <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
             <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, marginTop: 0, opacity: !file || uploading || converting ? 0.6 : 1 }}>
               {converting ? 'Converting photo…' : uploading ? 'Uploading…' : 'Upload'}
             </button>
@@ -404,31 +404,31 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
-            <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: '#2563eb' }}>Company → Company documents</a>.</p>
+            <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
               : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
-              <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9' }}>
+              <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
                     {canChangeType && (
-                      <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: '#374151', marginTop: 4 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: 'var(--text)', marginTop: 4 }}>
                         <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
                         <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={CHANGE_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
-                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', maxWidth: '100%', minWidth: 0 }}>
+                          onChange={(e) => changeType(d, e.target.value)} style={{ minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', maxWidth: '100%', minWidth: 0 }}>
                           {!CHANGE_TYPES.some((t) => t.id === d.doc_type) && <option value="" disabled>{docTypeLabel(d.doc_type)}</option>}
                           {CHANGE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.short || t.label}</option>)}
                         </select>
                       </label>
                     )}
                     {canChangeType && typeErr[d.id] && (
-                      <div role="alert" data-testid="change-type-error" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4, fontSize: 13, color: '#b91c1c' }}>
+                      <div role="alert" data-testid="change-type-error" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4, fontSize: 13, color: 'var(--danger)' }}>
                         <span>{typeErr[d.id].error}</span>
                         <button type="button" data-testid="change-type-retry" disabled={!!typeBusy[d.id]} onClick={() => changeType(d, typeErr[d.id].docType)}
-                          style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid #b91c1c', background: '#fff', color: '#b91c1c', fontWeight: 600 }}>Retry</button>
+                          style={{ minHeight: 36, padding: '0 12px', borderRadius: 8, border: '1px solid var(--danger)', background: 'var(--surface)', color: 'var(--danger)', fontWeight: 600 }}>Retry</button>
                       </div>
                     )}
                   </div>
@@ -439,20 +439,20 @@ export default function DocumentsPage() {
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
                 {!EXTRACTABLE(d.doc_type) ? (
-                  d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: '#2563eb' }}>View load</Link> : null
+                  d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (
                   <p style={s.muted}>Extracting…</p>
                 ) : (
                   <>
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
                     {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
-                    <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: '#2563eb', padding: '0.4rem 0', fontSize: '0.9rem' }}>
+                    <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: 'var(--primary)', padding: '0.4rem 0', fontSize: '0.9rem' }}>
                       {d.ai_extracted_data ? 'Re-run extraction' : typeChanged[d.id] ? 'Read as rate con' : 'Run extraction'}
                     </button>
                     {d.load_id ? (
-                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: '#059669', marginTop: '0.25rem' }}>View load</Link>
+                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: 'var(--success)', marginTop: '0.25rem' }}>View load</Link>
                     ) : d.ai_extracted_data ? (
-                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: '#059669', opacity: creating[d.id] ? 0.6 : 1 }}>
+                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: 'var(--success)', opacity: creating[d.id] ? 0.6 : 1 }}>
                         {creating[d.id] ? 'Creating load…' : 'Create load'}
                       </button>
                     ) : null}
@@ -494,12 +494,12 @@ function Summary({ x }) {
     ['Delivery', fmtStop(x.delivery)],
     ['Notes', x.notes],
   ].filter(([, v]) => v);
-  if (!rows.length) return <p style={{ color: '#6b7280', fontSize: '0.85rem' }}>No fields extracted.</p>;
+  if (!rows.length) return <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No fields extracted.</p>;
   return (
-    <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.75rem', margin: '0.5rem 0 0', fontSize: '0.85rem', background: '#f8fafc', borderRadius: 8, padding: '0.6rem' }}>
+    <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.75rem', margin: '0.5rem 0 0', fontSize: '0.85rem', background: 'var(--surface-2)', borderRadius: 8, padding: '0.6rem' }}>
       {rows.map(([k, v]) => (
         <div key={k} style={{ display: 'contents' }}>
-          <dt style={{ color: '#6b7280' }}>{k}</dt>
+          <dt style={{ color: 'var(--text-muted)' }}>{k}</dt>
           <dd style={{ margin: 0, wordBreak: 'break-word' }}>{v}</dd>
         </div>
       ))}

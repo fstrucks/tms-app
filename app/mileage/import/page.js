@@ -27,12 +27,12 @@ export default function EldImportPage() {
 
   return (
     <main style={main}>
-      <p style={{ margin: '0 0 0.25rem' }}><Link href="/dashboard?view=mileage" style={{ color: '#2563eb' }}>← Stats · Mileage</Link></p>
+      <p style={{ margin: '0 0 0.25rem' }}><Link href="/dashboard?view=mileage" style={{ color: 'var(--primary)' }}>← Stats · Mileage</Link></p>
       <h1 style={{ fontSize: '1.5rem', marginTop: 0 }}>Import ELD miles</h1>
       {demo ? <EldImport supabase={null} userId={null} />
-        : supabaseConfigError ? <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>
-        : checking ? <p style={{ color: '#6b7280' }}>Checking sign-in…</p>
-        : !user ? <p>Please <SignInLink style={{ color: '#2563eb' }}>sign in</SignInLink> to import mileage.</p>
+        : supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
+        : checking ? <p style={{ color: 'var(--text-muted)' }}>Checking sign-in…</p>
+        : !user ? <p>Please <SignInLink style={{ color: 'var(--primary)' }}>sign in</SignInLink> to import mileage.</p>
         : <EldImport supabase={supabase} userId={user.id} />}
     </main>
   );

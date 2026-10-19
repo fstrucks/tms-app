@@ -10,11 +10,11 @@ import { newSendKey, attemptOutcome, outsideRecipients, primaryButtonStyle } fro
 
 export const COI_FLAG = ['1', 'true'].includes(String(process.env.NEXT_PUBLIC_COI_REQUEST_ENABLED || '').toLowerCase());
 
-const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 15, touchAction: 'manipulation' };
-const primary = { ...btn, border: 0, background: '#2563eb', color: '#fff', fontWeight: 600, width: '100%' };
-const input = { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' };
+const btn = { minHeight: 44, padding: '0 0.9rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 15, touchAction: 'manipulation' };
+const primary = { ...btn, border: 0, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, width: '100%' };
+const input = { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid var(--border)', boxSizing: 'border-box' };
 const lab = { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' };
-const box = { border: '1px solid #d1d5db', borderRadius: 12, padding: '0.75rem', margin: '1rem auto', maxWidth: 536, fontFamily: 'system-ui', background: '#fff' };
+const box = { border: '1px solid var(--border)', borderRadius: 12, padding: '0.75rem', margin: '1rem auto', maxWidth: 536, fontFamily: 'system-ui', background: 'var(--surface)' };
 const list = (s) => String(s || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
 
 export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onStepChange }) {
@@ -61,16 +61,16 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
   return (
     <section aria-label="Certificate of insurance" data-testid="coi-panel" style={box}>
       <h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Certificate of insurance</h2>
-      {info.setupNeeded && <p style={{ fontSize: 14, color: '#92400e' }}>COI requests need a database update that hasn’t been applied yet.</p>}
+      {info.setupNeeded && <p style={{ fontSize: 14, color: 'var(--warning)' }}>COI requests need a database update that hasn’t been applied yet.</p>}
       {gaps.length > 0 ? <ul data-testid="coi-gaps" style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>
-        {gaps.map((g, i) => <li key={g.code + i} style={{ color: g.severity === 'error' ? '#b91c1c' : '#92400e' }}>{g.text}</li>)}
-      </ul> : <p style={{ fontSize: 14, color: '#065f46' }}>No coverage gaps found.</p>}
-      {info.requests?.length > 0 && <ul style={{ fontSize: 13, paddingLeft: '1.1rem', color: '#374151' }}>
+        {gaps.map((g, i) => <li key={g.code + i} style={{ color: g.severity === 'error' ? 'var(--danger)' : 'var(--warning)' }}>{g.text}</li>)}
+      </ul> : <p style={{ fontSize: 14, color: 'var(--success)' }}>No coverage gaps found.</p>}
+      {info.requests?.length > 0 && <ul style={{ fontSize: 13, paddingLeft: '1.1rem', color: 'var(--text)' }}>
         {info.requests.map((q) => <li key={q.id}>{q.confirmed ? 'Requested' : 'Not confirmed:'} {formatSentAt(q.sent_at)} from {(q.to || []).join(', ')}{q.cert_holder_name ? ` (holder ${q.cert_holder_name})` : ''}</li>)}
       </ul>}
-      {!info.canSend ? null : !info.agent?.email ? <p style={{ fontSize: 14, color: '#6b7280' }}>Add your insurance agent on the Company page to request a COI.</p>
+      {!info.canSend ? null : !info.agent?.email ? <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Add your insurance agent on the Company page to request a COI.</p>
         : step === 'closed' || step === 'done' ? <>
-          {step === 'done' && <p role="status" style={{ fontSize: 14, color: '#065f46' }}>COI requested. Replies go to {info.replyTo}.</p>}
+          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>COI requested. Replies go to {info.replyTo}.</p>}
           <button style={primary} onClick={() => { setStep('write'); setErr(null); }}>{info.requests?.length ? 'Request again…' : 'Request COI from agent…'}</button>
         </>
         : step === 'write' ? <form onSubmit={(e) => { e.preventDefault(); setStep('review'); setOk(false); setErr(null); setKey(newSendKey()); }}>
@@ -89,7 +89,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           <label style={lab} htmlFor="coi-body">Message</label>
           <textarea id="coi-body" style={{ ...input, minHeight: 160, padding: '0.5rem 0.6rem' }} required value={d.body} onChange={(e) => setD(editBody(d, e.target.value, template))} />
           {d.bodyDirty && <p style={{ fontSize: 13, margin: '0.25rem 0 0' }}>You edited the message, so it no longer updates from the fields above. <a href="#" data-testid="coi-reset-body" onClick={(e) => { e.preventDefault(); setD(resetBody(d, template)); }}>Reset to template</a></p>}
-          {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
+          {outside.length > 0 && <p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>Sending is limited to {info.allowedDomains.join(', ')} for now. Not allowed: {outside.join(', ')}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" style={{ ...btn, flex: 1 }} onClick={() => setStep('closed')}>Cancel</button>
             <button type="submit" style={primaryButtonStyle({ ...primary, flex: 2 }, outside.length > 0)} disabled={outside.length > 0} aria-disabled={outside.length > 0}>Review email</button>
@@ -103,21 +103,21 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
             {list(d.cc).length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.cc).join(', ')}</dd></>}
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>
           </dl>
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
-          {info.sendCap && <p data-testid="coi-cap" style={{ fontSize: 13, color: capFull ? '#b91c1c' : '#6b7280', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
+          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 8, padding: '0.5rem' }}>{d.body}</pre>
+          {info.sendCap && <p data-testid="coi-cap" style={{ fontSize: 13, color: capFull ? 'var(--danger)' : 'var(--text-muted)', margin: '0 0 0.4rem' }}>{capLabel(info.sendCap) === 'Monthly limit reached' ? 'Monthly limit reached. Nothing more can be sent this month.' : `Monthly emails: ${capLabel(info.sendCap)}`}</p>}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, margin: '0.5rem 0', minHeight: 44 }}>
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} style={{ width: 22, height: 22 }} /> I reviewed this email.
           </label>
-          {err === 'already' ? <div role="alertdialog" aria-label="Request again?" style={{ border: '1px solid #f59e0b', background: '#fffbeb', borderRadius: 8, padding: '0.6rem', fontSize: 14 }}>
+          {err === 'already' ? <div role="alertdialog" aria-label="Request again?" style={{ border: '1px solid var(--warning-border)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.6rem', fontSize: 14 }}>
             <p style={{ margin: '0 0 0.5rem' }}>A COI was already requested for this packet. Request again?</p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button style={{ ...btn, flex: 1 }} onClick={() => setErr(null)} disabled={busy}>Cancel</button>
-              <button style={{ ...primary, flex: 2, background: '#b45309' }} disabled={busy} onClick={() => doSend(true)}>{busy ? 'Sending…' : 'Yes, request again'}</button>
+              <button style={{ ...primary, flex: 2, background: 'var(--warning)' }} disabled={busy} onClick={() => doSend(true)}>{busy ? 'Sending…' : 'Yes, request again'}</button>
             </div></div>
-          : <>{err && <p role="alert" style={{ fontSize: 14, color: '#b91c1c' }}>{err}</p>}
+          : <>{err && <p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={primaryButtonStyle({ ...primary, flex: 2, background: '#059669' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success)' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div></>}
         </div>}
     </section>
