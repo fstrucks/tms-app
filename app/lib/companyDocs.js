@@ -18,12 +18,19 @@ export const VAULT_CHANGED_EVENT = 'ph:vault-changed';
 export const vaultLabel = (t) => VAULT_TYPES.find((x) => x.id === t)?.label || t;
 
 // Pick 2C. Upload / replace / delete: owner + management (same as Insurance).
-// All four vault files (W-9, COI, MC Authority, NOA): owner + management only (Marc, Oct 18, 8 PM CT, via Sam; widens 2C).
-// Dispatchers and drivers get on-file status only, stripped ON THE SERVER.
+// Read access (Marc, Oct 18, via Sam):
+//   - Owner + management: open every vault file, every version.
+//   - Drivers (8:45 PM CT decision) and dispatchers (they rank above drivers, so never less access): open the CURRENT
+//     COI only. No earlier COI versions. W-9, MC Authority and NOA stay on-file status only.
+// All of it is enforced ON THE SERVER (vaultForRole shapes the GET; signedViewUrl checks every file request).
 export const VAULT_WRITE_ROLES = new Set(['owner', 'management']);
-export const VAULT_RESTRICTED_TYPES = new Set(['w9', 'coi', 'mc_authority', 'noa']);
+export const VAULT_MEMBER_ROLES = new Set(['dispatcher', 'driver']);
+export const VAULT_MEMBER_OPEN_TYPES = new Set(['coi']); // current version only
+export const VAULT_RESTRICTED_TYPES = new Set(['w9', 'mc_authority', 'noa']);
 export const canManageVault = (role) => VAULT_WRITE_ROLES.has(role);
-export const canOpenVaultFile = (role, docType) => isVaultType(docType) && (!VAULT_RESTRICTED_TYPES.has(docType) || VAULT_WRITE_ROLES.has(role));
+export const canSeeEarlierVersions = (role) => VAULT_WRITE_ROLES.has(role);
+export const canOpenVaultFile = (role, docType) => isVaultType(docType)
+  && (VAULT_WRITE_ROLES.has(role) || (VAULT_MEMBER_ROLES.has(role) && VAULT_MEMBER_OPEN_TYPES.has(docType)));
 
 // Postmark's 10 MB limit counts the base64-encoded message (about 33% larger than the files). Files are capped at
 // 7.5 MB raw (one file at upload, and the packet + vault files together on a send), which encodes to 10 MB.
@@ -138,6 +145,7 @@ export function vaultForRole(groups, role, ctx = {}) {
     const status = vaultStatus(g, ctx);
     const base = { type: g.type, label: g.label, onFile: !!g.current, status: { level: status.level, text: status.text } };
     if (!canOpenVaultFile(role, g.type)) return { ...base, restricted: true };
+    if (!canSeeEarlierVersions(role)) return { ...base, restricted: false, status: { ...status, hint: null }, current: fileInfo(g.current), earlier: [] }; // current only
     return { ...base, restricted: false, status, current: fileInfo(g.current), earlier: g.earlier.map(fileInfo) };
   });
 }

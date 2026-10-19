@@ -6,7 +6,7 @@
 // dispatchers and drivers, and signedViewUrl() refuses them a file URL.
 import { userClient, serviceClient, bearer, isAuthRejection } from './packetServer.js';
 import { isRole } from './companyRoles.js';
-import { VAULT_TYPE_IDS, isVaultType, groupVault, vaultForRole, canManageVault, canOpenVaultFile } from './companyDocs.js';
+import { VAULT_TYPE_IDS, isVaultType, groupVault, vaultForRole, canManageVault, canOpenVaultFile, canSeeEarlierVersions } from './companyDocs.js';
 import { laToday } from './sendCap.js';
 
 export const json = (b, s = 200) => Response.json(b, { status: s, headers: { 'Cache-Control': 'no-store' } });
@@ -73,7 +73,14 @@ export async function ownedVaultDoc(db, ownerId, id) {
 export async function signedViewUrl(c, id, { seconds = 120 } = {}) {
   const doc = await ownedVaultDoc(c.db, c.ownerId, id);
   if (!doc) return { status: 404, error: 'Document not found.' };
-  if (!canOpenVaultFile(c.role, doc.doc_type)) return { status: 403, error: 'Only the owner or management can open company documents.' };
+  if (!canOpenVaultFile(c.role, doc.doc_type)) return { status: 403, error: 'Only the owner or management can open this document.' };
+  // Drivers and dispatchers: the current version only (same "newest wins" rule as the vault list, pick 1A).
+  if (!canSeeEarlierVersions(c.role)) {
+    const all = await vaultDocs(c.db, c.ownerId);
+    const cur = all.docs ? groupVault(all.docs).find((g) => g.type === doc.doc_type)?.current : null;
+    if (!cur) return { status: 503, error: 'Couldn’t check the document just now. Try again.' };
+    if (cur.id !== doc.id) return { status: 403, error: 'Only the owner or management can open earlier versions.' };
+  }
   const { data, error } = await c.db.storage.from(BUCKET).createSignedUrl(doc.file_path, seconds);
   if (error || !data?.signedUrl) return { status: 502, error: 'Couldn’t open the file. Please try again.' };
   return { url: data.signedUrl };

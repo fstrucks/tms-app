@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import { groupVault, vaultForRole, vaultStatus, coiExpiry, canOpenVaultFile, canManageVault, checkVaultUpload, checkSendSize, encodedSize,
-  sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS, VAULT_RESTRICTED_TYPES } from '../../app/lib/companyDocs.js';
+  sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS, VAULT_RESTRICTED_TYPES, canSeeEarlierVersions } from '../../app/lib/companyDocs.js';
 import { isDocumentsTabDoc, UPLOAD_TYPES, CHANGE_TYPES, DOCUMENTS_SCAN_TYPE_IDS, isCompanyDocType } from '../../app/lib/docTypes.js';
 import { asPdf } from '../../app/lib/vaultSend.js';
 import { deleteLoad } from '../../app/lib/loadDelete.js';
@@ -36,34 +36,42 @@ test('1A: newest upload is current; deleting it makes the previous version curre
   assert.match(deleteCurrentPrompt(g[1]), /show as missing/);
 });
 
-test('2C (widened, Marc Oct 18): owner/management manage + open all four; dispatcher/driver open none', () => {
-  for (const r of ['owner', 'management']) { assert.equal(canManageVault(r), true); for (const t of VAULT_TYPE_IDS) assert.equal(canOpenVaultFile(r, t), true, `${r} ${t}`); }
-  for (const r of ['dispatcher', 'driver', 'nobody', undefined]) {
-    assert.equal(canManageVault(r), false);
-    for (const t of ['w9', 'coi', 'mc_authority', 'noa']) assert.equal(canOpenVaultFile(r, t), false, `${r} ${t}`);
+test('2C (Marc Oct 18): owner/management open all four; dispatcher/driver open the COI only; nobody else opens anything', () => {
+  for (const r of ['owner', 'management']) { assert.equal(canManageVault(r), true); assert.equal(canSeeEarlierVersions(r), true); for (const t of VAULT_TYPE_IDS) assert.equal(canOpenVaultFile(r, t), true, `${r} ${t}`); }
+  for (const r of ['dispatcher', 'driver']) {
+    assert.equal(canManageVault(r), false); assert.equal(canSeeEarlierVersions(r), false);
+    assert.equal(canOpenVaultFile(r, 'coi'), true, r);
+    for (const t of ['w9', 'mc_authority', 'noa']) assert.equal(canOpenVaultFile(r, t), false, `${r} ${t}`);
   }
-  assert.deepEqual([...VAULT_RESTRICTED_TYPES].sort(), ['coi', 'mc_authority', 'noa', 'w9']);
+  for (const r of ['nobody', undefined, null]) for (const t of VAULT_TYPE_IDS) assert.equal(canOpenVaultFile(r, t), false, `${r} ${t}`);
+  assert.deepEqual([...VAULT_RESTRICTED_TYPES].sort(), ['mc_authority', 'noa', 'w9']);
   assert.equal(canOpenVaultFile('owner', 'rate_confirmation'), false);
 });
 
-test('2C: vaultForRole strips all four rows to on-file status only for dispatcher/driver', () => {
-  const g = groupVault(DOCS());
+const DOCS_2COI = () => [...DOCS(), doc(6, 'coi', '2026-09-01T10:00:00Z')]; // id(3) current, id(6) earlier
+
+test('2C: vaultForRole gives dispatcher/driver the current COI (no earlier versions); W-9, MC, NOA status only', () => {
+  const g = groupVault(DOCS_2COI());
   for (const role of ['driver', 'dispatcher']) {
     const v = vaultForRole(g, role, { policies: POLICIES, today: TODAY });
-    assert.equal(v.length, 4);
-    for (const r of v) {
-      assert.equal(r.restricted, true, r.type); assert.equal(r.onFile, true);
+    for (const type of ['w9', 'mc_authority', 'noa']) {
+      const r = v.find((x) => x.type === type);
+      assert.equal(r.restricted, true, type); assert.equal(r.onFile, true);
       assert.deepEqual(Object.keys(r).sort(), ['label', 'onFile', 'restricted', 'status', 'type']);
-      assert.deepEqual(Object.keys(r.status).sort(), ['level', 'text']); // no expiry date, note or hint
+      assert.deepEqual(Object.keys(r.status).sort(), ['level', 'text']);
     }
-    assert.doesNotMatch(JSON.stringify(v), /DemoCarrier|vault-|00000000-|\d{4}-\d{2}-\d{2}/);
-    assert.equal(v.find((x) => x.type === 'coi').status.text, vaultStatus(g.find((x) => x.type === 'coi'), { policies: POLICIES, today: TODAY }).text);
+    const coi = v.find((x) => x.type === 'coi');
+    assert.equal(coi.restricted, false); assert.equal(coi.current.id, id(3)); assert.deepEqual(coi.earlier, []);
+    assert.equal(coi.status.hint, null); assert.ok(coi.status.expiryText);
+    assert.doesNotMatch(JSON.stringify(v), /W9_DemoCarrier|MC_AUTHORITY_DemoCarrier|NOA_DemoCarrier|vault-(w9|mc_authority|noa)|_6\.pdf/);
+    assert.doesNotMatch(JSON.stringify(v), new RegExp(id(6)));
   }
   const own = vaultForRole(g, 'management', { policies: POLICIES, today: TODAY });
   assert.ok(own.every((r) => r.restricted === false));
   assert.equal(own.find((x) => x.type === 'w9').current.id, id(2));
   assert.equal(own.find((x) => x.type === 'w9').earlier.length, 1);
-  assert.equal(own.find((x) => x.type === 'coi').current.id, id(3)); assert.equal(own.find((x) => x.type === 'mc_authority').current.id, id(4));
+  assert.deepEqual(own.find((x) => x.type === 'coi').earlier.map((d) => d.id), [id(6)]);
+  assert.equal(own.find((x) => x.type === 'mc_authority').current.id, id(4));
 });
 
 test('3A + statuses: COI expiry from confirmed auto/cargo; expired red, ≤30 days amber; W-9 year-old hint', () => {
@@ -188,40 +196,54 @@ const ucFor = (role, db) => () => ({ auth: { getUser: async () => ({ data: { use
 const vreq = (method, { qs = '', body } = {}) => new Request(`http://x/api/company/documents${qs}`, { method, headers: { authorization: 'Bearer fake', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 const deps = (role, db) => ({ mkUserClient: ucFor(role, db), sb: db, today: TODAY, now: () => 1 });
 
-test('GET /api/company/documents: driver/dispatcher response has no file details for any of the four (server-side 2C)', async () => {
-  const db = fakeDb();
+test('GET /api/company/documents: driver/dispatcher get the current COI details only (server-side 2C)', async () => {
+  const db = fakeDb({ docs: DOCS_2COI() });
   for (const role of ['driver', 'dispatcher']) {
     const res = await VAULT.GET(vreq('GET'), { deps: deps(role, db) });
     assert.equal(res.status, 200);
     const txt = await res.text(); const j = JSON.parse(txt);
     assert.equal(j.canManage, false);
-    assert.doesNotMatch(txt, /DemoCarrier|vault-(w9|coi|mc_authority|noa)|00000000-/);
-    assert.ok(j.vault.every((r) => r.restricted === true && !r.current && !r.earlier));
+    assert.doesNotMatch(txt, /W9_DemoCarrier|MC_AUTHORITY_DemoCarrier|NOA_DemoCarrier|vault-(w9|mc_authority|noa)/);
+    assert.doesNotMatch(txt, new RegExp(id(6))); // earlier COI never leaves the server
+    const coi = j.vault.find((r) => r.type === 'coi');
+    assert.equal(coi.restricted, false); assert.equal(coi.current.id, id(3)); assert.match(coi.current.original_filename, /COI_DemoCarrier/); assert.deepEqual(coi.earlier, []);
+    for (const t of ['w9', 'mc_authority', 'noa']) { const r = j.vault.find((x) => x.type === t); assert.equal(r.restricted, true); assert.ok(!r.current && !r.earlier); }
     assert.equal(j.vault.find((r) => r.type === 'w9').status.text, 'On file');
-    assert.ok(j.vault.find((r) => r.type === 'coi').status.text);
   }
   const m = await (await VAULT.GET(vreq('GET'), { deps: deps('management', db) })).json();
   assert.equal(m.canManage, true); assert.equal(m.vault.find((r) => r.type === 'w9').current.id, id(2));
-  assert.equal(m.vault.find((r) => r.type === 'coi').current.id, id(3)); assert.equal(m.vault.find((r) => r.type === 'mc_authority').current.id, id(4));
+  assert.deepEqual(m.vault.find((r) => r.type === 'coi').earlier.map((d) => d.id), [id(6)]); assert.equal(m.vault.find((r) => r.type === 'mc_authority').current.id, id(4));
 });
 
-test('GET ?view=: every vault file URL refused (403) for driver and dispatcher; allowed for owner/management', async () => {
-  const db = fakeDb();
+test('GET ?view=: driver/dispatcher may open the current COI only; W-9, MC, NOA and earlier COIs refused (403); owner/management open all', async () => {
+  const db = fakeDb({ docs: DOCS_2COI() });
   for (const role of ['driver', 'dispatcher']) {
-    for (const n of [1, 2, 3, 4, 5]) {
+    const ok = await (await VAULT.GET(vreq('GET', { qs: `?view=${id(3)}` }), { deps: deps(role, db) })).json();
+    assert.match(ok.url, /^https:\/\/fake\.storage\/owner1\/company\/vault-coi-3/, role);
+    for (const n of [1, 2, 4, 5, 6]) {
       const r = await VAULT.GET(vreq('GET', { qs: `?view=${id(n)}` }), { deps: deps(role, db) });
       assert.equal(r.status, 403, `${role} ${n}`);
       const j = await r.json(); assert.ok(!j.url); assert.match(j.error, /owner or management/);
     }
   }
   for (const role of ['owner', 'management']) {
-    for (const [n, t] of [[2, 'w9'], [3, 'coi'], [4, 'mc_authority'], [5, 'noa']]) {
+    for (const [n, t] of [[2, 'w9'], [3, 'coi'], [4, 'mc_authority'], [5, 'noa'], [6, 'coi'], [1, 'w9']]) {
       const j = await (await VAULT.GET(vreq('GET', { qs: `?view=${id(n)}` }), { deps: deps(role, db) })).json();
-      assert.match(j.url, new RegExp(`^https://fake\\.storage/owner1/company/vault-${t}`), `${role} ${t}`);
+      assert.match(j.url, new RegExp(`^https://fake\\.storage/owner1/company/vault-${t}-${n}`), `${role} ${t} ${n}`);
     }
   }
-  assert.equal((await VAULT.GET(vreq('GET', { qs: `?view=${id(9)}` }), { deps: deps('owner', db) })).status, 404); // not a vault doc
+  assert.equal((await VAULT.GET(vreq('GET', { qs: `?view=${id(9)}` }), { deps: deps('driver', db) })).status, 404); // not a vault doc
   assert.equal((await VAULT.GET(vreq('GET', { qs: '?view=nope' }), { deps: deps('owner', db) })).status, 404);
+});
+
+test('driver/dispatcher still cannot upload, replace or delete anything (including the COI)', async () => {
+  const db = fakeDb({ docs: DOCS_2COI() });
+  for (const role of ['driver', 'dispatcher']) {
+    const start = await VAULT.POST(vreq('POST', { body: { action: 'start', docType: 'coi', filename: 'COI_FAKE.pdf', size: 50_000, contentType: 'application/pdf' } }), { deps: deps(role, db) });
+    assert.equal(start.status, 403, role);
+    for (const n of [3, 6, 2]) assert.equal((await VAULT.DELETE(vreq('DELETE', { qs: `?id=${id(n)}` }), { deps: deps(role, db) })).status, 403, `${role} delete ${n}`);
+  }
+  assert.equal(db.tbl.documents.length, DOCS_2COI().length);
 });
 
 test('POST upload: driver/dispatcher 403; size and type checked; finish saves under the owner and verifies the file', async () => {
@@ -490,8 +512,10 @@ test('Send to broker: only owner/management can attach vault files (dispatcher/d
   assert.equal(o.vault.options.length, 4);
 });
 
-test('UI: restricted rows show only the pill and the owner/management note', () => {
+test('UI: restricted rows show only the pill and the note; members get View but no upload/delete', () => {
   const ui = read('app/company/CompanyDocuments.js');
   assert.match(ui, /r\.restricted \? \(\s*<p data-testid="vault-restricted"[^>]*>Only the owner and management can open the \{t\?\.short \|\| r\.label\}\.<\/p>\s*\) : \(/);
-  assert.match(read('app/lib/vaultServer.js'), /Only the owner or management can open company documents\./);
+  assert.match(ui, /\{r\.current && <button[^\n]*?data-testid="vault-view">View<\/button>\}/);
+  assert.match(ui, /\{st\.canManage && \(\s*<div className="vault-upload">/); assert.match(ui, /\{st\.canManage && r\.current && \(<div className="vault-delete">/);
+  assert.match(read('app/lib/vaultServer.js'), /Only the owner or management can open earlier versions\./);
 });
