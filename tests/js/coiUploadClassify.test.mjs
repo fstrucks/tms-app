@@ -34,11 +34,14 @@ test('decideDocKind: PDF text first, then AI kind/heading; default rate con', ()
   assert.equal(decideDocKind({}), 'rate_confirmation');
 });
 
-test('upload types include COI; ?type=coi presets it; unknown ignored', () => {
-  assert.ok(UPLOAD_TYPES.some((t) => t.id === 'coi'));
+// PR #84 (Marc's picks, Oct 18): company types moved to Company → Company documents; the Documents Upload picker
+// no longer offers them, so ?type=coi no longer presets anything there (Insurance → Upload COI opens the vault).
+test('upload types exclude company types (vault); ?type=coi is ignored there; unknown ignored', () => {
+  for (const id of ['coi', 'w9', 'mc_authority', 'noa']) assert.ok(!UPLOAD_TYPES.some((t) => t.id === id), id);
   assert.equal(UPLOAD_TYPES[0].id, 'rate_confirmation');
   assert.ok(!UPLOAD_TYPES.some((t) => t.id === 'other'));
-  assert.equal(uploadTypeFromQuery('?type=coi'), 'coi');
+  assert.equal(uploadTypeFromQuery('?type=coi'), null);
+  assert.equal(uploadTypeFromQuery('?type=bol'), 'bol');
   assert.equal(uploadTypeFromQuery('?type=hack'), null);
   assert.equal(uploadTypeFromQuery(''), null);
 });
@@ -54,6 +57,6 @@ test('wiring: documents page type picker + only rate cons extracted; extract rou
   assert.match(r, /decideDocKind\(\{ pdfText, aiKind, aiText \}\) === 'coi'/);
   assert.match(r, /update\(\{ doc_type: 'coi', ai_extracted_data: null \}\)/);
   const ins = read('../../app/company/CompanyInsurance.js');
-  assert.match(ins, /href="\/documents\?type=coi"/); assert.match(ins, />Upload COI</);
+  assert.match(ins, /href="#vault-coi"/); assert.match(ins, />Upload COI</); // PR #84: vault COI row
   assert.doesNotMatch(ins, /type “COI”\), then/);
 });
