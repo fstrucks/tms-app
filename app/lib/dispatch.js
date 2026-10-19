@@ -59,6 +59,7 @@ export async function rpcWithRetry(supabase, fn, args, { retryMs = TRANSIENT_RET
   }
   return res;
 }
+export const BOARDS_LOAD_ERROR = 'Couldn’t load the load boards. Check your connection and tap Retry.';
 export const DISPATCH_LOAD_ERROR = 'Couldn’t load the dispatch center. Check your connection and tap Retry.';
 
 // → { setup: true } | { error } | { companies: [{ owner_id, role, company_name }] }
@@ -233,16 +234,36 @@ export const driverMap = (choices = []) => Object.fromEntries(choices.map((c) =>
 // company_members roles (own rows are readable under the existing RLS). → { text, href, linkText }
 export function notMemberCopy(roles = []) {
   const r = new Set(roles || []);
-  if (r.has('owner')) return { text: 'The dispatch center is for your management and dispatchers. You manage your loads on', href: '/loads', linkText: 'Loads' };
+  // QA #100: the owner read the old line as "you're not a manager". Owners run their loads from Loads (the dispatch
+  // center is the view their management and dispatchers use), so say that plainly.
+  if (r.has('owner')) return { text: 'You’re the owner, so you manage your loads, drivers and rates on', href: '/loads', linkText: 'Loads' };
   if (r.has('driver')) return { text: 'Your dispatcher manages loads. Your current load is on', href: '/', linkText: 'Home' };
   return { text: 'The dispatch center is for a company’s management and dispatchers. Ask the company owner for access, or go to', href: '/', linkText: 'Home' };
 }
-export async function fetchMyRoles(supabase) {
+const sessionUid = async (supabase) => { try { return (await supabase.auth.getSession())?.data?.session?.user?.id || null; } catch { return null; } };
+// → { roles, definite }. definite=false: couldn't tell (no session, a failed read) — never treat that as "no roles".
+export async function fetchMyRolesStatus(supabase) {
   try {
-    const { data: sess } = await supabase.auth.getSession();
-    const uid = sess?.session?.user?.id;
-    if (!uid) return [];
+    const uid = await sessionUid(supabase);
+    if (!uid) return { roles: [], definite: false };
     const { data, error } = await supabase.from('company_members').select('role').eq('user_id', uid);
-    return error ? [] : (data || []).map((m) => m.role);
-  } catch { return []; }
+    return error ? { roles: [], definite: false } : { roles: (data || []).map((m) => m.role), definite: true };
+  } catch { return { roles: [], definite: false }; }
+}
+export async function fetchMyRoles(supabase) { return (await fetchMyRolesStatus(supabase)).roles; }
+
+// Who may use the dispatch center, decided only on definite answers (QA #100: an indeterminate result must show
+// loading / Retry, never the "not for you" message, and never downgrade an owner).
+// → { status: 'member', companies } | { status: 'not-member', roles } | { status: 'setup' } | { status: 'unknown', error }
+export async function resolveDispatchAccess(supabase, opts) {
+  const uid = await sessionUid(supabase);
+  if (!uid) return { status: 'unknown', error: new Error('no session yet') };
+  const ctx = await fetchDispatchContext(supabase, opts);
+  if (ctx.setup) return { status: 'setup' };
+  if (ctx.error) return { status: 'unknown', error: ctx.error };
+  if (ctx.companies.length) return { status: 'member', companies: ctx.companies };
+  const mine = await fetchMyRolesStatus(supabase);
+  if (!mine.definite) return { status: 'unknown', error: new Error('roles unknown') };
+  if ((await sessionUid(supabase)) !== uid) return { status: 'unknown', error: new Error('session changed') }; // answer may be for someone else
+  return { status: 'not-member', roles: mine.roles };
 }

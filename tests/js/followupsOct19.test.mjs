@@ -228,3 +228,112 @@ test('user-facing copy is gender-neutral (no he / him / his / she / her in strin
   const strings = code.filter((c) => /\b(him|his|he|she|her|himself|herself)\b/i.test(c));
   assert.deepEqual(strings, []);
 });
+
+// =================== QA of #100 (Oct 19): 503 on the session route, owner gate, offline Retry ===================
+import { checkUser, isAuthRejection, isAuthUnavailable, authErrInfo } from '../../app/lib/packetServer.js';
+import { resolveDispatchAccess, fetchMyRolesStatus, notMemberCopy, BOARDS_LOAD_ERROR } from '../../app/lib/dispatch.js';
+import { onReconnect, loadWithOneRetry, withTimeout, ONLINE_RETRY_DELAY_MS } from '../../app/lib/onlineRetry.js';
+
+// Shapes copied from @supabase/auth-js 2.117: what getUser(jwt) returns for each real situation.
+const E = {
+  sessionMissing: { name: 'AuthSessionMissingError', status: 400, message: 'Auth session missing!', __isAuthError: true },
+  badJwt: { name: 'AuthApiError', status: 403, code: 'bad_jwt', message: 'invalid JWT: unable to parse or verify signature' },
+  gone: { name: 'AuthApiError', status: 404, code: 'user_not_found', message: 'User from sub claim in JWT does not exist' },
+  retryable: { name: 'AuthRetryableFetchError', status: 0, message: 'fetch failed' },
+  gateway: { name: 'AuthRetryableFetchError', status: 502, message: 'Bad Gateway' },
+  unknown: { name: 'AuthUnknownError', message: 'Unexpected token < in JSON' },
+  rate: { name: 'AuthApiError', status: 429, code: 'over_request_rate_limit', message: 'Request rate limit reached' },
+};
+
+test('503 root cause: "Auth session missing!" (status 400) was not recognised as a rejection → every call looked like "Auth unavailable"', async () => {
+  assert.ok(isAuthRejection(E.sessionMissing), 'AuthSessionMissingError is a rejection');
+  for (const e of [E.sessionMissing, E.badJwt, E.gone]) { assert.ok(!isAuthUnavailable(e), e.name + e.status); assert.equal((await checkUser({ auth: { getUser: async () => ({ data: { user: null }, error: e }) } }, 'fake.t.k', { retryMs: 0 })).rejected, true); }
+  for (const e of [E.retryable, E.gateway, E.unknown, E.rate, new TypeError('fetch failed'), Object.assign(new Error('x'), { cause: { code: 'ECONNRESET' } })]) assert.ok(isAuthUnavailable(e), e.name || e.message);
+  let n = 0;
+  const r = await checkUser({ auth: { getUser: async () => { n++; return { data: { user: null }, error: E.gateway }; } } }, 'fake.t.k', { retryMs: 0 });
+  assert.equal(r.unavailable, true); assert.equal(n, 2, 'one retry on a real 5xx');
+  assert.equal(authErrInfo(E.gateway), 'AuthRetryableFetchError 502  Bad Gateway');
+});
+
+test('session route: a session-missing token → 401 + cleared cookie (not 503); a real 5xx → 503 and the log has no token', async () => {
+  const tok = fakeJwt({ sub: U1, exp: NOW / 1000 + 600 });
+  const r = await POST(sessReq({ token: tok }), { deps: { mkUserClient: authClient({ data: { user: null }, error: E.sessionMissing }), now: NOW } });
+  assert.equal(r.status, 401); assert.match(r.headers.get('set-cookie'), /Max-Age=0/);
+  const logs = []; const orig = console.error; console.error = (...a) => logs.push(a.join(' '));
+  try {
+    const d = await POST(sessReq({ token: tok }), { deps: { authRetryMs: 0, mkUserClient: authClient({ data: { user: null }, error: E.gateway }) } });
+    assert.equal(d.status, 503);
+  } finally { console.error = orig; }
+  assert.ok(logs.some((l) => l.includes('[dispatch session] auth check unavailable AuthRetryableFetchError 502')));
+  assert.ok(!logs.join('\n').includes(tok), 'token never logged');
+});
+
+test('invites route: !who.user (Auth really unavailable) logs name/status/message only', () => {
+  assert.match(read('app/api/account/invites/route.js'), /console\.error\('\[invites\] auth check unavailable', authErrInfo\(who\.error\)\)/);
+});
+
+// ---------- 2. owner's /dispatch: unknown ≠ not a manager ----------
+const sbRoles = ({ uid = U1, ctx = { data: [], error: null }, members = { data: [{ role: 'owner' }], error: null } } = {}) => ({
+  auth: { getSession: async () => ({ data: { session: uid ? { access_token: 'fake.t', user: { id: uid } } : null } }) },
+  rpc: async () => (ctx instanceof Error ? Promise.reject(ctx) : ctx),
+  from: () => ({ select: () => ({ eq: async () => members }) }),
+});
+
+test('resolveDispatchAccess: only definite answers; unknown stays loading / Retry, an owner is never downgraded', async () => {
+  const o = { retryMs: 0 };
+  assert.equal((await resolveDispatchAccess(sbRoles({ uid: null }), o)).status, 'unknown', 'no session yet');
+  assert.equal((await resolveDispatchAccess(sbRoles({ ctx: { data: null, error: { message: 'connection closed' } } }), o)).status, 'unknown', 'context failed');
+  assert.equal((await resolveDispatchAccess(sbRoles({ members: { data: null, error: { message: 'connection closed' } } }), o)).status, 'unknown', 'owner lookup failed: NOT "not a member"');
+  assert.equal((await resolveDispatchAccess(sbRoles({ members: { data: null, error: { code: 'PGRST301', message: 'JWT expired' } } }), o)).status, 'unknown');
+  const owner = await resolveDispatchAccess(sbRoles(), o);
+  assert.deepEqual(owner, { status: 'not-member', roles: ['owner'] });
+  assert.equal(notMemberCopy(owner.roles).href, '/loads');
+  assert.doesNotMatch(notMemberCopy(['owner']).text, /management and dispatchers/, 'owner copy no longer reads as "you are not a manager"');
+  assert.equal((await resolveDispatchAccess(sbRoles({ ctx: { data: [{ owner_id: U2, role: 'dispatcher', company_name: 'Fake' }], error: null } }), o)).status, 'member');
+  assert.equal((await resolveDispatchAccess(sbRoles({ ctx: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } }), o)).status, 'setup');
+  assert.deepEqual(await fetchMyRolesStatus(sbRoles({ uid: null })), { roles: [], definite: false });
+  for (const f of ['app/dispatch/page.js', 'app/dispatch/[id]/page.js']) {
+    const src = read(f);
+    assert.match(src, /acc\.status === 'unknown'[\s\S]*fail\(/, f); assert.match(src, /notMemberCopy\(acc\.roles\)/, f);
+    assert.doesNotMatch(src, /fetchMyRoles\(supabase\)/, f);
+  }
+});
+
+// ---------- 3. offline: error + Retry + one auto-retry everywhere; back online → retry ----------
+test('loadWithOneRetry: one automatic retry after an error, none after success, none when the page is gone', async () => {
+  let n = 0; const waits = [];
+  const wait = async (ms) => { waits.push(ms); };
+  assert.equal(await loadWithOneRetry(async ({ auto }) => { n++; return !auto; }, { wait }), false); assert.equal(n, 2); assert.deepEqual(waits, [1200]);
+  n = 0; assert.equal(await loadWithOneRetry(async () => { n++; return false; }, { wait }), false); assert.equal(n, 1);
+  n = 0; assert.equal(await loadWithOneRetry(async () => { n++; return true; }, { wait }), true); assert.equal(n, 2, 'never more than one retry');
+  n = 0; assert.equal(await loadWithOneRetry(async () => { n++; return true; }, { wait, isLive: () => false }), true); assert.equal(n, 1);
+});
+
+test('withTimeout: a fetch that never answers ends in the error state instead of "Loading…" forever', async () => {
+  const never = new Promise(() => {});
+  assert.equal(await withTimeout(never, 5, () => true), true);
+  assert.equal(await withTimeout(Promise.resolve(false), 50, () => true), false);
+});
+
+test('onReconnect: the window "online" event triggers one retry after a short pause; cleanup removes it', () => {
+  const handlers = {}; const target = { addEventListener: (e, f) => { handlers[e] = f; }, removeEventListener: (e) => { delete handlers[e]; } };
+  const timers = []; const setTimer = (fn, ms) => { timers.push([fn, ms]); return timers.length; };
+  let ran = 0;
+  const off = onReconnect(() => { ran++; }, { target, setTimer, clearTimer: () => {} });
+  assert.equal(typeof handlers.online, 'function');
+  handlers.online(); assert.equal(timers[0][1], ONLINE_RETRY_DELAY_MS); timers[0][0](); assert.equal(ran, 1);
+  off(); assert.equal(handlers.online, undefined);
+});
+
+test('pages: boards has error + Retry + auto-retry + timeout; /loads, /dispatch, /dispatch/[id], boards retry on "online"; boards never downgrades on a failed check', () => {
+  const boards = read('app/dispatch/boards/page.js');
+  assert.match(boards, /<LoadError message=\{state\.text\} onRetry=\{\(\) => load\(\)\} \/>/);
+  assert.match(boards, /loadWithOneRetry\(run, /); assert.match(boards, /withTimeout\(loadOnce\(u, o\)/);
+  assert.match(boards, /if \(!own\.definite\) return fail\(\);/); assert.match(boards, /if \(ctx\.error\) return fail\(\);/);
+  assert.match(boards, /useRetryWhenOnline\(state\.status === 'error'/);
+  assert.match(BOARDS_LOAD_ERROR, /tap Retry/);
+  assert.match(read('app/dispatch/page.js'), /useRetryWhenOnline\(state\.status === 'error', load\)/);
+  assert.match(read('app/dispatch/[id]/page.js'), /useRetryWhenOnline\(state\.status === 'error', fetchLoad\)/);
+  assert.match(read('app/loads/LoadsData.js'), /useRetryWhenOnline\(!!error, loadLoads\)/);
+  for (const f of ['app/dispatch/page.js', 'app/dispatch/[id]/page.js']) assert.match(read(f), /withTimeout\(/, f);
+});

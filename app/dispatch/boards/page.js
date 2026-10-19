@@ -4,7 +4,7 @@
 // "Save a load from a board" creates a load with any number of stops (2–20). Phase 1 saving is owner-only: the
 // load is inserted under the owner's RLS, then public.dispatch_save_stops saves the stops. Management and
 // dispatchers see the form disabled until the dispatcher create-load function exists. No board APIs yet.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SignInLink from '../../components/SignInLink';
@@ -13,9 +13,11 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import { fmtMoney } from '../../lib/loads';
 import { pickupStop, deliveryStop } from '../../lib/loadTabs';
 import { companyOwnerStatus } from '../../lib/accountOwner';
-import { fetchDispatchContext, fetchDispatchLoads, formToStops, blankStop, saveStops } from '../../lib/dispatch';
+import { fetchDispatchContext, fetchDispatchLoads, BOARDS_LOAD_ERROR, formToStops, blankStop, saveStops } from '../../lib/dispatch';
 import { LOAD_BOARDS, OTHER_BOARD, EMPTY_BOARD_FORM, buildBoardLoad, createBoardLoad, boardLoads, showDispatchNav } from '../../lib/loadBoards';
 import DispatchHeaderLinks from '../DispatchHeaderLinks';
+import { Loading, LoadError } from '../../components/DataState';
+import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../../lib/onlineRetry';
 
 const s = {
   ...STOP_STYLES,
@@ -46,24 +48,42 @@ export default function LoadBoardsPage() {
   const [msg, setMsg] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  async function load(u) {
-    setState({ status: 'loading' });
-    if (!(await hasSession(supabase))) return setState({ status: 'error' });
+  // One pass. → true when it ended in an error state (one automatic retry, then Retry / back-online). Only definite
+  // answers pick a role: a failed owner check or dispatch lookup is an error, never "not a member" (QA #100).
+  async function loadOnce(u, { auto = false } = {}) {
+    if (!auto) setState({ status: 'loading' });
+    const fail = () => { setState({ status: 'error', text: BOARDS_LOAD_ERROR }); return true; };
+    if (!(await hasSession(supabase))) return fail();
     const own = await companyOwnerStatus(supabase, u.id);
     if (own.owner) {
       const { data, error } = await supabase.from('loads').select('id, status, broker_name, broker_load_number, rate, notes, created_at, stops(*)')
         .like('notes', 'Load board:%').order('created_at', { ascending: false }).limit(50);
-      if (error) console.error('[boards] list', error);
-      return setState({ status: 'ready', role: 'owner', loads: boardLoads(data || []) });
+      if (error) { console.error('[boards] list', error.code || '', error.message || ''); return fail(); }
+      setState({ status: 'ready', role: 'owner', loads: boardLoads(data || []) });
+      return false;
     }
+    if (!own.definite) return fail();
     const ctx = await fetchDispatchContext(supabase);
-    if (!ctx.error && !ctx.setup && ctx.companies.length) {
+    if (ctx.error) return fail();
+    if (!ctx.setup && ctx.companies.length) {
       const company = ctx.companies[0];
       const res = await fetchDispatchLoads(supabase);
-      return setState({ status: 'ready', role: company.role, company, loads: boardLoads((res.loads || []).filter((l) => l.owner_id === company.owner_id)) });
+      if (res.error) return fail();
+      setState({ status: 'ready', role: company.role, company, loads: boardLoads((res.loads || []).filter((l) => l.owner_id === company.owner_id)) });
+      return false;
     }
     setState({ status: 'ready', role: 'none', loads: [] });
+    return false;
   }
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const userRef = useRef(null); userRef.current = user;
+  const load = (u = userRef.current) => {
+    if (!u) return Promise.resolve(false);
+    const run = (o) => withTimeout(loadOnce(u, o), undefined, () => { setState({ status: 'error', text: BOARDS_LOAD_ERROR }); return true; });
+    return loadWithOneRetry(run, { isLive: () => live.current });
+  };
+  useRetryWhenOnline(state.status === 'error', () => load());
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
@@ -103,8 +123,8 @@ export default function LoadBoardsPage() {
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to use the load boards.</p>
-        : state.status === 'loading' ? <p style={s.muted}>Loading…</p>
-        : state.status === 'error' ? <p role="alert" style={{ color: 'var(--danger)' }}>Your session has expired or is still loading. Reload, or sign in again.</p>
+        : state.status === 'loading' ? <Loading label="Loading load boards…" />
+        : state.status === 'error' ? <LoadError message={state.text} onRetry={() => load()} />
         : state.role === 'none' ? <p style={s.muted} data-testid="boards-not-member">Load boards are for the company owner, management and dispatchers. <Link href="/" style={s.link}>Home</Link>.</p>
         : (
           <>

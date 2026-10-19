@@ -6,7 +6,7 @@
 //   called with the CALLER's token so the database re-checks owner / same company / not the owner / allowed role.
 // No domain limit on invites: outside addresses are allowed (PACKET_SEND_ALLOWED_DOMAINS is for packet emails only).
 // Uses the service-role client the app already uses (SUPABASE_SERVICE_ROLE_KEY via serviceClient) for auth.admin.
-import { serviceClient, userClient, bearer, checkUser } from '../../../lib/packetServer';
+import { serviceClient, userClient, bearer, checkUser, authErrInfo } from '../../../lib/packetServer';
 import { validateRoleChange, validateMemberId, setMemberRole, memberAssignedCount, NOT_OWNER_ROLE_TEXT } from '../../../lib/memberRoles';
 import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends } from '../../../lib/testerInvites';
 
@@ -25,7 +25,7 @@ async function ownerCtx(req, deps = {}, { notOwnerText } = {}) {
   const uc = (deps.mkUserClient || userClient)(token);
   const who = await checkUser(uc, token, deps.authRetryMs != null ? { retryMs: deps.authRetryMs } : {});
   if (who.rejected) return { err: json({ error: 'Sign in again.' }, 401) };
-  if (!who.user) return { err: json({ error: 'Couldn’t check your sign-in just now. Try again.', retry: true }, 503) };
+  if (!who.user) { console.error('[invites] auth check unavailable', authErrInfo(who.error)); return { err: json({ error: 'Couldn’t check your sign-in just now. Try again.', retry: true }, 503) }; }
   const c = await ownerCompany(sb, who.user.id);
   if (c.error) return { err: json({ error: c.status === 403 && notOwnerText ? notOwnerText : c.error }, c.status) };
   return { sb, uc, owner: who.user, profile: c.profile };

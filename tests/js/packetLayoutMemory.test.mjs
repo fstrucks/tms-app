@@ -857,7 +857,7 @@ test('URGENT: Supabase Auth unavailable → the token is verified by the databas
   const b = await packetAccess(fReq(tok), pid(1), { sb, mkUserClient: both, authRetryMs: 0 });
   assert.equal(b.status, 503); assert.equal(b.retry, true);
   // A real rejection from Auth is still a sign-out; a working Auth is untouched.
-  assert.deepEqual(await checkUser({ auth: { getUser: async () => ({ data: { user: null }, error: { status: 403, message: 'invalid JWT: token is expired' } }) } }, tok, { retryMs: 0 }), { rejected: true });
+  assert.deepEqual(await checkUser({ auth: { getUser: async () => ({ data: { user: null }, error: { status: 403, message: 'invalid JWT: token is expired' } }) } }, tok, { retryMs: 0 }).then((r) => ({ rejected: r.rejected })), { rejected: true });
   assert.equal(jwtClaims(tok).sub, 'u-owner'); assert.equal(jwtClaims('garbage'), null);
   // Any unexpected throw in the route → JSON 500 with the plain fields message (not HTML, not a sign-in message).
   const boom = await FIELDS_GET(fReq(tok), { params: { id: pid(1) }, deps: { sb: { from: () => { throw new Error('boom'); } }, mkUserClient: down(ok), authRetryMs: 0 } });

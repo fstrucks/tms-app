@@ -250,7 +250,7 @@ test('/dispatch copy is role-appropriate (drivers are pointed to Home, not to Lo
   assert.equal(notMemberCopy([]).href, '/');
   for (const src of [list, page]) {
     assert.doesNotMatch(src, /Owners manage loads/);
-    assert.match(src, /notMemberCopy\(await fetchMyRoles\(supabase\)\)/);
+    assert.match(src, /notMemberCopy\(acc\.roles\)/);
     assert.match(src, /data-testid="dispatch-not-member">\{state\.copy\.text\} <Link href=\{state\.copy\.href\}/);
   }
 });

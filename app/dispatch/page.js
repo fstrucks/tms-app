@@ -2,7 +2,7 @@
 
 // /dispatch: the owner's loads for management and dispatchers (Marc approved, via Sam, Oct 18 2026).
 // Data: public.dispatch_context() + public.dispatch_loads() (SECURITY DEFINER, role-checked in the database).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
@@ -11,7 +11,8 @@ import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { pickupStop, deliveryStop } from '../lib/loadTabs';
-import { fetchDispatchContext, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, fetchMyRoles, DISPATCH_LOAD_ERROR } from '../lib/dispatch';
+import { resolveDispatchAccess, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, DISPATCH_LOAD_ERROR } from '../lib/dispatch';
+import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../lib/onlineRetry';
 import { fetchDriverChoices } from '../lib/loadDriver';
 
 const s = {
@@ -29,18 +30,27 @@ export default function DispatchPage() {
   const [checking, setChecking] = useState(true);
   const [state, setState] = useState({ status: 'loading' });
 
-  async function load() {
-    setState({ status: 'loading' });
-    if (!(await hasSession(supabase))) return setState({ status: 'error', text: 'Your session has expired or is still loading. Tap Retry, or sign in again.' });
-    const ctx = await fetchDispatchContext(supabase);
-    if (ctx.setup) return setState({ status: 'setup' });
-    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: DISPATCH_LOAD_ERROR }); }
-    if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
-    const company = ctx.companies[0];
+  // One pass. → true when it ended in an error state (loadWithOneRetry then tries once more).
+  // While the role is unknown the page stays on Loading; it never shows the "not for you" text on a guess (QA #100).
+  async function loadOnce({ auto = false } = {}) {
+    if (!auto) setState({ status: 'loading' });
+    const fail = (text) => { setState({ status: 'error', text }); return true; };
+    if (!(await hasSession(supabase))) return fail('Your session has expired or is still loading. Tap Retry, or sign in again.');
+    const acc = await resolveDispatchAccess(supabase);
+    if (acc.status === 'setup') { setState({ status: 'setup' }); return false; }
+    if (acc.status === 'unknown') { console.error('[dispatch] access', acc.error?.code || '', acc.error?.message || ''); return fail(DISPATCH_LOAD_ERROR); }
+    if (acc.status === 'not-member') { setState({ status: 'not-member', copy: notMemberCopy(acc.roles) }); return false; }
+    const company = acc.companies[0];
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
-    if (res.error || res.setup) { console.error('[dispatch] loads', res.error); return setState({ status: res.setup ? 'setup' : 'error', text: 'Couldn’t load the loads. Check your connection and tap Retry.' }); }
+    if (res.setup) { setState({ status: 'setup' }); return false; }
+    if (res.error) { console.error('[dispatch] loads', res.error); return fail('Couldn’t load the loads. Check your connection and tap Retry.'); }
     setState({ status: 'ready', company, loads: res.loads.filter((l) => l.owner_id === company.owner_id), drivers: driverMap(drv.choices) });
+    return false;
   }
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const load = () => loadWithOneRetry((o) => withTimeout(loadOnce(o), undefined, () => { setState({ status: 'error', text: DISPATCH_LOAD_ERROR }); return true; }), { isLive: () => live.current });
+  useRetryWhenOnline(state.status === 'error', load); // back online → try again by itself
 
   useEffect(() => {
     if (!supabase) return setChecking(false);

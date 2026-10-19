@@ -4,7 +4,7 @@
 // lib/authCookie for the rules. The token is verified with Supabase Auth BEFORE the cookie is set, and every route
 // that reads the cookie verifies it again on every request (PostgREST + the database role check). The token is never
 // echoed back or logged.
-import { userClient, bearer, checkUser, jwtClaims } from '../../../lib/packetServer';
+import { userClient, bearer, checkUser, jwtClaims, authErrInfo } from '../../../lib/packetServer';
 import { authCookieString, isHttps, sameOrigin } from '../../../lib/authCookie';
 
 export const runtime = 'nodejs';
@@ -25,9 +25,12 @@ export async function POST(req, { deps } = {}) {
   if (!token) return reply({ error: 'Sign in first.' }, 401, clear);
   const uc = (deps?.mkUserClient || userClient)(token);
   const who = await checkUser(uc, token, deps?.authRetryMs != null ? { retryMs: deps.authRetryMs } : {});
-  if (who.rejected) return reply({ error: 'Your sign-in expired. Please sign in again.', auth: true }, 401, clear);
+  if (who.rejected) {
+    if (who.error) console.warn('[dispatch session] token rejected', authErrInfo(who.error)); // name/status/code/message only, never the token
+    return reply({ error: 'Your sign-in expired. Please sign in again.', auth: true }, 401, clear);
+  }
   if (who.unavailable) {
-    console.error('[dispatch session] auth check unavailable', who.error?.status ?? '', String(who.error?.message || '').slice(0, 120));
+    console.error('[dispatch session] auth check unavailable', authErrInfo(who.error));
     return reply({ error: 'Couldn’t check your sign-in just now. Try again.', retry: true }, 503); // keep whatever cookie there was
   }
   const claims = jwtClaims(token) || {};
