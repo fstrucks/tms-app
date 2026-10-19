@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from '../../lib/supabase';
-import { safeNext, loginHref } from '../../lib/safeNext';
+import { safeNext, loginHref, nextAfterSignIn } from '../../lib/safeNext';
 import { callbackDestination, otpType } from '../../lib/passwordSetup';
 
 // Magic-link landing page. The Supabase client has detectSessionInUrl off on this route, so the
@@ -50,10 +50,12 @@ export default function AuthCallback() {
         }
         const { data } = await supabase.auth.getSession();
         if (!data?.session) throw new Error('no code, token or session');
-        return data.session;
+        // Computed once per page load (nextAfterSignIn is one-shot): not the previous user's ?next (QA, Oct 19).
+        const nx = type === 'recovery' || type === 'invite' ? q.get('next') : nextAfterSignIn(q.get('next'), data.session.user?.id || null);
+        return { session: data.session, next: nx };
       })();
     }
-    run.then((session) => { dest = callbackDestination({ type, next: q.get('next'), user: session?.user, session }); finish(); }, (e) => { clearTimeout(t); fail(e); });
+    run.then(({ session, next: nx }) => { dest = callbackDestination({ type, next: nx, user: session?.user, session }); finish(); }, (e) => { clearTimeout(t); fail(e); });
     return () => { alive = false; };
   }, []);
   return (

@@ -13,7 +13,7 @@ import { sortedStops } from '../lib/loadTabs';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { fmtApptWindow } from '../lib/loads';
 import {
-  LOCATION_POLL_MS, AGE_TICK_MS, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
+  LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
   fmtDriveTime, fmtMilesLeft, fmtEta, etaTarget, totalRouteMiles, ageText, postEta, ETA_ERROR_TEXT, platformOf,
   stopAddress, googleMapsUrl, appleMapsUrl, truckerPathLink, TP_FALLBACK_MS,
 } from '../lib/loadEta';
@@ -60,6 +60,8 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState('');
   const [copied, setCopied] = useState(false);
+  const [locating, setLocating] = useState(false); // waiting for a GPS fix (after Use my location / a poll with no fix yet)
+  const locTimer = useRef(null);
   const block = useRef(null);                      // { until, noRouteAt }
   const inflight = useRef(false);
   const lastRef = useRef(null); lastRef.current = last;
@@ -92,30 +94,48 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
     return () => { if (st) st.onchange = null; };
   }, []);
 
-  function readLocation() {
+  const stopLocating = () => { setLocating(false); if (locTimer.current) { clearTimeout(locTimer.current); locTimer.current = null; } };
+  useEffect(() => () => { if (locTimer.current) clearTimeout(locTimer.current); }, []);
+
+  // "Finding your location…" shows from the read until a fix, an error or a timeout (browser timeout 15 s, plus a
+  // LOCATING_MAX_MS backstop for browsers that never call back, e.g. a dismissed prompt).
+  function readLocation({ quiet = false } = {}) {
     if (!navigator.geolocation) return;
+    if (!quiet) {
+      setLocating(true);
+      if (locTimer.current) clearTimeout(locTimer.current);
+      locTimer.current = setTimeout(() => { locTimer.current = null; setLocating(false); }, LOCATING_MAX_MS);
+    }
     navigator.geolocation.getCurrentPosition(
-      (p) => { gotFix.current = true; setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
-      (e) => { if (e?.code === 1) { gotFix.current = false; setPerm('denied'); } else setErr((x) => x || { code: 'no_fix', at: Date.now() }); },
+      (p) => { stopLocating(); gotFix.current = true; setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
+      (e) => { stopLocating(); if (e?.code === 1) { gotFix.current = false; setPerm('denied'); } else setErr((x) => x || { code: 'no_fix', at: Date.now() }); },
       { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 },
     );
   }
 
-  // QA #96: the clock behind "Updated N min ago" (and the between-calls estimate and ETA) ticks every 30 s while this
-  // panel is showing and the page is visible, independent of location polling and server calls.
+  // QA #96: the clock behind "Updated N min ago" (and the between-calls estimate and ETA) runs while this panel is
+  // showing and the page is visible, independent of location polling and server calls. r2: each tick is scheduled
+  // for just after the next whole minute since the last answer (nextAgeTickMs), at most AGE_TICK_MS apart, so the
+  // label flips exactly on time instead of up to 30 s late.
+  const ageAt = last?.at || null;
   useEffect(() => {
     if (!active) return undefined;
-    const tick = () => { if (document.visibilityState === 'visible') setNow(Date.now()); };
+    let t = null;
+    const tick = () => {
+      const n = Date.now();
+      if (document.visibilityState === 'visible') setNow(n);
+      t = setTimeout(tick, nextAgeTickMs(ageAt, n));
+    };
     tick();
-    const t = setInterval(tick, AGE_TICK_MS);
-    document.addEventListener('visibilitychange', tick);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
-  }, [active]);
+    const vis = () => { if (document.visibilityState === 'visible') { clearTimeout(t); tick(); } };
+    document.addEventListener('visibilitychange', vis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', vis); };
+  }, [active, ageAt]);
 
   // Poll once a minute, only while this panel is showing and the page is visible.
   useEffect(() => {
     if (!active || perm !== 'granted') return undefined;
-    const tick = () => { setNow(Date.now()); if (document.visibilityState === 'visible') readLocation(); };
+    const tick = () => { setNow(Date.now()); if (document.visibilityState === 'visible') readLocation({ quiet: gotFix.current }); };
     tick();
     const t = setInterval(tick, LOCATION_POLL_MS);
     const vis = () => { if (document.visibilityState === 'visible') tick(); };
@@ -207,6 +227,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   if (!view?.live || !hasStopPin) locLine = !hasStopPin && view ? ETA_ERROR_TEXT.no_stop_location : null;
   else if (perm === 'unsupported') locLine = 'This browser can’t share location, so live miles aren’t available.';
   else if (perm === 'denied') locLine = 'Location is blocked for this site. Turn it on in your browser settings to see miles and drive time left.';
+  else if (locating && !fresh) locLine = null; // "Finding your location…" below
   else if (perm === 'prompt' || perm === 'unknown') locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and is never saved.';
 
   return (
@@ -235,8 +256,11 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
         <span style={s.chip}>Truck route (HGV)</span>
       </div>
       {locLine && <p data-testid="eta-location-note" style={{ ...s.muted, margin: '0.4rem 0' }}>{locLine}</p>}
-      {view?.live && hasStopPin && (perm === 'prompt' || perm === 'unknown') && (
-        <button type="button" data-testid="eta-use-location" onClick={readLocation} style={{ ...s.btn, width: '100%', marginBottom: 8 }}>📍 Use my location</button>
+      {view?.live && hasStopPin && locating && !fresh && (
+        <p role="status" data-testid="eta-locating" style={{ ...s.muted, margin: '0.4rem 0' }}>Finding your location…</p>
+      )}
+      {view?.live && hasStopPin && !locating && (perm === 'prompt' || perm === 'unknown') && (
+        <button type="button" data-testid="eta-use-location" onClick={() => readLocation()} style={{ ...s.btn, width: '100%', marginBottom: 8 }}>📍 Use my location</button>
       )}
       {errText && !near && <p role="status" data-testid="eta-error" style={{ color: c.warning, fontSize: '0.85rem', margin: '0.3rem 0' }}>{errText}</p>}
       {fresh && !near && (

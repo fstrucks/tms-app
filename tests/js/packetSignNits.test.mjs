@@ -49,7 +49,7 @@ test('sign-in returns to the packet: header link + sign-out carry a safe same-or
   assert.match(a, /loginHref\(window\.location\.pathname \+ window\.location\.search\)/);
   assert.match(a, /<Link href=\{loginHrefState\}/);
   const login = src('app/login/page.js');
-  assert.match(login, /window\.location\.assign\(safeNext\(nextParam\(\)\)\)/);
+  assert.match(login, /window\.location\.assign\(nextAfterSignIn\(nextParam\(\), /); // safeNext inside, plus the sign-out owner check
   assert.match(login, /auth\/callback\?next=' \+ encodeURIComponent\(safeNext\(nextParam\(\)\)\)/);
 });
 

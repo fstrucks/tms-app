@@ -29,7 +29,7 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
   }, [load.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = (driver || null) !== (load.assigned_driver_user_id || null) || show !== (load.show_rate_to_driver === true);
-  // The current driver may no longer be in the list (removed from the company): keep showing him, but only once
+  // The current driver may no longer be in the list (removed from the company): keep showing them, but only once
   // the list has arrived (before, every driver would look "no longer on the company").
   const opts = driverOptions(choices, driver, loaded);
 
@@ -61,10 +61,15 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
         <span>Show rate to driver</span>
       </label>
       <p data-testid="driver-rate-help" style={{ ...st.muted, margin: '0 0 0.5rem' }}>{driverRateHelp(show, load.show_rate_to_driver === true)}</p>
-      <button type="button" disabled={!dirty || saving || !loaded} onClick={save}
-        style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: dirty ? 'var(--primary)' : 'var(--disabled-bg)', color: dirty ? 'var(--on-primary)' : 'var(--disabled-text)', fontWeight: 600 }}>
-        {saving ? 'Saving…' : 'Save driver settings'}
-      </button>
+      {/* QA #94 dark: the disabled state was small default-size text on a fill close to the card. Now full-size text,
+          the disabled tokens with a visible border (global button:disabled rule), and a plain reason next to it. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button type="button" data-testid="driver-settings-save" disabled={!dirty || saving || !loaded} onClick={save} aria-describedby={!dirty && !saving ? 'driver-settings-nochange' : undefined}
+          style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, borderWidth: 1, borderStyle: 'solid', borderColor: dirty ? 'var(--primary)' : 'var(--disabled-border)', background: dirty ? 'var(--primary)' : 'var(--disabled-bg)', color: dirty ? 'var(--on-primary)' : 'var(--disabled-text)', fontSize: '1rem', fontWeight: 600 }}>
+          {saving ? 'Saving…' : 'Save driver settings'}
+        </button>
+        {!dirty && !saving && loaded && <span id="driver-settings-nochange" style={{ ...st.muted, color: 'var(--text-muted)' }}>No changes to save</span>}
+      </div>
       {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>{msg.text}</p>}
     </div>
   );

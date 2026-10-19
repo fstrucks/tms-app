@@ -10,7 +10,26 @@ export function serviceClient() {
 export function userClient(token) {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
 }
-export const isAuthRejection = (e) => !!e && (e.status === 401 || e.status === 403 || /jwt|token|expired|invalid claim|not authenticated/i.test(e.message || '') && !(e.status >= 500));
+// Supabase Auth answers that mean "this token is no good" (sign in again), as opposed to "Auth couldn't answer".
+// QA #100: a token whose session was ended elsewhere (sign-out on another device / tab: signOut() is global by
+// default) makes GoTrue answer 403 session_not_found, which auth-js turns into AuthSessionMissingError with
+// status 400 and the message "Auth session missing!". That matched none of the old checks, so it was treated as
+// "Auth unavailable" → 503 on every call while online.
+const AUTH_REJECT_CODES = new Set(['bad_jwt', 'session_not_found', 'session_expired', 'user_not_found', 'no_authorization', 'not_admin', 'user_banned', 'refresh_token_not_found', 'refresh_token_already_used']);
+export const isAuthRejection = (e) => !!e && (e.status === 401 || e.status === 403 || e.name === 'AuthSessionMissingError' || AUTH_REJECT_CODES.has(e.code)
+  || (/jwt|token|expired|invalid claim|not authenticated|session missing|session_not_found|session.*does not exist|user.*does not exist/i.test(e.message || '') && !(e.status >= 500)));
+// "Auth couldn't answer": network failure, timeout, rate limit or a 5xx (auth-js: AuthRetryableFetchError, or
+// AuthUnknownError when the body wasn't JSON, e.g. a gateway error page). Only these may fall back / return 503.
+export function isAuthUnavailable(e) {
+  if (!e) return false;
+  if (e.name === 'AuthRetryableFetchError' || e.name === 'AuthUnknownError') return true;
+  const st = Number(e.status);
+  if (st === 0 || st === 408 || st === 429 || st >= 500) return true;
+  if (e.status == null && !e.code && !e.name?.startsWith?.('Auth')) return true; // a thrown fetch/socket error
+  return /fetch failed|failed to fetch|network|socket|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|timed? ?out|other side closed/i.test(`${e.message || ''} ${e.cause?.code || ''}`);
+}
+// Short, token-free description of an Auth error for logs.
+export const authErrInfo = (e) => [e?.name || '', e?.status ?? '', e?.code || e?.cause?.code || '', String(e?.message || e || '').slice(0, 160)].join(' ').trim();
 export const bearer = (req) => (/^Bearer\s+(.+)$/i.exec(req.headers.get('authorization') || '') || [])[1] || null;
 
 // → { user, role, packet } | { status, error }. Role via public.packet_role (runs as the caller).
@@ -31,7 +50,8 @@ export async function checkUser(uc, token, { retryMs = 250 } = {}) {
     try {
       const { data, error } = await uc.auth.getUser(token);
       if (!error) return data?.user ? { user: data.user } : { rejected: true };
-      if (isAuthRejection(error)) return { rejected: true };
+      // Only a real network / timeout / 429 / 5xx failure is "unavailable"; any other answer from Auth is a rejection.
+      if (!isAuthUnavailable(error)) return { rejected: true, error };
       last = error;
     } catch (e) { last = e; } // supabase-js can throw on a network error instead of returning one
     if (i === 0) await pause(retryMs);
