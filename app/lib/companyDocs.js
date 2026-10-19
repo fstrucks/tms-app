@@ -18,9 +18,10 @@ export const VAULT_CHANGED_EVENT = 'ph:vault-changed';
 export const vaultLabel = (t) => VAULT_TYPES.find((x) => x.id === t)?.label || t;
 
 // Pick 2C. Upload / replace / delete: owner + management (same as Insurance).
-// W-9 and NOA files: owner + management only. Dispatchers and drivers get on-file status only, stripped ON THE SERVER.
+// All four vault files (W-9, COI, MC Authority, NOA): owner + management only (Marc, Oct 18, 8 PM CT, via Sam; widens 2C).
+// Dispatchers and drivers get on-file status only, stripped ON THE SERVER.
 export const VAULT_WRITE_ROLES = new Set(['owner', 'management']);
-export const VAULT_RESTRICTED_TYPES = new Set(['w9', 'noa']);
+export const VAULT_RESTRICTED_TYPES = new Set(['w9', 'coi', 'mc_authority', 'noa']);
 export const canManageVault = (role) => VAULT_WRITE_ROLES.has(role);
 export const canOpenVaultFile = (role, docType) => isVaultType(docType) && (!VAULT_RESTRICTED_TYPES.has(docType) || VAULT_WRITE_ROLES.has(role));
 

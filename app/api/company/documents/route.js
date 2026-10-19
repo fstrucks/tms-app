@@ -13,7 +13,7 @@ const payload = async (c, extra = {}, deps) => {
 };
 
 // GET: the four vault rows, shaped for the caller's role (pick 2C: W-9 / NOA are status-only for dispatchers and
-// drivers). GET ?view=<id>: a short-lived file URL, owner/management only for W-9 and NOA.
+// drivers). GET ?view=<id>: a short-lived file URL, owner/management only (all four vault types).
 export async function GET(req, { deps } = {}) {
   const c = await vaultCtx(req, deps); if (c.res) return c.res;
   const view = new URL(req.url).searchParams.get('view');

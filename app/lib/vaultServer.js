@@ -73,7 +73,7 @@ export async function ownedVaultDoc(db, ownerId, id) {
 export async function signedViewUrl(c, id, { seconds = 120 } = {}) {
   const doc = await ownedVaultDoc(c.db, c.ownerId, id);
   if (!doc) return { status: 404, error: 'Document not found.' };
-  if (!canOpenVaultFile(c.role, doc.doc_type)) return { status: 403, error: 'Only the owner or management can open the W-9 and NOA.' };
+  if (!canOpenVaultFile(c.role, doc.doc_type)) return { status: 403, error: 'Only the owner or management can open company documents.' };
   const { data, error } = await c.db.storage.from(BUCKET).createSignedUrl(doc.file_path, seconds);
   if (error || !data?.signedUrl) return { status: 502, error: 'Couldn’t open the file. Please try again.' };
   return { url: data.signedUrl };

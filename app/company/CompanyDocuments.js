@@ -1,7 +1,7 @@
 'use client';
 // Company page → Company documents (PR #84). Four rows: W-9, COI, MC Authority, NOA. Newest upload is current (1A).
-// Owner + management upload, replace and delete. Dispatchers and drivers see on-file status only for the W-9 and NOA
-// (2C): the server never sends them those files' details, so there is nothing to hide here, only less to show.
+// Owner + management upload, replace and delete. Dispatchers and drivers see on-file status only for all four
+// (2C, widened by Marc Oct 18): the server never sends them those files' details, so there is nothing to hide here, only less to show.
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getSupabase } from '../lib/supabase';

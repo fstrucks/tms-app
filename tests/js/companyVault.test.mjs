@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import { groupVault, vaultForRole, vaultStatus, coiExpiry, canOpenVaultFile, canManageVault, checkVaultUpload, checkSendSize, encodedSize,
-  sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS } from '../../app/lib/companyDocs.js';
+  sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS, VAULT_RESTRICTED_TYPES } from '../../app/lib/companyDocs.js';
 import { isDocumentsTabDoc, UPLOAD_TYPES, CHANGE_TYPES, DOCUMENTS_SCAN_TYPE_IDS, isCompanyDocType } from '../../app/lib/docTypes.js';
 import { asPdf } from '../../app/lib/vaultSend.js';
 import { deleteLoad } from '../../app/lib/loadDelete.js';
@@ -36,33 +36,34 @@ test('1A: newest upload is current; deleting it makes the previous version curre
   assert.match(deleteCurrentPrompt(g[1]), /show as missing/);
 });
 
-test('2C: roles. Owner/management manage + open all; dispatcher/driver open COI and MC only', () => {
+test('2C (widened, Marc Oct 18): owner/management manage + open all four; dispatcher/driver open none', () => {
   for (const r of ['owner', 'management']) { assert.equal(canManageVault(r), true); for (const t of VAULT_TYPE_IDS) assert.equal(canOpenVaultFile(r, t), true, `${r} ${t}`); }
-  for (const r of ['dispatcher', 'driver']) {
+  for (const r of ['dispatcher', 'driver', 'nobody', undefined]) {
     assert.equal(canManageVault(r), false);
-    assert.equal(canOpenVaultFile(r, 'w9'), false); assert.equal(canOpenVaultFile(r, 'noa'), false);
-    assert.equal(canOpenVaultFile(r, 'coi'), true); assert.equal(canOpenVaultFile(r, 'mc_authority'), true);
+    for (const t of ['w9', 'coi', 'mc_authority', 'noa']) assert.equal(canOpenVaultFile(r, t), false, `${r} ${t}`);
   }
+  assert.deepEqual([...VAULT_RESTRICTED_TYPES].sort(), ['coi', 'mc_authority', 'noa', 'w9']);
   assert.equal(canOpenVaultFile('owner', 'rate_confirmation'), false);
 });
 
-test('2C: vaultForRole strips W-9 and NOA to on-file status only for dispatcher/driver', () => {
+test('2C: vaultForRole strips all four rows to on-file status only for dispatcher/driver', () => {
   const g = groupVault(DOCS());
   for (const role of ['driver', 'dispatcher']) {
     const v = vaultForRole(g, role, { policies: POLICIES, today: TODAY });
-    const w9 = v.find((x) => x.type === 'w9'), noa = v.find((x) => x.type === 'noa');
-    for (const r of [w9, noa]) {
-      assert.equal(r.restricted, true); assert.equal(r.onFile, true);
+    assert.equal(v.length, 4);
+    for (const r of v) {
+      assert.equal(r.restricted, true, r.type); assert.equal(r.onFile, true);
       assert.deepEqual(Object.keys(r).sort(), ['label', 'onFile', 'restricted', 'status', 'type']);
-      assert.deepEqual(Object.keys(r.status).sort(), ['level', 'text']);
+      assert.deepEqual(Object.keys(r.status).sort(), ['level', 'text']); // no expiry date, note or hint
     }
-    const blob = JSON.stringify([w9, noa]);
-    assert.doesNotMatch(blob, /W9_DemoCarrier|NOA_DemoCarrier|vault-|00000000-/);
-    assert.equal(v.find((x) => x.type === 'coi').current.id, id(3));
+    assert.doesNotMatch(JSON.stringify(v), /DemoCarrier|vault-|00000000-|\d{4}-\d{2}-\d{2}/);
+    assert.equal(v.find((x) => x.type === 'coi').status.text, vaultStatus(g.find((x) => x.type === 'coi'), { policies: POLICIES, today: TODAY }).text);
   }
   const own = vaultForRole(g, 'management', { policies: POLICIES, today: TODAY });
+  assert.ok(own.every((r) => r.restricted === false));
   assert.equal(own.find((x) => x.type === 'w9').current.id, id(2));
   assert.equal(own.find((x) => x.type === 'w9').earlier.length, 1);
+  assert.equal(own.find((x) => x.type === 'coi').current.id, id(3)); assert.equal(own.find((x) => x.type === 'mc_authority').current.id, id(4));
 });
 
 test('3A + statuses: COI expiry from confirmed auto/cargo; expired red, ≤30 days amber; W-9 year-old hint', () => {
@@ -187,28 +188,37 @@ const ucFor = (role, db) => () => ({ auth: { getUser: async () => ({ data: { use
 const vreq = (method, { qs = '', body } = {}) => new Request(`http://x/api/company/documents${qs}`, { method, headers: { authorization: 'Bearer fake', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 const deps = (role, db) => ({ mkUserClient: ucFor(role, db), sb: db, today: TODAY, now: () => 1 });
 
-test('GET /api/company/documents: driver response has no W-9/NOA file details (server-side 2C)', async () => {
-  const db = fakeDb();
-  const res = await VAULT.GET(vreq('GET'), { deps: deps('driver', db) });
-  assert.equal(res.status, 200);
-  const txt = await res.text(); const j = JSON.parse(txt);
-  assert.equal(j.canManage, false);
-  assert.doesNotMatch(txt, /W9_DemoCarrier|NOA_DemoCarrier|vault-w9|vault-noa/);
-  assert.match(txt, /COI_DemoCarrier/);
-  assert.equal(j.vault.find((r) => r.type === 'w9').status.text, 'On file');
-  const m = await (await VAULT.GET(vreq('GET'), { deps: deps('management', db) })).json();
-  assert.equal(m.canManage, true); assert.equal(m.vault.find((r) => r.type === 'w9').current.id, id(2));
-});
-
-test('GET ?view=: W-9/NOA file URL refused (403) for driver and dispatcher; allowed for owner/management; COI allowed for driver', async () => {
+test('GET /api/company/documents: driver/dispatcher response has no file details for any of the four (server-side 2C)', async () => {
   const db = fakeDb();
   for (const role of ['driver', 'dispatcher']) {
-    for (const n of [2, 5]) assert.equal((await VAULT.GET(vreq('GET', { qs: `?view=${id(n)}` }), { deps: deps(role, db) })).status, 403, `${role} ${n}`);
-    assert.equal((await VAULT.GET(vreq('GET', { qs: `?view=${id(3)}` }), { deps: deps(role, db) })).status, 200);
+    const res = await VAULT.GET(vreq('GET'), { deps: deps(role, db) });
+    assert.equal(res.status, 200);
+    const txt = await res.text(); const j = JSON.parse(txt);
+    assert.equal(j.canManage, false);
+    assert.doesNotMatch(txt, /DemoCarrier|vault-(w9|coi|mc_authority|noa)|00000000-/);
+    assert.ok(j.vault.every((r) => r.restricted === true && !r.current && !r.earlier));
+    assert.equal(j.vault.find((r) => r.type === 'w9').status.text, 'On file');
+    assert.ok(j.vault.find((r) => r.type === 'coi').status.text);
+  }
+  const m = await (await VAULT.GET(vreq('GET'), { deps: deps('management', db) })).json();
+  assert.equal(m.canManage, true); assert.equal(m.vault.find((r) => r.type === 'w9').current.id, id(2));
+  assert.equal(m.vault.find((r) => r.type === 'coi').current.id, id(3)); assert.equal(m.vault.find((r) => r.type === 'mc_authority').current.id, id(4));
+});
+
+test('GET ?view=: every vault file URL refused (403) for driver and dispatcher; allowed for owner/management', async () => {
+  const db = fakeDb();
+  for (const role of ['driver', 'dispatcher']) {
+    for (const n of [1, 2, 3, 4, 5]) {
+      const r = await VAULT.GET(vreq('GET', { qs: `?view=${id(n)}` }), { deps: deps(role, db) });
+      assert.equal(r.status, 403, `${role} ${n}`);
+      const j = await r.json(); assert.ok(!j.url); assert.match(j.error, /owner or management/);
+    }
   }
   for (const role of ['owner', 'management']) {
-    const j = await (await VAULT.GET(vreq('GET', { qs: `?view=${id(2)}` }), { deps: deps(role, db) })).json();
-    assert.match(j.url, /^https:\/\/fake\.storage\/owner1\/company\/vault-w9/);
+    for (const [n, t] of [[2, 'w9'], [3, 'coi'], [4, 'mc_authority'], [5, 'noa']]) {
+      const j = await (await VAULT.GET(vreq('GET', { qs: `?view=${id(n)}` }), { deps: deps(role, db) })).json();
+      assert.match(j.url, new RegExp(`^https://fake\\.storage/owner1/company/vault-${t}`), `${role} ${t}`);
+    }
   }
   assert.equal((await VAULT.GET(vreq('GET', { qs: `?view=${id(9)}` }), { deps: deps('owner', db) })).status, 404); // not a vault doc
   assert.equal((await VAULT.GET(vreq('GET', { qs: '?view=nope' }), { deps: deps('owner', db) })).status, 404);
@@ -464,4 +474,24 @@ test('re-QA minor: sizes under 0.1 MB show in KB (attachments and total); one pe
   const opts = sendAttachmentOptions(groupVault([doc(3, 'coi', '2026-10-02T10:00:00Z')]), { policies: [AUTO, pol('cargo', 50000, '2027-02-01')], today: TODAY });
   const coi = opts.find((o) => o.type === 'coi');
   assert.ok(coi.warning); assert.doesNotMatch(coi.warning, /\.\./); assert.match(coi.warning, /minimum\. It's unticked/);
+});
+
+test('Send to broker: only owner/management can attach vault files (dispatcher/driver get no options and POST is refused, Postmark untouched)', async () => {
+  const db = fakeDb({ packet: pkt() });
+  for (const role of ['dispatcher', 'driver']) {
+    const g = await (await SEND.GET(sreq(null, 'GET'), { params: { id: PID }, deps: { sb: db, mkUserClient: suc(role), env: ENV } })).json();
+    assert.equal(g.vault, null, role); assert.equal(g.canSend, false);
+    const f = mockFetch();
+    const r = await SEND.POST(sreq(BODY({ attachDocumentIds: [id(2), id(3), id(4), id(5)] })), { params: { id: PID }, deps: { sb: db, mkUserClient: suc(role), env: ENV, fetch: f } });
+    assert.equal(r.status, 403, role); assert.equal(f.calls.length, 0);
+  }
+  assert.equal((db.tbl.packet_sends || []).length, 0);
+  const o = await (await SEND.GET(sreq(null, 'GET'), { params: { id: PID }, deps: { sb: db, mkUserClient: suc('owner'), env: ENV } })).json();
+  assert.equal(o.vault.options.length, 4);
+});
+
+test('UI: restricted rows show only the pill and the owner/management note', () => {
+  const ui = read('app/company/CompanyDocuments.js');
+  assert.match(ui, /r\.restricted \? \(\s*<p data-testid="vault-restricted"[^>]*>Only the owner and management can open the \{t\?\.short \|\| r\.label\}\.<\/p>\s*\) : \(/);
+  assert.match(read('app/lib/vaultServer.js'), /Only the owner or management can open company documents\./);
 });
