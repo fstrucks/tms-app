@@ -10,19 +10,19 @@ import { laToday } from '../lib/sendCap';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box' },
-  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
+  card: { background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   h2: { fontSize: 18, margin: '0 0 0.75rem' },
-  row: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderTop: '1px solid #f1f5f9', fontSize: 15 },
-  k: { color: '#6b7280' },
-  muted: { color: '#6b7280', fontSize: 14 },
-  err: { color: '#b91c1c', fontSize: 14 },
-  btn: { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: 'none', background: '#2563eb', color: '#fff', fontSize: 16, fontWeight: 600, marginTop: 12 },
-  btn2: { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: '1px solid #2563eb', background: '#fff', color: '#2563eb', fontSize: 16, fontWeight: 600, marginTop: 12 },
-  small: { minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14 },
+  row: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderTop: '1px solid var(--divider)', fontSize: 15 },
+  k: { color: 'var(--text-muted)' },
+  muted: { color: 'var(--text-muted)', fontSize: 14 },
+  err: { color: 'var(--danger)', fontSize: 14 },
+  btn: { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: 16, fontWeight: 600, marginTop: 12 },
+  btn2: { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: '1px solid var(--primary)', background: 'var(--surface)', color: 'var(--primary)', fontSize: 16, fontWeight: 600, marginTop: 12 },
+  small: { minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14 },
   label: { display: 'block', fontSize: 14, fontWeight: 600, margin: '10px 0 4px' },
-  input: { width: '100%', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', boxSizing: 'border-box' },
+  input: { width: '100%', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', boxSizing: 'border-box' },
 };
-const TONES = { green: ['#dcfce7', '#166534'], yellow: ['#fef9c3', '#854d0e'], orange: ['#ffedd5', '#9a3412'], red: ['#fee2e2', '#b91c1c'], 'red-strong': ['#b91c1c', '#fff'], grey: ['#f3f4f6', '#374151'] };
+const TONES = { green: ['var(--success-bg)', 'var(--success)'], yellow: ['var(--warning-bg)', 'var(--warning)'], orange: ['var(--warning-bg)', 'var(--warning)'], red: ['var(--danger-bg)', 'var(--danger)'], 'red-strong': ['var(--danger)', 'var(--surface)'], grey: ['var(--surface-2)', 'var(--text)'] };
 const lb = (n) => (n == null || n === '' ? '—' : `${Number(n).toLocaleString('en-US')} lb`);
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
 const loadLabel = (l) => (l ? `Load #${l.broker_load_number || l.id.slice(0, 8)}${l.broker_name ? ` · ${l.broker_name}` : ''}` : '');
@@ -37,7 +37,7 @@ function Field({ id, label, value, onChange, type = 'text', ...rest }) {
 }
 function Warnings({ list, testid = 'weight-warnings' }) {
   if (!list?.length) return null;
-  return <ul data-testid={testid} style={{ margin: '6px 0 0', paddingLeft: '1.1rem', color: '#b91c1c', fontSize: 14 }}>{list.map((w) => <li key={w.code} data-code={w.code}>{w.text}</li>)}</ul>;
+  return <ul data-testid={testid} style={{ margin: '6px 0 0', paddingLeft: '1.1rem', color: 'var(--danger)', fontSize: 14 }}>{list.map((w) => <li key={w.code} data-code={w.code}>{w.text}</li>)}</ul>;
 }
 
 function TicketForm({ init, loads, truck, trailer, onSave, onCancel, busy, saveLabel }) {
@@ -46,7 +46,7 @@ function TicketForm({ init, loads, truck, trailer, onSave, onCancel, busy, saveL
   const load = loads.find((l) => l.id === v.loadId);
   const preview = weightChecks({ ticket: v, truckEmpty: truck?.empty_weight_lb, trailerEmpty: trailer?.empty_weight_lb, loadWeight: load?.weight });
   return (
-    <form data-testid="ticket-form" onSubmit={(e) => { e.preventDefault(); onSave(v); }} style={{ borderTop: '1px solid #e5e7eb', marginTop: 8, paddingTop: 4 }}>
+    <form data-testid="ticket-form" onSubmit={(e) => { e.preventDefault(); onSave(v); }} style={{ borderTop: '1px solid var(--divider)', marginTop: 8, paddingTop: 4 }}>
       <Field id="tk-date" label="Ticket date" type="date" value={v.ticket_date} onChange={set('ticket_date')} required />
       <Field id="tk-gross" label="Gross weight (lb)" inputMode="numeric" value={v.gross_weight_lb} onChange={set('gross_weight_lb')} required />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
@@ -64,7 +64,7 @@ function TicketForm({ init, loads, truck, trailer, onSave, onCancel, busy, saveL
       <Warnings list={preview.warnings} testid="ticket-form-warnings" />
       <div style={{ display: 'flex', gap: 8 }}>
         <button type="button" onClick={onCancel} style={{ ...s.btn2, flex: 1 }}>Cancel</button>
-        <button type="submit" disabled={busy} style={{ ...s.btn, flex: 2, ...(busy ? { background: '#9ca3af' } : null) }}>{busy ? 'Saving…' : saveLabel}</button>
+        <button type="submit" disabled={busy} style={{ ...s.btn, flex: 2, ...(busy ? { background: 'var(--text-muted)' } : null) }}>{busy ? 'Saving…' : saveLabel}</button>
       </div>
     </form>
   );
@@ -165,7 +165,7 @@ export default function TruckPage() {
       {fields}
       <div style={{ display: 'flex', gap: 8 }}>
         <button type="button" onClick={() => setEdit(null)} style={{ ...s.btn2, flex: 1 }}>Cancel</button>
-        <button type="submit" disabled={busy} style={{ ...s.btn, flex: 2, ...(busy ? { background: '#9ca3af' } : null) }}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="submit" disabled={busy} style={{ ...s.btn, flex: 2, ...(busy ? { background: 'var(--text-muted)' } : null) }}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </form>
   );
@@ -175,15 +175,15 @@ export default function TruckPage() {
       <h1 style={{ fontSize: 24, margin: '0.25rem 0 0.75rem' }}>Truck</h1>
       {supabaseConfigError ? <p style={s.err}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
-        : !user ? <p>Please <SignInLink style={{ color: '#2563eb' }}>sign in</SignInLink> to see your truck.</p>
-        : err?.setupNeeded ? <p data-testid="truck-setup" style={{ ...s.card, color: '#92400e', background: '#fffbeb' }}>The Truck tab is waiting on a database update. It will work once that’s applied.</p>
+        : !user ? <p>Please <SignInLink style={{ color: 'var(--primary)' }}>sign in</SignInLink> to see your truck.</p>
+        : err?.setupNeeded ? <p data-testid="truck-setup" style={{ ...s.card, color: 'var(--warning)', background: 'var(--warning-bg)' }}>The Truck tab is waiting on a database update. It will work once that’s applied.</p>
         : err ? <p style={s.err}>{err.error} <button type="button" onClick={() => load()} style={s.small}>Retry</button></p>
         : !d ? <p style={s.muted}>Loading…</p>
         : (<>
-          {ro && <p data-testid="read-only-note" style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 8, padding: '8px 10px', fontSize: 14, margin: '0 0 0.75rem' }}>View only. Ask the owner or dispatcher to change truck, trailer or driver details.</p>}
-          {msg && <p role={msg.type === 'error' ? 'alert' : 'status'} data-testid="truck-msg" style={{ ...(msg.type === 'error' ? s.err : { color: msg.type === 'ok' ? '#065f46' : '#1e40af', fontSize: 14 }), margin: '0 0 0.75rem' }}>{msg.text}</p>}
+          {ro && <p data-testid="read-only-note" style={{ background: 'var(--info-bg)', color: 'var(--primary)', borderRadius: 8, padding: '8px 10px', fontSize: 14, margin: '0 0 0.75rem' }}>View only. Ask the owner or dispatcher to change truck, trailer or driver details.</p>}
+          {msg && <p role={msg.type === 'error' ? 'alert' : 'status'} data-testid="truck-msg" style={{ ...(msg.type === 'error' ? s.err : { color: msg.type === 'ok' ? 'var(--success)' : 'var(--primary)', fontSize: 14 }), margin: '0 0 0.75rem' }}>{msg.text}</p>}
           {d.trucks.length > 1 && (
-            <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 12 }}>Truck{' '}
+            <label style={{ display: 'block', fontSize: 14, color: 'var(--text)', marginBottom: 12 }}>Truck{' '}
               <select data-testid="truck-picker" value={truck?.id || ''} onChange={(e) => load(e.target.value)} style={{ minHeight: 44, fontSize: 16 }}>
                 {d.trucks.map((t) => <option key={t.id} value={t.id}>#{t.unit_number}</option>)}
               </select>
@@ -231,18 +231,18 @@ export default function TruckPage() {
             <section style={s.card} aria-label="Scale weights" data-testid="scale-card">
               <h2 style={s.h2}>Scale weights</h2>
               {d.latest ? (
-                <div data-testid="latest-weight" style={{ background: '#eff6ff', borderRadius: 10, padding: '0.75rem', marginBottom: 8 }}>
-                  <div style={{ fontSize: 13, color: '#1e40af' }}>Latest weight · {mdy(d.latest.ticket_date)}</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: '#1e3a8a' }}>{lb(d.latest.gross_weight_lb)}</div>
-                  {d.latest.net != null && <div style={{ fontSize: 14, color: '#1e3a8a' }}>Net cargo {lb(d.latest.net)}</div>}
-                  {d.latest.scale_name && <div style={{ fontSize: 13, color: '#475569' }}>{d.latest.scale_name}</div>}
+                <div data-testid="latest-weight" style={{ background: 'var(--info-bg)', borderRadius: 10, padding: '0.75rem', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, color: 'var(--primary)' }}>Latest weight · {mdy(d.latest.ticket_date)}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--primary)' }}>{lb(d.latest.gross_weight_lb)}</div>
+                  {d.latest.net != null && <div style={{ fontSize: 14, color: 'var(--primary)' }}>Net cargo {lb(d.latest.net)}</div>}
+                  {d.latest.scale_name && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{d.latest.scale_name}</div>}
                 </div>
               ) : <p style={s.muted}>No scale tickets yet.</p>}
               <ul data-testid="weight-history" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {d.tickets.map((t) => (
-                  <li key={t.id} data-testid="ticket-row" style={{ borderTop: '1px solid #f1f5f9', padding: '8px 0' }}>
+                  <li key={t.id} data-testid="ticket-row" style={{ borderTop: '1px solid var(--divider)', padding: '8px 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span>{mdy(t.ticket_date)}{!t.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 600 }}>Check &amp; confirm</span>}</span>
+                      <span>{mdy(t.ticket_date)}{!t.confirmed && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 999, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: 12, fontWeight: 600 }}>Check &amp; confirm</span>}</span>
                       <strong style={{ whiteSpace: 'nowrap' }}>{lb(t.gross_weight_lb)}</strong>
                     </div>
                     <div style={{ ...s.muted, fontSize: 13 }}>
@@ -252,8 +252,8 @@ export default function TruckPage() {
                     {!ro && ticket?.mode === 'confirm' && ticket.id === t.id
                       ? <TicketForm init={ticket.init} loads={d.loads} truck={truck} trailer={trailer} busy={busy} saveLabel="Confirm" onSave={saveTicket} onCancel={() => setTicket(null)} />
                       : !ro && <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                        {!t.confirmed && <button type="button" style={{ ...s.small, borderColor: '#059669', color: '#065f46' }} onClick={() => openConfirm(t)}>Check &amp; confirm</button>}
-                        <button type="button" style={{ ...s.small, borderColor: '#fecaca', color: '#b91c1c' }} disabled={busy} onClick={() => { if (window.confirm('Remove this scale ticket from the history?')) post('/api/truck/scale-tickets', { action: 'delete', truckId: truck.id, id: t.id }, 'Ticket removed.'); }}>Remove</button>
+                        {!t.confirmed && <button type="button" style={{ ...s.small, borderColor: 'var(--success)', color: 'var(--success)' }} onClick={() => openConfirm(t)}>Check &amp; confirm</button>}
+                        <button type="button" style={{ ...s.small, borderColor: 'var(--danger-border)', color: 'var(--danger)' }} disabled={busy} onClick={() => { if (window.confirm('Remove this scale ticket from the history?')) post('/api/truck/scale-tickets', { action: 'delete', truckId: truck.id, id: t.id }, 'Ticket removed.'); }}>Remove</button>
                       </div>}
                   </li>
                 ))}
@@ -262,7 +262,7 @@ export default function TruckPage() {
                 ? <TicketForm init={ticket.init} loads={d.loads} truck={truck} trailer={trailer} busy={busy} saveLabel="Add ticket" onSave={saveTicket} onCancel={() => setTicket(null)} />
                 : <>
                   <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" data-testid="scale-file" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
-                  <button type="button" data-testid="scan-scale-ticket" disabled={busy} style={{ ...s.btn, ...(busy ? { background: '#9ca3af' } : null) }} onClick={() => fileRef.current?.click()}>{busy ? 'Working…' : '📷 Scan scale ticket'}</button>
+                  <button type="button" data-testid="scan-scale-ticket" disabled={busy} style={{ ...s.btn, ...(busy ? { background: 'var(--text-muted)' } : null) }} onClick={() => fileRef.current?.click()}>{busy ? 'Working…' : '📷 Scan scale ticket'}</button>
                   <button type="button" data-testid="add-ticket" style={{ ...s.btn2, minHeight: 44 }} onClick={() => setTicket({ mode: 'add', init: { ticket_date: laToday(), gross_weight_lb: '', steer_axle_lb: '', drive_axle_lb: '', trailer_axle_lb: '', scale_name: '', loadId: '' } })}>Enter a ticket by hand</button>
                   <p style={{ ...s.muted, fontSize: 12, margin: '6px 0 0' }}>Scanning reads the weight and date. You check it before it counts.</p>
                 </>)}
@@ -283,7 +283,7 @@ export default function TruckPage() {
                 <Field id="med_card_expiry" label="Med card expires" type="date" value={form.med_card_expiry} onChange={f('med_card_expiry')} />
               </>) : driver ? (<>
                 <Row label="Name" testid="v-driver_name">{v.driver_name}</Row>
-                <Row label="Phone">{driver.phone ? <a href={`tel:${driver.phone}`} style={{ color: '#2563eb' }}>{driver.phone}</a> : '—'}</Row>
+                <Row label="Phone">{driver.phone ? <a href={`tel:${driver.phone}`} style={{ color: 'var(--primary)' }}>{driver.phone}</a> : '—'}</Row>
                 <Row label="CDL">{driver.cdl_number || '—'}{driver.cdl_state ? ` · ${driver.cdl_state}` : ''}</Row>
                 <Row label="CDL expires"><span>{mdy(driver.cdl_expiry)}<Badge date={driver.cdl_expiry} what="cdl" /></span></Row>
                 <Row label="Med card expires"><span>{mdy(driver.med_card_expiry)}<Badge date={driver.med_card_expiry} what="med" /></span></Row>
@@ -298,7 +298,7 @@ export default function TruckPage() {
 
           <section style={s.card} aria-label="Company">
             <h2 style={s.h2}>Company</h2>
-            <Link href="/company" data-testid="company-link" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 48, fontSize: 16, color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Company profile, insurance &amp; documents <span aria-hidden>›</span></Link>
+            <Link href="/company" data-testid="company-link" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 48, fontSize: 16, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>Company profile, insurance &amp; documents <span aria-hidden>›</span></Link>
           </section>
         </>)}
     </main>

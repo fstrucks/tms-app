@@ -9,10 +9,10 @@ import { validatePassword, MIN_PASSWORD, PASSWORD_PATH, pageMode } from '../../l
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem' },
   label: { display: 'block', margin: '0.75rem 0 0.5rem', fontWeight: 600 },
-  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #d1d5db' },
-  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--border)' },
+  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.75rem' },
 };
 
 function friendly(err) {
@@ -70,14 +70,14 @@ export default function SetPasswordPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.5rem' }}>{title}</h1>
-      {mode === 'setup' && !done && <p style={{ color: '#4b5563' }}>Set a password so you can sign in with your email and password next time, without waiting for an email link.</p>}
+      {mode === 'setup' && !done && <p style={{ color: 'var(--text)' }}>Set a password so you can sign in with your email and password next time, without waiting for an email link.</p>}
       <div style={s.card}>
         {user === undefined ? <p aria-live="polite">Loading…</p>
           : user === null ? (
-            <p role="alert">You need to be signed in to set a password. <Link href={loginHref(PASSWORD_PATH)} style={{ color: '#2563eb' }}>Sign in</Link> or <Link href="/forgot-password" style={{ color: '#2563eb' }}>reset it by email</Link>.</p>
+            <p role="alert">You need to be signed in to set a password. <Link href={loginHref(PASSWORD_PATH)} style={{ color: 'var(--primary)' }}>Sign in</Link> or <Link href="/forgot-password" style={{ color: 'var(--primary)' }}>reset it by email</Link>.</p>
           ) : done ? (
             <>
-              <p role="status" style={{ color: '#15803d', fontWeight: 600 }}>Password saved.</p>
+              <p role="status" style={{ color: 'var(--success)', fontWeight: 600 }}>Password saved.</p>
               <p>Next time, sign in with <strong>{user.email}</strong> and this password.</p>
               <a href={next} onClick={(e) => { e.preventDefault(); window.location.replace(next); }} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Continue</a>
             </>
@@ -87,7 +87,7 @@ export default function SetPasswordPage() {
               <label htmlFor="new-password" style={{ ...s.label, marginTop: 0 }}>New password</label>
               <input id="new-password" type={show ? 'text' : 'password'} autoComplete="new-password" required minLength={MIN_PASSWORD}
                 value={pw} onChange={(e) => setPw(e.target.value)} style={s.input} aria-describedby="pw-hint pw-error" aria-invalid={!!error} />
-              <p id="pw-hint" style={{ color: '#6b7280', fontSize: 14, margin: '0.35rem 0 0' }}>At least {MIN_PASSWORD} characters.</p>
+              <p id="pw-hint" style={{ color: 'var(--text-muted)', fontSize: 14, margin: '0.35rem 0 0' }}>At least {MIN_PASSWORD} characters.</p>
               <label htmlFor="confirm-password" style={s.label}>Confirm password</label>
               <input id="confirm-password" type={show ? 'text' : 'password'} autoComplete="new-password" required
                 value={confirm} onChange={(e) => setConfirm(e.target.value)} style={s.input} aria-describedby="pw-error" aria-invalid={!!error} />
@@ -95,13 +95,13 @@ export default function SetPasswordPage() {
                 <input id="show-pw" type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} style={{ width: 20, height: 20 }} />
                 Show passwords
               </label>
-              <p id="pw-error" role="alert" aria-live="assertive" style={{ color: '#b91c1c', margin: error ? '0.5rem 0 0' : 0 }}>{error || ''}</p>
+              <p id="pw-error" role="alert" aria-live="assertive" style={{ color: 'var(--danger)', margin: error ? '0.5rem 0 0' : 0 }}>{error || ''}</p>
               <button type="submit" disabled={!hydrated || busy} style={{ ...s.btn, opacity: !hydrated || busy || !ready ? 0.6 : 1 }}>
                 {busy ? 'Saving…' : 'Save password'}
               </button>
               {mode === 'setup' && (
                 <p style={{ textAlign: 'center', margin: '0.5rem 0 0' }}>
-                  <a href={next} style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Skip for now</a>
+                  <a href={next} style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Skip for now</a>
                 </p>
               )}
             </form>

@@ -8,7 +8,7 @@ export default function BugReportsMenuItem({ owner, onPick }) {
   if (!owner) return null;
   return (
     <Link href="/bug-reports" role="menuitem" onClick={onPick} data-testid="menu-bug-reports"
-      style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+      style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
       Bug reports
     </Link>
   );

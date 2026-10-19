@@ -20,14 +20,14 @@ import {
 } from '../lib/homeCurrentLoad';
 
 const s = {
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.9rem', background: '#fff', minWidth: 0 },
-  lbl: { fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#6b7280' },
-  muted: { color: '#6b7280', fontSize: '0.875rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.9rem', background: 'var(--surface)', minWidth: 0 },
+  lbl: { fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.875rem' },
   route: { fontSize: '1.15rem', fontWeight: 700, margin: '0.4rem 0 0.15rem' },
-  chip: { display: 'inline-block', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.25rem 0.5rem', fontSize: '0.82rem', background: '#f9fafb', margin: '0 0.4rem 0.4rem 0' },
-  btn: { flex: '1 1 140px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid #2563eb', color: '#1d4ed8', background: '#fff', fontWeight: 600, fontSize: '0.95rem', textDecoration: 'none', cursor: 'pointer' },
-  btnPri: { background: '#2563eb', color: '#fff' },
-  link: { color: '#2563eb', fontSize: '0.9rem' },
+  chip: { display: 'inline-block', border: '1px solid var(--divider)', borderRadius: 8, padding: '0.25rem 0.5rem', fontSize: '0.82rem', background: 'var(--surface-2)', margin: '0 0.4rem 0.4rem 0' },
+  btn: { flex: '1 1 140px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)', fontWeight: 600, fontSize: '0.95rem', textDecoration: 'none', cursor: 'pointer' },
+  btnPri: { background: 'var(--primary)', color: 'var(--on-primary)' },
+  link: { color: 'var(--primary)', fontSize: '0.9rem' },
 };
 
 function StopBlock({ load, stop, big = false }) {
@@ -37,7 +37,7 @@ function StopBlock({ load, stop, big = false }) {
     <div data-testid="home-stop" style={{ minWidth: 0 }}>
       <div style={s.lbl}>{STOP_LABEL(stop)}</div>
       {stop.company_name && <div style={{ fontWeight: 600, fontSize: big ? '1.1rem' : '1rem' }}>{stop.company_name}</div>}
-      <div style={{ fontSize: '0.9rem', color: '#374151' }}>{fullAddress(stop) || '—'}</div>
+      <div style={{ fontSize: '0.9rem', color: 'var(--text)' }}>{fullAddress(stop) || '—'}</div>
       <div style={{ fontSize: '0.9rem', marginTop: 2 }}><b>Appt</b> {appt || 'not set'}</div>
       {stop.stop_type === 'pickup' && <div data-testid="home-pickup-number" style={{ fontSize: '0.9rem', marginTop: 2 }}>{pickupNumberText(load, stop)}</div>}
     </div>
@@ -72,10 +72,10 @@ function OptionB({ load, now }) {
   const others = st.map((x, i) => ({ x, i })).filter(({ i }) => i !== ni);
   return (
     <div data-layout="B">
-      <div style={{ ...s.lbl, color: '#1e40af', marginBottom: 4 }}>Next stop · {ni + 1} of {st.length}</div>
+      <div style={{ ...s.lbl, color: 'var(--primary)', marginBottom: 4 }}>Next stop · {ni + 1} of {st.length}</div>
       <StopBlock load={load} stop={next} big />
       <Countdown stop={next} now={now} />
-      <details open style={{ marginTop: 10, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+      <details open style={{ marginTop: 10, borderTop: '1px solid var(--divider)', paddingTop: 8 }}>
         <summary style={{ ...s.muted, cursor: 'pointer' }}>Other stops ({others.length})</summary>
         {others.map(({ x, i }) => (
           <div key={x.id ?? i} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -107,9 +107,9 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
   const more = moreLine(pick);
   return (
     <section data-testid="home-current-load" data-kind={kind} data-layout={layout} aria-label={kind === 'next' ? 'Next load' : 'Current load'}
-      style={{ ...s.card, ...(kind === 'next' ? { border: '2px dashed #d1d5db' } : { border: '2px solid #bfdbfe' }) }}>
+      style={{ ...s.card, ...(kind === 'next' ? { border: '2px dashed var(--border)' } : { border: '2px solid var(--info-bg)' }) }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <div style={{ ...s.lbl, color: kind === 'next' ? '#6b7280' : '#1e40af' }}>{kind === 'next' ? 'Next load' : 'Current load'}</div>
+        <div style={{ ...s.lbl, color: kind === 'next' ? 'var(--text-muted)' : 'var(--primary)' }}>{kind === 'next' ? 'Next load' : 'Current load'}</div>
         <StatusBadge status={load.status} />
       </div>
       {kind === 'next' && <p style={{ ...s.muted, margin: '0.4rem 0 0' }}>Nothing on the road right now. This is your next booked load.</p>}
@@ -119,9 +119,9 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
       </div>
       {layout === 'A' ? <OptionA load={load} /> : <OptionB load={load} now={now} />}
       <div style={{ marginTop: 12 }}>
-        {miles && <span style={s.chip}>{miles}{src && <span style={{ color: '#6b7280' }}> · {src}</span>}</span>}
+        {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
         {layout === 'A' && pu && <span style={s.chip}>{pickupNumberText(load, pu)}</span>}
-        {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: '#065f46' }}>{rateText(load)}</span>}
+        {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: 'var(--success)' }}>{rateText(load)}</span>}
       </div>
       {/* Members can't open the owner's load page or rate con file yet (own-row RLS / private Storage). */}
       {owner && (
@@ -144,7 +144,7 @@ function UpNext({ loads, owner }) {
       {loads.map((l, i) => {
         const pu = pickupStop(l);
         const d = fmtApptDate(pu?.appointment_start, pu?.timezone);
-        const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid #f1f5f9' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
+        const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid var(--divider)' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
         const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{d || 'No date'}</span></>);
         return owner ? <Link key={l.id} href={`/loads/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
       })}
@@ -211,7 +211,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
 
   if (pick.kind === 'empty') {
     return (
-      <section data-testid="home-current-load" data-kind="empty" style={{ ...s.card, border: '2px dashed #d1d5db', marginTop: '1rem', maxWidth: 560 }}>
+      <section data-testid="home-current-load" data-kind="empty" style={{ ...s.card, border: '2px dashed var(--border)', marginTop: '1rem', maxWidth: 560 }}>
         <div style={s.lbl}>Current load</div>
         <p style={{ fontWeight: 600, margin: '0.4rem 0 0.75rem' }}>No active or booked loads</p>
         {owner && (
@@ -228,7 +228,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
         <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
-        {openErr && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.9rem' }}>{openErr}</p>}
+        {openErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
       <UpNext loads={upNext(loads, pick.load, now)} owner={owner} />
     </div>

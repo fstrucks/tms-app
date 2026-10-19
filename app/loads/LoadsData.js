@@ -15,11 +15,11 @@ const Ctx = createContext(null);
 export const useLoads = () => useContext(Ctx);
 
 const s = {
-  card: { display: 'block', border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
+  card: { display: 'block', border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  link: { color: '#2563eb' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  link: { color: 'var(--primary)' },
 };
 
 export function LoadsProvider({ children }) {
@@ -85,7 +85,7 @@ export function LoadsList({ selectedId = null }) {
         const sel = l.id === selectedId;
         return (
           <Link key={l.id} href={`/loads/${l.id}`} aria-current={sel ? 'page' : undefined}
-            style={{ ...s.card, ...(sel ? { borderColor: '#2563eb', boxShadow: '0 0 0 1px #2563eb', background: '#eff6ff' } : null) }}>
+            style={{ ...s.card, ...(sel ? { borderColor: 'var(--primary)', boxShadow: '0 0 0 1px var(--primary)', background: 'var(--info-bg)' } : null) }}>
             <div style={s.row}>
               <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {l.broker_load_number ? `#${l.broker_load_number}` : 'Load'}{l.broker_name ? ` · ${l.broker_name}` : ''}
@@ -97,7 +97,7 @@ export function LoadsList({ selectedId = null }) {
               {stopSummary(stops[0])} <span style={s.muted}>→</span> {stopSummary(stops[stops.length - 1])}
             </div>
             <div style={s.row}>
-              <span><strong>{fmtMoney(l.rate)}</strong>{l.total_miles > 0 && <span style={s.muted}> · {Number(l.total_miles).toLocaleString('en-US')} mi</span>}{l.rate_per_mile != null && <span style={{ ...s.muted, fontWeight: 600, color: '#065f46' }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
+              <span><strong>{fmtMoney(l.rate)}</strong>{l.total_miles > 0 && <span style={s.muted}> · {Number(l.total_miles).toLocaleString('en-US')} mi</span>}{l.rate_per_mile != null && <span style={{ ...s.muted, fontWeight: 600, color: 'var(--success)' }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
               <span style={s.muted}>{new Date(l.created_at).toLocaleDateString()}</span>
             </div>
           </Link>

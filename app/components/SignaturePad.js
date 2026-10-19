@@ -20,7 +20,7 @@ const dancing = localFont({
 // Canvas font string; dancing.style.fontFamily already includes the cursive fallbacks above.
 const scriptFont = (size) => `500 ${size}px ${dancing.style.fontFamily}`;
 const PAD_HEIGHT = 180;
-const INK = '#111827';
+const INK = '#111827'; // fixed dark ink on the always-white pad (--paper): visible in both themes and dark in the exported PNG/PDF
 const btn = { minHeight: 44, minWidth: 44, padding: '0 1rem', borderRadius: 10, fontSize: 16, fontWeight: 600, cursor: 'pointer' };
 
 export default function SignaturePad({ onDone, onCancel, initialName = '', title = 'Sign here' }) {
@@ -163,7 +163,7 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
 
   const tab = (m, label) => (
     <button type="button" role="tab" aria-selected={method === m} onClick={() => switchMethod(m)}
-      style={{ ...btn, flex: 1, border: 'none', background: method === m ? '#fff' : 'transparent', color: '#111827', boxShadow: method === m ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' }}>
+      style={{ ...btn, flex: 1, border: 'none', background: method === m ? 'var(--surface)' : 'transparent', color: 'var(--text)', boxShadow: method === m ? '0 1px 2px var(--shadow)' : 'none' }}>
       {label}
     </button>
   );
@@ -175,29 +175,29 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
         Signer name
         <input type="text" value={signerName} maxLength={SIGNER_NAME_MAX} autoComplete="name" placeholder="Full name"
           onChange={(e) => setSignerName(e.target.value)}
-          style={{ minHeight: 44, fontSize: 16, padding: '0 0.75rem', border: '1px solid #d1d5db', borderRadius: 10 }} />
+          style={{ minHeight: 44, fontSize: 16, padding: '0 0.75rem', border: '1px solid var(--border)', borderRadius: 10 }} />
       </label>
-      <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: 4, padding: 4, background: '#f3f4f6', borderRadius: 12 }}>
+      <div role="tablist" aria-label="Signature method" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface-2)', borderRadius: 12 }}>
         {tab('draw', 'Draw')}
         {tab('type', 'Type')}
       </div>
-      <div ref={wrapRef} style={{ position: 'relative', width: '100%', border: '1px dashed #9ca3af', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+      <div ref={wrapRef} style={{ position: 'relative', width: '100%', border: '1px dashed var(--text-muted)', borderRadius: 12, background: 'var(--paper)', overflow: 'hidden' }}>
         <canvas ref={canvasRef} aria-label={method === 'draw' ? 'Signature drawing area' : 'Typed signature preview'}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
           style={{ display: 'block', width: '100%', height: PAD_HEIGHT, touchAction: 'none', cursor: method === 'draw' ? 'crosshair' : 'default' }} />
-        <div aria-hidden="true" style={{ position: 'absolute', left: 16, right: 16, bottom: 36, borderBottom: '1px solid #e5e7eb', pointerEvents: 'none' }} />
+        <div aria-hidden="true" style={{ position: 'absolute', left: 16, right: 16, bottom: 36, borderBottom: '1px solid var(--paper-line)', pointerEvents: 'none' }} />
         {method === 'draw' && !hasInk && (
-          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', pointerEvents: 'none' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--paper-text)', pointerEvents: 'none' }}>
             Sign with your finger or mouse
           </div>
         )}
       </div>
-      {notice && <div role="status" style={{ color: '#b45309', fontSize: 14 }}>{notice}</div>}
+      {notice && <div role="status" style={{ color: 'var(--warning)', fontSize: 14 }}>{notice}</div>}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        {onCancel && <button type="button" onClick={onCancel} style={{ ...btn, background: '#fff', border: '1px solid #d1d5db', color: '#111827' }}>Cancel</button>}
-        <button type="button" onClick={clear} style={{ ...btn, background: '#fff', border: '1px solid #d1d5db', color: '#111827' }}>Clear</button>
+        {onCancel && <button type="button" onClick={onCancel} style={{ ...btn, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>Cancel</button>}
+        <button type="button" onClick={clear} style={{ ...btn, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>Clear</button>
         <button type="button" onClick={done} disabled={!ready}
-          style={{ ...btn, flex: 1, border: 'none', background: ready ? '#2563eb' : '#93c5fd', color: '#fff', cursor: ready ? 'pointer' : 'not-allowed' }}>Done</button>
+          style={{ ...btn, flex: 1, border: 'none', background: ready ? 'var(--primary)' : 'var(--disabled-bg)', color: ready ? 'var(--on-primary)' : 'var(--disabled-text)', cursor: ready ? 'pointer' : 'not-allowed' }}>Done</button>
       </div>
     </div>
   );

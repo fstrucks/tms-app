@@ -32,7 +32,8 @@ export function fieldState(f) {
   if (f.check && !f.check.ok) return 'check';
   return 'ok';
 }
-export const STATE_COLORS = { sign: '#7c3aed', unmapped: '#d97706', confirm: '#dc2626', check: '#b45309', ok: '#16a34a', skip: '#6b7280' };
+// White text on every fill is >= 4.5:1 (tests/js/themeTokens.test.mjs); same in both themes.
+export const STATE_COLORS = { sign: '#7c3aed', unmapped: '#c2410c', confirm: '#dc2626', check: '#b45309', ok: '#15803d', skip: '#6b7280' };
 
 export function summarize(fields) {
   const s = { total: fields.length, unmapped: 0, confirm: 0, check: 0, ok: 0, sign: 0, skip: 0 };

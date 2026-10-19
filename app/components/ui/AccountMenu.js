@@ -9,6 +9,7 @@ import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
+import { THEME_CHOICES, THEME_LABELS, readTheme, setTheme } from '../../lib/theme';
 import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
 import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
 // Back to this page after signing in (header Sign in, and after Sign out).
@@ -34,6 +35,8 @@ export default function AccountMenu({ showEmail = false }) {
   const menuId = useId();
   // Owner-only items (Invite testers, Bug reports) share one check, re-run when the menu opens and when the
   // session token changes; a "couldn't tell" answer keeps the last value instead of hiding them (QA #78 b).
+  const [theme, setThemeState] = useState('auto');
+  useEffect(() => { if (open) setThemeState(readTheme()); }, [open]);
   const [owner, setOwner] = useState(false);
   const [authTick, setAuthTick] = useState(0);
   const uid = user?.id || null;
@@ -89,12 +92,12 @@ export default function AccountMenu({ showEmail = false }) {
 
   if (!ready) return <span style={{ width: 44, height: 44, display: 'inline-block' }} aria-hidden="true" />;
   if (!user) {
-    return <Link href={loginHrefState} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.75rem', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Sign in</Link>;
+    return <Link href={loginHrefState} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.75rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>Sign in</Link>;
   }
 
   const email = user.email || 'Account';
   const onKey = (e) => {
-    const items = [...(wrapRef.current?.querySelectorAll('[role=menuitem]') || [])];
+    const items = [...(wrapRef.current?.querySelectorAll('[role=menuitem],[role=menuitemradio]') || [])];
     const i = items.indexOf(document.activeElement);
     if (e.key === 'Escape') { e.preventDefault(); setOpen(false); btnRef.current?.focus(); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
@@ -110,36 +113,48 @@ export default function AccountMenu({ showEmail = false }) {
       onBlur={(e) => { if (shouldCloseOnBlur({ open, focusStaysInside: !!wrapRef.current?.contains(e.relatedTarget), pressInside: pressRef.current })) setOpen(false); }}>
       <button ref={btnRef} type="button" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
         aria-label={`Account: ${email}`} onClick={() => setOpen((v) => !v)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 44, minWidth: 44, padding: '0 0.4rem', border: 'none', background: 'transparent', cursor: 'pointer', color: '#111827' }}>
-        <span aria-hidden="true" style={{ width: 32, height: 32, borderRadius: 999, background: '#2563eb', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 44, minWidth: 44, padding: '0 0.4rem', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}>
+        <span aria-hidden="true" style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
           {email[0].toUpperCase()}
         </span>
         {showEmail && <span className="account-email" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{email}</span>}
       </button>
       {open && (
         <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey} tabIndex={-1}
-          style={{ outline: 'none', position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: '0.25rem' }}>
-          <div style={{ padding: '0.6rem 0.8rem', color: '#6b7280', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{email}</div>
+          style={{ outline: 'none', position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, boxShadow: '0 8px 24px var(--shadow)', padding: '0.25rem' }}>
+          <div style={{ padding: '0.6rem 0.8rem', color: 'var(--text-muted)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid var(--divider)' }}>{email}</div>
           <Link ref={(el) => { itemRefs.current[0] = el; }} href="/account/password" role="menuitem" onClick={() => setOpen(false)}
-            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             {user.user_metadata?.password_set ? 'Change password' : 'Set password'}
           </Link>
           <Link ref={(el) => { itemRefs.current[1] = el; }} href="/company" role="menuitem" onClick={() => setOpen(false)}
-            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Company profile
           </Link>
-          <InviteTestersMenuItem owner={owner} onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }} />
+          <InviteTestersMenuItem owner={owner} onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }} />
           <BugReportsMenuItem owner={owner} onPick={() => setOpen(false)} />
           <Link ref={(el) => { itemRefs.current[2] = el; }} href="/packets" role="menuitem" onClick={() => setOpen(false)}
-            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: '#111827', textDecoration: 'none' }}>
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Carrier packets
           </Link>
-          <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>Welcome tour</button>
+          <div role="group" aria-label="Theme" style={{ padding: '0.35rem 0.8rem 0.5rem' }}>
+            <div aria-hidden="true" style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 6, whiteSpace: 'nowrap' }}>Theme</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {THEME_CHOICES.map((t) => (
+                <button key={t} type="button" role="menuitemradio" aria-checked={theme === t} data-compact data-theme-choice={t}
+                  onClick={() => setThemeState(setTheme(t))}
+                  style={{ flex: '1 1 0', minWidth: 0, minHeight: 36, padding: '0 0.25rem', fontSize: 14, whiteSpace: 'nowrap', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: theme === t ? 'var(--primary)' : 'var(--surface)', color: theme === t ? 'var(--on-primary)' : 'var(--text)', fontWeight: theme === t ? 600 : 400 }}>
+                  {THEME_LABELS[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Welcome tour</button>
           <button ref={(el) => { itemRefs.current[4] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
-            style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: '#111827', cursor: 'pointer' }}>
+            style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>
             {busy ? 'Signing out…' : 'Sign out'}
           </button>
-          {err && <p role="alert" style={{ color: '#b91c1c', fontSize: 14, margin: '0.25rem 0.8rem 0.5rem' }}>{err}</p>}
+          {err && <p role="alert" style={{ color: 'var(--danger)', fontSize: 14, margin: '0.25rem 0.8rem 0.5rem' }}>{err}</p>}
         </div>
       )}
     </div>
