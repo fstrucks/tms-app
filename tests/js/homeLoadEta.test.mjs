@@ -297,11 +297,11 @@ test('map panel: location only after a tap (never on load), polled only while sh
   assert.ok(!/filter:\s*['"]?invert/.test(map), 'tiles stay light in dark mode');
 });
 
-test('colors: new UI uses theme tokens with fallbacks (dark mode #95)', () => {
+test('colors: new UI uses #95 theme tokens only (no hex/rgb, no fallbacks)', () => {
   for (const f of ['app/components/CurrentLoadPanels.js', 'app/components/LoadMapPanel.js']) {
     const src = read(f);
-    const bare = src.replace(/var\(--[\w-]+,\s*[^()]*(\([^()]*\))?[^()]*\)/g, '');
-    assert.ok(!/#[0-9a-fA-F]{3,6}\b|rgba?\(/.test(bare), `${f}: hex/rgb only as var(--token, fallback)`);
-    assert.match(src, /var\(--surface, /); assert.match(src, /var\(--primary, /);
+    assert.ok(!/#[0-9a-fA-F]{3,6}\b|rgba?\(/.test(src), `${f}: no hardcoded colors`);
+    assert.ok(!/var\(--[\w-]+,/.test(src), `${f}: plain var(--x), no fallbacks`);
+    assert.match(src, /var\(--surface\)/); assert.match(src, /var\(--primary\)/);
   }
 });

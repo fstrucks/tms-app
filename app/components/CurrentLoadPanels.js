@@ -12,9 +12,9 @@ const LoadMapPanel = dynamic(() => import('./LoadMapPanel'), { ssr: false, loadi
 export const PANELS = [{ key: 'load', label: 'Load' }, { key: 'map', label: 'Map' }];
 
 const c = {
-  primary: 'var(--primary, #2563eb)', surface: 'var(--surface, #ffffff)', border: 'var(--border, #cbd5e1)',
-  muted: 'var(--text-muted, #6b7280)', soft: 'var(--surface-2, #f1f5f9)', shadow: 'var(--shadow, 0 1px 3px rgba(0,0,0,.15))',
-  onPrimary: 'var(--on-primary, #ffffff)', focus: 'var(--focus-ring, 0 0 0 3px rgba(37,99,235,.45))', dot: 'var(--divider, #cbd5e1)',
+  primary: 'var(--primary)', surface: 'var(--surface)', border: 'var(--border)',
+  muted: 'var(--text-muted)', soft: 'var(--surface-2)', shadow: '0 1px 3px var(--shadow)',
+  onPrimary: 'var(--on-primary)', dot: 'var(--divider)',
 };
 
 function PanelPlaceholder() {
@@ -125,7 +125,6 @@ export default function CurrentLoadPanels({ enabled = true, load, audience, chil
   return (
     <div data-testid="home-load-panels" data-panel={PANELS[idx].key}>
       <style>{`.home-panels{scrollbar-width:none}.home-panels::-webkit-scrollbar{display:none}
-.home-panels-tab:focus-visible,.home-panels-dot:focus-visible{outline:none;box-shadow:${c.focus}}
 @media (prefers-reduced-motion: reduce){.home-panels{scroll-behavior:auto}}`}</style>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
         <div role="tablist" aria-label="Current load views" onKeyDown={onKey}

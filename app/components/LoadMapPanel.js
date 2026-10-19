@@ -18,13 +18,13 @@ import {
   stopAddress, googleMapsUrl, appleMapsUrl, truckerPathLink, TP_FALLBACK_MS,
 } from '../lib/loadEta';
 
-const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: 'var(--surface-2, #f1f5f9)' }} /> });
+const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: 'var(--surface-2)' }} /> });
 
 const c = {
-  surface: 'var(--surface, #ffffff)', soft: 'var(--surface-2, #f9fafb)', text: 'var(--text, #111827)', muted: 'var(--text-muted, #6b7280)',
-  border: 'var(--border, #e5e7eb)', infoBorder: 'var(--primary-soft, #bfdbfe)', primary: 'var(--primary, #2563eb)', onPrimary: 'var(--on-primary, #ffffff)',
-  success: 'var(--success, #15803d)', warning: 'var(--warning, #92400e)', warningBg: 'var(--warning-bg, #fef3c7)', warningBorder: 'var(--warning-border, #fcd34d)',
-  danger: 'var(--danger, #b91c1c)',
+  surface: 'var(--surface)', soft: 'var(--surface-2)', text: 'var(--text)', muted: 'var(--text-muted)',
+  border: 'var(--border)', infoBorder: 'var(--primary-soft)', primary: 'var(--primary)', onPrimary: 'var(--on-primary)',
+  success: 'var(--success)', warning: 'var(--warning)', warningBg: 'var(--warning-bg)', warningBorder: 'var(--warning-border)',
+  danger: 'var(--danger)',
 };
 const s = {
   card: { border: `2px solid ${c.infoBorder}`, borderRadius: 12, padding: '0.9rem', background: c.surface, color: c.text, minWidth: 0 },
