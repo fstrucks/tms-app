@@ -8,7 +8,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import { useLoads } from '../LoadsData';
 import { EMPTY_NEW_LOAD, buildNewLoad, createManualLoad } from '../../lib/loadNew';
 import { seedLoad } from '../../lib/loadSeed';
-import { fetchDriverChoices, driverLabel } from '../../lib/loadDriver';
+import { fetchDriverChoices, driverLabel, driverRateHelp } from '../../lib/loadDriver';
 
 // /loads/new: create a load by hand (no rate con). A static segment, so Next.js serves it before /loads/[id].
 const s = {
@@ -135,7 +135,7 @@ export default function NewLoadPage() {
                     onChange={(e) => setForm((x) => ({ ...x, show_rate_to_driver: e.target.checked }))} style={{ width: 22, height: 22 }} />
                   <span>Show rate to driver</span>
                 </label>
-                <p style={{ ...s.muted, margin: 0 }}>Off: the assigned driver never sees the rate or rate per mile for this load.</p>
+                <p data-testid="driver-rate-help" style={{ ...s.muted, margin: 0 }}>{driverRateHelp(form.show_rate_to_driver === true)}</p>
               </div>
             )}
             {saveError && <p role="alert" style={{ color: '#b91c1c' }}>{saveError}</p>}

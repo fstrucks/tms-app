@@ -12,7 +12,7 @@ import { Loading, LoadError } from '../../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { StatusBadge, fmtMoney } from '../../lib/loads';
 import { isLoadId } from '../../lib/loadNew';
-import { fetchDriverChoices, driverLabel } from '../../lib/loadDriver';
+import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions } from '../../lib/loadDriver';
 import {
   STATUSES, SETUP_MSG, fetchDispatchContext, fetchDispatchLoads, loadToForm, formToPatch, stopsToForm, formToStops, blankStop, moveStop,
   saveLoad, saveStops, rateConUrl, notesMayShowPay,
@@ -53,6 +53,7 @@ export default function DispatchLoadPage() {
   const [errors, setErrors] = useState({});
   const [stopErrors, setStopErrors] = useState({});
   const [drivers, setDrivers] = useState([]);
+  const [driversLoaded, setDriversLoaded] = useState(false); // until true the picker shows Loading (no false "no longer on the company")
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [rcBusy, setRcBusy] = useState(false);
@@ -78,10 +79,12 @@ export default function DispatchLoadPage() {
     if (res.error) { console.error('[dispatch] load', res.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
     const load = res.loads[0];
     if (!load) return setState({ status: 'missing' });
+    setDriversLoaded(false);
     apply(load);
     const drv = await fetchDriverChoices(supabase, load.owner_id);
     if (drv.error) console.error('[dispatch] drivers', drv.error);
     setDrivers(drv.choices || []);
+    setDriversLoaded(true);
   }
 
   useEffect(() => {
@@ -136,8 +139,7 @@ export default function DispatchLoadPage() {
     } finally { setRcBusy(false); }
   }
 
-  const driverList = form?.assigned_driver_user_id && !drivers.some((c) => c.user_id === form.assigned_driver_user_id)
-    ? [...drivers, { user_id: form.assigned_driver_user_id, email: 'Current driver (no longer on the company)' }] : drivers;
+  const driverOpts = driverOptions(drivers, form?.assigned_driver_user_id, driversLoaded);
 
   return (
     <main style={s.main}>
@@ -191,16 +193,20 @@ export default function DispatchLoadPage() {
             <div style={s.card} data-testid="dispatch-driver">
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Driver</h2>
               <label style={s.label}>Assigned driver
-                <select value={form.assigned_driver_user_id} onChange={(e) => set('assigned_driver_user_id')(e.target.value)} style={s.input}>
-                  <option value="">Not assigned</option>
-                  {driverList.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
-                </select>
+                {driverOpts.loading ? (
+                  <select disabled aria-busy="true" data-testid="driver-picker-loading" value="" style={{ ...s.input, color: '#6b7280' }}><option value="">Loading drivers…</option></select>
+                ) : (
+                  <select value={form.assigned_driver_user_id} onChange={(e) => set('assigned_driver_user_id')(e.target.value)} style={s.input}>
+                    <option value="">Not assigned</option>
+                    {driverOpts.options.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
+                  </select>
+                )}
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.show_rate_to_driver} onChange={(e) => set('show_rate_to_driver')(e.target.checked)} style={{ width: 22, height: 22 }} />
                 <span>Show rate to driver</span>
               </label>
-              <p style={{ ...s.muted, margin: 0 }}>Off: the assigned driver never sees the rate or rate per mile for this load.</p>
+              <p data-testid="driver-rate-help" style={{ ...s.muted, margin: 0 }}>{driverRateHelp(form.show_rate_to_driver, load.show_rate_to_driver === true)}</p>
             </div>
 
             <div style={s.card} data-testid="dispatch-stops">

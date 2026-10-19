@@ -168,3 +168,36 @@ test('migration: additive, own-row RLS untouched, every function role-checked an
   assert.match(mig, /security definer set search_path = public/);
   assert.match(mig, /where k = any \(allowed\) or k = 'id'/, 'stops: only allowed keys are written');
 });
+
+// ---------- #94 QA: Driver card fixes ----------
+import { driverRateHelp, driverOptions, RATE_ON_TEXT, RATE_OFF_TEXT, FORMER_DRIVER_LABEL } from '../../app/lib/loadDriver.js';
+
+test('Driver card helper text follows the switch (and says when it is not saved yet)', () => {
+  assert.equal(driverRateHelp(false, false), RATE_OFF_TEXT);
+  assert.equal(driverRateHelp(true, true), RATE_ON_TEXT);
+  assert.equal(driverRateHelp(true, false), `${RATE_ON_TEXT} Not saved yet.`);
+  assert.equal(driverRateHelp(false, true), `${RATE_OFF_TEXT} Not saved yet.`);
+  assert.equal(driverRateHelp(true), RATE_ON_TEXT, 'new load form: no saved state');
+  assert.match(RATE_ON_TEXT, /^On: the assigned driver sees the rate/);
+});
+
+test('Driver picker: loading until the list arrives; "no longer on the company" only after', () => {
+  const D = [{ user_id: 'd1', email: 'driver.pat@example.com' }];
+  assert.deepEqual(driverOptions([], 'd1', false), { loading: true, options: [] });
+  assert.deepEqual(driverOptions(D, 'd1', true), { loading: false, options: D });
+  assert.deepEqual(driverOptions(D, 'gone', true).options.at(-1), { user_id: 'gone', email: FORMER_DRIVER_LABEL });
+  assert.deepEqual(driverOptions(D, '', true).options, D);
+});
+
+test('both Driver cards use the shared helpers; no hard-coded Off text or early "no longer" option', () => {
+  const owner = read('app/components/LoadDriverSettings.js');
+  const newLoad = read('app/loads/new/page.js');
+  for (const src of [owner, page]) {
+    assert.match(src, /driverOptions\(/); assert.match(src, /\.loading \? \(\s*<select disabled aria-busy="true" data-testid="driver-picker-loading"/);
+    assert.match(src, /driverRateHelp\(/);
+    assert.doesNotMatch(src, /Current driver \(no longer on the company\)/);
+  }
+  for (const src of [owner, page, newLoad]) assert.doesNotMatch(src, />Off: the assigned driver never sees/);
+  assert.match(owner, /setChoices\(r\.choices \|\| \[\]\); setLoaded\(true\)/);
+  assert.match(page, /setDrivers\(drv\.choices \|\| \[\]\);\s*setDriversLoaded\(true\)/);
+});
