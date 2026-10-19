@@ -27,9 +27,19 @@ export function fitView(m, node, bounds) {
   return true;
 }
 
-export default function RouteMap({ stops, geometry }) {
+// Home card Panel 2 adds `truck` ({ lat, lng }: the driver's position, memory only, never stored), `live` (encoded
+// polyline from there to the next stop) and `label`. Those layers update in place: no re-fit and no map rebuild, so
+// an ETA refresh doesn't pull new tiles. Tiles stay light in dark mode (no filter).
+const truckIcon = () => L.divIcon({
+  className: 'ph-truck',
+  html: '<span style="display:block;width:18px;height:18px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 6px rgba(37,99,235,.25)"></span>',
+  iconSize: [18, 18], iconAnchor: [9, 9],
+});
+
+export default function RouteMap({ stops, geometry, truck = null, live = null, label = null }) {
   const el = useRef(null);
   const map = useRef(null);
+  const overlay = useRef(null);
   useEffect(() => {
     if (!el.current) return;
     const touch = L.Browser.mobile || L.Browser.touch;
@@ -47,7 +57,7 @@ export default function RouteMap({ stops, geometry }) {
       bounds.push([s.lat, s.lng]);
     });
     const line = decodePolyline(geometry || '');
-    if (line.length > 1) { L.polyline(line, { color: '#2563eb', weight: 4, opacity: 0.85 }).addTo(m); bounds.push(...line); }
+    if (line.length > 1) { L.polyline(line, { color: '#2563eb', weight: 4, opacity: live ? 0.35 : 0.85 }).addTo(m); bounds.push(...line); }
     // QA #83 r3: fit the route line + all pins with padding only once the container has a real size, and again
     // when its width/height changes (phone rotation, desktop pane). Fitting at 0×0 zoomed in so far pins were off-screen.
     const fit = () => fitView(m, el.current, bounds);
@@ -63,6 +73,20 @@ export default function RouteMap({ stops, geometry }) {
     map.current = m;
     return () => { if (raf != null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf); ro?.disconnect(); m.remove(); map.current = null; };
   }, [JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Truck dot + live leg, redrawn in place on the current map (no fitBounds here).
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    if (!overlay.current || overlay.current._phMap !== m) { overlay.current = L.layerGroup().addTo(m); overlay.current._phMap = m; }
+    const g = overlay.current;
+    g.clearLayers();
+    const leg = decodePolyline(live || '');
+    if (leg.length > 1) L.polyline(leg, { color: '#1d4ed8', weight: 5, opacity: 0.95 }).addTo(g);
+    if (truck && Number.isFinite(truck.lat) && Number.isFinite(truck.lng)) L.marker([truck.lat, truck.lng], { icon: truckIcon(), title: 'You (approximate)', keyboard: false }).addTo(g);
+  }, [truck?.lat, truck?.lng, live, JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (label && el.current) el.current.setAttribute('aria-label', label); }, [label]);
+
   return <div ref={el} data-testid="route-map" role="img" aria-label="Map of pickup and delivery with the truck route"
     style={{ width: '100%', height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)', zIndex: 0, position: 'relative' }} />;
 }

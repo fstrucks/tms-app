@@ -103,13 +103,16 @@ export async function geocodeStop(stop, { key, fetchImpl = fetch, take = (k) => 
   return lastErr ? { error: lastErr } : null;
 }
 
-export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null } = {}) {
+// The shared per-instance directions limiter (load map + home card ETA share one ORS key and one budget).
+export const takeDirections = (k = 'directions') => limiter.take(k);
+
+export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null, radiuses = null } = {}) {
   if (!take('directions')) return { error: 'rate_limited' };
   const r = await orsFetch(fetchImpl, `${ORS_BASE}${ORS_DIRECTIONS_PATH}`, {
     method: 'POST',
     headers: { Authorization: key, 'Content-Type': 'application/json', Accept: 'application/json' },
     // radiuses: a city/ZIP-level point may be off the road network; allow snapping up to 5 km.
-    body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: points.map(() => 5000) }),
+    body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: radiuses || points.map(() => 5000) }),
   }, timeoutMs, deadline);
   if (!r.ok) return { error: classifyOrsError(r) };
   const parsed = parseDirections(r.body);

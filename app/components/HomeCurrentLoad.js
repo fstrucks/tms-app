@@ -13,6 +13,7 @@ import { StatusBadge, fullAddress, fmtApptWindow, fmtApptDate, fmtNumber } from 
 import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
+import CurrentLoadPanels from './CurrentLoadPanels';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
@@ -87,7 +88,16 @@ function OptionB({ load, now }) {
   );
 }
 
-function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
+// The current load is swipeable (Panel 1 = FrontCard, unchanged; Panel 2 = map + miles left). "Next load" stays one card.
+function LoadCard(props) {
+  return (
+    <CurrentLoadPanels enabled={props.pick.kind === 'current'} load={props.pick.load} audience={props.audience}>
+      <FrontCard {...props} />
+    </CurrentLoadPanels>
+  );
+}
+
+function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
   const owner = audience === 'owner';
   const base = linkBaseFor(audience, pick.load);
   const { load, kind } = pick;
