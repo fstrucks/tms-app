@@ -98,3 +98,10 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* /loads/new form (#86 QA): one column on phones, auto-fit columns from 640px up. */
 .newload-grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
 @media (min-width: 640px) { .newload-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+
+/* Home "Current load" card: Up next beside the card from 1024px, below it on phones; Option A stops side by
+   side from 640px, stacked on phones. */
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 1024px) { .home-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.home-stops { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 640px) { .home-stops { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }

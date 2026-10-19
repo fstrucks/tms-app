@@ -14,6 +14,7 @@ import { stopAddressText } from '../../lib/loadRoute';
 import { onLoadChanged } from '../../lib/loadSync';
 import LoadScaleTickets from '../../components/LoadScaleTickets';
 import LoadExpenses from '../../components/LoadExpenses';
+import LoadDriverSettings from '../../components/LoadDriverSettings';
 import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
@@ -225,6 +226,12 @@ export default function LoadDetailPage() {
                   )}
                 </div>
 
+                {/* Assigned driver + "Show rate to driver": only once migration 20261018000600 added the columns. */}
+                {Object.prototype.hasOwnProperty.call(load, 'show_rate_to_driver') && (
+                  <LoadDriverSettings supabase={supabase} load={load} cardStyle={s.card}
+                    onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
+                )}
+
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
                   {load.stops.length === 0 ? <p style={s.muted}>No stops.</p> : load.stops.map((st, i) => (
@@ -233,6 +240,7 @@ export default function LoadDetailPage() {
                         <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
                         {st.company_name && <div>{st.company_name}</div>}
                         {fullAddress(st) && <div style={s.muted}>{fullAddress(st)}</div>}
+                        {st.pickup_number && <div style={s.muted}>Pickup # {st.pickup_number}</div>}
                         {(st.contact_name || st.contact_phone) && (
                           <div style={s.muted}>
                             {st.contact_name}{st.contact_name && st.contact_phone ? ' · ' : ''}

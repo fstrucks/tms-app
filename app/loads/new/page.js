@@ -8,6 +8,7 @@ import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase
 import { useLoads } from '../LoadsData';
 import { EMPTY_NEW_LOAD, buildNewLoad, createManualLoad } from '../../lib/loadNew';
 import { seedLoad } from '../../lib/loadSeed';
+import { fetchDriverChoices, driverLabel } from '../../lib/loadDriver';
 
 // /loads/new: create a load by hand (no rate con). A static segment, so Next.js serves it before /loads/[id].
 const s = {
@@ -43,6 +44,7 @@ export default function NewLoadPage() {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [drivers, setDrivers] = useState({ available: false, choices: [] }); // available once 20261018000600 is applied
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
@@ -52,6 +54,13 @@ export default function NewLoadPage() {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !user) return;
+    let live = true;
+    fetchDriverChoices(supabase).then((r) => { if (live) { if (r.error) console.error('[loads/new] drivers', r.error); setDrivers(r); } });
+    return () => { live = false; };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e) {
     e.preventDefault();
@@ -107,9 +116,28 @@ export default function NewLoadPage() {
                   <Field name={`${p}_state`} label="State" placeholder="CA" required {...f} />
                   <Field name={`${p}_zip`} label="ZIP" inputMode="numeric" {...f} />
                   <Field name={`${p}_appt`} label="Appointment" type="datetime-local" {...f} />
+                  {p === 'pu' && drivers.available && <Field name="pu_pickup_number" label="Pickup #" placeholder="PU-12345" {...f} />}
                 </div>
               </div>
             ))}
+            {drivers.available && (
+              <div style={s.card} data-testid="new-load-driver">
+                <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Driver</h2>
+                <label style={s.label}>Assigned driver
+                  <select name="driver_user_id" value={form.driver_user_id} onChange={(e) => setForm((x) => ({ ...x, driver_user_id: e.target.value }))} style={s.input}>
+                    <option value="">Not assigned</option>
+                    {drivers.choices.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
+                  </select>
+                </label>
+                {drivers.choices.length === 0 && <p style={{ ...s.muted, margin: '0.3rem 0 0' }}>No drivers on your company yet. Invite one from the account menu.</p>}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: 'pointer' }}>
+                  <input type="checkbox" name="show_rate_to_driver" checked={form.show_rate_to_driver === true}
+                    onChange={(e) => setForm((x) => ({ ...x, show_rate_to_driver: e.target.checked }))} style={{ width: 22, height: 22 }} />
+                  <span>Show rate to driver</span>
+                </label>
+                <p style={{ ...s.muted, margin: 0 }}>Off: the assigned driver never sees the rate or rate per mile for this load.</p>
+              </div>
+            )}
             {saveError && <p role="alert" style={{ color: '#b91c1c' }}>{saveError}</p>}
             {Object.keys(errors).length > 0 && <p role="alert" style={{ color: '#b91c1c' }}>Please fix the highlighted fields.</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
