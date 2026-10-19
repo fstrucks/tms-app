@@ -13,6 +13,7 @@ import { StatusBadge, fullAddress, fmtApptWindow, fmtApptDate, fmtNumber } from 
 import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
+import CurrentLoadPanels from './CurrentLoadPanels';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, STOP_LABEL, TONE_COLORS, TONE_BG,
@@ -217,7 +218,9 @@ export default function HomeCurrentLoad({ supabase, user }) {
   return (
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
-        <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
+        <CurrentLoadPanels enabled={pick.kind === 'current'} load={pick.load} supabase={supabase} audience={audience}>
+          <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
+        </CurrentLoadPanels>
         {openErr && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
       <UpNext loads={upNext(loads, pick.load, now)} owner={owner} />

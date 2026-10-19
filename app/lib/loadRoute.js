@@ -183,14 +183,16 @@ export function simplifyLine(points, maxPoints = MAX_GEOMETRY_POINTS) {
   return out;
 }
 
-// Directions JSON → { miles, geometry } | null. units=mi, so summary.distance is miles.
+// Directions JSON → { miles, geometry, seconds } | null. units=mi, so summary.distance is miles; summary.duration
+// is drive time in seconds (ideal conditions: ORS has no traffic data). `seconds` is null when ORS omits it.
 export function parseDirections(json) {
   const r = json?.routes?.[0];
   const d = Number(r?.summary?.distance);
   if (!r || !Number.isFinite(d) || d <= 0) return null;
   const miles = Math.max(1, Math.round(d));
   const pts = typeof r.geometry === 'string' ? decodePolyline(r.geometry) : [];
-  return { miles, geometry: pts.length ? encodePolyline(simplifyLine(pts)) : null };
+  const t = Number(r?.summary?.duration);
+  return { miles, geometry: pts.length ? encodePolyline(simplifyLine(pts)) : null, seconds: Number.isFinite(t) && t >= 0 ? Math.round(t) : null };
 }
 
 // ORS failure → short code stored in loads.route_error.
