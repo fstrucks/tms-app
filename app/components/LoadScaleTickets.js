@@ -3,6 +3,7 @@
 // computed on the server). View only here; tickets are added and confirmed on the Truck tab (drivers can't edit).
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { loadScaleTickets } from '../lib/scaleTicketsLoad';
 
 const lb = (n) => (n == null ? '—' : `${Number(n).toLocaleString('en-US')} lb`);
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
@@ -11,14 +12,7 @@ export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardSty
   const [st, setSt] = useState({ state: 'loading' });
   useEffect(() => {
     let live = true;
-    (async () => {
-      const t = (await supabase.auth.getSession())?.data?.session?.access_token;
-      try {
-        const res = await fetch(`/api/loads/${loadId}/scale-tickets`, { cache: 'no-store', headers: { Authorization: `Bearer ${t || ''}` } });
-        const j = await res.json().catch(() => ({}));
-        if (live) setSt(res.ok ? { state: 'ready', ...j } : { state: 'error', error: j.error || 'Couldn’t load scale tickets.' });
-      } catch { if (live) setSt({ state: 'error', error: 'Couldn’t load scale tickets.' }); }
-    })();
+    loadScaleTickets(supabase, loadId).then((r) => { if (live) setSt(r); });
     return () => { live = false; };
   }, [loadId, loadWeight]); // eslint-disable-line react-hooks/exhaustive-deps
 

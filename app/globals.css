@@ -94,3 +94,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   .vault-actions .vault-btn, .vault-actions .vault-delete button { width: 100%; }
   .vault-actions .vault-delete > * { width: 100%; }
 }
+
+/* /loads/new form (#86 QA): one column on phones, auto-fit columns from 640px up. */
+.newload-grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+@media (min-width: 640px) { .newload-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
