@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
+import DispatchHeaderLinks from './DispatchHeaderLinks';
 import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
@@ -55,6 +56,7 @@ export default function DispatchPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0 0.25rem' }}>Dispatch</h1>
+      <DispatchHeaderLinks active="loads" />
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your company’s loads.</p>
