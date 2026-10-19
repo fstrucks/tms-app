@@ -20,6 +20,8 @@ import { uploadScan } from '../lib/scanUpload';
 import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
+import RateconEmailCard from '../components/RateconEmailCard';
+import { emailDraftState, emailReadProblem, isEmailDraft, REJECT_TEXT } from '../lib/rateconDrafts';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -62,7 +64,10 @@ const s = {
   muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   error: { color: 'var(--danger)' },
   ok: { color: 'var(--success)' },
+  badge: { display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', marginRight: 6 },
 };
+const DOC_COLS = 'id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
+const EMAIL_COLS = 'source, extraction_status, extraction_error';
 
 export default function DocumentsPage() {
   const supabase = getSupabase();
@@ -231,11 +236,12 @@ export default function DocumentsPage() {
     const req = ++docsReqRef.current;
     if (!docsReadyRef.current) setListState('loading');
     if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
-    const { data, error } = await supabase
-      .from('documents')
-      .select('id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id')
+    const q = (cols) => supabase.from('documents').select(cols)
       .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
       .order('created_at', { ascending: false });
+    // Email-in columns (20261019000200); before that migration, fall back to the old column list.
+    let { data, error } = await q(`${DOC_COLS}, ${EMAIL_COLS}`);
+    if (error?.code === '42703') ({ data, error } = await q(DOC_COLS));
     if (req !== docsReqRef.current) return;
     if (error) {
       console.error('[documents] fetch', error);
@@ -246,6 +252,16 @@ export default function DocumentsPage() {
     setRefreshErr(null);
     setDocs((data || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
     setListState('ready');
+    loadSkipped();
+  }
+
+  // Attachments skipped from recent rate con emails (not a PDF, over 10 MB, …), last 7 days. Optional: errors hide it.
+  const [skipped, setSkipped] = useState([]);
+  async function loadSkipped() {
+    const since = new Date(Date.now() - 7 * 864e5).toISOString();
+    const { data, error } = await supabase.from('inbound_emails').select('id, subject, received_at, rejected_attachments')
+      .eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
+    if (!error) setSkipped((data || []).filter((m) => Array.isArray(m.rejected_attachments) && m.rejected_attachments.length));
   }
 
   useEffect(() => {
@@ -261,6 +277,14 @@ export default function DocumentsPage() {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // An emailed rate con is read on the server: refresh every 10 s while any shows "Reading…".
+  const reading = docs.some((d) => emailDraftState(d) === 'reading');
+  useEffect(() => {
+    if (!reading) return;
+    const t = setInterval(() => loadDocs(), 10_000);
+    return () => clearInterval(t);
+  }, [reading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleUpload(e) {
     e.preventDefault();
@@ -402,8 +426,16 @@ export default function DocumentsPage() {
 
           {status && <p style={status.type === 'ok' ? s.ok : s.error}>{status.text}</p>}
 
+          <RateconEmailCard supabase={supabase} userId={user.id} />
+
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
+            {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
+            {skipped.map((m) => (
+              <p key={m.id} data-testid="email-skipped" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem' }}>
+                Skipped from email{m.subject ? ` “${m.subject}”` : ''}: {m.rejected_attachments.map((r) => `${r.name} (${REJECT_TEXT[r.reason] || r.reason})`).join(', ')}
+              </p>
+            ))}
             <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
@@ -413,7 +445,10 @@ export default function DocumentsPage() {
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                    <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
+                    <div style={s.muted}>
+                      {d.source === 'email' && <span data-testid="from-email-badge" style={s.badge}>From email</span>}
+                      {docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}
+                    </div>
                     {canChangeType && (
                       <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: 'var(--text)', marginTop: 4 }}>
                         <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
@@ -442,9 +477,18 @@ export default function DocumentsPage() {
                   d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (
                   <p style={s.muted}>Extracting…</p>
+                ) : emailDraftState(d) === 'reading' ? (
+                  <p style={s.muted} data-testid="email-reading">Reading the rate con from your email…</p>
                 ) : (
                   <>
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
+                    {emailDraftState(d) === 'ready' && <p data-testid="email-review" style={{ ...s.muted, margin: '0.25rem 0' }}>Draft from email. Check these details against the PDF (View), then tap Create load.</p>}
+                    {emailDraftState(d) === 'manual' && (
+                      <div data-testid="email-manual" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.25rem 0' }}>
+                        <strong>Needs manual entry.</strong> {emailReadProblem(d.extraction_error)}{' '}
+                        <Link href="/loads/new" style={{ color: 'var(--primary)', fontWeight: 600 }}>Enter load by hand</Link>
+                      </div>
+                    )}
                     {extractErr[d.id] && <p style={{ ...s.error, fontSize: '0.85rem' }}>{extractErr[d.id]}</p>}
                     <button onClick={() => (d.ai_extracted_data ? window.confirm('Re-run extraction? This overwrites the current data.') && extract(d.id, true) : extract(d.id))} style={{ background: 'none', border: 'none', color: 'var(--primary)', padding: '0.4rem 0', fontSize: '0.9rem' }}>
                       {d.ai_extracted_data ? 'Re-run extraction' : typeChanged[d.id] ? 'Read as rate con' : 'Run extraction'}

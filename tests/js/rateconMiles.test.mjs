@@ -35,7 +35,7 @@ test('parseTripMiles: printed miles → whole number; junk/implausible → null'
 });
 
 test('extract route: schema asks for total_miles, prompt ignores driving directions, value is parsed and saved', () => {
-  const src = read('../../app/api/extract/route.js');
+  const src = read('../../app/api/extract/route.js') + read('../../app/lib/rateconExtract.js');
   assert.match(src, /total_miles: \{ type: \['number', 'null'\]/);
   assert.match(src, /'weight', 'total_miles', 'notes'\]/);
   assert.match(src, /IGNORE any miles that appear only inside driving directions/);

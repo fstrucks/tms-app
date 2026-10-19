@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { noStoreFetch } from '../../lib/noStoreFetch';
 import { classifyDocText, decideDocKind } from '../../lib/docClassify';
-import { loadPdfjs } from '../../lib/packetPdfText';
+import { callRateConModel, pdfTextOf, pickModel } from '../../lib/rateconExtract';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { fillLinkedLoadWeight } from '../../lib/loadWeightFill';
 import { parseTripMiles, fillLinkedLoadMiles } from '../../lib/loadMiles';
@@ -10,10 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
-const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o'];
 const MAX_BYTES = 10 * 1024 * 1024;
-const OPENAI_TIMEOUT_MS = 50_000;
 const LIMIT_PER_HOUR = 20;
 const LIMIT_PER_DAY = 100;
 const GENERIC = 'Extraction failed, please try again.';
@@ -21,34 +18,6 @@ const GENERIC = 'Extraction failed, please try again.';
 // Only these are sent to OpenAI. Anything else gets a 415.
 const SUPPORTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const EXT_TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
-
-const str = { type: ['string', 'null'] };
-const party = { type: ['object', 'null'], additionalProperties: false, required: ['name', 'address'], properties: { name: { ...str, description: 'Facility / company name (e.g. "Acme Foods DC"), not the address' }, address: str } };
-const stop = { type: ['object', 'null'], additionalProperties: false, required: ['date', 'time', 'address'], properties: { date: str, time: str, address: str } };
-const schema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['document_kind', 'heading_text', 'broker_name', 'load_number', 'reference_numbers', 'shipper', 'receiver', 'pickup', 'delivery', 'rate', 'equipment_type', 'weight', 'total_miles', 'notes'],
-  properties: {
-    // Classification: a COI uploaded through the rate-con path must not be saved as a rate confirmation.
-    document_kind: { type: 'string', enum: ['rate_confirmation', 'coi', 'other'], description: 'coi = certificate of insurance / ACORD 25' },
-    heading_text: { ...str, description: 'The document title and main section labels, copied as printed (e.g. "CERTIFICATE OF LIABILITY INSURANCE, PRODUCER, INSURER A, CERTIFICATE HOLDER")' },
-    broker_name: str,
-    load_number: str,
-    reference_numbers: { type: ['array', 'null'], items: { type: 'string' } },
-    shipper: party,
-    receiver: party,
-    pickup: stop,
-    delivery: stop,
-    rate: { type: ['number', 'null'], description: 'Total linehaul/all-in rate in USD' },
-    equipment_type: { ...str, description: 'Trailer/equipment required, as written, e.g. "53\' Dry Van", "Reefer", "Flatbed"' },
-    // Truck tab compares scale tickets with this (PR #69 fix A). Text as printed; parsed to weight_lb below.
-    weight: { ...str, description: 'Total cargo/load weight exactly as printed, with units, e.g. "38,500 lbs"' },
-    // PR A (rate con miles): the trip distance the broker prints. Copied to an EMPTY loads.total_miles only.
-    total_miles: { type: ['number', 'null'], description: 'Total (or loaded) trip miles for the whole load as printed by the broker, e.g. "Miles (loaded) 626", "Distance 314mi", "Linehaul (1,270 mi)". null if not printed. Never from driving directions.' },
-    notes: str,
-  },
-};
 
 const json = (body, status = 200) => Response.json(body, { status });
 const fail = (status, publicMsg, ...log) => {
@@ -140,47 +109,14 @@ export async function POST(req) {
   let pdfText = '';
   if (mime === 'application/pdf') pdfText = await pdfTextOf(bytes);
   if (classifyDocText(pdfText) === 'coi') return reclassifyCoi(admin, doc, user, finish);
-  const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
-  const filePart = mime === 'application/pdf'
-    ? { type: 'input_file', filename: name, file_data: dataUrl }
-    : { type: 'input_image', image_url: dataUrl };
-  const model = ALLOWED_MODELS.includes(process.env.OPENAI_MODEL) ? process.env.OPENAI_MODEL : DEFAULT_MODEL;
-
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), OPENAI_TIMEOUT_MS);
-  let aiRes, aiBody;
-  try {
-    aiRes = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal: ac.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        max_output_tokens: 1500,
-        input: [{
-          role: 'user',
-          content: [
-            { type: 'input_text', text: 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, else "other". Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units. total_miles is the total or loaded trip distance for the whole load (pickup to final delivery) as a number, only when the document prints it as a load figure, e.g. a Miles / Loaded miles / Distance / Total miles field, or the miles on a linehaul or per-mile charge line ("626 mi x $0.40/mi", "Linehaul (1,270 mi)"). IGNORE any miles that appear only inside driving directions, route or turn-by-turn instructions, or facility/gate directions (e.g. "17.2 miles north to a 4-way stop", "exit 562 then 1.1 miles"): those are never the trip distance. Do not add segments up, do not estimate from addresses, and use null when no trip distance is printed.' },
-            filePart,
-          ],
-        }],
-        text: { format: { type: 'json_schema', name: 'rate_confirmation', strict: true, schema } },
-      }),
-    });
-    aiBody = await aiRes.json().catch(() => ({}));
-  } catch (err) {
-    await finish(err.name === 'AbortError' ? 'timeout' : 'error');
-    if (err.name === 'AbortError') return fail(504, 'Extraction timed out, please try again.', 'OpenAI timeout');
-    return fail(502, GENERIC, 'OpenAI fetch', err.message);
-  } finally {
-    clearTimeout(timer);
+  const model = pickModel(process.env.OPENAI_MODEL);
+  const ai = await callRateConModel({ apiKey, model, mime, name, bytes });
+  if (!ai.ok) {
+    await finish(ai.status);
+    if (ai.status === 'timeout') return fail(504, 'Extraction timed out, please try again.', ...ai.log);
+    return fail(502, GENERIC, ...ai.log);
   }
-  if (!aiRes.ok) { await finish('error'); return fail(502, GENERIC, 'OpenAI', aiRes.status, aiBody?.error?.message); }
-
-  const text = aiBody.output_text
-    ?? aiBody.output?.flatMap((o) => o.content || []).find((c) => c.type === 'output_text')?.text;
-  let extracted;
-  try { extracted = JSON.parse(text); } catch { await finish('error'); return fail(502, GENERIC, 'parse', aiBody?.status, aiBody?.incomplete_details); }
+  let extracted = ai.extracted;
 
   const { document_kind: aiKind, heading_text: aiText, ...loadData } = extracted || {};
   if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi') return reclassifyCoi(admin, doc, user, finish);
@@ -197,17 +133,6 @@ export async function POST(req) {
   if (lm.error) console.error('[extract] load miles', lm.error.message || lm.error);
   await finish('success');
   return json({ data: extracted, ...(doc.load_id ? { loadId: doc.load_id } : {}), ...(lw.filled ? { loadWeightFilled: lw.weight } : {}), ...(lm.filled ? { loadMilesFilled: lm.miles } : {}) });
-}
-
-// Text of the first pages of a digital PDF (empty for scans or on any error).
-async function pdfTextOf(bytes) {
-  try {
-    const lib = await loadPdfjs();
-    const pdf = await lib.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise;
-    let out = '';
-    for (let i = 1; i <= Math.min(pdf.numPages, 2); i++) out += ' ' + (await (await pdf.getPage(i)).getTextContent()).items.map((it) => it.str).join(' ');
-    return out;
-  } catch { return ''; }
 }
 
 // Save the upload as a COI (no load data) and tell the client.

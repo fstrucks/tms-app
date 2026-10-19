@@ -50,7 +50,7 @@ test('wiring: documents page type picker + only rate cons extracted; extract rou
   const doc = read('../../app/documents/page.js');
   assert.match(doc, /id="upload-type"/); assert.match(doc, /doc_type: docType/);
   assert.match(doc, /docType === 'rate_confirmation'\) extract\(/); assert.match(doc, /body\.reclassified === 'coi'/);
-  const r = read('../../app/api/extract/route.js');
+  const r = read('../../app/api/extract/route.js') + read('../../app/lib/rateconExtract.js');
   assert.match(r, /document_kind: \{ type: 'string', enum: \['rate_confirmation', 'coi', 'other'\]/);
   assert.match(r, /required: \['document_kind', 'heading_text',/);
   assert.match(r, /classifyDocText\(pdfText\) === 'coi'\) return reclassifyCoi/);

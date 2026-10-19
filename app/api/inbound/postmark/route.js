@@ -5,13 +5,14 @@ import { processPacket } from '../../../lib/packetProcess';
 import { checkBasicAuth, parseInbound, packetPath } from '../../../lib/postmarkInbound';
 import { brokerSender } from '../../../lib/packetFingerprint';
 import { savePacketLayout } from '../../../lib/packetLayouts';
+import { rateconRecipient, handleRateconEmail } from '../../../lib/rateconEmail';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 const json = (body, status = 200) => Response.json(body, { status });
 
-// Postmark inbound webhook. Basic auth vs POSTMARK_INBOUND_USER / POSTMARK_INBOUND_PASSWORD.
+// Postmark inbound webhook (packets@ and ratecon+<token>@in.fstrucks.com). Basic auth vs POSTMARK_INBOUND_USER / POSTMARK_INBOUND_PASSWORD.
 // Unmatched senders: logged, no files stored, 200 (so Postmark doesn't retry). Never logs contents.
 export async function POST(req, { deps } = {}) {
   const auth = checkBasicAuth(req.headers.get('authorization'), process.env.POSTMARK_INBOUND_USER, process.env.POSTMARK_INBOUND_PASSWORD);
@@ -22,8 +23,13 @@ export async function POST(req, { deps } = {}) {
     ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false }, global: { fetch: noStoreFetch } }) : null);
   if (!sb) { console.error('[inbound] SUPABASE_SERVICE_ROLE_KEY not set'); return json({ error: 'Storage not configured' }, 503); }
 
-  let mail;
-  try { mail = parseInbound(await req.json()); } catch (e) { return json({ error: e.message }, 400); }
+  let mail, payload;
+  try { payload = await req.json(); mail = parseInbound(payload); } catch (e) { return json({ error: e.message }, 400); }
+
+  // ratecon+<token>@in.fstrucks.com → rate con drafts (lib/rateconEmail.js). Any ratecon@ address is handled there,
+  // even with a bad token, so it never falls through to sender matching and becomes a packet.
+  const rc = rateconRecipient(payload);
+  if (rc) return handleRateconEmail({ sb, payload, mail, token: rc.token, deps: { waitUntil: deps?.waitUntil || waitUntil, ...deps?.ratecon } });
 
   const { data: dup } = await sb.from('inbound_emails').select('id').eq('provider', 'postmark').eq('message_id', mail.messageId).maybeSingle();
   if (dup) return json({ ok: true, duplicate: true });
