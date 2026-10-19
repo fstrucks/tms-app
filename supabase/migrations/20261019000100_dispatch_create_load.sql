@@ -36,7 +36,8 @@ declare
   k text;
 begin
   if v_uid is null then raise exception 'not_signed_in' using errcode = 'P0001'; end if;
-  select * into v_profile from public.company_profiles cp where cp.owner_id = p_owner;
+  select * into v_profile from public.company_profiles cp where cp.owner_id = p_owner
+   order by cp.created_at, cp.id limit 1; -- same pick as dispatch_context (0700): oldest profile if an owner ever has two
   if not found then raise exception 'not_allowed' using errcode = 'P0001'; end if;
   if v_profile.owner_id <> v_uid and not exists (
     select 1 from public.company_members m
@@ -53,9 +54,10 @@ begin
   begin
     v_rate := nullif(p->>'rate', '')::numeric; v_miles := nullif(p->>'total_miles', '')::numeric; v_weight := nullif(p->>'weight', '')::numeric;
     v_driver := nullif(p->>'assigned_driver_user_id', '')::uuid;
-    v_show := coalesce((p->>'show_rate_to_driver')::boolean, false);
   exception when others then raise exception 'bad_number' using errcode = 'P0001';
   end;
+  -- outside the bad_number handler, like dispatch_update_load (0700): a non-boolean raises Postgres' own 22P02
+  v_show := coalesce((p->>'show_rate_to_driver')::boolean, false);
   if v_rate is null or v_rate < 0 then raise exception 'bad_rate' using errcode = 'P0001'; end if;
   if v_miles is not null and v_miles <= 0 then raise exception 'bad_miles' using errcode = 'P0001'; end if;
   if v_weight is not null and v_weight <= 0 then raise exception 'bad_weight' using errcode = 'P0001'; end if;

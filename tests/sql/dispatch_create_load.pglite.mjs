@@ -51,6 +51,7 @@ const STOPS = JSON.stringify([
 ]);
 const call = (owner, load = LOAD, stops = STOPS) => `select public.dispatch_create_load('${owner}', '${load}'::jsonb, '${stops}'::jsonb) v`;
 const su = async (sql) => { await db.exec('reset role;'); return (await db.query(sql)); };
+const suExec = async (sql) => { await db.exec('reset role;'); await db.exec(sql); };
 const count = async () => (await su(`select count(*)::int n from public.loads`)).rows[0].n;
 
 // Allowed: dispatcher, management, owner
@@ -102,6 +103,16 @@ ok(/bad_stops/.test(await err(P, call(O, LOAD, JSON.stringify([{ stop_type: 'pic
 const someStop = (await su(`select id from public.stops limit 1`)).rows[0].id;
 ok(/bad_stops/.test(await err(P, call(O, LOAD, JSON.stringify([{ id: String(someStop), stop_type: 'pickup', city: 'A' }, { stop_type: 'delivery', city: 'B' }]))) || ''), 'existing stop id rejected (no stealing stops)');
 ok((await count()) === n, 'every rejected call left no load behind (rolled back)');
+// Sam's fixes: show_rate_to_driver cast outside the bad_number handler (like dispatch_update_load)
+n = await count();
+const eb = await err(P, call(O, JSON.stringify({ rate: 1, assigned_driver_user_id: D, show_rate_to_driver: 'maybe' }))) || '';
+ok(eb && !/bad_number/.test(eb) && /boolean/i.test(eb), 'non-boolean show_rate_to_driver: Postgres boolean error, not bad_number');
+ok((await count()) === n, 'bad boolean left no load behind');
+// Two company_profiles rows for one owner (impossible today: unique(owner_id)) → oldest is used, no error
+await suExec(`alter table public.company_profiles drop constraint company_profiles_owner_unique;
+  insert into public.company_profiles (id, owner_id, legal_name, created_at) values ('33333333-3333-3333-3333-333333333333','${O}','DUP FAKE Co', now() + interval '1 day');`);
+const idDup = (await as(P, call(O)))[0].v;
+ok(idDup && (await su(`select user_id from public.loads where id = '${idDup}'`)).rows[0].user_id === O, 'duplicate owner profile: dispatcher of the oldest profile still creates the load');
 // Grants
 const g = (await su(`select has_function_privilege('anon', 'public.dispatch_create_load(uuid, jsonb, jsonb)', 'execute') a,
   has_function_privilege('authenticated', 'public.dispatch_create_load(uuid, jsonb, jsonb)', 'execute') u,
