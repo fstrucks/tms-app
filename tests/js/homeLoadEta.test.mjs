@@ -6,7 +6,7 @@ import { fakeSupabase } from './fakeSupabase.mjs';
 import {
   haversineMi, roundCoord, parseOrigin, fixUsable, shouldRefresh, estimate, fmtDriveTime, fmtEta, validTz, etaTarget,
   totalRouteMiles, ageText, platformOf, googleMapsUrl, appleMapsUrl, truckerPathLink, stopAddress, postEta,
-  REFRESH_MIN_GAP_MS, PERIODIC_MS, MANUAL_FLOOR_MS, MAX_ACCURACY_M, MAX_FIX_AGE_MS, ERROR_RETRY_MS, ORIGIN_DECIMALS,
+  AGE_TICK_MS, LOCATION_POLL_MS, REFRESH_MIN_GAP_MS, PERIODIC_MS, MANUAL_FLOOR_MS, MAX_ACCURACY_M, MAX_FIX_AGE_MS, ERROR_RETRY_MS, ORIGIN_DECIMALS,
   TP_APP_STORE, TP_PLAY_STORE, ETA_LIMITS, USER_PER_DAY,
 } from '../../app/lib/loadEta.js';
 import { parseDirections, encodePolyline, LIMITS } from '../../app/lib/loadRoute.js';
@@ -304,4 +304,30 @@ test('colors: new UI uses #95 theme tokens only (no hex/rgb, no fallbacks)', () 
     assert.ok(!/var\(--[\w-]+,/.test(src), `${f}: plain var(--x), no fallbacks`);
     assert.match(src, /var\(--surface\)/); assert.match(src, /var\(--primary\)/);
   }
+});
+
+test('QA #96: "Updated N min ago" ages between server calls (30 s clock while Panel 2 is showing and visible)', () => {
+  assert.equal(AGE_TICK_MS, 30_000); assert.ok(AGE_TICK_MS < LOCATION_POLL_MS);
+  const at = T0;
+  assert.deepEqual([0, 0.5, 1, 7, 7.5, 59, 61].map((m) => ageText(at, at + m * MIN)),
+    ['Updated just now', 'Updated just now', 'Updated 1 min ago', 'Updated 7 min ago', 'Updated 7 min ago', 'Updated 59 min ago', 'Updated 1 h ago']);
+  const src = read('app/components/LoadMapPanel.js');
+  // the age clock runs on its own interval, gated only on the panel being shown (not on location permission)
+  assert.match(src, /if \(!active\) return undefined;\s*const tick = \(\) => \{ if \(document\.visibilityState === 'visible'\) setNow\(Date\.now\(\)\); \};[\s\S]*setInterval\(tick, AGE_TICK_MS\)/);
+  assert.match(src, /ageText\(fresh\.at, now\)/);
+  // a later "prompt" from the Permissions API (Safari "Ask") doesn't stop polling after a fix arrived
+  assert.match(src, /gotFix\.current \? 'granted' : 'prompt'/);
+});
+
+test('API: a driver gets 404 from /api/loads/[id]/eta (GET and POST) for a load not assigned to them; ORS never called', async () => {
+  const { uc, sb, rpcCalls } = clients({ user: DRIVER, role: 'driver', visible: false }); // visible_loads() returns nothing: not assigned
+  const ors = orsOk();
+  const deps = { mkUserClient: () => uc, sb, authRetryMs: 0, eta: { env, fetchImpl: ors.impl, cache: createEtaCache(), gate: createUserGate(), take: () => true } };
+  const g = await ETA.GET(req('GET'), { params: { id: L1 }, deps });
+  assert.equal(g.status, 404); assert.equal((await g.json()).error, 'Load not found.');
+  const p = await ETA.POST(req('POST', { lat: 34.06, lng: -117.65, accuracy_m: 30, stop_id: DEL.id }), { params: { id: L1 }, deps });
+  assert.equal(p.status, 404);
+  assert.equal(ors.calls.length, 0, 'no ORS call');
+  assert.ok(rpcCalls.filter(([f]) => f === 'visible_loads').every(([, a]) => a.p_load === L1), 'access decided by visible_loads(p_load) as the caller');
+  assert.equal(sb.calls.length, 0, 'service client never reads the load');
 });

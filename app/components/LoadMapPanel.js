@@ -13,7 +13,7 @@ import { sortedStops } from '../lib/loadTabs';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { fmtApptWindow } from '../lib/loads';
 import {
-  LOCATION_POLL_MS, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
+  LOCATION_POLL_MS, AGE_TICK_MS, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
   fmtDriveTime, fmtMilesLeft, fmtEta, etaTarget, totalRouteMiles, ageText, postEta, ETA_ERROR_TEXT, platformOf,
   stopAddress, googleMapsUrl, appleMapsUrl, truckerPathLink, TP_FALLBACK_MS,
 } from '../lib/loadEta';
@@ -63,6 +63,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   const block = useRef(null);                      // { until, noRouteAt }
   const inflight = useRef(false);
   const lastRef = useRef(null); lastRef.current = last;
+  const gotFix = useRef(false);                    // once a fix arrived, a later "prompt" from the Permissions API doesn't stop polling
   const platform = typeof navigator !== 'undefined' ? platformOf(navigator.userAgent, { maxTouchPoints: navigator.maxTouchPoints || 0 }) : 'desktop';
 
   const stops = sortedStops(load);
@@ -85,7 +86,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation || (typeof window !== 'undefined' && window.isSecureContext === false)) { setPerm('unsupported'); return undefined; }
     let st = null;
-    const upd = () => setPerm(st.state === 'granted' ? 'granted' : st.state === 'denied' ? 'denied' : 'prompt');
+    const upd = () => setPerm(st.state === 'granted' ? 'granted' : st.state === 'denied' ? 'denied' : (gotFix.current ? 'granted' : 'prompt'));
     navigator.permissions?.query?.({ name: 'geolocation' }).then((x) => { st = x; upd(); x.onchange = upd; }).catch(() => setPerm('prompt'));
     if (!navigator.permissions?.query) setPerm('prompt');
     return () => { if (st) st.onchange = null; };
@@ -94,11 +95,22 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   function readLocation() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (p) => { setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
-      (e) => { if (e?.code === 1) setPerm('denied'); else setErr((x) => x || { code: 'no_fix', at: Date.now() }); },
+      (p) => { gotFix.current = true; setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
+      (e) => { if (e?.code === 1) { gotFix.current = false; setPerm('denied'); } else setErr((x) => x || { code: 'no_fix', at: Date.now() }); },
       { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 },
     );
   }
+
+  // QA #96: the clock behind "Updated N min ago" (and the between-calls estimate and ETA) ticks every 30 s while this
+  // panel is showing and the page is visible, independent of location polling and server calls.
+  useEffect(() => {
+    if (!active) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') setNow(Date.now()); };
+    tick();
+    const t = setInterval(tick, AGE_TICK_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
+  }, [active]);
 
   // Poll once a minute, only while this panel is showing and the page is visible.
   useEffect(() => {

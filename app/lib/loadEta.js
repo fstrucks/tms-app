@@ -12,6 +12,7 @@ const fullAddress = (stop) => {
 
 // ---- refresh / caching rules (plan 2026-10-18_current-load-eta_plan.md §1) ----
 export const LOCATION_POLL_MS = 60_000;          // read location once a minute while Panel 2 is showing
+export const AGE_TICK_MS = 30_000;               // re-render "Updated N min ago" (and the estimate) while Panel 2 is showing (QA #96)
 export const REFRESH_MIN_MOVE_MI = 10;           // re-route after moving ≥ 10 mi …
 export const REFRESH_MIN_GAP_MS = 10 * 60_000;   // … and ≥ 10 min since the last route
 export const PERIODIC_MS = 20 * 60_000;          // or every 20 min while moving at all
