@@ -105,3 +105,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 @media (min-width: 1024px) { .home-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 .home-stops { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 @media (min-width: 640px) { .home-stops { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+/* Dispatch stop editor: wider cells than the New load grid so date-time inputs show the full time. */
+.dispatch-stop-grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+@media (min-width: 640px) { .dispatch-stop-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); } }

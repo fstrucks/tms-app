@@ -31,7 +31,7 @@ const s = {
 };
 
 function Field({ label, value, onChange, error, type = 'text', inputMode, placeholder, required, textarea }) {
-  const style = { ...s.input, ...(error ? { borderColor: '#b91c1c' } : null), ...(textarea ? { minHeight: 96, padding: '8px 10px', resize: 'vertical' } : null) };
+  const style = { ...s.input, ...(error ? { borderColor: '#b91c1c' } : null), ...(textarea ? { minHeight: 96, padding: '8px 10px', resize: 'vertical', fontFamily: 'inherit' } : null) };
   return (
     <label style={s.label}>
       {label}{required ? ' *' : ''}
@@ -219,7 +219,7 @@ export default function DispatchLoadPage() {
                       <button type="button" data-compact onClick={() => setStops((l) => moveStop(l, i, 1))} disabled={i === stops.length - 1} style={s.small} aria-label={`Move stop ${i + 1} down`}>↓</button>
                       <button type="button" data-compact onClick={() => setStops((l) => l.filter((y) => y.key !== x.key))} disabled={stops.length <= 2} style={{ ...s.small, color: '#b91c1c', borderColor: '#fecaca' }}>Remove</button>
                     </div>
-                    <div className="newload-grid">
+                    <div className="dispatch-stop-grid">
                       <Field label="Company" value={x.company_name} onChange={setStop(x.key, 'company_name')} />
                       <Field label="Street address" value={x.address_line1} onChange={setStop(x.key, 'address_line1')} />
                       <Field label="City" required value={x.city} onChange={setStop(x.key, 'city')} error={e.city} />
