@@ -7,7 +7,7 @@ import { pagesAddedNote } from '../../app/lib/scan.js';
 const strip = (s) => s.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
 const read = (p) => strip(readFileSync(new URL(p, import.meta.url), 'utf8'));
 const docs = read('../../app/documents/page.js');
-const route = read('../../app/api/extract/route.js');
+const route = read('../../app/api/extract/route.js') + read('../../app/lib/rateconExtract.js');
 const scanner = read('../../app/components/scanner/Scanner.js');
 
 test('pagesAddedNote: names page numbers and total', () => {

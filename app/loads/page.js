@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { LoadsList } from './LoadsData';
+import EmailDraftsBanner from '../components/EmailDraftsBanner';
 
 const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' };
 
@@ -21,6 +22,7 @@ export default function LoadsPage() {
         <Link href="/loads/new" data-testid="new-load-link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>
       </div>
       {notice && <p role="status" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
+      <EmailDraftsBanner />
       <LoadsList />
     </main>
   );

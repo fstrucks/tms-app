@@ -63,7 +63,7 @@ test('A: rate con weight text → whole pounds (numbers, commas, units, k, kg)',
 });
 
 test('A: the rate con reader asks for weight and saves weight_lb; create-load copies it to loads.weight', () => {
-  const ex = readFileSync(new URL('../../app/api/extract/route.js', import.meta.url), 'utf8');
+  const ex = readFileSync(new URL('../../app/api/extract/route.js', import.meta.url), 'utf8') + readFileSync(new URL('../../app/lib/rateconExtract.js', import.meta.url), 'utf8');
   assert.match(ex, /'equipment_type', 'weight', 'total_miles', 'notes'\]/);
   assert.match(ex, /weight: \{ \.\.\.str, description: 'Total cargo\/load weight exactly as printed/);
   assert.match(ex, /extracted = \{ \.\.\.loadData, (?:total_miles: parseTripMiles\(loadData\.total_miles\), )?weight_lb: parseWeightLb\(loadData\.weight\) \}/);
