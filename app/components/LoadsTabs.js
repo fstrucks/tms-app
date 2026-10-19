@@ -19,7 +19,8 @@ const st = {
   muted: { color: 'var(--text-muted)', fontSize: '0.9rem' },
 };
 
-export default function LoadsTabs({ loads, renderLoad }) {
+// hrefFor: where the "On the road" bar links (the dispatch center passes /dispatch/<id>).
+export default function LoadsTabs({ loads, renderLoad, hrefFor = (id) => `/loads/${id}` }) {
   // null until ?tab= is parsed on the client, so the default tab never flashes before the saved one.
   const [tab, setTab] = useState(null);
   const tabRefs = useRef({});
@@ -65,7 +66,7 @@ export default function LoadsTabs({ loads, renderLoad }) {
       </div>
       <div role="tabpanel" id="loads-tabpanel" aria-labelledby={`loads-tab-${tab}`}>
         {onRoad && (
-          <Link href={`/loads/${onRoad.id}`} style={st.bar}>
+          <Link href={hrefFor(onRoad.id)} style={st.bar}>
             <strong>On the road</strong> · {stopSummary(pickupStop(onRoad))} → {stopSummary(deliveryStop(onRoad))}
           </Link>
         )}
