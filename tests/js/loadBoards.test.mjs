@@ -105,8 +105,16 @@ test('header Loads link: owners go to /loads, management and dispatchers to /dis
   assert.equal(loadsLinkHref('owner'), '/loads');
   assert.equal(loadsLinkHref('dispatcher'), '/dispatch');
   assert.equal(loadsLinkHref('management'), '/dispatch');
-  assert.equal(loadsLinkHref(undefined), '/dispatch');
-  assert.match(_src('app/dispatch/DispatchHeaderLinks.js'), /href=\{loadsLinkHref\(role\)\}/);
+  assert.equal(loadsLinkHref(undefined), null);
+  assert.equal(loadsLinkHref(null), null);
+  assert.equal(loadsLinkHref('none'), '/dispatch');
+  const hl = _src('app/dispatch/DispatchHeaderLinks.js');
+  assert.match(hl, /const loadsHref = active === 'loads' \? '\/dispatch' : loadsLinkHref\(role\);/);
+  assert.match(hl, /aria-disabled="true"/);
+  assert.doesNotMatch(hl, /href="\/dispatch"/);
+  // Boards first render: state is { status: 'loading' } (no role), so no Loads href is sent from the server.
+  assert.match(_src('app/dispatch/boards/page.js'), /useState\(\{ status: 'loading' \}\)/);
+  assert.match(_src('app/dispatch/DispatchHeaderLinks.js'), /href=\{loadsHref\}/);
   assert.match(_src('app/dispatch/boards/page.js'), /<DispatchHeaderLinks active="boards" role=\{state\.role\} \/>/);
 });
 

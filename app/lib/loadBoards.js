@@ -12,7 +12,8 @@ export const LOAD_BOARDS = [
 ];
 export const OTHER_BOARD = 'other';
 // Header link row: owners can't use /dispatch (staff only), so Loads goes to /loads for them.
-export const loadsLinkHref = (role) => (role === 'owner' ? '/loads' : '/dispatch');
+// null until the role is known (auth is browser-only, so the first render can't know it).
+export const loadsLinkHref = (role) => (!role ? null : role === 'owner' ? '/loads' : '/dispatch');
 
 export const BOARD_PREFIX = 'Load board: ';
 
