@@ -7,7 +7,7 @@ import { ROLE_LABELS } from '../../lib/companyRoles';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
 import { existingHint } from '../../lib/testerInvites';
-import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText } from '../../lib/memberRoles';
+import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning } from '../../lib/memberRoles';
 
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
@@ -67,13 +67,25 @@ export default function InviteTesterPage() {
     load();
   }
 
+  // Save role → (driver moving away: how many loads they'd be unassigned from) → confirmation.
+  async function askRole(x) {
+    if (busy || !roleEdit) return;
+    setRoleMsg(null);
+    if (!unassignsLoads(x.role, roleEdit.role)) return setRoleEdit({ ...roleEdit, confirm: true, assigned: 0 });
+    setBusy(`preview:${x.id}`);
+    const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role_preview', user_id: x.id }) });
+    setBusy(null);
+    if (r.error && r.status === 403) return setRoleMsg({ ok: false, text: r.error });
+    setRoleEdit((e) => (e ? { ...e, confirm: true, assigned: r.error ? null : r.assigned } : e)); // null = couldn't count: generic warning
+  }
+
   async function saveRole(x) {
     if (busy || !roleEdit) return;
     setBusy(`role:${x.id}`); setRoleMsg(null);
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role', user_id: x.id, role: roleEdit.role }) });
     setBusy(null);
     if (r.error) { setRoleEdit((e) => (e ? { ...e, confirm: false } : e)); return setRoleMsg({ ok: false, text: r.error }); }
-    setRoleEdit(null); setRoleMsg({ ok: true, text: successText(x.name || x.email, r.role) });
+    setRoleEdit(null); setRoleMsg({ ok: true, text: successText(x.name || x.email, r.role, r.unassigned) });
     load();
   }
 
@@ -132,12 +144,17 @@ export default function InviteTesterPage() {
                       </select>
                       <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>{ROLE_HELP[roleEdit.role]}</p>
                       <div style={{ display: 'flex', gap: 8, marginTop: '0.6rem' }}>
-                        <button type="button" data-testid="role-save" style={{ ...s.small, background: '#2563eb', borderColor: '#2563eb', color: '#fff', opacity: roleEdit.role === x.role ? 0.5 : 1 }} disabled={!!busy || roleEdit.role === x.role} onClick={() => setRoleEdit({ ...roleEdit, confirm: true })}>Save role</button>
+                        <button type="button" data-testid="role-save" style={{ ...s.small, background: '#2563eb', borderColor: '#2563eb', color: '#fff', opacity: roleEdit.role === x.role ? 0.5 : 1 }} disabled={!!busy || roleEdit.role === x.role} onClick={() => askRole(x)}>{busy === `preview:${x.id}` ? 'Checking loads…' : 'Save role'}</button>
                         <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit(null)}>Cancel</button>
                       </div>
                     </>) : (
                       <div data-testid="role-confirm" role="alertdialog" aria-label="Confirm role change">
                         <p style={{ margin: '0 0 0.6rem', fontSize: 14 }}>{confirmText(x.name || x.email, x.role, roleEdit.role)}</p>
+                        {unassignsLoads(x.role, roleEdit.role) && (roleEdit.assigned == null || roleEdit.assigned > 0) && (
+                          <p data-testid="role-unassign-warning" style={{ margin: '0 0 0.6rem', fontSize: 14, color: '#92400e', background: '#fffbeb', borderRadius: 8, padding: '0.45rem 0.6rem' }}>
+                            {roleEdit.assigned == null ? `If ${x.name || x.email} is assigned to loads, changing their role unassigns them.` : unassignWarning(x.name || x.email, roleEdit.assigned)}
+                          </p>
+                        )}
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button type="button" data-testid="role-confirm-yes" style={{ ...s.small, background: '#2563eb', borderColor: '#2563eb', color: '#fff' }} disabled={!!busy} onClick={() => saveRole(x)}>{busy === `role:${x.id}` ? 'Saving…' : 'Yes, change role'}</button>
                           <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit({ ...roleEdit, confirm: false })}>Back</button>

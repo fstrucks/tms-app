@@ -23,7 +23,7 @@ function userC(id, rpcImpl) {
 }
 const req = (body) => new Request('https://example.test/api/account/invites', { method: 'POST', headers: { authorization: 'Bearer fake', 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const call = async (body, who, rpcImpl, sb = svc()) => { const u = userC(who, rpcImpl); const r = await POST(req(body), { deps: { sb, mkUserClient: u.mk } }); return { status: r.status, j: await r.json(), calls: u.calls }; };
-const okRpc = (fn, a) => ({ data: [{ user_id: a.p_user, old_role: 'driver', new_role: a.p_role }], error: null });
+const okRpc = (fn, a) => (fn === 'member_assigned_load_count' ? { data: 3, error: null } : { data: [{ user_id: a.p_user, old_role: 'driver', new_role: a.p_role, unassigned_loads: a.p_role === 'driver' ? 0 : 2 }], error: null });
 
 test('roles offered are exactly Driver, Dispatcher, Management (never owner)', () => {
   assert.deepEqual(EDITABLE_ROLES, ['driver', 'dispatcher', 'management']);
@@ -55,7 +55,7 @@ test('database codes map to clear messages and statuses', () => {
 test('setMemberRole calls set_member_role with the caller client and confirms the new role', async () => {
   const u = userC(OWNER, okRpc).mk();
   const r = await setMemberRole(u, DRV, 'management');
-  assert.deepEqual(r, { ok: true, previous: 'driver', role: 'management' });
+  assert.deepEqual(r, { ok: true, previous: 'driver', role: 'management', unassigned: 2 });
   assert.equal((await setMemberRole({ rpc: async () => ({ data: [], error: null }) }, DRV, 'driver')).status, 500, 'no row back = not confirmed');
   assert.equal((await setMemberRole({ rpc: async () => { throw new Error('network'); } }, DRV, 'driver')).status, 500);
 });
@@ -63,7 +63,7 @@ test('setMemberRole calls set_member_role with the caller client and confirms th
 test('route: owner changes a role; the RPC runs with the caller token client, not the service client', async () => {
   const r = await call({ action: 'role', user_id: DRV, role: 'dispatcher' }, OWNER, okRpc);
   assert.equal(r.status, 200);
-  assert.deepEqual(r.j, { ok: true, user_id: DRV, role: 'dispatcher', previous: 'driver' });
+  assert.deepEqual(r.j, { ok: true, user_id: DRV, role: 'dispatcher', previous: 'driver', unassigned: 2 });
   assert.deepEqual(r.calls, [{ fn: 'set_member_role', args: { p_user: DRV, p_role: 'dispatcher' } }]);
 });
 
@@ -99,10 +99,78 @@ test('copy: confirmation names the person and both roles; success is clear', () 
 test('page: Change role → editor → confirmation → save; success/error message; only for editable rows', () => {
   const page = readFileSync('app/account/invite/page.js', 'utf8');
   assert.match(page, /confirmCancel !== x\.id && roleEditable\(x, st\.ownerId\) && roleEdit\?\.id !== x\.id && <button type="button" data-testid="role-edit"/);
-  assert.match(page, /data-testid="role-save"[^>]*disabled=\{!!busy \|\| roleEdit\.role === x\.role\} onClick=\{\(\) => setRoleEdit\(\{ \.\.\.roleEdit, confirm: true \}\)\}/, 'Save only opens the confirmation');
+  assert.match(page, /data-testid="role-save"[^>]*disabled=\{!!busy \|\| roleEdit\.role === x\.role\} onClick=\{\(\) => askRole\(x\)\}/, 'Save only opens the confirmation (after counting loads)');
   assert.match(page, /data-testid="role-confirm-yes"[^>]*onClick=\{\(\) => saveRole\(x\)\}/, 'only the confirmation saves');
   assert.match(page, /action: 'role', user_id: x\.id, role: roleEdit\.role/);
   assert.match(page, /data-testid="role-msg" data-kind=\{roleMsg\.ok \? 'ok' : 'error'\}/);
   assert.match(page, /EDITABLE_ROLES\.map/);
   assert.doesNotMatch(page, /set_member_role|from\('company_members'\)/, 'page never writes members itself');
+});
+
+// ---------- Review fixes (Taylor): unassign on driver → other role, clear messages, strict input ----------
+import { unassignsLoads, unassignWarning, memberAssignedCount, validateMemberId, NOT_OWNER_ROLE_TEXT } from '../../app/lib/memberRoles.js';
+import { DRIVER_GONE_TEXT, saveDriverSettings } from '../../app/lib/loadDriver.js';
+import { createManualLoad } from '../../app/lib/loadNew.js';
+
+test('non-string / array user_id or role → 422 (no "[uuid]" stringifying into a valid id)', async () => {
+  for (const b of [{ user_id: [DRV], role: 'driver' }, { user_id: DRV, role: ['driver'] }, { user_id: { id: DRV }, role: 'driver' }, { user_id: 123, role: 'driver' },
+    { user_id: DRV, role: 1 }, { user_id: DRV, role: true }, [DRV, 'driver'], null, 'x']) assert.equal(validateRoleChange(b).status, 422, JSON.stringify(b));
+  assert.equal(validateMemberId({ user_id: [DRV] }).status, 422);
+  assert.deepEqual(validateMemberId({ user_id: DRV }), { userId: DRV });
+  const r = await call({ action: 'role', user_id: [DRV], role: 'dispatcher' }, OWNER, okRpc);
+  assert.equal(r.status, 422); assert.equal(r.calls.length, 0);
+  assert.equal((await call({ action: 'role', user_id: DRV, role: ['management'] }, OWNER, okRpc)).status, 422);
+  assert.equal((await call({ action: 'role_preview', user_id: [DRV] }, OWNER, okRpc)).status, 422);
+});
+
+test('non-owner trying to change a role gets role text, not the invite text', async () => {
+  for (const action of ['role', 'role_preview']) {
+    const r = await call({ action, user_id: DRV, role: 'management' }, DISP, okRpc);
+    assert.equal(r.status, 403); assert.equal(r.j.error, NOT_OWNER_ROLE_TEXT); assert.equal(r.calls.length, 0);
+  }
+  const inv = await call({ email: 'x@example.com' }, DISP, okRpc);
+  assert.match(inv.j.error, /invite/, 'the invite form keeps its own text');
+});
+
+test('confirmation: count of assigned loads, only when a driver moves away from Driver', async () => {
+  assert.equal(unassignsLoads('driver', 'dispatcher'), true); assert.equal(unassignsLoads('driver', 'management'), true);
+  assert.equal(unassignsLoads('dispatcher', 'driver'), false); assert.equal(unassignsLoads('management', 'dispatcher'), false);
+  assert.equal(unassignWarning('Pat (FAKE)', 2), 'Pat (FAKE) is assigned to 2 loads. Changing their role unassigns them.');
+  assert.equal(unassignWarning('Pat (FAKE)', 1), 'Pat (FAKE) is assigned to 1 load. Changing their role unassigns them.');
+  assert.equal(unassignWarning('Pat (FAKE)', 0), null);
+  const p = await call({ action: 'role_preview', user_id: DRV }, OWNER, okRpc);
+  assert.equal(p.status, 200); assert.deepEqual(p.j, { ok: true, user_id: DRV, assigned: 3 });
+  assert.deepEqual(p.calls, [{ fn: 'member_assigned_load_count', args: { p_user: DRV } }]);
+  assert.equal((await memberAssignedCount({ rpc: async () => ({ data: null, error: { message: 'not_member' } }) }, DRV)).status, 404);
+  assert.match(successText('Pat (FAKE)', 'dispatcher', 2), /Unassigned from 2 loads; pick a new driver on them\./);
+  assert.doesNotMatch(successText('Pat (FAKE)', 'dispatcher', 0), /Unassigned/);
+});
+
+test('assigned_driver_not_driver → one clear message everywhere it can surface', async () => {
+  assert.equal(DRIVER_GONE_TEXT, 'This load’s driver is no longer a driver. Pick a new one.');
+  const e = { message: 'assigned_driver_not_driver', code: 'P0001' };
+  assert.deepEqual(roleError(e), { error: DRIVER_GONE_TEXT, status: 409, code: 'assigned_driver_not_driver' });
+  const sd = await saveDriverSettings({ rpc: async () => ({ data: null, error: e }) }, 'L1', DRV, true);
+  assert.equal(sd.error, DRIVER_GONE_TEXT);
+  const nl = await createManualLoad({ from: () => ({ insert: () => ({ select: () => ({ single: async () => ({ data: null, error: e }) }) }) }) }, { load: {}, stops: [] });
+  assert.equal(nl.error, DRIVER_GONE_TEXT);
+  const route = await call({ action: 'role', user_id: DRV, role: 'dispatcher' }, OWNER, () => ({ data: null, error: e }));
+  assert.equal(route.status, 409); assert.equal(route.j.error, DRIVER_GONE_TEXT);
+});
+
+test('page: Save role counts loads first; the warning shows in the confirmation; success says how many were unassigned', () => {
+  const page = readFileSync('app/account/invite/page.js', 'utf8');
+  assert.match(page, /if \(!unassignsLoads\(x\.role, roleEdit\.role\)\) return setRoleEdit\(\{ \.\.\.roleEdit, confirm: true, assigned: 0 \}\);/);
+  assert.match(page, /action: 'role_preview', user_id: x\.id/);
+  assert.match(page, /data-testid="role-unassign-warning"/);
+  assert.match(page, /unassignWarning\(x\.name \|\| x\.email, roleEdit\.assigned\)/);
+  assert.match(page, /successText\(x\.name \|\| x\.email, r\.role, r\.unassigned\)/);
+});
+
+test('migration 0800: unassigns on driver → other role, returns the count, count function owner-only', () => {
+  const mig = readFileSync('supabase/migrations/20261018000800_member_role_editor.sql', 'utf8');
+  assert.match(mig, /if v_old = 'driver' and p_role <> 'driver' then\s*update public\.loads l set assigned_driver_user_id = null, show_rate_to_driver = false\s*where l\.user_id = v_profile\.owner_id and l\.assigned_driver_user_id = p_user;/);
+  assert.match(mig, /returns table \(user_id uuid, old_role text, new_role text, unassigned_loads integer\)/);
+  assert.match(mig, /revoke all on function public\.member_assigned_load_count\(uuid\) from public, anon;/);
+  assert.doesNotMatch(mig, /create policy|drop policy|alter table|grant (select|insert|update|delete)/i);
 });
