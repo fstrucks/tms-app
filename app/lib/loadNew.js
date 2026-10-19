@@ -9,6 +9,7 @@ export const EMPTY_NEW_LOAD = {
   broker_name: '', broker_load_number: '', rate: '', miles: '', commodity: '', weight: '', equipment_type: '',
   pu_company: '', pu_address: '', pu_city: '', pu_state: '', pu_zip: '', pu_appt: '',
   del_company: '', del_address: '', del_city: '', del_state: '', del_zip: '', del_appt: '',
+  pu_pickup_number: '', driver_user_id: '', show_rate_to_driver: false, // need migration 20261018000600
 };
 
 const num = (v) => {
@@ -61,6 +62,10 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
   };
   // Typed miles win over rate con and calculated miles (PR #82 order). Empty: the map card calculates them.
   if (miles !== null) { load.total_miles = miles; load.miles_source = 'typed'; }
+  // Assigned driver + "Show rate to driver" (20261018000600): only sent when set, so a blank form still saves
+  // before that migration is applied.
+  if (txt(f.driver_user_id)) load.assigned_driver_user_id = txt(f.driver_user_id);
+  if (f.show_rate_to_driver === true) load.show_rate_to_driver = true;
   const stop = (p, kind, sequence) => ({
     stop_type: kind, sequence,
     company_name: txt(f[`${p}_company`]),
@@ -71,7 +76,10 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
     appointment_start: appt(f[`${p}_appt`]),
     timezone: appt(f[`${p}_appt`]) ? timezone : null,
   });
-  return { errors, load, stops: [stop('pu', 'pickup', 1), stop('del', 'delivery', 2)] };
+  const pu = stop('pu', 'pickup', 1);
+  const puNo = txt(f.pu_pickup_number);
+  if (puNo) pu.pickup_number = puNo.slice(0, 80);
+  return { errors, load, stops: [pu, stop('del', 'delivery', 2)] };
 }
 
 // Inserts the load, then its two stops. If the stops fail, the half-made load is removed again.
@@ -83,6 +91,9 @@ export async function createManualLoad(supabase, built) {
     if (error && /miles_source/.test(error.message || '') && 'miles_source' in built.load) {
       const { miles_source, ...rest } = built.load; // eslint-disable-line no-unused-vars
       return createManualLoad(supabase, { ...built, load: rest });
+    }
+    if (error && /assigned_driver_not_driver/.test(error.message || '')) {
+      return { ok: false, error: 'That person is not a driver on your company anymore. Pick another driver.', cause: error };
     }
     return { ok: false, error: "Couldn't create the load. Please try again.", cause: error };
   }
