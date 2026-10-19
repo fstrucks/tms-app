@@ -14,7 +14,7 @@ import { fmtMoney } from '../../lib/loads';
 import { pickupStop, deliveryStop } from '../../lib/loadTabs';
 import { companyOwnerStatus } from '../../lib/accountOwner';
 import { fetchDispatchContext, fetchDispatchLoads, formToStops, blankStop, saveStops } from '../../lib/dispatch';
-import { LOAD_BOARDS, OTHER_BOARD, EMPTY_BOARD_FORM, buildBoardLoad, createBoardLoad, boardLoads } from '../../lib/loadBoards';
+import { LOAD_BOARDS, OTHER_BOARD, EMPTY_BOARD_FORM, buildBoardLoad, createBoardLoad, boardLoads, showDispatchNav } from '../../lib/loadBoards';
 import DispatchHeaderLinks from '../DispatchHeaderLinks';
 
 const s = {
@@ -99,7 +99,7 @@ export default function LoadBoardsPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0 0.25rem' }}>Load boards</h1>
-      <DispatchHeaderLinks active="boards" role={state.role} />
+      {showDispatchNav(state.role) && <DispatchHeaderLinks active="boards" role={state.role} />}
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to use the load boards.</p>

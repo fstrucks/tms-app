@@ -15,6 +15,10 @@ export const OTHER_BOARD = 'other';
 // null until the role is known (auth is browser-only, so the first render can't know it).
 export const loadsLinkHref = (role) => (!role ? null : role === 'owner' ? '/loads' : '/dispatch');
 
+// Dispatch section nav (Loads · Load boards): hidden for people who can't use dispatch (drivers / non-members land
+// on role 'none'); its Loads link would only lead to another gate. Shown while the role is still loading.
+export const showDispatchNav = (role) => role !== 'none' && role !== 'driver';
+
 export const BOARD_PREFIX = 'Load board: ';
 
 export const boardLabel = (key, other = '') => (key === OTHER_BOARD ? String(other || '').trim() : LOAD_BOARDS.find((b) => b.key === key)?.label || '');

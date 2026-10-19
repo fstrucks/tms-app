@@ -139,3 +139,12 @@ test('placeholders read as examples, and no-appointment rows say so', () => {
   assert.match(p, /placeholder="e\.g\. 1,280"/); assert.match(p, /placeholder="e\.g\. 53' dry van"/);
   assert.match(p, /'Pickup date not set'/); assert.doesNotMatch(p, /Pickup \{fmtDay/);
 });
+
+import { showDispatchNav } from '../../app/lib/loadBoards.js';
+test('dispatch section nav: hidden for drivers / non-members, unchanged for owner, management, dispatcher', () => {
+  for (const r of ['owner', 'management', 'dispatcher', undefined]) assert.equal(showDispatchNav(r), true, String(r));
+  for (const r of ['none', 'driver']) assert.equal(showDispatchNav(r), false, r);
+  const p = _src('app/dispatch/boards/page.js');
+  assert.match(p, /\{showDispatchNav\(state\.role\) && <DispatchHeaderLinks active="boards" role=\{state\.role\} \/>\}/);
+  assert.match(p, /data-testid="boards-not-member">[^\n]*<Link href="\/"[^>]*>Home<\/Link>/);
+});
