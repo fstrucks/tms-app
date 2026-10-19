@@ -1,9 +1,12 @@
 // Tester invites. Owner only (checked here, server side: the caller must own a company_profiles row).
 // GET  → { invites: [...], roles, limit }   POST { email, name?, role? } → invite   POST { action:'resend', email } → resend
 // POST { action:'cancel', email, id? } → cancel a still-pending invite from this company (see cancelRefusal).
+// POST { action:'role', user_id, role } → change a member's role (Driver/Dispatcher/Management) via public.set_member_role,
+//   called with the CALLER's token so the database re-checks owner / same company / not the owner / allowed role.
 // No domain limit on invites: outside addresses are allowed (PACKET_SEND_ALLOWED_DOMAINS is for packet emails only).
 // Uses the service-role client the app already uses (SUPABASE_SERVICE_ROLE_KEY via serviceClient) for auth.admin.
 import { serviceClient, userClient, bearer, checkUser } from '../../../lib/packetServer';
+import { validateRoleChange, setMemberRole } from '../../../lib/memberRoles';
 import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends } from '../../../lib/testerInvites';
 
 export const runtime = 'nodejs';
@@ -18,12 +21,13 @@ async function ownerCtx(req, deps = {}) {
   const token = bearer(req);
   if (!token) return { err: json({ error: 'Sign in again.' }, 401) };
   // Admin action: require Supabase Auth to vouch for the caller (no database fallback here).
-  const who = await checkUser((deps.mkUserClient || userClient)(token), token, deps.authRetryMs != null ? { retryMs: deps.authRetryMs } : {});
+  const uc = (deps.mkUserClient || userClient)(token);
+  const who = await checkUser(uc, token, deps.authRetryMs != null ? { retryMs: deps.authRetryMs } : {});
   if (who.rejected) return { err: json({ error: 'Sign in again.' }, 401) };
   if (!who.user) return { err: json({ error: 'Couldn’t check your sign-in just now. Try again.', retry: true }, 503) };
   const c = await ownerCompany(sb, who.user.id);
   if (c.error) return { err: json({ error: c.error }, c.status) };
-  return { sb, owner: who.user, profile: c.profile };
+  return { sb, uc, owner: who.user, profile: c.profile };
 }
 
 export async function GET(req, { deps } = {}) {
@@ -33,7 +37,7 @@ export async function GET(req, { deps } = {}) {
   const { data: members, error } = await c.sb.from('company_members').select('user_id, role').eq('profile_id', c.profile.id);
   if (error) return json({ error: 'Could not load your company members. Try again.' }, 500);
   return json({ invites: inviteRows(all.users, members, c.profile), roles: INVITE_ROLES, defaultRole: DEFAULT_INVITE_ROLE,
-    limit: { hourly: HOURLY_LIMIT, used: recentSends(all.users, c.owner.id, (deps?.now || Date.now)()) }, company: c.profile.legal_name || null });
+    limit: { hourly: HOURLY_LIMIT, used: recentSends(all.users, c.owner.id, (deps?.now || Date.now)()) }, company: c.profile.legal_name || null, ownerId: c.owner.id });
 }
 
 export async function POST(req, { deps } = {}) {
@@ -42,6 +46,14 @@ export async function POST(req, { deps } = {}) {
   const now = (deps?.now || Date.now)();
   const redirectTo = redirectFor(req);
   let r;
+  if (b?.action === 'role') {
+    const v = validateRoleChange(b);
+    if (v.error) return json({ error: v.error }, v.status);
+    if (v.userId === c.owner.id) return json({ error: 'The owner’s role can’t be changed here.', code: 'owner_locked' }, 409);
+    const rr = await setMemberRole(c.uc, v.userId, v.role);
+    if (rr.error) { if (rr.code === 'unknown' || rr.code === 'setup') console.error('[invites] role', rr.code); return json({ error: rr.error, code: rr.code }, rr.status); }
+    return json({ ok: true, user_id: v.userId, role: rr.role, previous: rr.previous });
+  }
   if (b?.action === 'resend') {
     const email = normalizeEmail(b.email);
     if (!email) return json({ error: 'Which invite? Missing email.' }, 422);
