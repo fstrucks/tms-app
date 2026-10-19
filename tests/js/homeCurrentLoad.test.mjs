@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   pickCurrentLoad, moreLine, upNext, eligibleBooked, layoutFor, isMultiStop, routeLabel, nextStopIndex, countdown,
   fmtDuration, pickupNumbers, pickupNumberText, PICKUP_FALLBACK, cardAudience, canShowRate, rateText,
-  fetchHomeLoads, isMissingFunction, HOME_LOAD_COLS, CARD_STATUSES,
+  fetchHomeLoads, isMissingFunction, HOME_LOAD_COLS, CARD_STATUSES, linkBaseFor,
 } from '../../app/lib/homeCurrentLoad.js';
 import { currentInTransit } from '../../app/lib/loadTabs.js';
 import { buildNewLoad, EMPTY_NEW_LOAD } from '../../app/lib/loadNew.js';
@@ -149,8 +149,9 @@ test('driver settings helpers: RPC names, error mapping, missing migration', asy
 const card = readFileSync(new URL('../../app/components/HomeCurrentLoad.js', import.meta.url), 'utf8');
 const mig = readFileSync(new URL('../../supabase/migrations/20261018000600_load_driver_rate_members.sql', import.meta.url), 'utf8');
 
-test('card source: members get no owner-only links; rate only through canShowRate; no card for members before the migration', () => {
-  assert.match(card, /\{owner && \(\s*<div[^>]*>\s*<Link href=\{`\/loads\/\$\{load\.id\}`\}/);
+test('card source: links only where the viewer can open the load; rate only through canShowRate; no card for members before the migration', () => {
+  assert.match(card, /\{base && \(\s*<div[^>]*>\s*<Link href=\{`\$\{base\}\/\$\{load\.id\}`\}/);
+  assert.match(card, /\{owner && base === '\/loads' && docPath && <button/);
   assert.match(card, /canShowRate\(load, audience\) &&/);
   assert.match(card, /who === 'member' && !res\.viaRpc \? 'hidden'/);
   assert.match(card, /if \(audience === 'hidden'\) return null;/);
@@ -168,4 +169,18 @@ test('migration: additive, own-row RLS untouched, rate masked for drivers, write
   assert.match(mig, /v_role not in \('owner', 'management', 'dispatcher'\)/);
   for (const f of ['visible_loads(text[], uuid)', 'set_load_driver_settings(uuid, uuid, boolean)', 'load_driver_choices(uuid)', 'load_viewer_role(uuid)'])
     assert.ok(mig.includes(`revoke execute on function public.${f} from public, anon;`), f);
+});
+
+test('card links: owner → /loads, management / dispatcher → /dispatch, driver → none', () => {
+  assert.equal(linkBaseFor('owner', { viewer_role: 'owner' }), '/loads');
+  assert.equal(linkBaseFor('member', { viewer_role: 'dispatcher' }), '/dispatch');
+  assert.equal(linkBaseFor('member', { viewer_role: 'management' }), '/dispatch');
+  assert.equal(linkBaseFor('member', { viewer_role: 'driver' }), null);
+});
+
+test('card source: no Pickup # chip (Pickup # only under the pickup stop); rate chip kept for Next load too', () => {
+  assert.doesNotMatch(card, /<span style=\{s\.chip\}>\{pickupNumberText/);
+  assert.match(card, /stop\.stop_type === 'pickup' && <div data-testid="home-pickup-number"/);
+  const chips = card.slice(card.indexOf('{miles && <span'), card.indexOf('data-testid="home-rate"'));
+  assert.doesNotMatch(chips, /kind === 'next'|kind !== 'next'/, 'rate chip is not limited to the current-load card');
 });

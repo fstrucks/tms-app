@@ -15,7 +15,7 @@ import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
-  nextStopIndex, countdown, pickupNumberText, cardAudience, STOP_LABEL, TONE_COLORS, TONE_BG,
+  nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
 } from '../lib/homeCurrentLoad';
 
 const s = {
@@ -89,11 +89,11 @@ function OptionB({ load, now }) {
 
 function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
   const owner = audience === 'owner';
+  const base = linkBaseFor(audience, pick.load);
   const { load, kind } = pick;
   const layout = layoutFor(load);
   const miles = load.total_miles > 0 ? `${fmtNumber(load.total_miles)} mi` : null;
   const src = miles ? milesSourceNote({ load }) : null;
-  const pu = pickupStop(load);
   const more = moreLine(pick);
   return (
     <section data-testid="home-current-load" data-kind={kind} data-layout={layout} aria-label={kind === 'next' ? 'Next load' : 'Current load'}
@@ -110,23 +110,22 @@ function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
       {layout === 'A' ? <OptionA load={load} /> : <OptionB load={load} now={now} />}
       <div style={{ marginTop: 12 }}>
         {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
-        {layout === 'A' && pu && <span style={s.chip}>{pickupNumberText(load, pu)}</span>}
         {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: 'var(--success)' }}>{rateText(load)}</span>}
       </div>
-      {/* Members can't open the owner's load page or rate con file yet (own-row RLS / private Storage). */}
-      {owner && (
+      {/* Owner: /loads + Rate con. Management / dispatchers: the dispatch center (Rate con lives there). Drivers: none. */}
+      {base && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-          <Link href={`/loads/${load.id}`} style={{ ...s.btn, ...s.btnPri }}>Open load</Link>
-          {docPath && <button type="button" onClick={onOpenRateCon} style={s.btn}>📄 Rate con</button>}
+          <Link href={`${base}/${load.id}`} style={{ ...s.btn, ...s.btnPri }}>Open load</Link>
+          {owner && base === '/loads' && docPath && <button type="button" onClick={onOpenRateCon} style={s.btn}>📄 Rate con</button>}
         </div>
       )}
-      {more && (owner ? <p style={{ margin: '0.6rem 0 0', fontSize: '0.9rem' }}><Link href="/loads?tab=active" style={s.link}>{more} →</Link></p>
+      {more && (base ? <p style={{ margin: '0.6rem 0 0', fontSize: '0.9rem' }}><Link href={`${base}?tab=active`} style={s.link}>{more} →</Link></p>
         : <p style={{ ...s.muted, margin: '0.6rem 0 0' }}>{more}</p>)}
     </section>
   );
 }
 
-function UpNext({ loads, owner }) {
+function UpNext({ loads, base, audience }) {
   return (
     <section data-testid="home-up-next" aria-label="Up next" style={s.card}>
       <div style={s.lbl}>Up next</div>
@@ -136,9 +135,10 @@ function UpNext({ loads, owner }) {
         const d = fmtApptDate(pu?.appointment_start, pu?.timezone);
         const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid var(--divider)' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
         const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{d || 'No date'}</span></>);
-        return owner ? <Link key={l.id} href={`/loads/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
+        const rowBase = linkBaseFor(audience, l); // per load: never a /loads/<id> link for a member's load
+        return rowBase ? <Link key={l.id} href={`${rowBase}/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
       })}
-      {owner && <Link href="/loads" style={s.link}>All loads →</Link>}
+      {base && <Link href={base} style={s.link}>All loads →</Link>}
     </section>
   );
 }
@@ -220,7 +220,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
         <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
         {openErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
-      <UpNext loads={upNext(loads, pick.load, now)} owner={owner} />
+      <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} audience={audience} />
     </div>
   );
 }

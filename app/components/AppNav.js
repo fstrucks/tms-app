@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AccountMenu from './ui/AccountMenu';
+import { getSupabase } from '../lib/supabase';
+import { navTabs } from '../lib/dispatchNav';
+import { syncAuthCookie } from '../lib/authCookie';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
@@ -25,6 +28,25 @@ const blue = 'var(--primary)';
 export default function AppNav() {
   const pathname = usePathname() || '/';
   const hidden = HIDDEN(pathname);
+  // Management / dispatchers: the Loads tab opens the dispatch center (their own Loads list is always empty
+  // under own-row RLS). Decided by public.dispatch_context(); before that migration nothing changes.
+  const [dispatcher, setDispatcher] = useState(false);
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb) return undefined;
+    let live = true;
+    const check = async (u) => {
+      if (!u) { if (live) setDispatcher(false); return; }
+      const { data, error } = await sb.rpc('dispatch_context');
+      if (live) setDispatcher(!error && Array.isArray(data) && data.length > 0);
+    };
+    const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
+      syncAuthCookie(session); // every event incl. TOKEN_REFRESHED; cleared on sign-out (session null)
+      if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(event)) setTimeout(() => check(session?.user || null), 0);
+    });
+    return () => { live = false; sub.subscription.unsubscribe(); };
+  }, []);
+  const tabs = navTabs(TABS, { dispatcher });
 
   // Reserve space for the bottom bar only when it's rendered.
   useEffect(() => {
@@ -50,7 +72,7 @@ export default function AppNav() {
       <header className="appnav-top" style={{ borderBottom: '1px solid var(--divider)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 40 }}>
         <nav aria-label="Main" style={{ maxWidth: 1120, margin: '0 auto', padding: '0 var(--gutter)', minHeight: 56, display: 'flex', alignItems: 'center', gap: '0.25rem', fontFamily: 'system-ui' }}>
           <Link href="/" style={{ fontWeight: 700, color: 'var(--text)', textDecoration: 'none', marginRight: '1rem', padding: '0.75rem 0', whiteSpace: 'nowrap', flexShrink: 0 }}>PowerHaul TMS</Link>
-          {TABS.slice(1).map((t) => {
+          {tabs.slice(1).map((t) => {
             const active = t.match(pathname);
             return (
               <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined}
@@ -74,7 +96,7 @@ export default function AppNav() {
       <nav className="appnav-bottom" aria-label="Main"
         style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: 'var(--surface)', borderTop: '1px solid var(--divider)',
           paddingBottom: 'env(safe-area-inset-bottom)', fontFamily: 'system-ui', boxShadow: '0 -2px 8px var(--shadow)' }}>
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const active = t.match(pathname);
           return (
             <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined} aria-label={t.short ? t.label : undefined}

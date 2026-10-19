@@ -31,3 +31,21 @@ export async function saveDriverSettings(supabase, loadId, { driverId = null, sh
 
 // Label for a driver choice. Emails only (company_members has no names yet).
 export const driverLabel = (c) => c?.email || 'Driver';
+
+// Driver card helper text: follows the checkbox as it is now, and says so when that isn't saved yet (#94 QA).
+export const RATE_ON_TEXT = 'On: the assigned driver sees the rate and rate per mile for this load.';
+export const RATE_OFF_TEXT = 'Off: the assigned driver never sees the rate or rate per mile for this load.';
+export function driverRateHelp(show, savedShow = show) {
+  const base = show ? RATE_ON_TEXT : RATE_OFF_TEXT;
+  return show === savedShow ? base : `${base} Not saved yet.`;
+}
+
+// Picker options. → { loading: true } until the driver list has arrived (no "no longer on the company" flash);
+// then the list, plus the current driver when he is no longer in it.
+export const FORMER_DRIVER_LABEL = 'Current driver (no longer on the company)';
+export function driverOptions(choices, currentId, loaded) {
+  if (!loaded) return { loading: true, options: [] };
+  const list = choices || [];
+  const options = currentId && !list.some((c) => c.user_id === currentId) ? [...list, { user_id: currentId, email: FORMER_DRIVER_LABEL }] : list;
+  return { loading: false, options };
+}
