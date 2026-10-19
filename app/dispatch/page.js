@@ -10,7 +10,7 @@ import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { pickupStop, deliveryStop } from '../lib/loadTabs';
-import { fetchDispatchContext, fetchDispatchLoads, SETUP_MSG, driverMap } from '../lib/dispatch';
+import { fetchDispatchContext, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, fetchMyRoles } from '../lib/dispatch';
 import { fetchDriverChoices } from '../lib/loadDriver';
 
 const s = {
@@ -34,7 +34,7 @@ export default function DispatchPage() {
     const ctx = await fetchDispatchContext(supabase);
     if (ctx.setup) return setState({ status: 'setup' });
     if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load the dispatch center.' }); }
-    if (!ctx.companies.length) return setState({ status: 'not-member' });
+    if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
     const company = ctx.companies[0];
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
     if (res.error || res.setup) { console.error('[dispatch] loads', res.error); return setState({ status: res.setup ? 'setup' : 'error', text: 'Couldn’t load the loads.' }); }
@@ -62,7 +62,7 @@ export default function DispatchPage() {
         : state.status === 'error' ? <LoadError message={state.text} onRetry={load} />
         : state.status === 'setup' ? <p style={s.muted}>{SETUP_MSG}</p>
         : state.status === 'not-member' ? (
-          <p style={s.muted} data-testid="dispatch-not-member">The dispatch center is for management and dispatchers. Owners manage loads on <Link href="/loads" style={s.link}>Loads</Link>.</p>
+          <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
         ) : (
           <>
             <p style={{ ...s.muted, margin: '0 0 0.9rem' }}>{state.company.company_name} · {state.company.role === 'management' ? 'Management' : 'Dispatcher'}</p>

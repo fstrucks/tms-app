@@ -16,6 +16,7 @@ import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions } from '
 import {
   STATUSES, SETUP_MSG, fetchDispatchContext, fetchDispatchLoads, loadToForm, formToPatch, stopsToForm, formToStops, blankStop, moveStop,
   saveLoad, saveStops, rateConUrl, notesMayShowPay,
+  notMemberCopy, fetchMyRoles,
 } from '../../lib/dispatch';
 
 const s = {
@@ -73,7 +74,7 @@ export default function DispatchLoadPage() {
     const ctx = await fetchDispatchContext(supabase);
     if (ctx.setup) return setState({ status: 'setup' });
     if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
-    if (!ctx.companies.length) return setState({ status: 'not-member' });
+    if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
     const res = await fetchDispatchLoads(supabase, id);
     if (res.setup) return setState({ status: 'setup' });
     if (res.error) { console.error('[dispatch] load', res.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
@@ -150,7 +151,7 @@ export default function DispatchLoadPage() {
         : state.status === 'loading' ? <Loading label="Loading load…" />
         : state.status === 'error' ? <LoadError message={state.text} onRetry={fetchLoad} />
         : state.status === 'setup' ? <p style={s.muted}>{SETUP_MSG}</p>
-        : state.status === 'not-member' ? <p style={s.muted}>The dispatch center is for management and dispatchers.</p>
+        : state.status === 'not-member' ? <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
         : state.status === 'missing' ? <p style={{ color: '#b91c1c' }}>Load not found.</p>
         : (
           <form onSubmit={save} noValidate data-testid="dispatch-load-form">

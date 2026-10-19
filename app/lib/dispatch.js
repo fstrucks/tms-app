@@ -194,3 +194,21 @@ export async function rateConUrl(supabase, loadId, fetchImpl = fetch) {
 }
 
 export const driverMap = (choices = []) => Object.fromEntries(choices.map((c) => [c.user_id, c.email]));
+
+// /dispatch for someone who isn't management / a dispatcher: say what applies to THEM. roles = the caller's own
+// company_members roles (own rows are readable under the existing RLS). → { text, href, linkText }
+export function notMemberCopy(roles = []) {
+  const r = new Set(roles || []);
+  if (r.has('owner')) return { text: 'The dispatch center is for your management and dispatchers. You manage your loads on', href: '/loads', linkText: 'Loads' };
+  if (r.has('driver')) return { text: 'Your dispatcher manages loads. Your current load is on', href: '/', linkText: 'Home' };
+  return { text: 'The dispatch center is for a company’s management and dispatchers. Ask the company owner for access, or go to', href: '/', linkText: 'Home' };
+}
+export async function fetchMyRoles(supabase) {
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess?.session?.user?.id;
+    if (!uid) return [];
+    const { data, error } = await supabase.from('company_members').select('role').eq('user_id', uid);
+    return error ? [] : (data || []).map((m) => m.role);
+  } catch { return []; }
+}

@@ -151,7 +151,7 @@ const mig = readFileSync(new URL('../../supabase/migrations/20261018000600_load_
 
 test('card source: links only where the viewer can open the load; rate only through canShowRate; no card for members before the migration', () => {
   assert.match(card, /\{base && \(\s*<div[^>]*>\s*<Link href=\{`\$\{base\}\/\$\{load\.id\}`\}/);
-  assert.match(card, /\{owner && docPath && <button/);
+  assert.match(card, /\{owner && base === '\/loads' && docPath && <button/);
   assert.match(card, /canShowRate\(load, audience\) &&/);
   assert.match(card, /who === 'member' && !res\.viaRpc \? 'hidden'/);
   assert.match(card, /if \(audience === 'hidden'\) return null;/);

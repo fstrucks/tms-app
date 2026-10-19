@@ -5,9 +5,12 @@
 //    the JWT signature and the database decides the role (same as /api/packets/<id>/file).
 //  * Only then does the service client read the document row (filtered by load_id AND the owner's user_id) and
 //    sign the URL. The storage path is never taken from the request.
+//  * Auth: the Bearer header (in-app button), else the session cookie (URL opened directly in a tab; see
+//    lib/authCookie). Both are verified the same way. Signed out → 401, driver → 403, not on the company → 404.
 import { serviceClient, userClient, bearer, isAuthRejection } from '../../../../../lib/packetServer';
 import { UUID } from '../../../../../lib/truckServer';
 import { RATECON_ROLES } from '../../../../../lib/dispatch';
+import { cookieToken } from '../../../../../lib/authCookie';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +21,7 @@ const NOT_FOUND = { error: 'Load not found.' };
 export async function GET(req, { params, deps } = {}) {
   const id = params?.id;
   if (!UUID.test(String(id || ''))) return json(NOT_FOUND, 404);
-  const token = bearer(req);
+  const token = bearer(req) || cookieToken(req);
   if (!token) return json({ error: 'Sign in first.' }, 401);
   const svc = deps?.sb || serviceClient();
   if (!svc) return json({ error: 'Rate con access isn’t set up on this server.' }, 503);

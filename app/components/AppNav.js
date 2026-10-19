@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import AccountMenu from './ui/AccountMenu';
 import { getSupabase } from '../lib/supabase';
 import { navTabs } from '../lib/dispatchNav';
+import { syncAuthCookie } from '../lib/authCookie';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
@@ -40,6 +41,7 @@ export default function AppNav() {
       if (live) setDispatcher(!error && Array.isArray(data) && data.length > 0);
     };
     const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
+      syncAuthCookie(session); // every event incl. TOKEN_REFRESHED; cleared on sign-out (session null)
       if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(event)) setTimeout(() => check(session?.user || null), 0);
     });
     return () => { live = false; sub.subscription.unsubscribe(); };

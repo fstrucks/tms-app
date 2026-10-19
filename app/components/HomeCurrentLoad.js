@@ -116,7 +116,7 @@ function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
       {base && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
           <Link href={`${base}/${load.id}`} style={{ ...s.btn, ...s.btnPri }}>Open load</Link>
-          {owner && docPath && <button type="button" onClick={onOpenRateCon} style={s.btn}>📄 Rate con</button>}
+          {owner && base === '/loads' && docPath && <button type="button" onClick={onOpenRateCon} style={s.btn}>📄 Rate con</button>}
         </div>
       )}
       {more && (base ? <p style={{ margin: '0.6rem 0 0', fontSize: '0.9rem' }}><Link href={`${base}?tab=active`} style={s.link}>{more} →</Link></p>
@@ -125,7 +125,7 @@ function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
   );
 }
 
-function UpNext({ loads, base }) {
+function UpNext({ loads, base, audience }) {
   return (
     <section data-testid="home-up-next" aria-label="Up next" style={s.card}>
       <div style={s.lbl}>Up next</div>
@@ -135,7 +135,8 @@ function UpNext({ loads, base }) {
         const d = fmtApptDate(pu?.appointment_start, pu?.timezone);
         const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid #f1f5f9' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
         const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{d || 'No date'}</span></>);
-        return base ? <Link key={l.id} href={`${base}/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
+        const rowBase = linkBaseFor(audience, l); // per load: never a /loads/<id> link for a member's load
+        return rowBase ? <Link key={l.id} href={`${rowBase}/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
       })}
       {base && <Link href={base} style={s.link}>All loads →</Link>}
     </section>
@@ -219,7 +220,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
         <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
         {openErr && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
-      <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} />
+      <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} audience={audience} />
     </div>
   );
 }

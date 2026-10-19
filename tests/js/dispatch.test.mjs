@@ -201,3 +201,72 @@ test('both Driver cards use the shared helpers; no hard-coded Off text or early 
   assert.match(owner, /setChoices\(r\.choices \|\| \[\]\); setLoaded\(true\)/);
   assert.match(page, /setDrivers\(drv\.choices \|\| \[\]\);\s*setDriversLoaded\(true\)/);
 });
+
+// ---------- Taylor's driver QA (Oct 18): cookie session on the rate con route, role-appropriate /dispatch copy ----------
+import { AUTH_COOKIE, authCookieString, cookieToken } from '../../app/lib/authCookie.js';
+import { notMemberCopy } from '../../app/lib/dispatch.js';
+import { linkBaseFor } from '../../app/lib/homeCurrentLoad.js';
+
+const cookieReq = (cookie) => new Request(`http://x/api/dispatch/loads/${LID}/ratecon`, { headers: cookie ? { cookie } : {} });
+const tokenSeen = (role) => { const seen = []; return { seen, mk: (t) => { seen.push(t); return uc(role)(); } }; };
+
+test('rate con route opened directly in a tab (cookie only): driver 403, outsider 404, manager 200, signed out 401', async () => {
+  const run = async (role, cookie) => { const u = tokenSeen(role); const r = await GET(cookieReq(cookie), { params: { id: LID }, deps: { sb: svc(), mkUserClient: u.mk } }); return { status: r.status, seen: u.seen }; };
+  const c = `other=1; ${AUTH_COOKIE}=${encodeURIComponent('cookie.jwt.tok')}; x=y`;
+  const d = await run('driver', c); assert.equal(d.status, 403); assert.deepEqual(d.seen, ['cookie.jwt.tok'], 'cookie token verified via the caller client');
+  assert.equal((await run(null, c)).status, 404);
+  assert.equal((await run('management', c)).status, 200);
+  assert.equal((await run('driver', null)).status, 401, 'signed out: no header, no cookie');
+  assert.equal((await run('driver', 'other=1')).status, 401, 'unrelated cookies only');
+  assert.equal((await run('driver', `${AUTH_COOKIE}=`)).status, 401, 'cleared cookie');
+});
+
+test('rate con route: an expired cookie token is 401; a Bearer header wins over the cookie', async () => {
+  const r = await GET(cookieReq(`${AUTH_COOKIE}=old`), { params: { id: LID }, deps: { sb: svc(), mkUserClient: uc(null, { code: 'PGRST301', message: 'JWT expired' }) } });
+  assert.equal(r.status, 401);
+  const u = tokenSeen('dispatcher');
+  const both = new Request(`http://x/api/dispatch/loads/${LID}/ratecon`, { headers: { authorization: 'Bearer hdr', cookie: `${AUTH_COOKIE}=ck` } });
+  await GET(both, { params: { id: LID }, deps: { sb: svc(), mkUserClient: u.mk } });
+  assert.deepEqual(u.seen, ['hdr']);
+});
+
+test('auth cookie: scoped to /api/dispatch, Lax, Secure on https, expires with the token, cleared on sign-out', () => {
+  const now = Date.parse('2026-10-18T22:00:00-05:00');
+  const set = authCookieString({ access_token: 'a.b.c', expires_at: now / 1000 + 600 }, { now });
+  assert.equal(set, `${AUTH_COOKIE}=a.b.c; Max-Age=600; Path=/api/dispatch; SameSite=Lax; Secure`);
+  assert.equal(authCookieString(null, { now }), `${AUTH_COOKIE}=; Max-Age=0; Path=/api/dispatch; SameSite=Lax; Secure`);
+  assert.match(authCookieString({ access_token: 'a', expires_at: now / 1000 - 5 }, { now }), /Max-Age=0/, 'expired token clears');
+  assert.doesNotMatch(authCookieString({ access_token: 'a', expires_at: now / 1000 + 60 }, { now, https: false }), /Secure/);
+  assert.equal(cookieToken(cookieReq(`${AUTH_COOKIE}=${encodeURIComponent('x.y.z')}`)), 'x.y.z');
+  const nav = read('app/components/AppNav.js');
+  assert.match(nav, /onAuthStateChange\(\(event, session\) => \{\s*syncAuthCookie\(session\);/, 'synced on every auth event (incl. refresh and sign-out)');
+  assert.match(read('app/api/dispatch/loads/[id]/ratecon/route.js'), /const token = bearer\(req\) \|\| cookieToken\(req\);/);
+});
+
+test('/dispatch copy is role-appropriate (drivers are pointed to Home, not to Loads)', () => {
+  assert.deepEqual(notMemberCopy(['driver']), { text: 'Your dispatcher manages loads. Your current load is on', href: '/', linkText: 'Home' });
+  assert.equal(notMemberCopy(['owner']).href, '/loads');
+  assert.equal(notMemberCopy(['owner', 'driver']).href, '/loads', 'owns a company: their own Loads');
+  assert.equal(notMemberCopy([]).href, '/');
+  for (const src of [list, page]) {
+    assert.doesNotMatch(src, /Owners manage loads/);
+    assert.match(src, /notMemberCopy\(await fetchMyRoles\(supabase\)\)/);
+    assert.match(src, /data-testid="dispatch-not-member">\{state\.copy\.text\} <Link href=\{state\.copy\.href\}/);
+  }
+});
+
+test('home card: no member ever gets a /loads/<id> link (per-load viewer_role decides, rows included)', () => {
+  for (const audience of ['owner', 'member']) {
+    assert.equal(linkBaseFor(audience, { viewer_role: 'driver' }), null);
+    assert.equal(linkBaseFor(audience, { viewer_role: 'dispatcher' }), '/dispatch');
+    assert.equal(linkBaseFor(audience, { viewer_role: 'management' }), '/dispatch');
+  }
+  assert.equal(linkBaseFor('member', {}), null, 'no viewer_role: members never link');
+  assert.equal(linkBaseFor('owner', {}), '/loads', 'owner fallback select');
+  const card = read('app/components/HomeCurrentLoad.js');
+  const hrefs = card.match(/href=\{`[^`]*`\}|href="[^"]*"/g) || [];
+  for (const h of hrefs) assert.ok(!/\/loads\//.test(h) || h === 'href="/loads/new"', `unexpected link ${h}`);
+  assert.match(card, /const rowBase = linkBaseFor\(audience, l\);/, 'Up next rows decide per load');
+  assert.match(card, /\{owner && \(\s*<div[^]*?href="\/loads\/new"/, '+ New load is owner-only');
+  assert.match(card, /owner && base === '\/loads' && docPath/, 'owner Rate con only on the owner’s own load');
+});

@@ -179,5 +179,11 @@ export function rateText(load) {
 
 // Where the card's load links go: the owner's /loads pages, or the dispatch center (/dispatch) for management
 // and dispatchers. Drivers get no links (read-only card).
-export const linkBaseFor = (audience, load) => (audience === 'owner' ? '/loads'
-  : ['management', 'dispatcher'].includes(load?.viewer_role) ? '/dispatch' : null);
+// The load's own viewer_role (from visible_loads) decides, so a member never gets a /loads/<id> link (that page is
+// own-row only and would 404 for them): owner → /loads, management / dispatcher → /dispatch, driver (or unknown) → none.
+// No viewer_role = the owner's own-row fallback select (before 20261018000600), so only the owner audience links.
+export function linkBaseFor(audience, load) {
+  const vr = load?.viewer_role;
+  if (vr != null) return vr === 'owner' ? '/loads' : ['management', 'dispatcher'].includes(vr) ? '/dispatch' : null;
+  return audience === 'owner' ? '/loads' : null;
+}
