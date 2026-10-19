@@ -11,6 +11,9 @@ export const LOAD_BOARDS = [
   { key: 'freightlink', label: 'Freight Link (FreightLink Solutions, unconfirmed)', url: 'https://freightlinksolutions.net' },
 ];
 export const OTHER_BOARD = 'other';
+// Header link row: owners can't use /dispatch (staff only), so Loads goes to /loads for them.
+export const loadsLinkHref = (role) => (role === 'owner' ? '/loads' : '/dispatch');
+
 export const BOARD_PREFIX = 'Load board: ';
 
 export const boardLabel = (key, other = '') => (key === OTHER_BOARD ? String(other || '').trim() : LOAD_BOARDS.find((b) => b.key === key)?.label || '');

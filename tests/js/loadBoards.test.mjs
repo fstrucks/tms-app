@@ -94,3 +94,40 @@ test('page: owner-only saving, disabled form + note for management/dispatchers, 
   assert.match(read('app/dispatch/DispatchHeaderLinks.js'), /href="\/dispatch\/boards"/);
   assert.match(read('app/dispatch/[id]/page.js'), /<StopsEditor stops=\{stops\} setStops=\{setStops\} stopErrors=\{stopErrors\} browserTz=\{browserTz\} onEdit=\{\(\) => setMsg\(null\)\} \/>/);
 });
+
+// QA #98 r1
+import { loadsLinkHref } from '../../app/lib/loadBoards.js';
+import { addStop, blankStop as _blank } from '../../app/lib/dispatch.js';
+import { readFileSync as _rf } from 'node:fs';
+const _src = (p) => _rf(new URL(`../../${p}`, import.meta.url), 'utf8');
+
+test('header Loads link: owners go to /loads, management and dispatchers to /dispatch', () => {
+  assert.equal(loadsLinkHref('owner'), '/loads');
+  assert.equal(loadsLinkHref('dispatcher'), '/dispatch');
+  assert.equal(loadsLinkHref('management'), '/dispatch');
+  assert.equal(loadsLinkHref(undefined), '/dispatch');
+  assert.match(_src('app/dispatch/DispatchHeaderLinks.js'), /href=\{loadsLinkHref\(role\)\}/);
+  assert.match(_src('app/dispatch/boards/page.js'), /<DispatchHeaderLinks active="boards" role=\{state\.role\} \/>/);
+});
+
+test('addStop: pickup goes before the first delivery, delivery appends', () => {
+  const types = (l) => l.map((x) => x.stop_type).join(',');
+  const base = [_blank('pickup'), _blank('delivery'), _blank('delivery')];
+  assert.equal(types(addStop(base, 'pickup')), 'pickup,pickup,delivery,delivery');
+  assert.equal(types(addStop(base, 'delivery')), 'pickup,delivery,delivery,delivery');
+  assert.equal(types(addStop([_blank('pickup')], 'pickup')), 'pickup,pickup');
+  assert.equal(types(addStop([], 'pickup')), 'pickup');
+  assert.equal(types(addStop([_blank('delivery')], 'pickup')), 'pickup,delivery');
+  const mixed = [_blank('pickup'), _blank('delivery'), _blank('pickup')]; // user-reordered: still before the first delivery
+  assert.equal(addStop(mixed, 'pickup', 'America/Chicago')[1].timezone, 'America/Chicago');
+  assert.equal(base.length, 3); // no mutation
+  const ed = _src('app/components/StopsEditor.js');
+  assert.match(ed, /addStop\(l, 'pickup'/); assert.match(ed, /addStop\(l, 'delivery'/);
+});
+
+test('placeholders read as examples, and no-appointment rows say so', () => {
+  assert.match(_src('app/components/StopsEditor.js'), /placeholder="e\.g\. CA"/);
+  const p = _src('app/dispatch/boards/page.js');
+  assert.match(p, /placeholder="e\.g\. 1,280"/); assert.match(p, /placeholder="e\.g\. 53' dry van"/);
+  assert.match(p, /'Pickup date not set'/); assert.doesNotMatch(p, /Pickup \{fmtDay/);
+});

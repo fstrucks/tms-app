@@ -133,6 +133,15 @@ export function stopsToForm(stops = []) {
 }
 export const blankStop = (stop_type = 'delivery', timezone = '') => ({ key: newKey(), id: null, stop_type, company_name: '', address_line1: '', city: '', state: '', zip: '', timezone, appointment_start: '', appointment_end: '', pickup_number: '', notes: '' });
 
+// + Add pickup goes before the first delivery (pickups first); + Add delivery appends. No delivery yet → append.
+export function addStop(list, stop_type, timezone = '') {
+  const row = blankStop(stop_type, timezone);
+  const l = list || [];
+  if (stop_type !== 'pickup') return [...l, row];
+  const i = l.findIndex((x) => x.stop_type === 'delivery');
+  return i < 0 ? [...l, row] : [...l.slice(0, i), row, ...l.slice(i)];
+}
+
 export function moveStop(list, i, dir) {
   const j = i + dir;
   if (j < 0 || j >= list.length) return list;

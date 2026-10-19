@@ -99,7 +99,7 @@ export default function LoadBoardsPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0 0.25rem' }}>Load boards</h1>
-      <DispatchHeaderLinks active="boards" />
+      <DispatchHeaderLinks active="boards" role={state.role} />
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to use the load boards.</p>
@@ -135,11 +135,11 @@ export default function LoadBoardsPage() {
                     {form.board === OTHER_BOARD && <Field label="Board name" required value={form.board_other} onChange={set('board_other')} error={errors.board_other} />}
                     <Field label="Broker" required value={form.broker_name} onChange={set('broker_name')} error={errors.broker_name} />
                     <Field label="Broker load #" value={form.broker_load_number} onChange={set('broker_load_number')} />
-                    <Field label="Rate" required inputMode="decimal" placeholder="1,280" value={form.rate} onChange={set('rate')} error={errors.rate} />
+                    <Field label="Rate" required inputMode="decimal" placeholder="e.g. 1,280" value={form.rate} onChange={set('rate')} error={errors.rate} />
                     <Field label="Miles" inputMode="numeric" value={form.miles} onChange={set('miles')} error={errors.miles} />
                     <Field label="Commodity" value={form.commodity} onChange={set('commodity')} />
                     <Field label="Weight (lb)" inputMode="numeric" value={form.weight} onChange={set('weight')} error={errors.weight} />
-                    <Field label="Equipment" placeholder="53' dry van" value={form.equipment_type} onChange={set('equipment_type')} />
+                    <Field label="Equipment" placeholder="e.g. 53' dry van" value={form.equipment_type} onChange={set('equipment_type')} />
                   </div>
                   <div style={{ marginTop: '0.6rem' }}><Field label="Notes" textarea value={form.notes} onChange={set('notes')} error={errors.notes} /></div>
                 </fieldset>
@@ -161,7 +161,7 @@ export default function LoadBoardsPage() {
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place(pu)} → {place(del)}</span>
                       {state.role === 'owner' && l.rate != null && <span style={{ whiteSpace: 'nowrap' }}>{fmtMoney(l.rate)}</span>}
                     </div>
-                    <div style={s.muted}>{l.board} · {l.broker_name || 'Broker'} · Pickup {fmtDay(pu?.appointment_start)}</div>
+                    <div style={s.muted}>{l.board} · {l.broker_name || 'Broker'} · {pu?.appointment_start ? `Pickup ${fmtDay(pu.appointment_start)}` : 'Pickup date not set'}</div>
                   </Link>
                 );
               })}

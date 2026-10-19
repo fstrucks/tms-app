@@ -25,14 +25,19 @@ const TEXT = [ // 4.5:1
   ['success', 'surface'], ['success', 'success-bg'], ['warning', 'surface'], ['warning', 'warning-bg'], ['danger', 'surface'], ['danger', 'danger-bg'],
   ['text', 'info-bg'], ['primary', 'info-bg'], ['paper-text', 'paper'],
 ];
+const PLACEHOLDER = [['placeholder', 'surface'], ['placeholder', 'bg']]; // inputs are --surface; aim 4.5:1
 const UI = [['border', 'bg'], ['border', 'surface'], ['focus', 'bg'], ['focus', 'surface'], ['primary', 'surface-2']]; // 3:1
-const NAMES = ['bg', 'surface', 'surface-2', 'text', 'text-muted', 'border', 'divider', 'primary', 'on-primary', 'primary-soft', 'success', 'success-bg',
+const NAMES = ['bg', 'surface', 'surface-2', 'text', 'text-muted', 'placeholder', 'border', 'divider', 'primary', 'on-primary', 'primary-soft', 'success', 'success-bg',
   'warning', 'warning-bg', 'warning-border', 'danger', 'danger-bg', 'danger-border', 'info-bg', 'focus', 'focus-ring', 'overlay', 'shadow', 'paper', 'paper-line', 'paper-text'];
 
 for (const [name, t] of Object.entries(THEMES)) {
   test(`${name}: every token is defined`, () => { for (const n of NAMES) assert.ok(t[n], `--${n}`); });
   test(`${name}: text pairs meet WCAG AA 4.5:1`, () => {
     for (const [fg, bg] of TEXT) { const r = ratio(t[fg], t[bg]); assert.ok(r >= 4.5, `--${fg} on --${bg} = ${r.toFixed(2)}`); }
+  });
+  test(`${name}: --placeholder is readable (4.5:1) and lighter than --text-muted`, () => {
+    for (const [fg, bg] of PLACEHOLDER) { const r = ratio(t[fg], t[bg]); assert.ok(r >= 4.5, `--${fg} on --${bg} = ${r.toFixed(2)}`); }
+    assert.ok(ratio(t.placeholder, t.surface) < ratio(t['text-muted'], t.surface), 'placeholder should be less prominent than muted text');
   });
   test(`${name}: UI/border pairs meet 3:1`, () => {
     for (const [fg, bg] of UI) { const r = ratio(t[fg], t[bg]); assert.ok(r >= 3, `--${fg} vs --${bg} = ${r.toFixed(2)}`); }
@@ -167,4 +172,20 @@ test('solid buttons: on-success/success-solid, on-primary/primary, on-danger/dan
   }
   // No solid success fill left on the old text-color token.
   assert.equal(execSync("grep -rn \"background: 'var(--success)'\" app || true", { encoding: 'utf8' }).trim(), '');
+});
+
+test('::placeholder uses --placeholder globally', () => {
+  assert.match(css, /input::placeholder, textarea::placeholder \{ color: var\(--placeholder\); opacity: 1; \}/);
+  assert.match(css, /:root:not\(\[data-theme\]\) \{[^}]*--placeholder: #8a94a6/);
+});
+
+test('setTheme notifies every menu instance (THEME_EVENT) after saving', () => {
+  const store = {}; const events = [];
+  const win = { localStorage: { setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; }, getItem: (k) => store[k] ?? null },
+    CustomEvent: class { constructor(type, o) { this.type = type; this.detail = o.detail; } },
+    dispatchEvent: (e) => events.push([e.type, e.detail, store[THEME_KEY] ?? null]), __phApplyTheme() {} };
+  setTheme('dark', win); setTheme('auto', win);
+  assert.deepEqual(events, [['powerhaul:theme', 'dark', 'dark'], ['powerhaul:theme', 'auto', null]]);
+  const menu = readFileSync(new URL('../../app/components/ui/AccountMenu.js', import.meta.url), 'utf8');
+  assert.match(menu, /addEventListener\(THEME_EVENT, sync\)/); assert.match(menu, /addEventListener\('storage', onStorage\)/);
 });

@@ -3,7 +3,7 @@
 // /dispatch/boards (save a load from a board). State shape and validation live in app/lib/dispatch.js
 // (stopsToForm / formToStops / blankStop / moveStop); saves go through public.dispatch_save_stops (2–20 stops,
 // at least one pickup and one delivery).
-import { blankStop, moveStop } from '../lib/dispatch';
+import { addStop, moveStop } from '../lib/dispatch';
 
 export const STOP_STYLES = {
   card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
@@ -52,7 +52,7 @@ export default function StopsEditor({ stops, setStops, stopErrors = {}, browserT
                 <Field label="Company" value={x.company_name} onChange={setStop(x.key, 'company_name')} />
                 <Field label="Street address" value={x.address_line1} onChange={setStop(x.key, 'address_line1')} />
                 <Field label="City" required value={x.city} onChange={setStop(x.key, 'city')} error={e.city} />
-                <Field label="State" placeholder="CA" value={x.state} onChange={setStop(x.key, 'state')} error={e.state} />
+                <Field label="State" placeholder="e.g. CA" value={x.state} onChange={setStop(x.key, 'state')} error={e.state} />
                 <Field label="ZIP" inputMode="numeric" value={x.zip} onChange={setStop(x.key, 'zip')} error={e.zip} />
                 <Field label="Appointment from" type="datetime-local" value={x.appointment_start} onChange={setStop(x.key, 'appointment_start')} error={e.appointment_start} />
                 <Field label="Appointment to" type="datetime-local" value={x.appointment_end} onChange={setStop(x.key, 'appointment_end')} error={e.appointment_end} />
@@ -64,8 +64,8 @@ export default function StopsEditor({ stops, setStops, stopErrors = {}, browserT
           );
         })}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => setStops((l) => [...l, blankStop('pickup', browserTz || '')])} style={{ ...s.small, minHeight: 44 }}>+ Add pickup</button>
-          <button type="button" onClick={() => setStops((l) => [...l, blankStop('delivery', browserTz || '')])} style={{ ...s.small, minHeight: 44 }}>+ Add delivery</button>
+          <button type="button" onClick={() => setStops((l) => addStop(l, 'pickup', browserTz || ''))} style={{ ...s.small, minHeight: 44 }}>+ Add pickup</button>
+          <button type="button" onClick={() => setStops((l) => addStop(l, 'delivery', browserTz || ''))} style={{ ...s.small, minHeight: 44 }}>+ Add delivery</button>
         </div>
       </fieldset>
     </div>
