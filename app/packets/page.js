@@ -10,13 +10,13 @@ import { formatListTime } from '../lib/packetDate';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem 1rem', marginBottom: '0.75rem' },
-  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation' },
-  muted: { color: '#6b7280', fontSize: 14, margin: '0.25rem 0 0' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem 1rem', marginBottom: '0.75rem' },
+  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid var(--primary)', color: 'var(--primary)', background: 'var(--info-bg)', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation' },
+  muted: { color: 'var(--text-muted)', fontSize: 14, margin: '0.25rem 0 0' },
   chip: statusChipStyle,
-  tab: (on) => ({ minHeight: 40, padding: '0 0.8rem', borderRadius: 999, border: `1px solid ${on ? '#2563eb' : '#d1d5db'}`, background: on ? '#2563eb' : '#fff', color: on ? '#fff' : '#111827', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', touchAction: 'manipulation' }),
-  act: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, touchAction: 'manipulation' },
-  hint: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '0.4rem 0.6rem', fontSize: 14, margin: '0.5rem 0 0' },
+  tab: (on) => ({ minHeight: 40, padding: '0 0.8rem', borderRadius: 999, border: `1px solid ${on ? 'var(--primary)' : 'var(--border)'}`, background: on ? 'var(--primary)' : 'var(--surface)', color: on ? 'var(--on-primary)' : 'var(--text)', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', touchAction: 'manipulation' }),
+  act: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14, touchAction: 'manipulation' },
+  hint: { background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 8, padding: '0.4rem 0.6rem', fontSize: 14, margin: '0.5rem 0 0' },
 };
 const FILE_ID = 'packet-upload-file';
 const packetApi = makeApi(() => getSupabase()?.auth);
@@ -125,7 +125,7 @@ export default function PacketsPage() {
   }
 
   if (st.loading) return <main style={s.main}><h1 style={{ marginBottom: '0.25rem' }}>Carrier packets</h1><p style={s.muted}>Loading packets…</p></main>;
-  if (st.error) return <main style={s.main}><h1>Carrier packets</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/packets">Sign in</a>}</main>;
+  if (st.error) return <main style={s.main}><h1>Carrier packets</h1><p role="alert" style={{ color: 'var(--danger)' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/packets">Sign in</a>}</main>;
   const counts = { ...filterCounts(st.rows), archived: archived ? archived.length : st.archivedCount };
   const shown = filter === 'archived' ? (archived || []) : filterPackets(st.rows, filter);
   return (
@@ -142,7 +142,7 @@ export default function PacketsPage() {
         {PACKET_FILTERS.map((f) => <button key={f.id} role="tab" aria-selected={filter === f.id} style={s.tab(filter === f.id)} onClick={() => setFilter(f.id)}>{f.label}{counts[f.id] != null ? ` (${counts[f.id]})` : ''}</button>)}
       </div>
       {st.stale && <p style={{ ...s.muted, margin: '0 0 0.5rem' }} aria-live="polite">Updating…</p>}
-      {st.refreshError && <p role="alert" style={{ color: '#b91c1c', fontSize: 14, margin: '0 0 0.5rem' }}>Couldn’t refresh: {st.refreshError}</p>}
+      {st.refreshError && <p role="alert" style={{ color: 'var(--danger)', fontSize: 14, margin: '0 0 0.5rem' }}>Couldn’t refresh: {st.refreshError}</p>}
       {filter === 'archived' && !archived ? <p style={s.muted}>Loading archived packets…</p>
         : shown.length === 0 ? <p style={s.muted}>{st.rows.length === 0 && filter === 'all' ? 'No packets yet.' : filter === 'archived' ? 'No archived packets.' : 'No packets here.'}</p>
         : shown.map((r) => (
@@ -159,7 +159,7 @@ export default function PacketsPage() {
               {r.display === 'archived'
                 ? <button style={s.act} disabled={rowBusy === r.id} onClick={() => setArchivedFlag(r, false)}>Unarchive</button>
                 : !isPendingStatus(r.status) && <button style={s.act} disabled={rowBusy === r.id} onClick={() => setArchivedFlag(r, true)}>Archive</button>}
-              <button style={{ ...s.act, color: '#b91c1c', borderColor: '#fca5a5' }} disabled={rowBusy === r.id} onClick={() => del(r)}>Delete</button>
+              <button style={{ ...s.act, color: 'var(--danger)', borderColor: 'var(--danger-border)' }} disabled={rowBusy === r.id} onClick={() => del(r)}>Delete</button>
             </div>}
           </div>
         ))}

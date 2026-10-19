@@ -7,11 +7,11 @@ import dynamic from 'next/dynamic';
 import { fmtMiles } from '../lib/mileage';
 import { callMap, cardPhase } from '../lib/mapClient';
 
-const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: '#f1f5f9' }} /> });
+const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: 'var(--divider)' }} /> });
 
 const MAX_STEPS = 8; // matches loadRouteServer.MAX_STEPS
-const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.5rem', marginBottom: '0.75rem' };
-const muted = { color: '#6b7280', fontSize: '0.85rem' };
+const card = { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.5rem', marginBottom: '0.75rem' };
+const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 
 export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0, onLoadChange, onRouteFilled }) {
   const [st, setSt] = useState({ state: 'loading' });
@@ -60,7 +60,7 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0,
   return (
     <div style={card} data-testid="load-route-card">
       {pinned.length > 0 ? <RouteMap stops={st.stops} geometry={st.geometry} />
-        : <div style={{ height: 120, borderRadius: 10, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', ...muted }}>{st.computing ? 'Finding the route…' : 'No map yet'}</div>}
+        : <div style={{ height: 120, borderRadius: 10, background: 'var(--divider)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...muted }}>{st.computing ? 'Finding the route…' : 'No map yet'}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '0.4rem 0.25rem 0' }}>
         <span style={{ fontSize: '0.9rem' }}>
           {st.computing ? <span style={muted}>Finding the truck route…</span>
@@ -68,7 +68,7 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0,
         </span>
         {cityOnly && <span style={muted} data-testid="route-approx">Some pins are approximate (street not found; city or ZIP used)</span>}
       </div>
-      {!st.computing && st.message && <p role="status" data-testid="route-message" style={{ color: '#92400e', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
+      {!st.computing && st.message && <p role="status" data-testid="route-message" style={{ color: 'var(--warning)', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
     </div>
   );
 }

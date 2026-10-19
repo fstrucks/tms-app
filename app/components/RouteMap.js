@@ -64,5 +64,5 @@ export default function RouteMap({ stops, geometry }) {
     return () => { if (raf != null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf); ro?.disconnect(); m.remove(); map.current = null; };
   }, [JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div ref={el} data-testid="route-map" role="img" aria-label="Map of pickup and delivery with the truck route"
-    style={{ width: '100%', height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, overflow: 'hidden', background: '#e5e7eb', zIndex: 0, position: 'relative' }} />;
+    style={{ width: '100%', height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)', zIndex: 0, position: 'relative' }} />;
 }

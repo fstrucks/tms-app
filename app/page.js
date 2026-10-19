@@ -8,9 +8,9 @@ import HomeCurrentLoad from './components/HomeCurrentLoad';
 const s = {
   main: { padding: '1.25rem var(--gutter)', fontFamily: 'system-ui', margin: '0 auto' },
   narrow: { maxWidth: 480 },
-  link: { display: 'block', padding: '0.85rem 1rem', border: '1px solid #e5e7eb', borderRadius: 12, marginBottom: '0.6rem', color: '#2563eb', textDecoration: 'none', fontSize: '1.05rem' },
-  muted: { color: '#6b7280', fontSize: '0.9rem' },
-  error: { color: '#b91c1c' },
+  link: { display: 'block', padding: '0.85rem 1rem', border: '1px solid var(--divider)', borderRadius: 12, marginBottom: '0.6rem', color: 'var(--primary)', textDecoration: 'none', fontSize: '1.05rem' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.9rem' },
+  error: { color: 'var(--danger)' },
 };
 
 export default function Home() {

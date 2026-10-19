@@ -13,13 +13,13 @@ import { checkVaultUpload, deleteCurrentPrompt, VAULT_TYPES, INSURANCE_CHANGED_E
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const URL_ = '/api/company/documents';
-const COLORS = { ok: { bg: '#dcfce7', fg: '#166534', icon: '✓' }, warn: { bg: '#fef3c7', fg: '#92400e', icon: '⚠' }, bad: { bg: '#fee2e2', fg: '#b91c1c', icon: '✕' } };
+const COLORS = { ok: { bg: 'var(--success-bg)', fg: 'var(--success)', icon: '✓' }, warn: { bg: 'var(--warning-bg)', fg: 'var(--warning)', icon: '⚠' }, bad: { bg: 'var(--danger-bg)', fg: 'var(--danger)', icon: '✕' } };
 const s = {
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
-  row: { border: '1px solid #e5e7eb', borderRadius: 10, padding: '0.75rem', marginTop: '0.75rem' },
-  muted: { color: '#6b7280', fontSize: 14 },
-  btn: { minHeight: 44, padding: '0 0.9rem', fontSize: 15, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer' },
-  err: { color: '#b91c1c', fontSize: 14, margin: '0.4rem 0 0' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
+  row: { border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.75rem' },
+  muted: { color: 'var(--text-muted)', fontSize: 14 },
+  btn: { minHeight: 44, padding: '0 0.9rem', fontSize: 15, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer' },
+  err: { color: 'var(--danger)', fontSize: 14, margin: '0.4rem 0 0' },
 };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 const guessType = (f) => (f?.type || (/\.pdf$/i.test(f?.name || '') ? 'application/pdf' : /\.png$/i.test(f?.name || '') ? 'image/png' : /\.jpe?g$/i.test(f?.name || '') ? 'image/jpeg' : '')).toLowerCase();
@@ -106,8 +106,8 @@ export default function CompanyDocuments() {
             ) : (
               <>
                 {r.current && <p style={{ ...s.muted, margin: '0.4rem 0 0', wordBreak: 'break-word' }}>{r.current.original_filename} · uploaded {fmtDate(r.current.created_at)} · {r.status.expiryText}</p>}
-                {r.status.note && <p style={{ fontSize: 14, color: r.status.level === 'bad' ? '#b91c1c' : '#92400e', margin: '0.35rem 0 0' }}>{r.status.note} <a href="#company-insurance" style={{ color: '#2563eb' }}>Go to Insurance ↓</a></p>}
-                {r.type === 'coi' && !r.status.note && r.current && r.status.expiryText === 'Expiry not entered' && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>Enter the policy dates in <a href="#company-insurance" style={{ color: '#2563eb' }}>Insurance ↓</a> to track the expiry.</p>}
+                {r.status.note && <p style={{ fontSize: 14, color: r.status.level === 'bad' ? 'var(--danger)' : 'var(--warning)', margin: '0.35rem 0 0' }}>{r.status.note} <a href="#company-insurance" style={{ color: 'var(--primary)' }}>Go to Insurance ↓</a></p>}
+                {r.type === 'coi' && !r.status.note && r.current && r.status.expiryText === 'Expiry not entered' && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>Enter the policy dates in <a href="#company-insurance" style={{ color: 'var(--primary)' }}>Insurance ↓</a> to track the expiry.</p>}
                 {r.status.hint && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{r.status.hint}</p>}
                 <div className="vault-actions" data-testid="vault-actions">
                   {r.current && <button type="button" className="vault-btn" style={s.btn} onClick={() => view(r.current.id)} data-testid="vault-view">View</button>}
@@ -123,11 +123,11 @@ export default function CompanyDocuments() {
                 </div>
                 {r.earlier?.length > 0 && (
                   <div style={{ marginTop: '0.5rem' }}>
-                    <button type="button" style={{ ...s.btn, border: 'none', padding: 0, color: '#2563eb', background: 'none' }} aria-expanded={!!open[r.type]} onClick={() => setOpen((o) => ({ ...o, [r.type]: !o[r.type] }))}>
+                    <button type="button" style={{ ...s.btn, border: 'none', padding: 0, color: 'var(--primary)', background: 'none' }} aria-expanded={!!open[r.type]} onClick={() => setOpen((o) => ({ ...o, [r.type]: !o[r.type] }))}>
                       {open[r.type] ? '▾' : '▸'} Earlier versions ({r.earlier.length})
                     </button>
                     {open[r.type] && r.earlier.map((d) => (
-                      <div key={d.id} data-confirm-row style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '0.4rem 0', borderTop: '1px solid #f1f5f9' }}>
+                      <div key={d.id} data-confirm-row style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '0.4rem 0', borderTop: '1px solid var(--divider)' }}>
                         <span style={{ ...s.muted, wordBreak: 'break-word' }}>{d.original_filename} · {fmtDate(d.created_at)}</span>
                         <span style={{ display: 'flex', gap: 8 }}>
                           <button type="button" style={s.btn} onClick={() => view(d.id)}>View</button>
@@ -148,7 +148,7 @@ export default function CompanyDocuments() {
         <Scanner initialFiles={scan.files} loads={[]} typeIds={[scan.type]} onClose={() => setScan(null)}
           onSave={async (sc) => { const type = scan.type; setScan(null); await upload(type, sc.file); return null; }} />
       )}
-      {BUILD && <p data-testid="build-tag" style={{ color: '#9ca3af', fontSize: 12, margin: '0.75rem 0 0' }}>Preview build {BUILD}. If this doesn’t match the PR head, reload the page.</p>}
+      {BUILD && <p data-testid="build-tag" style={{ color: 'var(--text-muted)', fontSize: 12, margin: '0.75rem 0 0' }}>Preview build {BUILD}. If this doesn’t match the PR head, reload the page.</p>}
     </section>
   );
 }

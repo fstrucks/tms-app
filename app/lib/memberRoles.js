@@ -8,7 +8,7 @@ import { DRIVER_GONE_TEXT } from './loadDriver.js';
 export const EDITABLE_ROLES = ['driver', 'dispatcher', 'management']; // never 'owner'
 export const ROLE_HELP = {
   driver: 'Driver: view and upload.',
-  dispatcher: 'Dispatcher: can also edit packets and the company profile.',
+  dispatcher: 'Dispatcher: can manage loads, stops and drivers in Dispatch, plus packets and the company profile.',
   management: 'Management: same as Dispatcher, plus the W-9, MC Authority and NOA in Company Documents.',
 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

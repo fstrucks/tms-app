@@ -12,14 +12,14 @@ import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unas
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   label: { display: 'block', margin: '0.75rem 0 0.35rem', fontWeight: 600 },
-  input: { width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0 0.75rem', fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db' },
-  btn: { width: '100%', minHeight: 48, fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.9rem', cursor: 'pointer', fontWeight: 600 },
-  small: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, cursor: 'pointer' },
-  muted: { color: '#6b7280', fontSize: 14 },
+  input: { width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0 0.75rem', fontSize: 16, borderRadius: 8, border: '1px solid var(--border)' },
+  btn: { width: '100%', minHeight: 48, fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.9rem', cursor: 'pointer', fontWeight: 600 },
+  small: { minHeight: 40, padding: '0 0.8rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14, cursor: 'pointer' },
+  muted: { color: 'var(--text-muted)', fontSize: 14 },
 };
-const badge = (st) => ({ display: 'inline-block', padding: '0.1rem 0.55rem', borderRadius: 999, fontSize: 13, fontWeight: 600, background: st === 'pending' ? '#fef3c7' : '#dcfce7', color: st === 'pending' ? '#92400e' : '#166534' });
+const badge = (st) => ({ display: 'inline-block', padding: '0.1rem 0.55rem', borderRadius: 999, fontSize: 13, fontWeight: 600, background: st === 'pending' ? 'var(--warning-bg)' : 'var(--success-bg)', color: st === 'pending' ? 'var(--warning)' : 'var(--success)' });
 
 export default function InviteTesterPage() {
   const [st, setSt] = useState({ loading: true });
@@ -90,7 +90,7 @@ export default function InviteTesterPage() {
   }
 
   if (st.loading) return <main style={s.main}><p>Loading…</p></main>;
-  if (st.error) return <main style={s.main}><h1>Invite a tester</h1><p role="alert" style={{ color: '#b91c1c' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/account/invite">Sign in</a>}</main>;
+  if (st.error) return <main style={s.main}><h1>Invite a tester</h1><p role="alert" style={{ color: 'var(--danger)' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/account/invite">Sign in</a>}</main>;
   const list = st.invites || [];
   const hint = existingHint(list, f.email);
   return (
@@ -100,7 +100,7 @@ export default function InviteTesterPage() {
       <form method="post" action={fallbackAction('/account/invite')} onSubmit={send} noValidate data-auth-form="invite" style={s.card} data-testid="invite-form">
         <label htmlFor="inv-email" style={{ ...s.label, marginTop: 0 }}>Email</label>
         <input id="inv-email" style={s.input} type="email" inputMode="email" autoComplete="off" required value={f.email} onChange={(e) => { setF({ ...f, email: e.target.value }); if (msg && !msg.ok && !msg.warn) setMsg(null); }} placeholder="name@example.com" />
-        {hint && <p role="status" data-testid="invite-existing-hint" style={{ fontSize: 13, color: '#92400e', background: '#fffbeb', borderRadius: 8, padding: '0.45rem 0.6rem', margin: '0.4rem 0 0' }}>{hint.text}</p>}
+        {hint && <p role="status" data-testid="invite-existing-hint" style={{ fontSize: 13, color: 'var(--warning)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.45rem 0.6rem', margin: '0.4rem 0 0' }}>{hint.text}</p>}
         <label htmlFor="inv-name" style={s.label}>Name (optional)</label>
         <input id="inv-name" style={s.input} maxLength={80} autoComplete="off" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <label htmlFor="inv-role" style={s.label}>Access</label>
@@ -109,17 +109,17 @@ export default function InviteTesterPage() {
         </select>
         <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>Driver: view and upload. Dispatcher / Management: can also edit packets and the company profile.</p>
         <button type="submit" style={{ ...s.btn, opacity: !hydrated || busy ? 0.6 : 1 }} disabled={!hydrated || !!busy}>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button>
-        {msg && <p role={msg.ok ? 'status' : 'alert'} data-testid="invite-msg" data-kind={msg.ok ? 'ok' : msg.warn ? 'warn' : 'error'} style={{ fontSize: 14, color: msg.ok ? '#065f46' : msg.warn ? '#92400e' : '#b91c1c', margin: '0.6rem 0 0' }}>{msg.text}</p>}
+        {msg && <p role={msg.ok ? 'status' : 'alert'} data-testid="invite-msg" data-kind={msg.ok ? 'ok' : msg.warn ? 'warn' : 'error'} style={{ fontSize: 14, color: msg.ok ? 'var(--success)' : msg.warn ? 'var(--warning)' : 'var(--danger)', margin: '0.6rem 0 0' }}>{msg.text}</p>}
       </form>
       <section style={s.card}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Team and invites</h2>
         <p style={{ ...s.muted, fontSize: 13, margin: '0.25rem 0 0' }}>Tap Change role to switch a member between Driver, Dispatcher and Management. Your own (owner) role can’t be changed here.</p>
-        {roleMsg && <p role={roleMsg.ok ? 'status' : 'alert'} data-testid="role-msg" data-kind={roleMsg.ok ? 'ok' : 'error'} style={{ fontSize: 14, borderRadius: 8, padding: '0.5rem 0.65rem', margin: '0.6rem 0 0', color: roleMsg.ok ? '#065f46' : '#b91c1c', background: roleMsg.ok ? '#ecfdf5' : '#fef2f2' }}>{roleMsg.text}</p>}
-        {st.refreshError && <p role="alert" data-testid="invite-refresh-error" style={{ ...s.muted, color: '#92400e' }}>{st.refreshError}</p>}
+        {roleMsg && <p role={roleMsg.ok ? 'status' : 'alert'} data-testid="role-msg" data-kind={roleMsg.ok ? 'ok' : 'error'} style={{ fontSize: 14, borderRadius: 8, padding: '0.5rem 0.65rem', margin: '0.6rem 0 0', color: roleMsg.ok ? 'var(--success)' : 'var(--danger)', background: roleMsg.ok ? 'var(--success-bg)' : 'var(--danger-bg)' }}>{roleMsg.text}</p>}
+        {st.refreshError && <p role="alert" data-testid="invite-refresh-error" style={{ ...s.muted, color: 'var(--warning)' }}>{st.refreshError}</p>}
         {!list.length ? <p style={s.muted}>No one yet.</p> : (
           <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0' }}>
             {list.map((x) => (
-              <li key={x.id} data-testid="invite-row" style={{ padding: '0.6rem 0', borderTop: '1px solid #f1f5f9' }}>
+              <li key={x.id} data-testid="invite-row" style={{ padding: '0.6rem 0', borderTop: '1px solid var(--divider)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name ? `${x.name} · ` : ''}{x.email}</div>
@@ -129,14 +129,14 @@ export default function InviteTesterPage() {
                 {confirmCancel !== x.id && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
                 {x.status === 'pending' && (confirmCancel === x.id
                   ? <span data-testid="cancel-confirm" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 13 }}>Cancel this invite?</span>
-                      <button type="button" style={{ ...s.small, borderColor: '#b91c1c', color: '#b91c1c' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
+                      <button type="button" style={{ ...s.small, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
                       <button type="button" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(null)}>Keep</button></span>
                   : <button type="button" data-testid="invite-cancel" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(x.id)}>Cancel</button>)}
                 {confirmCancel !== x.id && roleEditable(x, st.ownerId) && roleEdit?.id !== x.id && <button type="button" data-testid="role-edit" style={s.small} disabled={!!busy} onClick={() => { setRoleEdit({ id: x.id, role: x.role, confirm: false }); setRoleMsg(null); }}>Change role</button>}
                 </div>
                 </div>
                 {roleEdit?.id === x.id && (
-                  <div data-testid="role-editor" style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
+                  <div data-testid="role-editor" style={{ background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
                     {!roleEdit.confirm ? (<>
                       <label htmlFor={`role-${x.id}`} style={{ ...s.label, marginTop: 0 }}>Role for {x.name || x.email}</label>
                       <select id={`role-${x.id}`} data-testid="role-select" style={s.input} value={roleEdit.role} disabled={!!busy} onChange={(e) => setRoleEdit({ ...roleEdit, role: e.target.value })}>
@@ -144,19 +144,19 @@ export default function InviteTesterPage() {
                       </select>
                       <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>{ROLE_HELP[roleEdit.role]}</p>
                       <div style={{ display: 'flex', gap: 8, marginTop: '0.6rem' }}>
-                        <button type="button" data-testid="role-save" style={{ ...s.small, background: '#2563eb', borderColor: '#2563eb', color: '#fff', opacity: roleEdit.role === x.role ? 0.5 : 1 }} disabled={!!busy || roleEdit.role === x.role} onClick={() => askRole(x)}>{busy === `preview:${x.id}` ? 'Checking loads…' : 'Save role'}</button>
+                        <button type="button" data-testid="role-save" style={{ ...s.small, background: 'var(--primary)', borderColor: 'var(--primary)', color: 'var(--on-primary)', opacity: roleEdit.role === x.role ? 0.5 : 1 }} disabled={!!busy || roleEdit.role === x.role} onClick={() => askRole(x)}>{busy === `preview:${x.id}` ? 'Checking loads…' : 'Save role'}</button>
                         <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit(null)}>Cancel</button>
                       </div>
                     </>) : (
                       <div data-testid="role-confirm" role="alertdialog" aria-label="Confirm role change">
                         <p style={{ margin: '0 0 0.6rem', fontSize: 14 }}>{confirmText(x.name || x.email, x.role, roleEdit.role)}</p>
                         {unassignsLoads(x.role, roleEdit.role) && (roleEdit.assigned == null || roleEdit.assigned > 0) && (
-                          <p data-testid="role-unassign-warning" style={{ margin: '0 0 0.6rem', fontSize: 14, color: '#92400e', background: '#fffbeb', borderRadius: 8, padding: '0.45rem 0.6rem' }}>
+                          <p data-testid="role-unassign-warning" style={{ margin: '0 0 0.6rem', fontSize: 14, color: 'var(--warning)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.45rem 0.6rem' }}>
                             {roleEdit.assigned == null ? `If ${x.name || x.email} is assigned to loads, changing their role unassigns them.` : unassignWarning(x.name || x.email, roleEdit.assigned)}
                           </p>
                         )}
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button type="button" data-testid="role-confirm-yes" style={{ ...s.small, background: '#2563eb', borderColor: '#2563eb', color: '#fff' }} disabled={!!busy} onClick={() => saveRole(x)}>{busy === `role:${x.id}` ? 'Saving…' : 'Yes, change role'}</button>
+                          <button type="button" data-testid="role-confirm-yes" style={{ ...s.small, background: 'var(--primary)', borderColor: 'var(--primary)', color: 'var(--on-primary)' }} disabled={!!busy} onClick={() => saveRole(x)}>{busy === `role:${x.id}` ? 'Saving…' : 'Yes, change role'}</button>
                           <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit({ ...roleEdit, confirm: false })}>Back</button>
                         </div>
                       </div>

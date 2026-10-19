@@ -26,7 +26,7 @@ test('server Not allowed message has no duplicates', () => {
 test('disabled Review email button looks disabled, enabled stays blue', () => {
   const base = { background: '#2563eb', color: '#fff' };
   const off = primaryButtonStyle(base, true);
-  assert.notEqual(off.background, '#2563eb'); assert.equal(off.cursor, 'not-allowed'); assert.ok(off.opacity < 1);
+  assert.notEqual(off.background, '#2563eb'); assert.equal(off.cursor, 'not-allowed'); assert.equal(off.background, 'var(--disabled-bg)'); assert.equal(off.color, 'var(--disabled-text)'); // QA #95: disabled tokens (>= 4.5:1) instead of fading
   const on = primaryButtonStyle(base, false);
   assert.equal(on.background, '#2563eb'); assert.equal(on.cursor, 'pointer'); assert.equal(on.opacity, undefined);
   const src = readFileSync(new URL('../../app/packets/PacketSendBroker.js', import.meta.url), 'utf8');

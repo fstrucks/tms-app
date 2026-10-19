@@ -16,8 +16,8 @@ import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release,
 const MAX_BYTES = PDF_MAX_BYTES;
 const NO_PHOTO = "No photo was captured. If the camera didn't open, allow camera access for this site in your browser settings, or use \"Choose photos\".";
 
-const btn = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#111827', fontSize: '0.95rem', cursor: 'pointer' };
-const primary = { ...btn, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600 };
+const btn = { minHeight: 44, minWidth: 44, padding: '0 0.8rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.95rem', cursor: 'pointer' };
+const primary = { ...btn, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600 };
 let nextId = 1;
 export const RATECON_TYPE = { id: 'ratecon', label: 'Rate Confirmation' };
 
@@ -225,14 +225,14 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui', outline: 'none' }}>
-      <header style={{ display: 'flex', flexWrap: 'nowrap', minWidth: 0, alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid #e5e7eb', background: '#fff', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui', outline: 'none' }}>
+      <header style={{ display: 'flex', flexWrap: 'nowrap', minWidth: 0, alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--divider)', background: 'var(--surface)', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         {askDiscard ? (
           <span role="group" aria-label="Discard this scan?" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setAskDiscard(false); } }}>
             <span style={{ fontSize: 14, whiteSpace: 'nowrap' }}>Discard {n} page{n > 1 ? 's' : ''}?</span>
             <button ref={keepRef} type="button" style={btn} onClick={() => setAskDiscard(false)}>Keep</button>
-            <button type="button" style={{ ...btn, border: 'none', background: '#b91c1c', color: '#fff' }} onClick={onClose}>Discard</button>
+            <button type="button" style={{ ...btn, border: 'none', background: 'var(--danger)', color: 'var(--on-primary)' }} onClick={onClose}>Discard</button>
           </span>
         ) : (
           <button type="button" onClick={close} disabled={!!busy} style={btn} aria-label="Close scanner">✕</button>
@@ -242,26 +242,26 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         <div role="group" aria-label="Colour" style={{ display: askDiscard ? 'none' : 'inline-flex', flexShrink: 0 }}>
           {[['bw', 'B&W'], ['color', 'Color']].map(([m, l]) => (
             <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} disabled={!!busy}
-              style={{ ...btn, borderRadius: m === 'bw' ? '8px 0 0 8px' : '0 8px 8px 0', background: mode === m ? '#1d4ed8' : '#fff', color: mode === m ? '#fff' : '#111827' }}>{l}</button>
+              style={{ ...btn, borderRadius: m === 'bw' ? '8px 0 0 8px' : '0 8px 8px 0', background: mode === m ? 'var(--primary)' : 'var(--surface)', color: mode === m ? 'var(--on-primary)' : 'var(--text)' }}>{l}</button>
           ))}
         </div>
       </header>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', maxWidth: 1120, width: '100%', margin: '0 auto' }}>
         <div aria-live="polite" style={{ minHeight: 24 }}>
-          {busy ? <p style={{ margin: '0 0 0.5rem', color: '#1d4ed8' }}>{busy}</p>
-            : msg ? <p role={msg.err ? 'alert' : undefined} style={{ margin: '0 0 0.5rem', color: msg.err ? '#b91c1c' : '#374151' }}>{msg.text}</p> : null}
+          {busy ? <p style={{ margin: '0 0 0.5rem', color: 'var(--primary)' }}>{busy}</p>
+            : msg ? <p role={msg.err ? 'alert' : undefined} style={{ margin: '0 0 0.5rem', color: msg.err ? 'var(--danger)' : 'var(--text)' }}>{msg.text}</p> : null}
         </div>
-        <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 0.75rem' }}>
+        <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: '0 0 0.75rem' }}>
           Tip: hold the phone upright (portrait) so the page fills the photo, lay the page flat on a darker surface, fill most of the frame and avoid glare. Up to {MAX_PAGES} pages per scan.
         </p>
-        {n === 0 && !busy && <p style={{ color: '#6b7280' }}>No pages yet.</p>}
+        {n === 0 && !busy && <p style={{ color: 'var(--text-muted)' }}>No pages yet.</p>}
         <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {pages.map((p, i) => (
-            <li key={p.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 13, color: '#6b7280' }}>Page {i + 1}{!p.detected ? ' · not cropped' : ''}</div>
-              {p.thumb ? <img src={p.thumb} alt={`Page ${i + 1} preview`} style={{ width: '100%', aspectRatio: '17 / 22', objectFit: 'contain', background: '#f1f5f9', borderRadius: 6 }} />
-                : <div style={{ width: '100%', aspectRatio: '17 / 22', background: '#f1f5f9', borderRadius: 6 }} />}
+            <li key={p.id} style={{ background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Page {i + 1}{!p.detected ? ' · not cropped' : ''}</div>
+              {p.thumb ? <img src={p.thumb} alt={`Page ${i + 1} preview`} style={{ width: '100%', aspectRatio: '17 / 22', objectFit: 'contain', background: 'var(--divider)', borderRadius: 6 }} />
+                : <div style={{ width: '100%', aspectRatio: '17 / 22', background: 'var(--divider)', borderRadius: 6 }} />}
               <div style={{ display: 'flex', gap: 6 }}>
                 <button type="button" style={{ ...btn, flex: 1, padding: 0 }} disabled={i === 0 || !!busy} onClick={() => setPages((ps) => movePage(ps, i, i - 1))} aria-label={`Move page ${i + 1} earlier`}>◀</button>
                 <button type="button" style={{ ...btn, flex: 1, padding: 0 }} disabled={i === n - 1 || !!busy} onClick={() => setPages((ps) => movePage(ps, i, i + 1))} aria-label={`Move page ${i + 1} later`}>▶</button>
@@ -276,42 +276,42 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         </ol>
       </div>
 
-      <footer style={{ borderTop: '1px solid #e5e7eb', background: '#fff', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
+      <footer style={{ borderTop: '1px solid var(--divider)', background: 'var(--surface)', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {/* Document type first, full width and tall, so it can't be missed (Marc, 10/15). */}
           <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label htmlFor={ids.type} style={{ fontSize: 15, fontWeight: 700, color: typeErr ? '#b91c1c' : '#111827' }}>Document type</label>
+            <label htmlFor={ids.type} style={{ fontSize: 15, fontWeight: 700, color: typeErr ? 'var(--danger)' : 'var(--text)' }}>Document type</label>
             <select ref={typeRef} id={ids.type} value={docType} disabled={!!busy}
               onChange={(e) => { const v = e.target.value; setDocType(v); setTypeErr(false); if (isCompanyDocType(v)) setLoadId(''); }}
               aria-invalid={typeErr || undefined} aria-describedby={typeErr ? ids.typeErr : undefined}
               style={{ width: '100%', minHeight: 56, fontSize: 17, fontWeight: docType ? 600 : 400, boxSizing: 'border-box', borderRadius: 10, padding: '0 0.75rem',
-                border: typeErr ? '2px solid #dc2626' : '2px solid #1d4ed8', background: typeErr ? '#fef2f2' : '#eff6ff', color: docType ? '#111827' : '#374151',
-                boxShadow: typeErr ? '0 0 0 3px rgba(220,38,38,0.25)' : 'none' }}>
+                border: typeErr ? '2px solid var(--danger)' : '2px solid var(--primary)', background: typeErr ? 'var(--danger-bg)' : 'var(--info-bg)', color: docType ? 'var(--text)' : 'var(--text)',
+                boxShadow: typeErr ? '0 0 0 3px var(--danger-border)' : 'none' }}>
               <option value="" disabled>Choose document type…</option>
               {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-            {typeErr && <p id={ids.typeErr} role="alert" style={{ margin: 0, color: '#b91c1c', fontSize: 14, fontWeight: 600 }}>Pick a document type first</p>}
+            {typeErr && <p id={ids.typeErr} role="alert" style={{ margin: 0, color: 'var(--danger)', fontSize: 14, fontWeight: 600 }}>Pick a document type first</p>}
           </div>
           {isOther && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
-            <span style={{ fontSize: 14, color: '#374151', whiteSpace: 'nowrap' }}>Name</span>
+            <span style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'nowrap' }}>Name</span>
             <input ref={otherRef} type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)} maxLength={OTHER_MAX} required aria-required="true"
               aria-label="Other document type name" placeholder="e.g. Scale ticket" disabled={!!busy} autoFocus
-              style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid #d1d5db', padding: '0 0.5rem', boxSizing: 'border-box' }} />
+              style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.5rem', boxSizing: 'border-box' }} />
           </label>
           )}
           {!rateCon && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: '1 1 100%', minWidth: 0 }}>
-            <span style={{ fontSize: 14, color: '#374151' }}>Load</span>
-            <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', padding: '0 0.5rem' }}>
+            <span style={{ fontSize: 14, color: 'var(--text)' }}>Load</span>
+            <select value={loadId} onChange={(e) => setLoadId(e.target.value)} disabled={!!busy} style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', padding: '0 0.5rem' }}>
               <option value="">No load</option>
               {loads.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           </label>
           )}
-          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid #2563eb', color: '#1d4ed8', background: '#fff' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
           <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
-          <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? '#93c5fd' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
+          <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 
@@ -333,11 +333,11 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 // Inline delete confirm (pick 4A): no modal.
 function PageDelete({ onDelete, disabled, n }) {
   const [ask, setAsk] = useState(false);
-  if (!ask) return <button type="button" disabled={disabled} onClick={() => setAsk(true)} style={{ ...btn, flex: 1, border: '1px solid #fecaca', color: '#b91c1c' }} aria-label={`Delete page ${n}`}>Delete</button>;
+  if (!ask) return <button type="button" disabled={disabled} onClick={() => setAsk(true)} style={{ ...btn, flex: 1, border: '1px solid var(--danger-border)', color: 'var(--danger)' }} aria-label={`Delete page ${n}`}>Delete</button>;
   return (
     <span style={{ display: 'flex', gap: 6, flex: 2 }}>
       <button type="button" autoFocus onClick={() => setAsk(false)} style={{ ...btn, flex: 1 }}>Cancel</button>
-      <button type="button" onClick={onDelete} style={{ ...btn, flex: 1, border: 'none', background: '#b91c1c', color: '#fff' }}>Confirm</button>
+      <button type="button" onClick={onDelete} style={{ ...btn, flex: 1, border: 'none', background: 'var(--danger)', color: 'var(--on-primary)' }}>Confirm</button>
     </span>
   );
 }
@@ -390,13 +390,13 @@ function CornerEditor({ page, index, onCancel, onApply }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`Adjust corners, page ${index + 1}`}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2100, background: '#111827', display: 'flex', flexDirection: 'column' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'var(--text)', display: 'flex', flexDirection: 'column' }}>
       <div ref={boxRef} style={{ flex: 1, position: 'relative', margin: 16, touchAction: 'none' }}
         onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
         <div style={{ position: 'absolute', left: '50%', top: '50%', width: W, height: H, transform: 'translate(-50%, -50%)' }}>
           <canvas ref={canvasRef} style={{ display: 'block' }} />
           <svg width={W} height={H} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} aria-hidden="true">
-            <polygon points={q.map((p) => `${p.x * scale},${p.y * scale}`).join(' ')} fill="rgba(37,99,235,0.15)" stroke="#3b82f6" strokeWidth="2" />
+            <polygon points={q.map((p) => `${p.x * scale},${p.y * scale}`).join(' ')} fill="var(--focus-ring)" stroke="var(--primary)" strokeWidth="2" />
           </svg>
           {q.map((p, i) => (
             <button key={i} ref={i === 0 ? firstRef : undefined} type="button" aria-label={`${names[i]} corner. Use arrow keys to move.`}
@@ -406,11 +406,11 @@ function CornerEditor({ page, index, onCancel, onApply }) {
                 const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
                 if (d) { e.preventDefault(); move(i, { x: p.x + d[0], y: p.y + d[1] }); }
               }}
-              style={{ position: 'absolute', left: p.x * scale - 22, top: p.y * scale - 22, width: 44, height: 44, borderRadius: 999, border: '3px solid #fff', background: 'rgba(37,99,235,0.85)', touchAction: 'none', cursor: 'grab', padding: 0 }} />
+              style={{ position: 'absolute', left: p.x * scale - 22, top: p.y * scale - 22, width: 44, height: 44, borderRadius: 999, border: '3px solid var(--surface)', background: 'var(--primary)', opacity: 0.85, touchAction: 'none', cursor: 'grab', padding: 0 }} />
           ))}
         </div>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', padding: '0.6rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))', background: '#fff' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', padding: '0.6rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))', background: 'var(--surface)' }}>
         <button type="button" style={btn} onClick={onCancel}>Cancel</button>
         <button type="button" style={btn} onClick={async () => setQ((await redetect(page)).quad)}>Auto-detect</button>
         <button type="button" style={btn} onClick={() => setQ(fullFrame(page.w, page.h))}>Use full photo</button>

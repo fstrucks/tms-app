@@ -12,11 +12,11 @@ import { MileageForm, EntryRow, sumBy, fmtMiles, todayISO } from '../lib/mileage
 
 const s = {
   main: { maxWidth: 720 },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
-  stat: { flex: 1, border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.75rem', textAlign: 'center' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
-  error: { color: '#b91c1c' },
-  link: { color: '#2563eb' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem' },
+  stat: { flex: 1, border: '1px solid var(--divider)', borderRadius: 12, padding: '0.75rem', textAlign: 'center' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
+  error: { color: 'var(--danger)' },
+  link: { color: 'var(--primary)' },
 };
 
 const iso = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -108,10 +108,10 @@ export default function MileagePanel() {
         {user && <Link href="/mileage/import" style={{ ...s.link, fontSize: '0.95rem', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>Import ELD CSV</Link>}
       </div>
       {importNote && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', borderRadius: 10, padding: '0.4rem 0.4rem 0.4rem 0.75rem', marginBottom: '0.75rem' }}>
+        <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', background: 'var(--success-bg)', border: '1px solid var(--success-bg)', color: 'var(--success)', borderRadius: 10, padding: '0.4rem 0.4rem 0.4rem 0.75rem', marginBottom: '0.75rem' }}>
           <span>{importNote}</span>
           <button type="button" aria-label="Dismiss" onClick={() => setImportNote(null)}
-            style={{ background: 'none', border: 'none', color: '#166534', fontSize: '1.2rem', minWidth: 44, minHeight: 44 }}>×</button>
+            style={{ background: 'none', border: 'none', color: 'var(--success)', fontSize: '1.2rem', minWidth: 44, minHeight: 44 }}>×</button>
         </div>
       )}
       {supabaseConfigError ? <p style={s.error}>{supabaseConfigError}</p>

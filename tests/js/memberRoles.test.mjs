@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { POST, GET } from '../../app/api/account/invites/route.js';
-import { EDITABLE_ROLES, roleEditable, validateRoleChange, roleError, setMemberRole, confirmText, successText } from '../../app/lib/memberRoles.js';
+import { EDITABLE_ROLES, ROLE_HELP, roleEditable, validateRoleChange, roleError, setMemberRole, confirmText, successText } from '../../app/lib/memberRoles.js';
 
 const OWNER = '00000000-0000-4000-8000-00000000000a', DRV = '00000000-0000-4000-8000-00000000000d', DISP = '00000000-0000-4000-8000-00000000000b';
 const PROFILE = { id: 'prof-1', owner_id: OWNER, legal_name: 'FAKE Freight LLC' };
@@ -173,4 +173,13 @@ test('migration 0800: unassigns on driver → other role, returns the count, cou
   assert.match(mig, /returns table \(user_id uuid, old_role text, new_role text, unassigned_loads integer\)/);
   assert.match(mig, /revoke all on function public\.member_assigned_load_count\(uuid\) from public, anon;/);
   assert.doesNotMatch(mig, /create policy|drop policy|alter table|grant (select|insert|update|delete)/i);
+});
+
+test('role descriptions: Dispatcher mentions the dispatch center; the editor uses theme tokens only', () => {
+  assert.equal(ROLE_HELP.dispatcher, 'Dispatcher: can manage loads, stops and drivers in Dispatch, plus packets and the company profile.');
+  assert.match(ROLE_HELP.management, /^Management: same as Dispatcher/);
+  const page = readFileSync('app/account/invite/page.js', 'utf8');
+  assert.doesNotMatch(page, /#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\b|rgba?\(/, 'no hardcoded colors (dark mode #95)');
+  assert.match(page, /data-testid="role-editor" style=\{\{ background: 'var\(--surface-2\)', border: '1px solid var\(--divider\)'/);
+  assert.match(page, /data-testid="role-unassign-warning" style=\{\{[^}]*color: 'var\(--warning\)', background: 'var\(--warning-bg\)'/);
 });
