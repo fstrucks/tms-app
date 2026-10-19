@@ -1,17 +1,17 @@
 'use client';
 // Owner-only "Invite a tester" page. The server re-checks ownership on every call; this page just hides the form.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { makeApi } from '../../lib/packetApi';
 import { ROLE_LABELS } from '../../lib/companyRoles';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
 import { existingHint } from '../../lib/testerInvites';
-import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning } from '../../lib/memberRoles';
+import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning, applyRoleResult } from '../../lib/memberRoles';
 
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
-  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
+  main: { padding: '1rem', paddingBottom: 'calc(1rem + var(--fab-space))', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' }, // room under the Team list for the Report a bug button (QA #97)
   card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   label: { display: 'block', margin: '0.75rem 0 0.35rem', fontWeight: 600 },
   input: { width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0 0.75rem', fontSize: 16, borderRadius: 8, border: '1px solid var(--border)' },
@@ -30,10 +30,21 @@ export default function InviteTesterPage() {
   const [confirmCancel, setConfirmCancel] = useState(null); // row id awaiting "Yes, cancel"
   const [roleEdit, setRoleEdit] = useState(null); // { id, role, confirm } while changing a member's role
   const [roleMsg, setRoleMsg] = useState(null); // { ok, text } for the Team list
+  // QA #97 (390px): when the confirmation opens, scroll it so Yes / Back sit above the tab bar and the floating
+  // Report a bug button ([data-above-fab] scroll margin in globals.css), and move focus to it.
+  const confirmRef = useRef(null);
+  useEffect(() => {
+    if (!roleEdit?.confirm || !confirmRef.current) return;
+    const el = confirmRef.current;
+    try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { el.scrollIntoView(false); }
+    el.focus?.({ preventScroll: true });
+  }, [roleEdit?.confirm, roleEdit?.id]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ expectRole = null } = {}) => {
     if (supabaseConfigError) return setSt({ error: supabaseConfigError });
     const d = await api('/api/account/invites');
+    // A reload that raced the save (started before it landed) must not put the old role back on the row.
+    if (!d.error && expectRole && Array.isArray(d.invites)) d.invites = applyRoleResult(d.invites, expectRole.id, expectRole.role);
     // A failed refresh after an action keeps the list on screen (only the first load shows a full-page error).
     if (d.error) return setSt((prev) => (prev.invites && !d.signedOut ? { ...prev, refreshError: 'Couldn’t refresh the list. Reload the page to see the latest.' } : { error: d.error, signedOut: d.signedOut, notOwner: d.status === 403 }));
     setSt(d); setF((x) => ({ ...x, role: x.role || d.defaultRole })); // fresh data clears any refreshError
@@ -85,8 +96,10 @@ export default function InviteTesterPage() {
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role', user_id: x.id, role: roleEdit.role }) });
     setBusy(null);
     if (r.error) { setRoleEdit((e) => (e ? { ...e, confirm: false } : e)); return setRoleMsg({ ok: false, text: r.error }); }
+    // QA #97: show the new role on the row right away, from the role the server confirmed (the list reload follows).
+    setSt((prev) => (prev.invites ? { ...prev, invites: applyRoleResult(prev.invites, x.id, r.role) } : prev));
     setRoleEdit(null); setRoleMsg({ ok: true, text: successText(x.name || x.email, r.role, r.unassigned) });
-    load();
+    load({ expectRole: { id: x.id, role: r.role } });
   }
 
   if (st.loading) return <main style={s.main}><p>Loading…</p></main>;
@@ -148,16 +161,16 @@ export default function InviteTesterPage() {
                         <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit(null)}>Cancel</button>
                       </div>
                     </>) : (
-                      <div data-testid="role-confirm" role="alertdialog" aria-label="Confirm role change">
+                      <div ref={confirmRef} tabIndex={-1} data-above-fab data-testid="role-confirm" role="alertdialog" aria-label="Confirm role change" style={{ outline: 'none' }}>
                         <p style={{ margin: '0 0 0.6rem', fontSize: 14 }}>{confirmText(x.name || x.email, x.role, roleEdit.role)}</p>
                         {unassignsLoads(x.role, roleEdit.role) && (roleEdit.assigned == null || roleEdit.assigned > 0) && (
                           <p data-testid="role-unassign-warning" style={{ margin: '0 0 0.6rem', fontSize: 14, color: 'var(--warning)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.45rem 0.6rem' }}>
                             {roleEdit.assigned == null ? `If ${x.name || x.email} is assigned to loads, changing their role unassigns them.` : unassignWarning(x.name || x.email, roleEdit.assigned)}
                           </p>
                         )}
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           <button type="button" data-testid="role-confirm-yes" style={{ ...s.small, background: 'var(--primary)', borderColor: 'var(--primary)', color: 'var(--on-primary)' }} disabled={!!busy} onClick={() => saveRole(x)}>{busy === `role:${x.id}` ? 'Saving…' : 'Yes, change role'}</button>
-                          <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit({ ...roleEdit, confirm: false })}>Back</button>
+                          <button type="button" data-testid="role-confirm-back" style={s.small} disabled={!!busy} onClick={() => setRoleEdit({ ...roleEdit, confirm: false })}>Back</button>
                         </div>
                       </div>
                     )}

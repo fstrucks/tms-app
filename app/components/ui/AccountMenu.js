@@ -7,10 +7,11 @@ import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
-import { loginHref } from '../../lib/safeNext';
+import { loginHref, rememberSignOutNext } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
 import { THEME_CHOICES, THEME_EVENT, THEME_KEY, THEME_LABELS, readTheme, setTheme } from '../../lib/theme';
-import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
+import { companyOwnerStatus, cachedOwner, clearOwnerCache } from '../../lib/accountOwner';
+import { checkUntilDefinite } from '../../lib/roleRefresh';
 import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
@@ -51,9 +52,9 @@ export default function AccountMenu({ showEmail = false }) {
   useEffect(() => {
     if (!uid) { setOwner(false); return undefined; }
     if (cachedOwner(uid)) { setOwner(true); return undefined; }
-    let on = true;
-    companyOwnerStatus(supabase, uid).then((r) => { if (on && r.definite) setOwner(r.owner); }).catch(() => {});
-    return () => { on = false; };
+    // Right after sign-in the session can still be settling: "couldn't tell" is retried on a short schedule
+    // (lib/roleRefresh) instead of waiting for a reload.
+    return checkUntilDefinite(() => companyOwnerStatus(supabase, uid), (r) => { if (r.definite) setOwner(r.owner); });
   }, [uid, open, authTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export default function AccountMenu({ showEmail = false }) {
       setUser(session?.user || null);
       if (event === 'INITIAL_SESSION') setReady(true);
       if (event === 'SIGNED_OUT') setOpen(false);
-      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') setAuthTick((n) => n + 1);
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') setAuthTick((n) => n + 1);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -90,9 +91,17 @@ export default function AccountMenu({ showEmail = false }) {
   async function signOut() {
     setBusy(true); setErr(null);
     try {
+      const who = user?.id || null;
       const { error } = await supabase.auth.signOut();
       if (error) { console.error('[account] sign out', error); setErr('Sign out failed, please try again.'); }
-      else { setUser(null); setOpen(false); router.replace(hereLogin()); } // clear the header now, not on the next auth event
+      else {
+        // Back to this page after signing in, but only for the same person: the ?next is tagged with who signed
+        // out, and the sign-in page drops it for anyone else (lib/safeNext nextAfterSignIn).
+        const dest = hereLogin();
+        rememberSignOutNext(who, new URL(dest, window.location.origin).searchParams.get('next'));
+        clearOwnerCache(); setOwner(false);
+        setUser(null); setOpen(false); router.replace(dest); // clear the header now, not on the next auth event
+      }
     } catch (e) {
       console.error('[account] sign out', e); setErr('Sign out failed, please try again.');
     } finally { setBusy(false); }

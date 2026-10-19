@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { safeNext } from '../lib/safeNext';
+import { safeNext, nextAfterSignIn } from '../lib/safeNext';
 import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
 import { useHydrated, fallbackAction, NOJS_MSG } from '../lib/authForms';
 import { readCredentials, validateCredentials, submitDisabled } from '../lib/loginForm';
@@ -54,7 +54,7 @@ export default function LoginPage() {
           if (data?.user && data.user.user_metadata?.password_set !== true) {
             try { await supabase.auth.updateUser({ data: { password_set: true } }); } catch (e) { console.error('[auth] flag', e); }
           }
-          window.location.assign(safeNext(nextParam()));
+          window.location.assign(nextAfterSignIn(nextParam(), data?.user?.id || data?.session?.user?.id || null)); // not the previous user's page (QA, Oct 19)
         }
         return;
       }

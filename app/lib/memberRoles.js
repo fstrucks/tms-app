@@ -37,6 +37,11 @@ export const loadsWord = (n) => `${n} load${n === 1 ? '' : 's'}`;
 export const unassignWarning = (who, n) => (n > 0 ? `${who} is assigned to ${loadsWord(n)}. Changing their role unassigns them.` : null);
 export const confirmText = (who, from, to) => `Change ${who} from ${label(from)} to ${label(to)}? ${ROLE_HELP[to] || ''}`.trim();
 export const successText = (who, to, unassigned = 0) => `${who} is now ${label(to)}.${unassigned > 0 ? ` Unassigned from ${loadsWord(unassigned)}; pick a new driver on ${unassigned === 1 ? 'it' : 'them'}.` : ''} It takes effect right away; if they have the app open, they’ll see the new menus after a reload.`;
+// Team list after a successful change: the row shows the role set_member_role returned (no flash of the old role).
+export function applyRoleResult(list, userId, role) {
+  if (!Array.isArray(list) || !userId || !EDITABLE_ROLES.includes(role)) return list;
+  return list.map((r) => (r && r.id === userId && r.linked === true ? { ...r, role } : r));
+}
 export const NOT_OWNER_ROLE_TEXT = 'Only the company owner can change roles.';
 
 // Database answer → { error, status }. Codes are the exception messages raised by set_member_role / the guard trigger.

@@ -7,6 +7,7 @@ import AccountMenu from './ui/AccountMenu';
 import { getSupabase } from '../lib/supabase';
 import { navTabs } from '../lib/dispatchNav';
 import { syncAuthCookie } from '../lib/authCookie';
+import { dispatcherStatus, shouldRecheck, checkUntilDefinite, rememberRole, recallRole, forgetRole } from '../lib/roleRefresh';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
@@ -30,21 +31,34 @@ export default function AppNav() {
   const hidden = HIDDEN(pathname);
   // Management / dispatchers: the Loads tab opens the dispatch center (their own Loads list is always empty
   // under own-row RLS). Decided by public.dispatch_context(); before that migration nothing changes.
+  // Role state follows auth changes (lib/roleRefresh): re-checked on sign-in / user switch / sign-out, retried while
+  // the answer is "couldn't tell", and the last definite answer is kept meanwhile (no Loads ↔ Dispatch flicker).
   const [dispatcher, setDispatcher] = useState(false);
   useEffect(() => {
     const sb = getSupabase();
     if (!sb) return undefined;
-    let live = true;
-    const check = async (u) => {
-      if (!u) { if (live) setDispatcher(false); return; }
-      const { data, error } = await sb.rpc('dispatch_context');
-      if (live) setDispatcher(!error && Array.isArray(data) && data.length > 0);
+    let live = true, uid = null, lastDefinite = true, cancel = null;
+    const check = (u) => {
+      cancel?.(); cancel = null;
+      if (!u) { lastDefinite = true; forgetRole(); if (live) setDispatcher(false); return; }
+      lastDefinite = false;
+      cancel = checkUntilDefinite(() => dispatcherStatus(sb, u.id), (r) => {
+        if (!live || uid !== u.id || !r.definite) return;
+        lastDefinite = true; rememberRole(u.id, r.dispatcher); setDispatcher(r.dispatcher);
+      });
     };
     const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
-      syncAuthCookie(session); // every event incl. TOKEN_REFRESHED; cleared on sign-out (session null)
-      if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(event)) setTimeout(() => check(session?.user || null), 0);
+      syncAuthCookie(session); // server sets / clears the HttpOnly cookie; every event incl. TOKEN_REFRESHED and sign-out
+      const u = session?.user || null;
+      const userChanged = (u?.id || null) !== uid;
+      uid = u?.id || null;
+      if (userChanged) { const known = u ? recallRole(u.id) : false; setDispatcher(known === true); }
+      if (shouldRecheck(event, { userChanged, lastDefinite })) setTimeout(() => { if (live && uid === (u?.id || null)) check(u); }, 0);
     });
-    return () => { live = false; sub.subscription.unsubscribe(); };
+    // Back on the tab after a failed check (e.g. no signal): try again.
+    const onVis = () => { if (document.visibilityState === 'visible' && !lastDefinite && uid) sb.auth.getSession().then(({ data }) => { if (live && data?.session?.user?.id === uid) check(data.session.user); }).catch(() => {}); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { live = false; cancel?.(); sub.subscription.unsubscribe(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
   const tabs = navTabs(TABS, { dispatcher });
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { useRetryWhenOnline } from '../lib/onlineRetry';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
@@ -61,6 +62,9 @@ export function LoadsProvider({ children }) {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Back online after a failed fetch → fetch again by itself (QA #100; Retry still works too).
+  useRetryWhenOnline(!!error, loadLoads);
 
   // Optimistic patch from the detail pane (e.g. status change) so the list stays in sync.
   const patchLoad = (id, patch) => setLoads((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));

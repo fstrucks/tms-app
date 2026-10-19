@@ -190,7 +190,7 @@ test('b: one menu everywhere: rendered only by AppNav from the root layout; both
   for (const f of ['app/packets/[id]/page.js', 'app/packets/PacketMapper.js', 'app/packets/page.js']) assert.doesNotMatch(src(f), /AccountMenu|InviteTestersMenuItem|BugReportsMenuItem/, f);
   const m = src('app/components/ui/AccountMenu.js');
   assert.match(m, /<InviteTestersMenuItem owner=\{owner\}/); assert.match(m, /<BugReportsMenuItem owner=\{owner\}/);
-  assert.match(m, /companyOwnerStatus\(supabase, uid\)\.then\(\(r\) => \{ if \(on && r\.definite\) setOwner\(r\.owner\); \}\)/);
+  assert.match(m, /checkUntilDefinite\(\(\) => companyOwnerStatus\(supabase, uid\), \(r\) => \{ if \(r\.definite\) setOwner\(r\.owner\); \}\)/);
   assert.match(m, /\[uid, open, authTick\]/); assert.match(m, /TOKEN_REFRESHED/);
   for (const f of ['app/components/BugReportsMenuItem.js', 'app/components/ui/InviteTestersMenuItem.js']) {
     assert.doesNotMatch(src(f), /from\('company_profiles'\)|useEffect/, `${f}: no per-item query`);

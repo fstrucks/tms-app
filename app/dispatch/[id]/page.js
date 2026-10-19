@@ -4,7 +4,7 @@
 // the assigned driver, "Show rate to driver", and the stops (add, remove, reorder). Saves go through
 // public.dispatch_update_load / public.dispatch_save_stops (SECURITY DEFINER, role-checked in the database).
 // Drivers never get here with data: dispatch_loads() returns nothing to them.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import SignInLink from '../../components/SignInLink';
@@ -15,10 +15,11 @@ import { StatusBadge, fmtMoney } from '../../lib/loads';
 import { isLoadId } from '../../lib/loadNew';
 import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions } from '../../lib/loadDriver';
 import {
-  STATUSES, SETUP_MSG, fetchDispatchContext, fetchDispatchLoads, loadToForm, formToPatch, stopsToForm, formToStops,
+  STATUSES, SETUP_MSG, resolveDispatchAccess, fetchDispatchLoads, loadToForm, formToPatch, stopsToForm, formToStops,
   saveLoad, saveStops, rateConUrl, notesMayShowPay,
-  notMemberCopy, fetchMyRoles,
+  notMemberCopy,
 } from '../../lib/dispatch';
+import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../../lib/onlineRetry';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
@@ -68,26 +69,33 @@ export default function DispatchLoadPage() {
     setErrors({}); setStopErrors({});
   }
 
-  async function fetchLoad() {
-    setState({ status: 'loading' }); setMsg(null);
-    if (!isLoadId(id)) return setState({ status: 'missing' });
-    if (!(await hasSession(supabase))) return setState({ status: 'error', text: 'Your session has expired or is still loading. Tap Retry, or sign in again.' });
-    const ctx = await fetchDispatchContext(supabase);
-    if (ctx.setup) return setState({ status: 'setup' });
-    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
-    if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
+  // One pass. → true when it ended in an error state (one automatic retry, then Retry / back-online).
+  async function fetchLoadOnce({ auto = false } = {}) {
+    if (!auto) { setState({ status: 'loading' }); setMsg(null); }
+    const fail = (text) => { setState({ status: 'error', text }); return true; };
+    if (!isLoadId(id)) { setState({ status: 'missing' }); return false; }
+    if (!(await hasSession(supabase))) return fail('Your session has expired or is still loading. Tap Retry, or sign in again.');
+    const acc = await resolveDispatchAccess(supabase);
+    if (acc.status === 'setup') { setState({ status: 'setup' }); return false; }
+    if (acc.status === 'unknown') { console.error('[dispatch] access', acc.error?.code || '', acc.error?.message || ''); return fail('Couldn’t load this load. Check your connection and tap Retry.'); }
+    if (acc.status === 'not-member') { setState({ status: 'not-member', copy: notMemberCopy(acc.roles) }); return false; }
     const res = await fetchDispatchLoads(supabase, id);
-    if (res.setup) return setState({ status: 'setup' });
-    if (res.error) { console.error('[dispatch] load', res.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
+    if (res.setup) { setState({ status: 'setup' }); return false; }
+    if (res.error) { console.error('[dispatch] load', res.error); return fail('Couldn’t load this load. Check your connection and tap Retry.'); }
     const load = res.loads[0];
-    if (!load) return setState({ status: 'missing' });
+    if (!load) { setState({ status: 'missing' }); return false; }
     setDriversLoaded(false);
     apply(load);
     const drv = await fetchDriverChoices(supabase, load.owner_id);
     if (drv.error) console.error('[dispatch] drivers', drv.error);
     setDrivers(drv.choices || []);
     setDriversLoaded(true);
+    return false;
   }
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const fetchLoad = () => loadWithOneRetry((o) => withTimeout(fetchLoadOnce(o), undefined, () => { setState({ status: 'error', text: 'Couldn’t load this load. Check your connection and tap Retry.' }); return true; }), { isLive: () => live.current });
+  useRetryWhenOnline(state.status === 'error', () => withTimeout(fetchLoadOnce({ auto: true }), undefined, () => true)); // quiet probe
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
@@ -185,7 +193,7 @@ export default function DispatchLoadPage() {
                 <Field label="Notes (the assigned driver sees these)" textarea value={form.notes} onChange={set('notes')} error={errors.notes} />
                 {notesMayShowPay(form.notes) && !form.show_rate_to_driver && (
                   <p role="status" data-testid="notes-pay-warning" style={{ margin: 0, padding: '0.5rem 0.7rem', borderRadius: 8, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: '0.85rem' }}>
-                    These notes look like they mention pay. The driver can read notes even with “Show rate to driver” off, so remove any amounts you don’t want him to see.
+                    These notes look like they mention pay. The driver can read notes even with “Show rate to driver” off, so remove any amounts you don’t want them to see.
                   </p>
                 )}
               </div>

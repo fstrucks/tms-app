@@ -281,10 +281,10 @@ test('panels: WAI-ARIA tabs + arrows + dots + scroll-snap; Panel 2 (and Leaflet)
 
 test('map panel: location only after a tap (never on load), polled only while shown and visible; Drive time + ETA + ideal-conditions note', () => {
   const src = read('app/components/LoadMapPanel.js');
-  assert.match(src, /data-testid="eta-use-location" onClick=\{readLocation\}/);
+  assert.match(src, /data-testid="eta-use-location" onClick=\{\(\) => readLocation\(\)\}/);
   assert.match(src, /navigator\.permissions\?\.query\?\.\(\{ name: 'geolocation' \}\)/);
   assert.match(src, /if \(!active \|\| perm !== 'granted'\) return undefined;/);
-  assert.match(src, /document\.visibilityState === 'visible'\) readLocation\(\)/);
+  assert.match(src, /document\.visibilityState === 'visible'\) readLocation\(\{ quiet: gotFix\.current \}\)/);
   assert.match(src, /enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000/);
   assert.ok(!/watchPosition/.test(src));
   assert.match(src, /<b>Drive time<\/b>/); assert.match(src, /<b>ETA<\/b>/);
@@ -306,14 +306,14 @@ test('colors: new UI uses #95 theme tokens only (no hex/rgb, no fallbacks)', () 
   }
 });
 
-test('QA #96: "Updated N min ago" ages between server calls (30 s clock while Panel 2 is showing and visible)', () => {
-  assert.equal(AGE_TICK_MS, 30_000); assert.ok(AGE_TICK_MS < LOCATION_POLL_MS);
+test('QA #96: "Updated N min ago" ages between server calls (clock while Panel 2 is showing and visible)', () => {
+  assert.equal(AGE_TICK_MS, 15_000); assert.ok(AGE_TICK_MS < LOCATION_POLL_MS);
   const at = T0;
   assert.deepEqual([0, 0.5, 1, 7, 7.5, 59, 61].map((m) => ageText(at, at + m * MIN)),
     ['Updated just now', 'Updated just now', 'Updated 1 min ago', 'Updated 7 min ago', 'Updated 7 min ago', 'Updated 59 min ago', 'Updated 1 h ago']);
   const src = read('app/components/LoadMapPanel.js');
   // the age clock runs on its own interval, gated only on the panel being shown (not on location permission)
-  assert.match(src, /if \(!active\) return undefined;\s*const tick = \(\) => \{ if \(document\.visibilityState === 'visible'\) setNow\(Date\.now\(\)\); \};[\s\S]*setInterval\(tick, AGE_TICK_MS\)/);
+  assert.match(src, /if \(!active\) return undefined;\s*let t = null;\s*const tick = \(\) => \{\s*const n = Date\.now\(\);\s*if \(document\.visibilityState === 'visible'\) setNow\(n\);\s*t = setTimeout\(tick, nextAgeTickMs\(ageAt, n\)\);/);
   assert.match(src, /ageText\(fresh\.at, now\)/);
   // a later "prompt" from the Permissions API (Safari "Ask") doesn't stop polling after a fix arrived
   assert.match(src, /gotFix\.current \? 'granted' : 'prompt'/);
@@ -330,4 +330,36 @@ test('API: a driver gets 404 from /api/loads/[id]/eta (GET and POST) for a load 
   assert.equal(ors.calls.length, 0, 'no ORS call');
   assert.ok(rpcCalls.filter(([f]) => f === 'visible_loads').every(([, a]) => a.p_load === L1), 'access decided by visible_loads(p_load) as the caller');
   assert.equal(sb.calls.length, 0, 'service client never reads the load');
+});
+
+// ---------- Follow-up PR (Oct 19): label exact to the minute, "Finding your location…" ----------
+import { nextAgeTickMs, LOCATING_MAX_MS } from '../../app/lib/loadEta.js';
+
+test('QA #96 r2: the age clock fires right after each whole minute since the fix (no ~72 s "1 min ago")', () => {
+  const at = Date.parse('2026-10-19T05:28:15Z');
+  // Taylor's case: POST at :15 → "1 min ago" must show at :15 of the next minute, not at :27.
+  let now = at, flips = [], label = ageText(at, now);
+  for (let i = 0; i < 40 && flips.length < 3; i++) {
+    now += nextAgeTickMs(at, now);
+    const l = ageText(at, now);
+    if (l !== label) { flips.push(now - at); label = l; }
+  }
+  assert.equal(flips.length, 3);
+  flips.forEach((ms, i) => assert.ok(ms >= (i + 1) * 60_000 && ms <= (i + 1) * 60_000 + 100, `flip ${i + 1} at ${ms} ms`));
+  assert.ok(nextAgeTickMs(at, at + 1_000) <= AGE_TICK_MS, 'never longer than the max tick (estimate keeps moving)');
+  assert.equal(nextAgeTickMs(at, at + 59_000), 1_050, 'just after the minute');
+  assert.equal(nextAgeTickMs(null, at), AGE_TICK_MS, 'no answer yet: plain 15 s tick');
+  assert.equal(nextAgeTickMs(at + 5_000, at), AGE_TICK_MS, 'clock skew (fix in the future): plain tick');
+});
+
+test('map panel: "Finding your location…" from the tap until a fix, an error or a timeout', () => {
+  const src = read('app/components/LoadMapPanel.js');
+  assert.equal(LOCATING_MAX_MS, 30_000);
+  assert.match(src, /if \(!quiet\) \{\s*setLocating\(true\);[\s\S]*setTimeout\(\(\) => \{ locTimer\.current = null; setLocating\(false\); \}, LOCATING_MAX_MS\)/, 'backstop timeout');
+  assert.match(src, /\(p\) => \{ stopLocating\(\); gotFix\.current = true;/, 'cleared on a fix');
+  assert.match(src, /\(e\) => \{ stopLocating\(\); if \(e\?\.code === 1\)/, 'cleared on any error incl. timeout (code 3) and denied (code 1)');
+  assert.match(src, /locating && !fresh && \(\s*<p role="status" data-testid="eta-locating"[^>]*>Finding your location…<\/p>/);
+  assert.match(src, /!locating && \(perm === 'prompt' \|\| perm === 'unknown'\) && \(\s*<button type="button" data-testid="eta-use-location"/, 'button hidden while locating (no double prompt)');
+  assert.match(src, /useEffect\(\(\) => \(\) => \{ if \(locTimer\.current\) clearTimeout\(locTimer\.current\); \}, \[\]\);/, 'timer cleared on unmount');
+  assert.ok(!/localStorage\.|sessionStorage\.|document\.cookie/.test(src), 'position still memory-only');
 });

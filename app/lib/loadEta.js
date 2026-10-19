@@ -12,7 +12,8 @@ const fullAddress = (stop) => {
 
 // ---- refresh / caching rules (plan 2026-10-18_current-load-eta_plan.md §1) ----
 export const LOCATION_POLL_MS = 60_000;          // read location once a minute while Panel 2 is showing
-export const AGE_TICK_MS = 30_000;               // re-render "Updated N min ago" (and the estimate) while Panel 2 is showing (QA #96)
+export const AGE_TICK_MS = 15_000;               // longest gap between re-renders of "Updated N min ago" / the estimate while Panel 2 is showing (QA #96)
+export const LOCATING_MAX_MS = 30_000;           // "Finding your location…" never shows longer than this (backstop if the browser never answers)
 export const REFRESH_MIN_MOVE_MI = 10;           // re-route after moving ≥ 10 mi …
 export const REFRESH_MIN_GAP_MS = 10 * 60_000;   // … and ≥ 10 min since the last route
 export const PERIODIC_MS = 20 * 60_000;          // or every 20 min while moving at all
@@ -135,6 +136,14 @@ export function totalRouteMiles(load, view) {
   if (c > 0) return c;
   const t = Number(view?.total_miles ?? load?.total_miles);
   return t > 0 ? t : null;
+}
+
+// QA #96 r2: the next re-render lands right after the next whole minute since the fix (so "1 min ago" flips at
+// exactly +60 s, not up to a tick later), and never later than AGE_TICK_MS (the estimate and ETA keep moving).
+export function nextAgeTickMs(at, now = Date.now(), { max = AGE_TICK_MS, slack = 50 } = {}) {
+  if (!at || !(now >= at)) return max;
+  const toMinute = 60_000 - ((now - at) % 60_000);
+  return Math.max(slack, Math.min(max, toMinute + slack));
 }
 
 export function ageText(at, now = Date.now()) {

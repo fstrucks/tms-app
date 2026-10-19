@@ -53,6 +53,11 @@ button { touch-action: manipulation; }
   .appnav-bottom { display: flex !important; }
   body.has-appnav { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
 }
+/* Space the floating "Report a bug" button takes above the tab bar (40px + 12px gap + margin). Pages whose last
+   controls sit at the very bottom add it below them, and [data-above-fab] marks controls that scroll into view
+   clear of the button and the tab bar when they appear (QA #97: Change-role Yes / Back were covered at 390px). */
+:root { --fab-space: 64px; }
+[data-above-fab] { scroll-margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--fab-space) + 8px); scroll-margin-top: 64px; }
 /* While typing on a phone, hide the tab bar so the keyboard + sticky Save have the room. */
 @media (max-width: 767.98px) {
   body.kbd-open { --nav-h: 0px; }
@@ -142,7 +147,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   --info-bg: #172554;
   --danger-solid: #b91c1c; --on-danger: #ffffff;
   --success-solid: #166534; --on-success: #ffffff;
-  --disabled-bg: #374151; --disabled-text: #d1d5db; --disabled-border: #6b7280;
+  --disabled-bg: #374151; --disabled-text: #e5e7eb; --disabled-border: #9ca3af;
   --focus: #93c5fd; --focus-ring: rgba(147, 197, 253, 0.35);
   --overlay: rgba(0, 0, 0, 0.7); --shadow: rgba(0, 0, 0, 0.6);
   --paper: #ffffff; --paper-line: #e5e7eb; --paper-text: #6b7280;
@@ -156,7 +161,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
     --success: #4ade80; --success-bg: #052e16; --warning: #fbbf24; --warning-bg: #2d1f05; --warning-border: #a16207;
     --danger: #f87171; --danger-bg: #3a0d0d; --danger-border: #b91c1c; --info-bg: #172554;
     --danger-solid: #b91c1c; --on-danger: #ffffff;
-  --disabled-bg: #374151; --disabled-text: #d1d5db; --disabled-border: #6b7280;
+  --disabled-bg: #374151; --disabled-text: #e5e7eb; --disabled-border: #9ca3af;
     --focus: #93c5fd; --focus-ring: rgba(147, 197, 253, 0.35); --overlay: rgba(0, 0, 0, 0.7); --shadow: rgba(0, 0, 0, 0.6);
   }
 }
