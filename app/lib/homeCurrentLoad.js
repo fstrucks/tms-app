@@ -176,3 +176,8 @@ export function rateText(load) {
   const rpm = load.rate_per_mile != null && load.rate_per_mile !== '' ? ` · ${fmtMoney(load.rate_per_mile)}/mi` : '';
   return `Rate ${fmtMoney(load.rate)}${rpm}`;
 }
+
+// Where the card's load links go: the owner's /loads pages, or the dispatch center (/dispatch) for management
+// and dispatchers. Drivers get no links (read-only card).
+export const linkBaseFor = (audience, load) => (audience === 'owner' ? '/loads'
+  : ['management', 'dispatcher'].includes(load?.viewer_role) ? '/dispatch' : null);
