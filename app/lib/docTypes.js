@@ -7,6 +7,8 @@ export const SCAN_DOC_TYPES = [
   { id: 'w9', label: 'W-9', short: 'W9', button: 'W-9', company: true },
   { id: 'coi', label: 'Certificate of Insurance (COI)', short: 'COI', button: 'COI', company: true },
   { id: 'mc_authority', label: 'MC Authority', short: 'MC_AUTHORITY', button: 'MC Authority', company: true },
+  // PR #84 vault: Notice of Assignment (factoring). New key, no SQL (doc_type is plain text, like scale_ticket in #69).
+  { id: 'noa', label: 'Notice of Assignment (NOA)', short: 'NOA', button: 'NOA', company: true },
   // Truck tab (PR #69): scanned from Truck → Scan scale ticket; read for weight + date.
   { id: 'scale_ticket', label: 'Scale ticket', short: 'SCALE_TICKET', button: 'Scale Ticket' },
   // Free-text type (Marc): stored as doc_type 'other:<name>' (no migration; doc_type is plain text).
@@ -18,6 +20,9 @@ export const COMPANY_DOC_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => t.company).map(
 export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id); }
 // Marc 10/15 (via Sam): load-page Scan offers BOL, POD, Lumper receipt, and Other.
 export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt', 'other'];
+// PR #84: the Documents tab is load paperwork only. Company types live in Company → Company documents.
+export const DOCUMENTS_SCAN_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => !t.company).map((t) => t.id);
+export const isDocumentsTabDoc = (d) => !isCompanyDocType(d?.doc_type);
 
 export const OTHER_PREFIX = 'other:';
 export const OTHER_MAX = 40;
@@ -54,9 +59,15 @@ export function docTypeShort(id) {
 
 // Documents page "Document type" for the Upload button. Rate confirmation keeps AI extraction (and COI auto-detect);
 // the rest are saved as-is. 'other' needs a name, so it stays in the scanner only.
+// PR #84: company types (W-9, COI, MC Authority, NOA) are uploaded on Company → Company documents, not here.
 export const UPLOAD_TYPES = [
   { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)', short: 'Rate confirmation' },
-  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other').map((t) => ({ id: t.id, label: t.label, short: t.label })),
+  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other' && !t.company).map((t) => ({ id: t.id, label: t.label, short: t.label })),
+];
+// "Change type" still offers the company types, so a misfiled file (e.g. 'Other: W9') can be moved into the vault.
+export const CHANGE_TYPES = [
+  ...UPLOAD_TYPES,
+  ...SCAN_DOC_TYPES.filter((t) => t.company).map((t) => ({ id: t.id, label: `${t.label} (moves to Company documents)`, short: `${t.short === 'MC_AUTHORITY' ? 'MC Authority' : t.label} → Company docs` })),
 ];
 export function uploadTypeFromQuery(search) {
   const t = new URLSearchParams(search || '').get('type');

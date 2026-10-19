@@ -3,12 +3,12 @@
 // Policies typed in by owner/management are confirmed; AI suggestions from an uploaded COI stay
 // unconfirmed until confirmed here. Upload COI / declarations docs with the existing Scan/Upload (type "COI").
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { COVERAGES, COVERAGE_LABELS, coiGaps } from '../lib/coiGaps';
 import { companyGapNotes, suggestMessage, suggestedExpiredLabel, suggestedExpiredNotes, atLeast } from '../lib/coiRequest';
 import { laToday } from '../lib/sendCap';
+import { INSURANCE_CHANGED_EVENT, VAULT_CHANGED_EVENT } from '../lib/companyDocs';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -41,22 +41,39 @@ export default function CompanyInsurance() {
   }, []);
   const reload = useCallback(() => api('/api/company/insurance').then(apply), [apply]);
   useEffect(() => { reload(); }, [reload]);
-  useEffect(() => { getSupabase()?.from('documents').select('id,original_filename,created_at').eq('doc_type', 'coi').order('created_at', { ascending: false }).limit(10).then(({ data }) => setDocs(data || [])); }, []);
+  // COIs for Suggest (#89 QA): one button for the CURRENT COI (newest, pick 1A). Earlier versions sit under a collapsed
+  // list with their upload date, so two files with the same name no longer show as two identical buttons.
+  // Re-read when the vault card changes (upload / delete).
+  const loadDocs = useCallback(() => getSupabase()?.from('documents').select('id,original_filename,created_at').eq('doc_type', 'coi').order('created_at', { ascending: false }).limit(10).then(({ data }) => setDocs(uniqueById(data || []))), []);
+  useEffect(() => { loadDocs(); const h = () => loadDocs(); window.addEventListener(VAULT_CHANGED_EVENT, h); return () => window.removeEventListener(VAULT_CHANGED_EVENT, h); }, [loadDocs]);
+  const [showEarlier, setShowEarlier] = useState(false);
   const run = async (fn, ok) => {
     if (inFlight.current) return null;
     inFlight.current = true;
     try { return await runInner(fn, ok); } finally { inFlight.current = false; }
   };
-  const runInner = async (fn, ok) => { setBusy(true); setMsg(null); setErrors({}); const r = await fn(); setBusy(false); if (r.error) { setErrors(r.errors || {}); setMsg(r.error); return null; } if (ok) setMsg(ok); return r; };
+  const runInner = async (fn, ok) => { setBusy(true); setMsg(null); setErrors({}); const r = await fn(); setBusy(false); if (r.error) { setErrors(r.errors || {}); setMsg(r.error); return null; } if (ok) setMsg(ok); notifyVault(); return r; };
 
   if (st.loading) return <section style={s.card}><p>Loading insurance…</p></section>;
   if (st.error) return <section style={s.card}><h2 style={{ margin: 0, fontSize: '1.1rem' }}>Insurance</h2><p role="alert" style={s.err}>{st.error}</p></section>;
   const ed = !!st.canEdit && !st.setupNeeded;
+  const suggestBtn = (d, label) => (
+    <button key={d.id} type="button" data-testid="suggest-btn" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left', ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : null) }} disabled={busy} aria-busy={reading === d.id}
+            onClick={async () => {
+              setReading(d.id);
+              const r = await run(() => atLeast(api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) }))); // busy state stays visible ≥600ms
+              setReading(null);
+              if (!r) return;
+              if (Array.isArray(r.policies)) setSt((x) => ({ ...x, policies: r.policies })); // refresh the list in place
+              setMsg(suggestMessage(r));
+            }}>
+            {reading === d.id ? 'Reading COI…' : label}</button>
+  );
   const field = (obj, set, k, label, extra = {}) => <div key={k}><label htmlFor={`ins-${k}`} style={s.label}>{label}</label>
     {ed ? <input id={`ins-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: '#b91c1c' } : null) }} value={obj[k]} onChange={(e) => set({ ...obj, [k]: e.target.value })} {...extra} /> : <div style={{ padding: '0.6rem 0' }}>{obj[k] || '—'}</div>}
     {errors[k] && <p style={s.err}>{errors[k]}</p>}</div>;
   return (
-    <section style={s.card} aria-label="Insurance" data-testid="company-insurance">
+    <section style={s.card} id="company-insurance" aria-label="Insurance" data-testid="company-insurance">
       <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Insurance</h2>
       {st.setupNeeded && <p style={{ color: '#92400e', fontSize: 14 }}>Insurance info needs a database update that hasn’t been applied yet.</p>}
       <h3 style={{ fontSize: '1rem', margin: '0.75rem 0 0' }}>Insurance agent</h3>
@@ -97,20 +114,16 @@ export default function CompanyInsurance() {
         {field(np, setNp, 'expiry_date', 'Expiry date', { type: 'date' })}
         <button type="button" style={{ ...s.btn, ...(busy ? { opacity: 0.6 } : null) }} disabled={busy} onClick={() => run(() => api('/api/company/insurance/policies', { method: 'POST', body: JSON.stringify(np) }), 'Policy added.').then((r) => { if (r) { setNp(BLANK); reload(); } })}>Add policy</button>
         <h4 style={{ fontSize: 15, margin: '1rem 0 0.25rem' }}>Read a COI you uploaded</h4>
-        <Link href="/documents?type=coi" prefetch={false} data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</Link>
-        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI or declarations page (Document type is set to COI for you), then come back here.</p>
-          : docs.map((d) => <button key={d.id} type="button" data-testid="suggest-btn" style={{ ...s.small, width: '100%', marginTop: 6, textAlign: 'left', ...(busy ? { opacity: 0.6, cursor: 'not-allowed' } : null) }} disabled={busy} aria-busy={reading === d.id}
-            onClick={async () => {
-              setReading(d.id);
-              const r = await run(() => atLeast(api('/api/company/insurance/suggest', { method: 'POST', body: JSON.stringify({ documentId: d.id }) }))); // busy state stays visible ≥600ms
-              setReading(null);
-              if (!r) return;
-              if (Array.isArray(r.policies)) setSt((x) => ({ ...x, policies: r.policies })); // refresh the list in place
-              setMsg(suggestMessage(r));
-            }}>
-            {reading === d.id ? 'Reading COI…' : `Suggest policies from ${d.original_filename || 'COI'}`}</button>)}
+        <a href="#vault-coi" data-testid="upload-coi" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, textDecoration: 'none', marginBottom: 6 }}>Upload COI</a>
+        {!docs.length ? <p style={{ color: '#6b7280', fontSize: 14 }}>Upload your COI in Company documents above, then come back here.</p>
+          : <>{suggestBtn(docs[0], `Suggest policies from ${docs[0].original_filename || 'COI'} (current)`)}
+            {docs.length > 1 && <><button type="button" data-testid="suggest-earlier-toggle" aria-expanded={showEarlier} onClick={() => setShowEarlier((v) => !v)} style={{ ...s.small, border: 'none', padding: 0, marginTop: 6, color: '#2563eb', background: 'none' }}>{showEarlier ? '▾' : '▸'} Earlier COIs ({docs.length - 1})</button>
+              {showEarlier && docs.slice(1).map((d) => suggestBtn(d, `Suggest from earlier COI ${d.original_filename || ''} (uploaded ${new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`))}</>}</>}
       </>}
       {msg && <p role="status" style={{ marginTop: '0.75rem', fontSize: 14 }}>{msg}</p>}
     </section>
   );
 }
+
+const uniqueById = (rows) => rows.filter((r, i) => rows.findIndex((x) => x.id === r.id) === i);
+function notifyVault() { try { window.dispatchEvent(new Event(INSURANCE_CHANGED_EVENT)); } catch { /* not in a browser */ } }

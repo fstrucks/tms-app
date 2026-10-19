@@ -1,4 +1,5 @@
 import { deleteDocument } from './documents.js';
+import { isCompanyDocType } from './docTypes.js';
 
 // Delete a load (pick 4A). Order:
 //   1) unlink expenses and mileage (load_id = null). They are NEVER deleted, whatever the FK says.
@@ -12,7 +13,13 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
     if (error) return { ok: false, error: `Couldn't unlink ${table === 'expenses' ? 'expenses' : 'mileage'}: ${error.message}` };
   }
   if (deleteDocs) {
-    for (const d of docs) {
+    // PR #84: company documents (W-9, COI, MC Authority, NOA) are never deleted with a load, only unlinked.
+    const company = docs.filter((d) => isCompanyDocType(d.doc_type));
+    for (const d of company) {
+      const { error } = await supabase.from('documents').update({ load_id: null }).eq('id', d.id);
+      if (error) return { ok: false, error: `Couldn't unlink documents: ${error.message}` };
+    }
+    for (const d of docs.filter((x) => !isCompanyDocType(x.doc_type))) {
       const r = await deleteDocument(supabase, d, 'documents', { missingOk: true });
       if (!r.ok) return { ok: false, error: r.error };
       if (r.fileError) warnings.push(r.fileError);

@@ -121,17 +121,16 @@ test('cap reached → "Monthly limit reached"; Send now uses #65 disabled style 
   assert.equal(capLabel({ used: 1, cap: 0 }), 'Monthly limit reached'); assert.equal(capLabel({ used: 80, cap: 80 }), 'Monthly limit reached'); assert.equal(capLabel({ used: 3, cap: 80 }), '3 of 80 used this month');
   for (const f of ['PacketCoiRequest.js', 'PacketSendBroker.js']) {
     const s = read(`../../app/packets/${f}`);
-    assert.match(s, /primaryButtonStyle\(\{ \.\.\.primary, flex: 2, background: '#059669' \}, !ok \|\| busy \|\| capFull\)\} disabled=\{!ok \|\| busy \|\| capFull\}/, f);
+    assert.match(s, /primaryButtonStyle\(\{ \.\.\.primary, flex: 2, background: '#059669' \}, !ok \|\| busy \|\| capFull( \|\| !size\.ok)?\)\} disabled=\{!ok \|\| busy \|\| capFull( \|\| !size\.ok)?\}/, f); // PR #84 adds the attachment size cap on the broker send
     assert.match(s, /'Monthly limit reached\. Nothing more can be sent this month\.'/, f);
     assert.doesNotMatch(s, /opacity: ok && !busy/, f);
   }
 });
 
-// (8) Upload COI is a real Next Link with no handler
-test('Upload COI is a next/link to /documents?type=coi with no onClick', () => {
+// (8) Upload COI is a real link with no handler. PR #84: it jumps to the vault's COI row on the same page.
+test('Upload COI is a plain link to the vault COI row (#vault-coi) with no onClick', () => {
   const ui = read('../../app/company/CompanyInsurance.js');
-  assert.match(ui, /import Link from 'next\/link';/);
-  const tag = ui.slice(ui.indexOf('<Link href="/documents?type=coi"'), ui.indexOf('>Upload COI</Link>'));
+  const tag = ui.slice(ui.indexOf('<a href="#vault-coi"'), ui.indexOf('>Upload COI</a>'));
   assert.ok(tag.length > 0); assert.doesNotMatch(tag, /onClick/);
 });
 

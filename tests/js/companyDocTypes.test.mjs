@@ -14,7 +14,7 @@ test('company types exist with the agreed labels; keys unchanged (no SQL)', () =
   assert.equal(by.w9, 'W-9');
   assert.equal(by.coi, 'Certificate of Insurance (COI)');
   assert.equal(by.mc_authority, 'MC Authority');
-  assert.deepEqual(COMPANY_DOC_TYPE_IDS, ['w9', 'coi', 'mc_authority']);
+  assert.deepEqual(COMPANY_DOC_TYPE_IDS, ['w9', 'coi', 'mc_authority', 'noa']); // PR #84 adds NOA (no SQL)
   for (const id of ['bol', 'pod', 'lumper_receipt', 'other', 'ratecon']) assert.equal(isCompanyDocType(id), false, id);
   assert.equal(docTypeLabel('coi'), 'Certificate of Insurance (COI)');
 });
