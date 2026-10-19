@@ -116,7 +116,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 :root, [data-theme="light"] {
   color-scheme: light;
   --bg: #ffffff; --surface: #ffffff; --surface-2: #f3f4f6;
-  --text: #111827; --text-muted: #4b5563;
+  --text: #111827; --text-muted: #4b5563; --placeholder: #6b7280;
   --border: #868e9b; --divider: #e5e7eb;
   --primary: #2563eb; --on-primary: #ffffff; --primary-soft: #93c5fd;
   --success: #15803d; --success-bg: #f0fdf4;
@@ -133,7 +133,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 [data-theme="dark"] {
   color-scheme: dark;
   --bg: #0b1220; --surface: #111827; --surface-2: #1f2937;
-  --text: #f3f4f6; --text-muted: #a1aab8;
+  --text: #f3f4f6; --text-muted: #a1aab8; --placeholder: #8a94a6;
   --border: #6b7280; --divider: #273244;
   --primary: #60a5fa; --on-primary: #0b1220; --primary-soft: #1e3a8a;
   --success: #4ade80; --success-bg: #052e16;
@@ -151,7 +151,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #0b1220; --surface: #111827; --surface-2: #1f2937; --text: #f3f4f6; --text-muted: #a1aab8;
+    --bg: #0b1220; --surface: #111827; --surface-2: #1f2937; --text: #f3f4f6; --text-muted: #a1aab8; --placeholder: #8a94a6;
     --border: #6b7280; --divider: #273244; --primary: #60a5fa; --on-primary: #0b1220; --primary-soft: #1e3a8a;
     --success: #4ade80; --success-bg: #052e16; --warning: #fbbf24; --warning-bg: #2d1f05; --warning-border: #a16207;
     --danger: #f87171; --danger-bg: #3a0d0d; --danger-border: #b91c1c; --info-bg: #172554;
@@ -166,7 +166,7 @@ input, select, textarea { background-color: var(--surface); color: var(--text); 
 /* Native pickers (date, select popups) follow the theme. */
 [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea { color-scheme: dark; }
 [data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { color-scheme: light; }
-input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 1; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Autofill: keep text readable on the browser's autofill tint. */
 input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {

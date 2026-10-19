@@ -9,7 +9,7 @@ import BugReportsMenuItem from '../BugReportsMenuItem';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
-import { THEME_CHOICES, THEME_LABELS, readTheme, setTheme } from '../../lib/theme';
+import { THEME_CHOICES, THEME_EVENT, THEME_KEY, THEME_LABELS, readTheme, setTheme } from '../../lib/theme';
 import { companyOwnerStatus, cachedOwner } from '../../lib/accountOwner';
 import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
 // Back to this page after signing in (header Sign in, and after Sign out).
@@ -37,6 +37,14 @@ export default function AccountMenu({ showEmail = false }) {
   // session token changes; a "couldn't tell" answer keeps the last value instead of hiding them (QA #78 b).
   const [theme, setThemeState] = useState('auto');
   useEffect(() => { if (open) setThemeState(readTheme()); }, [open]);
+  // Keep every instance (desktop and phone navs each render one) in sync with the stored choice, including other tabs.
+  useEffect(() => {
+    const sync = () => setThemeState(readTheme());
+    const onStorage = (e) => { if (!e.key || e.key === THEME_KEY) sync(); };
+    sync();
+    window.addEventListener(THEME_EVENT, sync); window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener(THEME_EVENT, sync); window.removeEventListener('storage', onStorage); };
+  }, []);
   const [owner, setOwner] = useState(false);
   const [authTick, setAuthTick] = useState(0);
   const uid = user?.id || null;

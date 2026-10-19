@@ -3,6 +3,8 @@
 // paint (no flash of the wrong theme) and sets <html data-theme="light|dark">; colors are CSS custom properties
 // in app/globals.css.
 export const THEME_KEY = 'powerhaul.theme';
+// Fired on window by setTheme so every AccountMenu instance (desktop + phone navs) shows the same choice.
+export const THEME_EVENT = 'powerhaul:theme';
 export const THEME_CHOICES = ['light', 'dark', 'auto'];
 export const THEME_LABELS = { light: 'Light', dark: 'Dark', auto: 'Auto' };
 export const THEME_COLORS = { light: '#ffffff', dark: '#0b1220' }; // = --bg, for <meta name="theme-color">
@@ -32,6 +34,7 @@ export function setTheme(pref, win = typeof window !== 'undefined' ? window : nu
   const p = normalizeTheme(pref);
   if (!win) return p;
   try { if (p === 'auto') win.localStorage.removeItem(THEME_KEY); else win.localStorage.setItem(THEME_KEY, p); } catch { /* private mode: applies for this page only */ }
+  try { win.dispatchEvent(new win.CustomEvent(THEME_EVENT, { detail: p })); } catch { /* old browsers */ }
   if (typeof win.__phApplyTheme === 'function') win.__phApplyTheme();
   else {
     const t = resolveTheme(p, !!win.matchMedia?.('(prefers-color-scheme: dark)').matches);

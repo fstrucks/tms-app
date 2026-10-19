@@ -141,7 +141,7 @@ test('rate con route: driver 403, outsider 404, no token 401, bad id 404, expire
 // ---------- Source guards ----------
 const read = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const list = read('app/dispatch/page.js');
-const page = read('app/dispatch/[id]/page.js');
+const page = read('app/dispatch/[id]/page.js') + read('app/components/StopsEditor.js'); // stops editor extracted (load boards)
 const lib = read('app/lib/dispatch.js');
 const mig = read('supabase/migrations/20261018000700_dispatch_center.sql');
 
