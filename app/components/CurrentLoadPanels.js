@@ -21,7 +21,7 @@ function PanelPlaceholder() {
   return <div style={{ minHeight: 240, borderRadius: 12, border: `2px solid ${c.border}`, background: c.soft }} />;
 }
 
-export default function CurrentLoadPanels({ enabled = true, load, supabase, audience, children }) {
+export default function CurrentLoadPanels({ enabled = true, load, audience, children }) {
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [activeH, setActiveH] = useState(null);
@@ -149,7 +149,7 @@ export default function CurrentLoadPanels({ enabled = true, load, supabase, audi
               inert={idx === i ? undefined : ''} aria-hidden={idx === i ? undefined : true}
               style={{ flex: '0 0 100%', minWidth: 0, scrollSnapAlign: 'start', scrollSnapStop: 'always',
                 ...(idx !== i && activeH ? { height: activeH, overflow: 'hidden' } : {}) }}>
-              {i === 0 ? children : (revealed ? <LoadMapPanel load={load} supabase={supabase} audience={audience} active={idx === 1} /> : <PanelPlaceholder />)}
+              {i === 0 ? children : (revealed ? <LoadMapPanel load={load} audience={audience} active={idx === 1} /> : <PanelPlaceholder />)}
             </div>
           ))}
         </div>

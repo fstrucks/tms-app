@@ -88,7 +88,16 @@ function OptionB({ load, now }) {
   );
 }
 
-function LoadCard({ pick, docPath, onOpenRateCon, now, audience }) {
+// The current load is swipeable (Panel 1 = FrontCard, unchanged; Panel 2 = map + miles left). "Next load" stays one card.
+function LoadCard(props) {
+  return (
+    <CurrentLoadPanels enabled={props.pick.kind === 'current'} load={props.pick.load} audience={props.audience}>
+      <FrontCard {...props} />
+    </CurrentLoadPanels>
+  );
+}
+
+function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
   const owner = audience === 'owner';
   const { load, kind } = pick;
   const layout = layoutFor(load);
@@ -218,9 +227,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
   return (
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
-        <CurrentLoadPanels enabled={pick.kind === 'current'} load={pick.load} supabase={supabase} audience={audience}>
-          <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
-        </CurrentLoadPanels>
+        <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
         {openErr && <p role="alert" style={{ color: '#b91c1c', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
       <UpNext loads={upNext(loads, pick.load, now)} owner={owner} />

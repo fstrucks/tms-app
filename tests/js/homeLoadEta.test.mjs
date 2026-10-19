@@ -274,7 +274,8 @@ test('panels: WAI-ARIA tabs + arrows + dots + scroll-snap; Panel 2 (and Leaflet)
   assert.match(src, /revealed \? <LoadMapPanel/);
   assert.match(src, /dynamic\(\(\) => import\('\.\/LoadMapPanel'\)/);
   const home = read('app/components/HomeCurrentLoad.js');
-  assert.match(home, /<CurrentLoadPanels enabled=\{pick\.kind === 'current'\}[^>]*>\s*<LoadCard /);
+  assert.match(home, /<CurrentLoadPanels enabled=\{props\.pick\.kind === 'current'\}[^>]*>\s*<FrontCard \{\.\.\.props\} \/>/);
+  assert.match(home, /<LoadCard pick=\{pick\} docPath=\{docPath\} onOpenRateCon=\{openRateCon\} now=\{now\} audience=\{audience\} \/>/, 'render line untouched (#94 / #95 merge cleanly)');
   assert.ok(!/LoadMapPanel|milesLeft|fmtMilesLeft|Drive time|left to delivery|loadEta/.test(home), 'front panel: no miles-left line');
   assert.match(home, /pickupNumberText\(load, pu\)/, 'Pickup # chip untouched here (removed by #94)');
 });
@@ -292,7 +293,8 @@ test('map panel: location only after a tap (never on load), polled only while sh
   assert.match(src, /total route/);
   assert.match(src, /Location is blocked for this site/);
   const map = read('app/components/RouteMap.js');
-  assert.match(map, /truck = null, live = null/);
+  assert.match(map, /truck = null, live = null, label = null/);
+  assert.match(map, /aria-label="Map of pickup and delivery with the truck route"/, 'load page label unchanged');
   assert.ok(!/filter:\s*['"]?invert/.test(map), 'tiles stay light in dark mode');
 });
 

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { callMap } from '../lib/mapClient';
+import { getSupabase } from '../lib/supabase';
 import { sortedStops } from '../lib/loadTabs';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { fmtApptWindow } from '../lib/loads';
@@ -48,7 +49,8 @@ async function copyText(text) {
   } catch { return false; }
 }
 
-export default function LoadMapPanel({ load, supabase, audience, active = true }) {
+export default function LoadMapPanel({ load, supabase: sbProp = null, audience, active = true }) {
+  const supabase = sbProp || getSupabase();
   const [view, setView] = useState(null);          // GET: stops + stored route
   const [perm, setPerm] = useState('unknown');     // unknown | prompt | granted | denied | unsupported
   const [fix, setFix] = useState(null);            // { lat, lng, accuracy, at } (memory only)
