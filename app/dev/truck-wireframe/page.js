@@ -19,12 +19,12 @@ const FAKE = {
 };
 const lb = (n) => (n == null ? '—' : `${Number(n).toLocaleString('en-US')} lb`);
 const mdy = (d) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`;
-const TONES = { green: ['#dcfce7', '#166534'], yellow: ['#fef9c3', '#854d0e'], orange: ['#ffedd5', '#9a3412'], red: ['#fee2e2', '#b91c1c'], 'red-strong': ['#b91c1c', '#fff'], grey: ['#f3f4f6', '#374151'] };
-const card = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' };
+const TONES = { green: ['var(--success-bg)', 'var(--success)'], yellow: ['var(--warning-bg)', 'var(--warning)'], orange: ['var(--warning-bg)', 'var(--warning)'], red: ['var(--danger-bg)', 'var(--danger)'], 'red-strong': ['var(--danger)', 'var(--surface)'], grey: ['var(--surface-2)', 'var(--text)'] };
+const card = { background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' };
 const h2 = { fontSize: 18, margin: '0 0 0.75rem' };
-const row = { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderTop: '1px solid #f1f5f9', fontSize: 15 };
-const k = { color: '#6b7280' };
-const btn = { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: 'none', background: '#2563eb', color: '#fff', fontSize: 16, fontWeight: 600, marginTop: 12 };
+const row = { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderTop: '1px solid var(--divider)', fontSize: 15 };
+const k = { color: 'var(--text-muted)' };
+const btn = { display: 'block', width: '100%', minHeight: 48, borderRadius: 10, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: 16, fontWeight: 600, marginTop: 12 };
 
 function Badge({ date, what }) {
   const b = expiryBadge(date, TODAY); const [bg, fg] = TONES[b.tone];
@@ -38,10 +38,10 @@ export default function Page() {
   const latest = latestWeight(FAKE.history);
   const d = FAKE.driver;
   return (
-    <main data-testid="truck-wireframe" style={{ fontFamily: 'system-ui', padding: '1rem', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box', background: '#f8fafc' }}>
-      <p style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '6px 10px', fontSize: 13, margin: '0 0 0.75rem' }}>Wireframe only · fake data · nothing is saved</p>
+    <main data-testid="truck-wireframe" style={{ fontFamily: 'system-ui', padding: '1rem', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box', background: 'var(--surface-2)' }}>
+      <p style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '6px 10px', fontSize: 13, margin: '0 0 0.75rem' }}>Wireframe only · fake data · nothing is saved</p>
       <h1 style={{ fontSize: 24, margin: '0 0 0.75rem' }}>Truck</h1>
-      <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 12 }}>Truck <select disabled style={{ minHeight: 40, fontSize: 15, marginLeft: 6 }}><option>#{v.truck_number}</option></select> <span style={{ fontSize: 12 }}>(picker appears when there are 2+ trucks)</span></label>
+      <label style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>Truck <select disabled style={{ minHeight: 40, fontSize: 15, marginLeft: 6 }}><option>#{v.truck_number}</option></select> <span style={{ fontSize: 12 }}>(picker appears when there are 2+ trucks)</span></label>
 
       <section style={card} aria-label="Truck & Trailer">
         <h2 style={h2}>Truck &amp; Trailer</h2>
@@ -52,15 +52,15 @@ export default function Page() {
         <Row label="Trailer number">{v.trailer_number}</Row>
         <Row label="Trailer plate">{v.trailer_plate} · {v.trailer_plate_state}</Row>
         <Row label="Empty weight (trailer)">{lb(FAKE.trailer.empty_weight_lb)}</Row>
-        <button type="button" style={{ ...btn, background: '#fff', color: '#2563eb', border: '1px solid #2563eb' }}>Edit</button>
+        <button type="button" style={{ ...btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>Edit</button>
       </section>
 
       <section style={card} aria-label="Scale weights">
         <h2 style={h2}>Scale weights</h2>
-        <div data-testid="latest-weight" style={{ background: '#eff6ff', borderRadius: 10, padding: '0.75rem', marginBottom: 8 }}>
-          <div style={{ fontSize: 13, color: '#1e40af' }}>Latest weight · {mdy(latest.ticket_date)}</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#1e3a8a' }}>{lb(latest.gross_weight_lb)}</div>
-          <div style={{ fontSize: 13, color: '#475569' }}>{latest.scale_name}</div>
+        <div data-testid="latest-weight" style={{ background: 'var(--info-bg)', borderRadius: 10, padding: '0.75rem', marginBottom: 8 }}>
+          <div style={{ fontSize: 13, color: 'var(--primary)' }}>Latest weight · {mdy(latest.ticket_date)}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--primary)' }}>{lb(latest.gross_weight_lb)}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{latest.scale_name}</div>
         </div>
         <ul data-testid="weight-history" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {FAKE.history.map((h) => <li key={h.id} style={row}><span>{mdy(h.ticket_date)} <span style={{ ...k, fontSize: 13 }}>· {h.scale_name}</span></span><strong style={{ whiteSpace: 'nowrap' }}>{lb(h.gross_weight_lb)}</strong></li>)}
@@ -77,12 +77,12 @@ export default function Page() {
         <Row label="CDL expires"><span>{mdy(d.cdl_expiry)} <Badge date={d.cdl_expiry} what="cdl" /></span></Row>
         <Row label="Med card expires"><span>{mdy(d.med_card_expiry)} <Badge date={d.med_card_expiry} what="med" /></span></Row>
         <Row label="Drives">Truck #{v.truck_number}</Row>
-        <button type="button" style={{ ...btn, background: '#fff', color: '#2563eb', border: '1px solid #2563eb' }}>Edit</button>
+        <button type="button" style={{ ...btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>Edit</button>
       </section>
 
       <section style={card} aria-label="Company">
         <h2 style={h2}>Company</h2>
-        <Link href="/company" data-testid="company-link" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 48, fontSize: 16, color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Company profile, insurance &amp; documents <span aria-hidden>›</span></Link>
+        <Link href="/company" data-testid="company-link" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 48, fontSize: 16, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>Company profile, insurance &amp; documents <span aria-hidden>›</span></Link>
       </section>
     </main>
   );

@@ -8,15 +8,15 @@ import { stopSummary } from '../lib/loads';
 // Segmented Active / Pending / Booked / Past control + date-grouped list.
 // The tab lives in ?tab= (replaceState, so Back leaves the page rather than stepping through tabs).
 // renderLoad(load) draws one row; the page owns the card markup (and the status tag, so #40's StatusTag swaps in there).
-const blue = '#1d4ed8';
+const blue = 'var(--primary)';
 const st = {
-  seg: { display: 'flex', gap: 2, padding: 3, background: '#f3f4f6', borderRadius: 10, margin: '0 0 0.9rem', width: '100%', boxSizing: 'border-box' },
-  btn: { flex: '1 1 0', minWidth: 0, minHeight: 44, border: 'none', borderRadius: 8, background: 'transparent', color: '#374151', fontSize: '0.9rem', fontFamily: 'inherit', padding: '0 0.25rem', cursor: 'pointer', touchAction: 'manipulation', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  on: { background: '#fff', color: blue, fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,0.12)' },
-  count: { marginLeft: 4, fontSize: '0.78rem', color: '#6b7280', fontWeight: 500 },
-  head: { fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0.9rem 0 0.4rem' },
-  bar: { display: 'block', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1e3a8a', borderRadius: 12, padding: '0.6rem 0.85rem', marginBottom: '0.9rem', textDecoration: 'none', fontSize: '0.9rem' },
-  muted: { color: '#6b7280', fontSize: '0.9rem' },
+  seg: { display: 'flex', gap: 2, padding: 3, background: 'var(--surface-2)', borderRadius: 10, margin: '0 0 0.9rem', width: '100%', boxSizing: 'border-box' },
+  btn: { flex: '1 1 0', minWidth: 0, minHeight: 44, border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', fontSize: '0.9rem', fontFamily: 'inherit', padding: '0 0.25rem', cursor: 'pointer', touchAction: 'manipulation', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  on: { background: 'var(--surface)', color: blue, fontWeight: 600, boxShadow: '0 1px 2px var(--shadow)' },
+  count: { marginLeft: 4, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 },
+  head: { fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0.9rem 0 0.4rem' },
+  bar: { display: 'block', border: '1px solid var(--info-bg)', background: 'var(--info-bg)', color: 'var(--primary)', borderRadius: 12, padding: '0.6rem 0.85rem', marginBottom: '0.9rem', textDecoration: 'none', fontSize: '0.9rem' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.9rem' },
 };
 
 export default function LoadsTabs({ loads, renderLoad }) {

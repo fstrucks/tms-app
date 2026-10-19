@@ -59,7 +59,7 @@ export default function AuthCallback() {
   return (
     <main style={{ padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' }}>
       {failed
-        ? <p role="alert">This sign-in link didn't work or has expired. <a href={loginHref(next)} style={{ color: '#2563eb' }}>Try again</a>.</p>
+        ? <p role="alert">This sign-in link didn't work or has expired. <a href={loginHref(next)} style={{ color: 'var(--primary)' }}>Try again</a>.</p>
         : <p aria-live="polite">Signing you in…</p>}
     </main>
   );

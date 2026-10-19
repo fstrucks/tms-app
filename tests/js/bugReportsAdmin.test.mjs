@@ -81,7 +81,7 @@ test('owner list: page, menu item and shared-file edits', () => {
   const menu = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
   assert.match(menu, /import BugReportsMenuItem from '..\/BugReportsMenuItem'/);
   assert.match(menu, /<BugReportsMenuItem owner=\{owner\} onPick=\{\(\) => setOpen\(false\)\} \/>/); // shared owner check (QA #78 b)
-  assert.match(menu, /querySelectorAll\('\[role=menuitem\]'\)/);
+  assert.match(menu, /querySelectorAll\('\[role=menuitem\](,\[role=menuitemradio\])?'\)/); // dark mode adds the Theme radios
   const item = readFileSync('app/components/BugReportsMenuItem.js', 'utf8');
   assert.match(readFileSync('app/lib/accountOwner.js', 'utf8'), /from\('company_profiles'\)\.select\('id'\)\.eq\('owner_id', userId\)/); assert.match(item, /if \(!owner\) return null/);
   assert.doesNotMatch(readFileSync('supabase/migrations/20261018000100_bug_reports.sql', 'utf8'), /owner|security definer/i, 'no migration change needed');

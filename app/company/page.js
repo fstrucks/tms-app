@@ -10,14 +10,14 @@ import CompanyDocuments from './CompanyDocuments';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
-  card: { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
+  card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
   label: { display: 'block', margin: '0.75rem 0 0.35rem', fontWeight: 600 },
-  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid #d1d5db' },
-  ro: { padding: '0.6rem 0', fontSize: '1rem', color: '#111827', minHeight: 24 },
-  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', marginTop: '0.75rem', cursor: 'pointer' },
-  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid #2563eb', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation', marginTop: '0.5rem' },
-  err: { color: '#b91c1c', fontSize: 14, margin: '0.25rem 0 0' },
-  badge: { display: 'inline-block', padding: '0.15rem 0.6rem', borderRadius: 999, background: '#f1f5f9', fontSize: 14, fontWeight: 600 },
+  input: { width: '100%', boxSizing: 'border-box', padding: '0.75rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--border)' },
+  ro: { padding: '0.6rem 0', fontSize: '1rem', color: 'var(--text)', minHeight: 24 },
+  btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', marginTop: '0.75rem', cursor: 'pointer' },
+  pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, border: '2px solid var(--primary)', color: 'var(--primary)', background: 'var(--info-bg)', fontWeight: 600, cursor: 'pointer', touchAction: 'manipulation', marginTop: '0.5rem' },
+  err: { color: 'var(--danger)', fontSize: 14, margin: '0.25rem 0 0' },
+  badge: { display: 'inline-block', padding: '0.15rem 0.6rem', borderRadius: 999, background: 'var(--divider)', fontSize: 14, fontWeight: 600 },
 };
 const HALF = new Set(['city', 'state', 'postal_code', 'mc_number', 'dot_number']);
 const SIG_INPUT = 'company-signature-file';
@@ -96,9 +96,9 @@ export default function CompanyProfilePage() {
   return (
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Company profile</h1>
-      <p style={{ color: '#6b7280', marginTop: 0 }}>Used to fill out broker carrier packets. <span style={s.badge}>Your role: {ROLE_LABELS[role] || role}</span></p>
-      {role === 'owner' && <p style={{ margin: '0 0 0.75rem' }}><a href="/account/invite" style={{ color: '#2563eb', fontWeight: 600 }}>Invite a tester</a></p>}
-      {!editable && <p role="status" style={{ background: '#fef3c7', borderRadius: 8, padding: '0.6rem 0.8rem' }}>Drivers can view the company profile. Ask the owner, dispatcher or management to make changes or sign.</p>}
+      <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>Used to fill out broker carrier packets. <span style={s.badge}>Your role: {ROLE_LABELS[role] || role}</span></p>
+      {role === 'owner' && <p style={{ margin: '0 0 0.75rem' }}><a href="/account/invite" style={{ color: 'var(--primary)', fontWeight: 600 }}>Invite a tester</a></p>}
+      {!editable && <p role="status" style={{ background: 'var(--warning-bg)', borderRadius: 8, padding: '0.6rem 0.8rem' }}>Drivers can view the company profile. Ask the owner, dispatcher or management to make changes or sign.</p>}
 
       <form onSubmit={save} noValidate>
         <section style={s.card}>
@@ -108,22 +108,22 @@ export default function CompanyProfilePage() {
               <div key={k} style={{ flex: HALF.has(k) ? '1 1 140px' : '1 1 100%', minWidth: 0 }}>
                 <label htmlFor={`cp-${k}`} style={s.label}>{label}</label>
                 {editable
-                  ? <input id={`cp-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: '#b91c1c' } : null) }} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                  ? <input id={`cp-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: 'var(--danger)' } : null) }} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })}
                       inputMode={['dot_number', 'postal_code', 'phone'].includes(k) ? 'numeric' : k === 'email' ? 'email' : undefined}
                       autoCapitalize={k === 'state' ? 'characters' : undefined} maxLength={k === 'state' ? 2 : undefined} aria-invalid={!!errors[k]} />
                   : <div id={`cp-${k}`} style={s.ro}>{form[k] || '—'}</div>}
                 {errors[k] && <p style={s.err}>{errors[k]}</p>}
-                {k === 'owner_name' && <p style={{ color: '#6b7280', fontSize: 13, margin: '0.35rem 0 0' }}>{state.columns?.owner_name === false ? 'Saving the owner name needs a database update that hasn’t been applied yet.' : 'Fills “Owner name” on carrier packets.'}</p>}
+                {k === 'owner_name' && <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '0.35rem 0 0' }}>{state.columns?.owner_name === false ? 'Saving the owner name needs a database update that hasn’t been applied yet.' : 'Fills “Owner name” on carrier packets.'}</p>}
               </div>
             ))}
           </div>
           <label htmlFor="cp-ein" style={s.label}>EIN / TIN</label>
           {editable
-            ? <input id="cp-ein" style={{ ...s.input, ...(errors.ein ? { borderColor: '#b91c1c' } : null) }} value={ein} onChange={(e) => setEin(e.target.value)} inputMode="numeric" autoComplete="off"
+            ? <input id="cp-ein" style={{ ...s.input, ...(errors.ein ? { borderColor: 'var(--danger)' } : null) }} value={ein} onChange={(e) => setEin(e.target.value)} inputMode="numeric" autoComplete="off"
                 placeholder={p?.has_ein ? `Saved ${maskEin(p.ein_last4)} — type to replace` : '12-3456789'} />
             : <div id="cp-ein" style={s.ro}>{p?.has_ein ? maskEin(p.ein_last4) : '—'}</div>}
           {errors.ein && <p style={s.err}>{errors.ein}</p>}
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '0.35rem 0 0' }}>Encrypted before it's stored. Only the last 4 digits are shown.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '0.35rem 0 0' }}>Encrypted before it's stored. Only the last 4 digits are shown.</p>
         </section>
 
         <section style={s.card}>
@@ -132,7 +132,7 @@ export default function CompanyProfilePage() {
             <div key={k}>
               <label htmlFor={`cp-${k}`} style={s.label}>{label}</label>
               {editable
-                ? <input id={`cp-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: '#b91c1c' } : null) }} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
+                ? <input id={`cp-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: 'var(--danger)' } : null) }} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
                 : <div id={`cp-${k}`} style={s.ro}>{form[k] || '—'}</div>}
               {errors[k] && <p style={s.err}>{errors[k]}</p>}
             </div>
@@ -143,8 +143,8 @@ export default function CompanyProfilePage() {
               {/* iOS-safe: label htmlFor + visually hidden input. no hidden-by-display, no programmatic clicks. */}
               <input id={SIG_INPUT} type="file" accept="image/png,image/jpeg,image/webp,image/heic" onChange={onSig} style={VISUALLY_HIDDEN} tabIndex={-1} disabled={busy} />
               <label htmlFor={SIG_INPUT} role="button" style={{ ...s.pick, ...(busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{sigFile ? 'Choose a different signature image' : '✍️ Choose signature image'}</label>
-              {sigPreview && <img src={sigPreview} alt="Signature preview" style={{ display: 'block', maxWidth: '100%', maxHeight: 120, margin: '0.5rem 0', border: '1px solid #e5e7eb', borderRadius: 8 }} />}
-              <button type="button" style={{ ...s.btn, background: '#059669', ...(busy || !sigFile ? { opacity: 0.6 } : null) }} disabled={busy || !sigFile} onClick={sign}>Sign as {form.signer_name || 'authorized signer'}</button>
+              {sigPreview && <img src={sigPreview} alt="Signature preview" style={{ display: 'block', maxWidth: '100%', maxHeight: 120, margin: '0.5rem 0', border: '1px solid var(--divider)', borderRadius: 8, background: 'var(--paper)' }} />}
+              <button type="button" style={{ ...s.btn, background: 'var(--success-solid)', color: 'var(--on-success)', ...(busy || !sigFile ? { opacity: 0.6 } : null) }} disabled={busy || !sigFile} onClick={sign}>Sign as {form.signer_name || 'authorized signer'}</button>
             </div>
           )}
         </section>

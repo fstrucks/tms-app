@@ -8,8 +8,8 @@ import { useEffect, useState } from 'react';
 import { fetchDriverChoices, saveDriverSettings, driverLabel } from '../lib/loadDriver';
 
 const st = {
-  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid #d1d5db', marginTop: 4, background: '#fff', color: '#111827' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
+  input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', marginTop: 4, background: 'var(--surface)', color: 'var(--text)' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
 };
 
 export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved }) {
@@ -43,7 +43,7 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
   return (
     <div style={cardStyle} data-testid="load-driver-settings">
       <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Driver</h2>
-      <label style={{ display: 'block', fontSize: '0.85rem', color: '#374151' }}>Assigned driver
+      <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text)' }}>Assigned driver
         <select value={driver} onChange={(e) => { setDriver(e.target.value); setMsg(null); }} style={st.input}>
           <option value="">Not assigned</option>
           {list.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
@@ -55,10 +55,10 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
       </label>
       <p style={{ ...st.muted, margin: '0 0 0.5rem' }}>Off: the assigned driver never sees the rate or rate per mile for this load.</p>
       <button type="button" disabled={!dirty || saving} onClick={save}
-        style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: dirty ? '#2563eb' : '#93c5fd', color: '#fff', fontWeight: 600 }}>
+        style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: dirty ? 'var(--primary)' : 'var(--disabled-bg)', color: dirty ? 'var(--on-primary)' : 'var(--disabled-text)', fontWeight: 600 }}>
         {saving ? 'Saving…' : 'Save driver settings'}
       </button>
-      {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? '#b91c1c' : '#15803d', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>{msg.text}</p>}
+      {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>{msg.text}</p>}
     </div>
   );
 }
