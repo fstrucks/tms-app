@@ -15,11 +15,11 @@ import { fetchDriverChoices } from '../lib/loadDriver';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
-  card: { display: 'block', border: '1px solid #e5e7eb', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
+  card: { display: 'block', border: '1px solid var(--divider)', borderRadius: 12, padding: '0.85rem', marginBottom: '0.75rem', color: 'inherit', textDecoration: 'none' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
-  muted: { color: '#6b7280', fontSize: '0.85rem' },
+  muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   tag: { display: 'inline-block', borderRadius: 999, padding: '0.1rem 0.5rem', fontSize: '0.75rem', fontWeight: 600 },
-  link: { color: '#2563eb' },
+  link: { color: 'var(--primary)' },
 };
 
 export default function DispatchPage() {
@@ -55,7 +55,7 @@ export default function DispatchPage() {
   return (
     <main style={s.main}>
       <h1 style={{ fontSize: '1.4rem', margin: '0.5rem 0 0.25rem' }}>Dispatch</h1>
-      {supabaseConfigError ? <p style={{ color: '#b91c1c' }}>{supabaseConfigError}</p>
+      {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
         : !user ? <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your company’s loads.</p>
         : state.status === 'loading' ? <Loading label="Loading loads…" />
@@ -79,10 +79,10 @@ export default function DispatchPage() {
                     </div>
                     <div style={{ margin: '0.4rem 0', fontSize: '0.9rem' }}>{stopSummary(pickupStop(l))} <span style={s.muted}>→</span> {stopSummary(deliveryStop(l))}{l.stops?.length > 2 && <span style={s.muted}> · {l.stops.length} stops</span>}</div>
                     <div style={s.row}>
-                      <span><strong>{fmtMoney(l.rate)}</strong>{l.rate_per_mile != null && <span style={{ ...s.muted, color: '#065f46', fontWeight: 600 }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
+                      <span><strong>{fmtMoney(l.rate)}</strong>{l.rate_per_mile != null && <span style={{ ...s.muted, color: 'var(--success)', fontWeight: 600 }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
                       <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={s.muted}>{drv ? `🚚 ${drv}` : 'No driver'}</span>
-                        {l.show_rate_to_driver && <span style={{ ...s.tag, background: '#fef3c7', color: '#92400e' }}>Rate shown to driver</span>}
+                        {l.show_rate_to_driver && <span style={{ ...s.tag, background: 'var(--warning-bg)', color: 'var(--warning)' }}>Rate shown to driver</span>}
                       </span>
                     </div>
                   </Link>

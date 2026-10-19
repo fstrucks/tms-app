@@ -106,8 +106,8 @@ export function countdown(stop, now = Date.now()) {
   if (end !== null && now < end) return { text: `Window open, closes in ${fmtDuration(end - now)}`, tone: 'amber' };
   return { text: `Late by ${fmtDuration(now - (end ?? start))}`, tone: 'red' };
 }
-export const TONE_COLORS = { normal: '#374151', amber: '#92400e', red: '#b91c1c' };
-export const TONE_BG = { normal: '#f3f4f6', amber: '#fef3c7', red: '#fee2e2' };
+export const TONE_COLORS = { normal: 'var(--text)', amber: 'var(--warning)', red: 'var(--danger)' };
+export const TONE_BG = { normal: 'var(--surface-2)', amber: 'var(--warning-bg)', red: 'var(--danger-bg)' };
 
 // Pickup numbers from the notes' "Refs: ..." line (rate con reference numbers, see create_load_from_document).
 // Only refs labeled as a pickup / PU number count: "PU# 4471", "Pickup #: A-12", "P/U 889", "Pickup Number 55".

@@ -18,9 +18,9 @@ export default function LoadsPage() {
     <main style={main}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
         <h1 style={{ fontSize: '1.5rem' }}>Loads</h1>
-        <Link href="/loads/new" data-testid="new-load-link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>
+        <Link href="/loads/new" data-testid="new-load-link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>
       </div>
-      {notice && <p role="status" style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
+      {notice && <p role="status" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
       <LoadsList />
     </main>
   );

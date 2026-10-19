@@ -246,7 +246,7 @@ test('3: account menu gets one owner-only "Invite testers" item; keyboard nav fo
   const menu = readFileSync('app/components/ui/AccountMenu.js', 'utf8');
   assert.match(menu, /import InviteTestersMenuItem from '\.\/InviteTestersMenuItem';/);
   assert.equal((menu.match(/<InviteTestersMenuItem /g) || []).length, 1);
-  assert.match(menu, /querySelectorAll\('\[role="?menuitem"?\]'\)/);
+  assert.match(menu, /querySelectorAll\('\[role="?menuitem"?\](,\[role=menuitemradio\])?'\)/);
   const { isCompanyOwner } = await import('../../app/components/ui/InviteTestersMenuItem.js').catch(() => ({}));
   if (isCompanyOwner) { // JSX may not load under node; the source check below still runs
     const fake = (rows) => ({ auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) }, from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: rows, error: null }) }) }) }) });
