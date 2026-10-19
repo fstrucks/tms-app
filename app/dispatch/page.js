@@ -11,7 +11,7 @@ import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { pickupStop, deliveryStop } from '../lib/loadTabs';
-import { fetchDispatchContext, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, fetchMyRoles } from '../lib/dispatch';
+import { fetchDispatchContext, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, fetchMyRoles, DISPATCH_LOAD_ERROR } from '../lib/dispatch';
 import { fetchDriverChoices } from '../lib/loadDriver';
 
 const s = {
@@ -34,11 +34,11 @@ export default function DispatchPage() {
     if (!(await hasSession(supabase))) return setState({ status: 'error', text: 'Your session has expired or is still loading. Tap Retry, or sign in again.' });
     const ctx = await fetchDispatchContext(supabase);
     if (ctx.setup) return setState({ status: 'setup' });
-    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load the dispatch center.' }); }
+    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: DISPATCH_LOAD_ERROR }); }
     if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
     const company = ctx.companies[0];
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
-    if (res.error || res.setup) { console.error('[dispatch] loads', res.error); return setState({ status: res.setup ? 'setup' : 'error', text: 'Couldn’t load the loads.' }); }
+    if (res.error || res.setup) { console.error('[dispatch] loads', res.error); return setState({ status: res.setup ? 'setup' : 'error', text: 'Couldn’t load the loads. Check your connection and tap Retry.' }); }
     setState({ status: 'ready', company, loads: res.loads.filter((l) => l.owner_id === company.owner_id), drivers: driverMap(drv.choices) });
   }
 

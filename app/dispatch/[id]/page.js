@@ -74,11 +74,11 @@ export default function DispatchLoadPage() {
     if (!(await hasSession(supabase))) return setState({ status: 'error', text: 'Your session has expired or is still loading. Tap Retry, or sign in again.' });
     const ctx = await fetchDispatchContext(supabase);
     if (ctx.setup) return setState({ status: 'setup' });
-    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
+    if (ctx.error) { console.error('[dispatch] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load this load. Check your connection and tap Retry.' }); }
     if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
     const res = await fetchDispatchLoads(supabase, id);
     if (res.setup) return setState({ status: 'setup' });
-    if (res.error) { console.error('[dispatch] load', res.error); return setState({ status: 'error', text: 'Couldn’t load this load.' }); }
+    if (res.error) { console.error('[dispatch] load', res.error); return setState({ status: 'error', text: 'Couldn’t load this load. Check your connection and tap Retry.' }); }
     const load = res.loads[0];
     if (!load) return setState({ status: 'missing' });
     setDriversLoaded(false);
@@ -185,7 +185,7 @@ export default function DispatchLoadPage() {
                 <Field label="Notes (the assigned driver sees these)" textarea value={form.notes} onChange={set('notes')} error={errors.notes} />
                 {notesMayShowPay(form.notes) && !form.show_rate_to_driver && (
                   <p role="status" data-testid="notes-pay-warning" style={{ margin: 0, padding: '0.5rem 0.7rem', borderRadius: 8, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: '0.85rem' }}>
-                    These notes look like they mention pay. The driver can read notes even with “Show rate to driver” off, so remove any amounts you don’t want him to see.
+                    These notes look like they mention pay. The driver can read notes even with “Show rate to driver” off, so remove any amounts you don’t want them to see.
                   </p>
                 )}
               </div>

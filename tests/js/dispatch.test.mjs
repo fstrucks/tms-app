@@ -147,7 +147,7 @@ const mig = read('supabase/migrations/20261018000700_dispatch_center.sql');
 
 test('pages never touch the loads / stops tables directly (RPCs only)', () => {
   for (const src of [list, page, lib]) assert.doesNotMatch(src, /from\('(loads|stops)'\)/);
-  assert.match(lib, /rpc\('dispatch_update_load'/); assert.match(lib, /rpc\('dispatch_save_stops'/); assert.match(lib, /rpc\('dispatch_loads'/);
+  assert.match(lib, /rpc\('dispatch_update_load'/); assert.match(lib, /rpc\('dispatch_save_stops'/); assert.match(lib, /rpcWithRetry\(supabase, 'dispatch_loads'/);
 });
 
 test('load page: notes editable with a pay warning, driver + flag, stops editor, rate con via the route', () => {
@@ -230,11 +230,11 @@ test('rate con route: an expired cookie token is 401; a Bearer header wins over 
   assert.deepEqual(u.seen, ['hdr']);
 });
 
-test('auth cookie: scoped to /api/dispatch, Lax, Secure on https, expires with the token, cleared on sign-out', () => {
+test('auth cookie: scoped to /api/dispatch, HttpOnly, Lax, Secure on https, expires with the token, cleared on sign-out', () => {
   const now = Date.parse('2026-10-18T22:00:00-05:00');
   const set = authCookieString({ access_token: 'a.b.c', expires_at: now / 1000 + 600 }, { now });
-  assert.equal(set, `${AUTH_COOKIE}=a.b.c; Max-Age=600; Path=/api/dispatch; SameSite=Lax; Secure`);
-  assert.equal(authCookieString(null, { now }), `${AUTH_COOKIE}=; Max-Age=0; Path=/api/dispatch; SameSite=Lax; Secure`);
+  assert.equal(set, `${AUTH_COOKIE}=a.b.c; Max-Age=600; Path=/api/dispatch; HttpOnly; SameSite=Lax; Secure`);
+  assert.equal(authCookieString(null, { now }), `${AUTH_COOKIE}=; Max-Age=0; Path=/api/dispatch; HttpOnly; SameSite=Lax; Secure`);
   assert.match(authCookieString({ access_token: 'a', expires_at: now / 1000 - 5 }, { now }), /Max-Age=0/, 'expired token clears');
   assert.doesNotMatch(authCookieString({ access_token: 'a', expires_at: now / 1000 + 60 }, { now, https: false }), /Secure/);
   assert.equal(cookieToken(cookieReq(`${AUTH_COOKIE}=${encodeURIComponent('x.y.z')}`)), 'x.y.z');

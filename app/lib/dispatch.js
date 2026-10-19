@@ -36,14 +36,39 @@ export function errorText(error, fallback = 'Couldn’t save. Please try again.'
 
 const rows = (data) => (data || []).map((r) => (r && r.dispatch_loads) || r);
 
+// QA #94: Supabase's gateway sometimes drops a pooled connection ("connection closed", "fetch failed", a 502/503/504),
+// and the dispatch center showed "Couldn't load" on the first try. Read-only RPCs here are retried ONCE after a short
+// pause when the error looks like a transient network/connection failure; real errors (permissions, missing function,
+// bad input) are returned at once. The pages also keep their Retry button.
+export const TRANSIENT_RETRY_MS = 600;
+export function isTransientError(e) {
+  if (!e) return false;
+  const status = Number(e.status ?? e.statusCode);
+  if ([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524].includes(status)) return true;
+  const t = `${e.code || ''} ${e.message || ''} ${e.details || ''} ${e.name || ''}`;
+  return /connection (?:closed|reset|terminated|refused)|closed the connection|socket hang ?up|ECONNRESET|ETIMEDOUT|EPIPE|UND_ERR|fetch failed|Failed to fetch|NetworkError|Load failed|network (?:request|error)|timed? ?out|upstream|bad gateway|service unavailable|gateway timeout|57P01|08000|08003|08006|PGRST000|PGRST001|PGRST002/i.test(t);
+}
+const pauseMs = (ms) => new Promise((r) => setTimeout(r, ms));
+// Run a read-only RPC with one automatic retry on a transient failure. A thrown error counts as { error }.
+export async function rpcWithRetry(supabase, fn, args, { retryMs = TRANSIENT_RETRY_MS, retries = 1 } = {}) {
+  let res = null;
+  for (let i = 0; i <= retries; i++) {
+    try { res = await (args === undefined ? supabase.rpc(fn) : supabase.rpc(fn, args)); } catch (e) { res = { data: null, error: e }; }
+    if (!res?.error || !isTransientError(res.error) || i === retries) return res || { data: null, error: new Error('no response') };
+    await pauseMs(retryMs);
+  }
+  return res;
+}
+export const DISPATCH_LOAD_ERROR = 'Couldn’t load the dispatch center. Check your connection and tap Retry.';
+
 // → { setup: true } | { error } | { companies: [{ owner_id, role, company_name }] }
-export async function fetchDispatchContext(supabase) {
-  const { data, error } = await supabase.rpc('dispatch_context');
+export async function fetchDispatchContext(supabase, opts) {
+  const { data, error } = await rpcWithRetry(supabase, 'dispatch_context', undefined, opts);
   if (error) return isMissingFunction(error) ? { setup: true } : { error };
   return { companies: data || [] };
 }
-export async function fetchDispatchLoads(supabase, loadId = null) {
-  const { data, error } = await supabase.rpc('dispatch_loads', loadId ? { p_load: loadId } : {});
+export async function fetchDispatchLoads(supabase, loadId = null, opts) {
+  const { data, error } = await rpcWithRetry(supabase, 'dispatch_loads', loadId ? { p_load: loadId } : {}, opts);
   if (error) return isMissingFunction(error) ? { setup: true } : { error };
   return { loads: rows(data) };
 }
