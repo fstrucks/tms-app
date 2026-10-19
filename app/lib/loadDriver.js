@@ -4,6 +4,10 @@
 import { isMissingFunction } from './homeCurrentLoad';
 
 const MISSING_COL = /assigned_driver_user_id|show_rate_to_driver|pickup_number/;
+// One message wherever the assigned-driver trigger (0600/0700) can surface: the load points at someone who isn't a
+// driver on the company any more (e.g. their role was changed before set_member_role unassigned them).
+export const DRIVER_GONE_TEXT = 'This load’s driver is no longer a driver. Pick a new one.';
+export const isDriverGone = (error) => /assigned_driver_not_driver/.test(String(error?.message || error || ''));
 export const isMissingDriverColumn = (error) => !!error && (['42703', 'PGRST204'].includes(error.code) || /Could not find the|does not exist/i.test(error.message || '')) && MISSING_COL.test(error.message || '');
 
 // → { available, choices: [{ user_id, email }], error }
@@ -14,7 +18,7 @@ export async function fetchDriverChoices(supabase, ownerId = null) {
 }
 
 export const SAVE_ERRORS = {
-  assigned_driver_not_driver: 'That person is not a driver on your company anymore. Pick another driver.',
+  assigned_driver_not_driver: DRIVER_GONE_TEXT,
   not_allowed: 'Only the owner, management or a dispatcher can change this.',
   load_not_found: 'Load not found.',
 };

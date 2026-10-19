@@ -1,3 +1,4 @@
+import { DRIVER_GONE_TEXT, isDriverGone } from './loadDriver.js';
 // Manual "New load" (/loads/new). Before this, /loads/new fell through to /loads/[id] with id = "new":
 // the page queried loads.id = 'new' (not a UUID) and never showed a load, so testers were stuck on "Loading load…".
 // Now /loads/new is its own static route (Next.js matches it before [id]) and [id] rejects non-UUID ids up front.
@@ -92,8 +93,8 @@ export async function createManualLoad(supabase, built) {
       const { miles_source, ...rest } = built.load; // eslint-disable-line no-unused-vars
       return createManualLoad(supabase, { ...built, load: rest });
     }
-    if (error && /assigned_driver_not_driver/.test(error.message || '')) {
-      return { ok: false, error: 'That person is not a driver on your company anymore. Pick another driver.', cause: error };
+    if (error && isDriverGone(error)) {
+      return { ok: false, error: DRIVER_GONE_TEXT, cause: error };
     }
     return { ok: false, error: "Couldn't create the load. Please try again.", cause: error };
   }
