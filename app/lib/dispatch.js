@@ -104,7 +104,8 @@ export function formToPatch(form, original) {
   if (miles !== num(o.total_miles)) patch.total_miles = miles;
   if (weight !== num(o.weight)) patch.weight = weight === null ? null : Math.round(weight);
   if ((f.assigned_driver_user_id || '') !== (o.assigned_driver_user_id || '')) patch.assigned_driver_user_id = f.assigned_driver_user_id || null;
-  if (f.show_rate_to_driver !== o.show_rate_to_driver) patch.show_rate_to_driver = f.show_rate_to_driver;
+  const show = !!f.show_rate_to_driver && !!f.assigned_driver_user_id; // no driver → show rate is off (checkbox disabled)
+  if (show !== !!o.show_rate_to_driver) patch.show_rate_to_driver = show;
   return { errors, patch };
 }
 
@@ -277,8 +278,11 @@ export const NEW_LOAD_KEYS = ['status', ...LOAD_TEXT_FIELDS, 'rate', 'total_mile
 
 // New-load form → { errors, load } (same checks as the edit form; empty fields are left out).
 export function formToNewLoad(form) {
-  const { errors, patch } = formToPatch({ ...loadToForm(), ...(form || {}) }, {});
-  if (!patch) return { errors, load: null };
+  const { errors: e0, patch } = formToPatch({ ...loadToForm(), ...(form || {}) }, {});
+  const errors = { ...(e0 || {}) };
+  // Broker is required on the dispatcher New load form (UI rule, same as Load boards; the RPC and /loads/new allow none).
+  if (!String((form && form.broker_name) || '').trim()) errors.broker_name = 'Enter the broker.';
+  if (!patch || errors.broker_name) return { errors, load: null };
   const load = { status: (form && form.status) || 'booked' };
   for (const k of NEW_LOAD_KEYS) if (k in patch && patch[k] !== null && patch[k] !== '') load[k] = patch[k];
   if (!load.assigned_driver_user_id) load.show_rate_to_driver = false;

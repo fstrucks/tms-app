@@ -110,7 +110,7 @@ export default function DispatchNewLoadPage() {
                     {STATUSES.map((x) => <option key={x} value={x}>{x.replaceAll('_', ' ')}</option>)}
                   </select>
                 </label>
-                <Field label="Broker" value={form.broker_name} onChange={set('broker_name')} error={errors.broker_name} />
+                <Field label="Broker" required value={form.broker_name} onChange={set('broker_name')} error={errors.broker_name} />
                 <Field label="Load #" value={form.broker_load_number} onChange={set('broker_load_number')} error={errors.broker_load_number} />
                 <Field label="Rate ($)" inputMode="decimal" required placeholder="e.g. 1,280" value={form.rate} onChange={set('rate')} error={errors.rate} />
                 <Field label="Miles" inputMode="numeric" value={form.total_miles} onChange={set('total_miles')} error={errors.total_miles} />
@@ -151,7 +151,7 @@ export default function DispatchNewLoadPage() {
             <StopsEditor stops={stops} setStops={setStops} stopErrors={stopErrors} browserTz={browserTz} onEdit={() => setMsg(null)} testId="dispatch-new-stops" />
 
             {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)' }}>{msg.text}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + 8px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + 60px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
               <Link href="/dispatch" style={{ ...s.small, minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'var(--text)' }}>Cancel</Link>
               <button type="submit" disabled={saving} style={s.pri} data-testid="dispatch-new-save">{saving ? 'Saving…' : 'Create load'}</button>
             </div>

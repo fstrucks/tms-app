@@ -37,12 +37,12 @@ test('selection: dispatched next, earliest pickup, "N more dispatched"', () => {
   assert.equal(p.load.id, 'y'); assert.equal(moreLine(p), '1 more dispatched');
 });
 
-test('selection: booked → "Next load"; stale (> 24 h past) skipped; undated only when none dated; delivered etc. never', () => {
+test('selection: booked → "Next load"; stale (> 24 h past) skipped; undated after dated (never dropped); delivered etc. never', () => {
   const loads = [L('old', 'booked', NOW - 30 * H, NOW), L('soon', 'booked', NOW + 3 * H, NOW + 9 * H), L('later', 'booked', NOW + 30 * H, NOW + 40 * H),
     L('nodate', 'booked', null, null), L('del', 'delivered', NOW, NOW), L('paid', 'paid', NOW, NOW), L('can', 'cancelled', NOW, NOW)];
   const p = pickCurrentLoad(loads, NOW);
   assert.equal(p.kind, 'next'); assert.equal(p.load.id, 'soon');
-  assert.deepEqual(eligibleBooked(loads, NOW).map((l) => l.id), ['soon', 'later']);
+  assert.deepEqual(eligibleBooked(loads, NOW).map((l) => l.id), ['soon', 'later', 'nodate']);
   const u = [L('n1', 'booked', null, null, { created_at: '2026-10-01T00:00:00Z' }), L('n2', 'booked', null, null, { created_at: '2026-10-05T00:00:00Z' })];
   assert.equal(pickCurrentLoad(u, NOW).load.id, 'n2');
   assert.equal(pickCurrentLoad([L('del', 'delivered', NOW, NOW)], NOW).kind, 'empty');
@@ -183,4 +183,11 @@ test('card source: no Pickup # chip (Pickup # only under the pickup stop); rate 
   assert.match(card, /stop\.stop_type === 'pickup' && <div data-testid="home-pickup-number"/);
   const chips = card.slice(card.indexOf('{miles && <span'), card.indexOf('data-testid="home-rate"'));
   assert.doesNotMatch(chips, /kind === 'next'|kind !== 'next'/, 'rate chip is not limited to the current-load card');
+});
+
+test('Up next keeps an undated booked load when another booked load is dated (QA-101-D)', () => {
+  const loads = [L('dated', 'booked', NOW + 3 * H, NOW + 9 * H), L('qa101d', 'booked', null, null)];
+  const p = pickCurrentLoad(loads, NOW);
+  assert.equal(p.load.id, 'dated');
+  assert.deepEqual(upNext(loads, p.load, NOW).map((l) => l.id), ['qa101d']);
 });

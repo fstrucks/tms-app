@@ -30,9 +30,10 @@ const pickupAt = (l) => ts(pickupStop(l)?.appointment_start);
 export function eligibleBooked(loads, now = Date.now()) {
   const booked = (loads || []).filter((l) => l?.status === 'booked');
   const dated = booked.filter((l) => pickupAt(l) !== null && pickupAt(l) >= now - STALE_BOOKED_MS);
-  if (dated.length) return groupLoads(dated, 'booked').flatMap((g) => g.loads);
-  const undated = booked.filter((l) => pickupAt(l) === null);
-  return [...undated].sort((a, b) => (ts(b.created_at) || 0) - (ts(a.created_at) || 0));
+  // Undated booked loads (no pickup appointment yet) come AFTER the dated ones instead of being dropped, so a
+  // freshly created load without a date still shows in Up next (QA-101-D).
+  const undated = booked.filter((l) => pickupAt(l) === null).sort((a, b) => (ts(b.created_at) || 0) - (ts(a.created_at) || 0));
+  return [...(dated.length ? groupLoads(dated, 'booked').flatMap((g) => g.loads) : []), ...undated];
 }
 
 const ordered = (loads, status) => groupLoads((loads || []).filter((l) => l?.status === status), 'active').flatMap((g) => g.loads);

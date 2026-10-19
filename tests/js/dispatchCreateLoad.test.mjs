@@ -17,8 +17,8 @@ test('formToNewLoad: rate required, numbers checked, empty fields left out, book
 });
 
 test('formToNewLoad: driver + show rate kept together; show rate dropped without a driver', () => {
-  assert.equal(formToNewLoad({ ...loadToForm({}), rate: '1', show_rate_to_driver: true }).load.show_rate_to_driver, false);
-  const l = formToNewLoad({ ...loadToForm({}), rate: '1', status: 'dispatched', assigned_driver_user_id: D, show_rate_to_driver: true }).load;
+  assert.equal(formToNewLoad({ ...loadToForm({}), rate: '1', broker_name: 'Demo (FAKE)', show_rate_to_driver: true }).load.show_rate_to_driver, false);
+  const l = formToNewLoad({ ...loadToForm({}), rate: '1', broker_name: 'Demo (FAKE)', status: 'dispatched', assigned_driver_user_id: D, show_rate_to_driver: true }).load;
   assert.equal(l.assigned_driver_user_id, D); assert.equal(l.show_rate_to_driver, true); assert.equal(l.status, 'dispatched');
 });
 

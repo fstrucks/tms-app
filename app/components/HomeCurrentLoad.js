@@ -103,7 +103,7 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
   const { load, kind } = pick;
   const layout = layoutFor(load);
   const miles = load.total_miles > 0 ? `${fmtNumber(load.total_miles)} mi` : null;
-  const src = miles ? milesSourceNote({ load }) : null;
+  const src = miles && owner ? milesSourceNote({ load }) : null; // internal note (typed / rate con / …): owner only
   const more = moreLine(pick);
   return (
     <section data-testid="home-current-load" data-kind={kind} data-layout={layout} aria-label={kind === 'next' ? 'Next load' : 'Current load'}
@@ -118,7 +118,7 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
         {load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}{load.broker_name ? ` · ${load.broker_name}` : ''}
       </div>
       {layout === 'A' ? <OptionA load={load} /> : <OptionB load={load} now={now} />}
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap' }}>
         {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
         {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: 'var(--success)' }}>{rateText(load)}</span>}
       </div>
