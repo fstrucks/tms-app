@@ -221,3 +221,32 @@ export async function fetchMyRoles(supabase) {
     return error ? [] : (data || []).map((m) => m.role);
   } catch { return []; }
 }
+
+// ---------- New load (management / dispatcher; migration 20261019000100) ----------
+// public.dispatch_create_load(p_owner, p_load, p_stops) creates the load under the company OWNER's account
+// (loads.user_id = owner) with its stops in one transaction, and returns the new id. The database checks the role.
+ERRORS.not_signed_in = 'Your session has expired. Please sign in again.';
+export const CREATE_SETUP_MSG = 'Creating loads here needs a database update that hasn’t been applied yet.';
+export const NEW_LOAD_KEYS = ['status', ...LOAD_TEXT_FIELDS, 'rate', 'total_miles', 'weight', 'assigned_driver_user_id', 'show_rate_to_driver'];
+
+// New-load form → { errors, load } (same checks as the edit form; empty fields are left out).
+export function formToNewLoad(form) {
+  const { errors, patch } = formToPatch({ ...loadToForm(), ...(form || {}) }, {});
+  if (!patch) return { errors, load: null };
+  const load = { status: (form && form.status) || 'booked' };
+  for (const k of NEW_LOAD_KEYS) if (k in patch && patch[k] !== null && patch[k] !== '') load[k] = patch[k];
+  if (!load.assigned_driver_user_id) load.show_rate_to_driver = false;
+  return { errors, load };
+}
+
+// → { ok, id } | { ok: false, error, setup? }
+export async function createLoad(supabase, ownerId, load, stops) {
+  const clean = Object.fromEntries(Object.entries(load || {}).filter(([k]) => NEW_LOAD_KEYS.includes(k)));
+  const { data, error } = await supabase.rpc('dispatch_create_load', { p_owner: ownerId, p_load: clean, p_stops: stops });
+  if (error) {
+    if (isMissingFunction(error)) return { ok: false, setup: true, error: CREATE_SETUP_MSG, cause: error };
+    return { ok: false, error: errorText(error, 'Couldn’t save the load. Please try again.'), cause: error };
+  }
+  const id = (data && data.dispatch_create_load) || data;
+  return id ? { ok: true, id: String(id) } : { ok: false, error: 'Couldn’t save the load. Please try again.' };
+}

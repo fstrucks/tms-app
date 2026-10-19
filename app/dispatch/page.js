@@ -67,8 +67,11 @@ export default function DispatchPage() {
           <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
         ) : (
           <>
-            <p style={{ ...s.muted, margin: '0 0 0.9rem' }}>{state.company.company_name} · {state.company.role === 'management' ? 'Management' : 'Dispatcher'}</p>
-            {state.loads.length === 0 ? <p style={s.muted}>No loads yet. The owner creates loads from a rate con or with New load.</p> : (
+            <div style={{ ...s.row, margin: '0 0 0.9rem' }}>
+              <p style={{ ...s.muted, margin: 0 }}>{state.company.company_name} · {state.company.role === 'management' ? 'Management' : 'Dispatcher'}</p>
+              <Link href="/dispatch/new" data-testid="dispatch-new-load" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 14px', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>
+            </div>
+            {state.loads.length === 0 ? <p style={s.muted}>No loads yet. Tap New load to create one.</p> : (
               <LoadsTabs loads={state.loads} hrefFor={(id) => `/dispatch/${id}`} renderLoad={(l) => {
                 const drv = l.assigned_driver_user_id ? (state.drivers[l.assigned_driver_user_id] || 'Driver (no longer on the company)') : null;
                 return (
