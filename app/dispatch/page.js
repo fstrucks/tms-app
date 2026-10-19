@@ -50,7 +50,7 @@ export default function DispatchPage() {
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   const load = () => loadWithOneRetry((o) => withTimeout(loadOnce(o), undefined, () => { setState({ status: 'error', text: DISPATCH_LOAD_ERROR }); return true; }), { isLive: () => live.current });
-  useRetryWhenOnline(state.status === 'error', load); // back online → try again by itself
+  useRetryWhenOnline(state.status === 'error', () => withTimeout(loadOnce({ auto: true }), undefined, () => true)); // quiet probe: stays on the error until it works
 
   useEffect(() => {
     if (!supabase) return setChecking(false);

@@ -83,7 +83,7 @@ export default function LoadBoardsPage() {
     const run = (o) => withTimeout(loadOnce(u, o), undefined, () => { setState({ status: 'error', text: BOARDS_LOAD_ERROR }); return true; });
     return loadWithOneRetry(run, { isLive: () => live.current });
   };
-  useRetryWhenOnline(state.status === 'error', () => load());
+  useRetryWhenOnline(state.status === 'error', () => (userRef.current ? withTimeout(loadOnce(userRef.current, { auto: true }), undefined, () => true) : null)); // quiet probe
 
   useEffect(() => {
     if (!supabase) return setChecking(false);

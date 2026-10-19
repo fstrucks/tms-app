@@ -330,10 +330,62 @@ test('pages: boards has error + Retry + auto-retry + timeout; /loads, /dispatch,
   assert.match(boards, /<LoadError message=\{state\.text\} onRetry=\{\(\) => load\(\)\} \/>/);
   assert.match(boards, /loadWithOneRetry\(run, /); assert.match(boards, /withTimeout\(loadOnce\(u, o\)/);
   assert.match(boards, /if \(!own\.definite\) return fail\(\);/); assert.match(boards, /if \(ctx\.error\) return fail\(\);/);
-  assert.match(boards, /useRetryWhenOnline\(state\.status === 'error'/);
+  assert.match(boards, /useRetryWhenOnline\(state\.status === 'error', \(\) => \(userRef\.current \? withTimeout\(loadOnce\(userRef\.current, \{ auto: true \}\)/);
   assert.match(BOARDS_LOAD_ERROR, /tap Retry/);
-  assert.match(read('app/dispatch/page.js'), /useRetryWhenOnline\(state\.status === 'error', load\)/);
-  assert.match(read('app/dispatch/[id]/page.js'), /useRetryWhenOnline\(state\.status === 'error', fetchLoad\)/);
+  assert.match(read('app/dispatch/page.js'), /useRetryWhenOnline\(state\.status === 'error', \(\) => withTimeout\(loadOnce\(\{ auto: true \}\)/, 'quiet probe (no Loading flip)');
+  assert.match(read('app/dispatch/[id]/page.js'), /useRetryWhenOnline\(state\.status === 'error', \(\) => withTimeout\(fetchLoadOnce\(\{ auto: true \}\)/);
   assert.match(read('app/loads/LoadsData.js'), /useRetryWhenOnline\(!!error, loadLoads\)/);
   for (const f of ['app/dispatch/page.js', 'app/dispatch/[id]/page.js']) assert.match(read(f), /withTimeout\(/, f);
+});
+
+// =================== QA #100 r2: auto-recover keeps trying (online / focus / visible + 5-10-20-30 s backoff) ===================
+import { startRecovery, RECOVER_BACKOFF_MS } from '../../app/lib/onlineRetry.js';
+
+const fakeEnv = () => {
+  const ev = {}; const add = (o) => ({ addEventListener: (e, f) => { (ev[`${o}:${e}`] ||= new Set()).add(f); }, removeEventListener: (e, f) => ev[`${o}:${e}`]?.delete(f) });
+  const doc = { ...add('doc'), visibilityState: 'visible' };
+  let now = 0; const timers = new Map(); let id = 0;
+  const setTimer = (fn, ms) => { timers.set(++id, { fn, at: now + ms, ms }); return id; };
+  const clearTimer = (i) => timers.delete(i);
+  const fire = (key) => [...(ev[key] || [])].forEach((f) => f());
+  const advance = async (ms) => { const end = now + ms; for (;;) { const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (!next || next[1].at > end) break; timers.delete(next[0]); now = next[1].at; next[1].fn(); await new Promise((r) => setImmediate(r)); } now = end; };
+  return { win: add('win'), doc, setTimer, clearTimer, fire, advance, ev, timers };
+};
+
+test('r2 root cause: error → back online → the first probe still fails → it keeps probing and the reload succeeds (no Retry tap)', async () => {
+  const env = fakeEnv();
+  // Simulates LoadsProvider: error state while offline; reload() fails until the network is really back.
+  let online = false, error = true, reloads = 0;
+  const reload = async () => { reloads++; if (online && reloads >= 2) error = false; };
+  const stop = startRecovery(reload, { win: env.win, doc: env.doc, setTimer: env.setTimer, clearTimer: env.clearTimer });
+  online = true; env.fire('win:online');           // DevTools: Offline → No throttling
+  await env.advance(800); assert.equal(reloads, 1); assert.equal(error, true, 'first probe right after reconnect fails (old version stopped here)');
+  await env.advance(5_000); assert.equal(reloads, 2); assert.equal(error, false, 'backoff probe reloads the list within ~6 s');
+  stop(); // page left the error state → hook cleanup
+  assert.equal(env.timers.size, 0, 'no timers left'); assert.equal(env.ev['win:online'].size, 0, 'listeners removed');
+});
+
+test('r2: backoff 5 s, 10 s, 20 s, then every 30 s; focus / visible probe early; hidden tab does not; probes never overlap', async () => {
+  assert.deepEqual(RECOVER_BACKOFF_MS, [5_000, 10_000, 20_000, 30_000]);
+  const env = fakeEnv(); const at = []; let t = 0;
+  const origAdvance = env.advance; env.advance = async (ms) => { await origAdvance(ms); t += ms; };
+  const stop = startRecovery(async () => { at.push(t); }, { win: env.win, doc: env.doc, setTimer: env.setTimer, clearTimer: env.clearTimer });
+  for (const step of [5_000, 10_000, 20_000, 30_000, 30_000]) await env.advance(step);
+  assert.equal(at.length, 5, 'one probe per backoff step, capped at 30 s');
+  env.fire('win:focus'); await env.advance(800); assert.equal(at.length, 6, 'focus probes early');
+  env.doc.visibilityState = 'hidden'; env.fire('doc:visibilitychange'); await env.advance(800); assert.equal(at.length, 6, 'hidden tab: no probe');
+  env.doc.visibilityState = 'visible'; env.fire('doc:visibilitychange'); await env.advance(800); assert.equal(at.length, 7, 'visible again: probe');
+  stop();
+  let inflight = 0, max = 0; let release;
+  const env2 = fakeEnv();
+  const stop2 = startRecovery(() => { inflight++; max = Math.max(max, inflight); return new Promise((r) => { release = () => { inflight--; r(); }; }); }, { win: env2.win, doc: env2.doc, setTimer: env2.setTimer, clearTimer: env2.clearTimer });
+  env2.fire('win:online'); await env2.advance(800); env2.fire('win:online'); await env2.advance(800); await env2.advance(5_000);
+  assert.equal(max, 1, 'no overlapping probes'); release(); stop2();
+});
+
+test('r2: every page keeps the error state during probes (quiet retry), so the loop is not cancelled by a Loading flip', () => {
+  assert.match(read('app/loads/LoadsData.js'), /useRetryWhenOnline\(!!error, loadLoads\)/);
+  assert.doesNotMatch(read('app/loads/LoadsData.js').match(/async function loadLoads\(\) \{[\s\S]*?\n  \}/)[0], /setError\(null\);\s*const \{ data/, 'loadLoads does not clear the error before fetching');
+  const hook = read('app/lib/onlineRetry.js');
+  assert.match(hook, /useEffect\(\(\) => \(active \? startRecovery\(\(\) => ref\.current\?\.\(\)\) : undefined\), \[active\]\);/, 'latest retry via ref; stops when active clears / on unmount');
 });

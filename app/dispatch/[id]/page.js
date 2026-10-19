@@ -95,7 +95,7 @@ export default function DispatchLoadPage() {
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   const fetchLoad = () => loadWithOneRetry((o) => withTimeout(fetchLoadOnce(o), undefined, () => { setState({ status: 'error', text: 'Couldn’t load this load. Check your connection and tap Retry.' }); return true; }), { isLive: () => live.current });
-  useRetryWhenOnline(state.status === 'error', fetchLoad);
+  useRetryWhenOnline(state.status === 'error', () => withTimeout(fetchLoadOnce({ auto: true }), undefined, () => true)); // quiet probe
 
   useEffect(() => {
     if (!supabase) return setChecking(false);
