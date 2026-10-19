@@ -509,7 +509,7 @@ function ExpensesInner() {
                 <input type="date" value={form.expense_date} onChange={set('expense_date')} style={{ ...s.input, ...(autoFilled.has('expense_date') ? s.auto : null) }} required />
               </label>
               <label style={s.label}>Vendor / description
-                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot var(--text), I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
+                <input type="text" value={form.description} onChange={set('description')} placeholder="e.g. Pilot #123, I-80 tolls" style={{ ...s.input, ...(autoFilled.has('description') ? s.auto : null) }} />
               </label>
               <label style={s.label}>Load (optional)
                 <select value={form.load_id} onChange={set('load_id')} style={s.input}>

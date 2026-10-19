@@ -26,7 +26,7 @@ const s = {
   primary: { minHeight: 48, borderRadius: 8, border: 0, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, fontSize: 16, width: '100%' },
   input: { width: '100%', minHeight: 44, fontSize: 16, padding: '0 0.6rem', borderRadius: 8, border: '1px solid var(--border)', boxSizing: 'border-box' }, // 16px: no iOS zoom
   lab: { display: 'block', fontSize: 13, fontWeight: 600, margin: '0.6rem 0 0.25rem' },
-  chip: (c) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: 'var(--on-primary)', background: c }),
+  chip: (c, fg = '#fff') => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: fg, background: c }),
 };
 let defaultLayoutApi = null; // lazy: GET/POST /api/packets/[id]/layout with the signed-in session
 const layoutCall = (...a) => (defaultLayoutApi || (defaultLayoutApi = makeApi(() => getSupabase()?.auth))).call(...a);
@@ -352,7 +352,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
         && <button type="button" data-testid="redetect" style={{ ...s.btn, minHeight: 40, fontSize: 14, margin: '0.25rem 0' }} disabled={busy} onClick={redetect}>Find fields again</button>}
       {!canEdit && <p style={s.ro}>View only. Drivers can view packets; the owner, dispatcher or management fill them out.</p>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0.5rem 0' }} aria-label="Field summary">
-        <span style={s.chip('#374151')}>{sum.total} fields</span>
+        <span style={s.chip('var(--text)', 'var(--surface)')}>{sum.total} fields</span>
         {sum.sign > 0 && <span style={s.chip(STATE_COLORS.sign)}>{sum.sign} to sign</span>}
         {sum.unmapped > 0 && <span style={s.chip(STATE_COLORS.unmapped)}>{sum.unmapped} need a name</span>}
         {sum.confirm > 0 && <span style={s.chip(STATE_COLORS.confirm)}>{sum.confirm} bank # to confirm</span>}

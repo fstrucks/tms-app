@@ -137,15 +137,17 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Carrier packets
           </Link>
-          <div role="group" aria-label="Theme" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0.35rem 0.8rem' }}>
-            <span aria-hidden="true" style={{ fontSize: 14, color: 'var(--text-muted)', marginRight: 'auto' }}>Theme</span>
-            {THEME_CHOICES.map((t) => (
-              <button key={t} type="button" role="menuitemradio" aria-checked={theme === t} data-compact data-theme-choice={t}
-                onClick={() => setThemeState(setTheme(t))}
-                style={{ minHeight: 36, padding: '0 0.6rem', fontSize: 14, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: theme === t ? 'var(--primary)' : 'var(--surface)', color: theme === t ? 'var(--on-primary)' : 'var(--text)', fontWeight: theme === t ? 600 : 400 }}>
-                {THEME_LABELS[t]}
-              </button>
-            ))}
+          <div role="group" aria-label="Theme" style={{ padding: '0.35rem 0.8rem 0.5rem' }}>
+            <div aria-hidden="true" style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 6, whiteSpace: 'nowrap' }}>Theme</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {THEME_CHOICES.map((t) => (
+                <button key={t} type="button" role="menuitemradio" aria-checked={theme === t} data-compact data-theme-choice={t}
+                  onClick={() => setThemeState(setTheme(t))}
+                  style={{ flex: '1 1 0', minWidth: 0, minHeight: 36, padding: '0 0.25rem', fontSize: 14, whiteSpace: 'nowrap', borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: theme === t ? 'var(--primary)' : 'var(--surface)', color: theme === t ? 'var(--on-primary)' : 'var(--text)', fontWeight: theme === t ? 600 : 400 }}>
+                  {THEME_LABELS[t]}
+                </button>
+              ))}
+            </div>
           </div>
           <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Welcome tour</button>
           <button ref={(el) => { itemRefs.current[4] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}

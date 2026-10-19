@@ -55,7 +55,7 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
       </label>
       <p style={{ ...st.muted, margin: '0 0 0.5rem' }}>Off: the assigned driver never sees the rate or rate per mile for this load.</p>
       <button type="button" disabled={!dirty || saving} onClick={save}
-        style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: dirty ? 'var(--primary)' : 'var(--primary-soft)', color: 'var(--on-primary)', fontWeight: 600 }}>
+        style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: dirty ? 'var(--primary)' : 'var(--disabled-bg)', color: dirty ? 'var(--on-primary)' : 'var(--disabled-text)', fontWeight: 600 }}>
         {saving ? 'Saving…' : 'Save driver settings'}
       </button>
       {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>{msg.text}</p>}

@@ -97,6 +97,63 @@ test('hardcoded hex/rgb colors in app/ are limited to the reviewed exceptions', 
   const allowed = ['app/globals.css', 'app/lib/theme.js', 'app/lib/statusColors.js', 'app/lib/packetStatus.js', 'app/lib/packetMapperModel.js',
     'app/lib/packetFill.js', 'app/icon.svg', 'app/components/RouteMap.js', 'app/components/SignaturePad.js', 'app/dev/signature/SignatureQA.js', 'app/packets/PacketMapper.js',
     'app/packets/mapper-preview/page.js', 'app/expenses/page.js'] // dev fake PDF page image; JPEG flatten canvas (white);
-  const files = execSync("grep -rlE \"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\\b['\\\" ,;)]|rgba?\\(\" app || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  const files = execSync("grep -rlE \"(['\\\"=:(]|solid|dashed|dotted|px) ?#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\\b|rgba?\\(\" app || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
   assert.deepEqual(files.filter((f) => !allowed.includes(f)), []);
+});
+
+// QA #95 (1): the color codemod once rewrote "Pilot #123" in a placeholder. var(--…) may only appear in style values.
+test("'var(--' appears only in style values / CSS, never in copy, placeholders, labels or fixtures", () => {
+  const files = execSync("grep -rl 'var(--' app --include=*.js --include=*.mjs || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  const CSSWORD = /\b(solid|dashed|dotted|double|inset|none|transparent|currentColor|calc|max|min|clamp|env|safe-area-inset-[a-z]+|auto|important|linear-gradient|to|right|left|top|bottom|deg|px|rem|em|vh|vw|s|ms)\b/g;
+  const bad = [];
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/'([^'\n]*var\(--[^'\n]*)'|[\w-]="([^"\n]*var\(--[^"\n]*)"/g)) {
+      const str = m[1] ?? m[2] ?? m[3];
+      const pre = src.slice(Math.max(0, m.index - 40), m.index);
+      if (/(placeholder|aria-label|aria-description|title|alt|label)\s*[=:]\s*\{?\s*$/.test(pre)) { bad.push(`${f}: attribute ${str}`); continue; }
+      if (f === 'app/lib/theme.js' || /\$\{/.test(str)) continue; // the head script / interpolated style templates
+      const rest = str.replace(/var\(--[\w-]+(,[^)]*)?\)/g, '').replace(/\d*\.?\d+(px|rem|em|vh|vw|ms|s|deg|%)\b/g, '').replace(CSSWORD, '').replace(/[-\d.%#\s,()/+*:;!]/g, '');
+      if (rest) bad.push(`${f}: "${str}"`);
+    }
+    for (const m of src.matchAll(/>([^<>{}\n]*var\(--[^<>{}\n]*)</g)) bad.push(`${f}: JSX text ${m[1]}`);
+  }
+  assert.deepEqual(bad, []);
+});
+
+// QA #95 (3–6)
+import { STATE_COLORS } from '../../app/lib/packetMapperModel.js';
+test('disabled buttons: --disabled-text on --disabled-bg >= 4.5:1, border >= 3:1 vs surface, in both themes', () => {
+  for (const [name, t] of Object.entries(THEMES)) {
+    assert.ok(ratio(t['disabled-text'], t['disabled-bg']) >= 4.5, `${name} disabled text ${ratio(t['disabled-text'], t['disabled-bg']).toFixed(2)}`);
+    assert.ok(ratio(t['disabled-border'], t.surface) >= 2.5 || ratio(t['disabled-bg'], t.surface) >= 1.2, `${name} disabled shape visible`);
+  }
+  assert.match(css, /button:disabled, button\[aria-disabled="true"\] \{\s*background: var\(--disabled-bg\) !important; color: var\(--disabled-text\) !important;/);
+});
+test('danger confirm (W-9 delete etc.): --on-danger on --danger-solid >= 4.5:1 in both themes', () => {
+  for (const t of Object.values(THEMES)) assert.ok(ratio(t['on-danger'], t['danger-solid']) >= 4.5);
+  assert.match(readFileSync(new URL('../../app/components/ui/ConfirmButton.js', import.meta.url), 'utf8'), /background: danger \? 'var\(--danger-solid\)' : 'var\(--primary\)', color: danger \? 'var\(--on-danger\)'/);
+});
+test('packet status badges and field-state chips: white text >= 4.5:1 on every fill (both themes use the same fills)', async () => {
+  const mod = await import('../../app/lib/packetStatus.js');
+  const display = Object.values(mod).find((v) => v && typeof v === 'object' && v.needs_names && v.needs_fields);
+  for (const [k, v] of Object.entries(display)) assert.ok(ratio('#ffffff', v.color) >= 4.5, `status ${k} ${v.color} ${ratio('#ffffff', v.color).toFixed(2)}`);
+  for (const [k, c] of Object.entries(STATE_COLORS)) assert.ok(ratio('#ffffff', c) >= 4.5, `state ${k} ${c} ${ratio('#ffffff', c).toFixed(2)}`);
+});
+test('packet editor "N fields" chip: inverse text/surface pair, readable and distinct from the card in both themes', () => {
+  assert.match(readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8'), /s\.chip\('var\(--text\)', 'var\(--surface\)'\)/);
+  for (const t of Object.values(THEMES)) { assert.ok(ratio(t.surface, t.text) >= 4.5); assert.ok(ratio(t.text, t.surface) >= 3, 'chip vs card'); }
+});
+test('map controls/attribution stay light on the light tiles (paper tokens, solid backing)', () => {
+  assert.match(css, /\.leaflet-container \.leaflet-control-attribution \{\s*background: var\(--paper\) !important; color: var\(--paper-text\) !important;/);
+  assert.ok(ratio(THEMES.dark['paper-text'], THEMES.dark.paper) >= 4.5);
+});
+test('date pickers and other native inputs follow the theme (color-scheme), no inline light override', () => {
+  assert.match(css, /\[data-theme="dark"\] input, \[data-theme="dark"\] select, \[data-theme="dark"\] textarea \{ color-scheme: dark; \}/);
+  assert.equal(execSync("grep -rl \"colorScheme: 'light'\" app || true", { encoding: 'utf8' }).trim(), '');
+});
+test('account menu Theme row: label stacked above equal, non-wrapping segments', () => {
+  const src = readFileSync(new URL('../../app/components/ui/AccountMenu.js', import.meta.url), 'utf8');
+  assert.match(src, /whiteSpace: 'nowrap' \}\}>Theme<\/div>/);
+  assert.match(src, /flex: '1 1 0', minWidth: 0, minHeight: 36, padding: '0 0\.25rem', fontSize: 14, whiteSpace: 'nowrap'/);
 });

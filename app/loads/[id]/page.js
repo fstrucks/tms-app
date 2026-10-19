@@ -218,7 +218,7 @@ export default function LoadDetailPage() {
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>
                       <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
-                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'light' }}>
+                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' }}>
                         {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
                         {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
                       </select>

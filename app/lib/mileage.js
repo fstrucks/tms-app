@@ -78,7 +78,7 @@ export function LoadPicker({ value, onChange, style }) {
 }
 
 const st = {
-  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'light' },
+  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' },
   cell: { display: 'block', minWidth: 0 },
   label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '0.25rem' },
   grid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.6rem' },

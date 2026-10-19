@@ -120,6 +120,8 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   --warning: #92400e; --warning-bg: #fffbeb; --warning-border: #fcd34d;
   --danger: #b91c1c; --danger-bg: #fef2f2; --danger-border: #fca5a5;
   --info-bg: #eff6ff;
+  --danger-solid: #b91c1c; --on-danger: #ffffff;
+  --disabled-bg: #e5e7eb; --disabled-text: #4b5563; --disabled-border: #9ca3af;
   --focus: #2563eb; --focus-ring: rgba(37, 99, 235, 0.15);
   --overlay: rgba(15, 23, 42, 0.55); --shadow: rgba(0, 0, 0, 0.15);
   --paper: #ffffff; --paper-line: #e5e7eb; --paper-text: #6b7280;
@@ -134,6 +136,8 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   --warning: #fbbf24; --warning-bg: #2d1f05; --warning-border: #a16207;
   --danger: #f87171; --danger-bg: #3a0d0d; --danger-border: #b91c1c;
   --info-bg: #172554;
+  --danger-solid: #b91c1c; --on-danger: #ffffff;
+  --disabled-bg: #374151; --disabled-text: #d1d5db; --disabled-border: #6b7280;
   --focus: #93c5fd; --focus-ring: rgba(147, 197, 253, 0.35);
   --overlay: rgba(0, 0, 0, 0.7); --shadow: rgba(0, 0, 0, 0.6);
   --paper: #ffffff; --paper-line: #e5e7eb; --paper-text: #6b7280;
@@ -146,12 +150,17 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
     --border: #6b7280; --divider: #273244; --primary: #60a5fa; --on-primary: #0b1220; --primary-soft: #1e3a8a;
     --success: #4ade80; --success-bg: #052e16; --warning: #fbbf24; --warning-bg: #2d1f05; --warning-border: #a16207;
     --danger: #f87171; --danger-bg: #3a0d0d; --danger-border: #b91c1c; --info-bg: #172554;
+    --danger-solid: #b91c1c; --on-danger: #ffffff;
+  --disabled-bg: #374151; --disabled-text: #d1d5db; --disabled-border: #6b7280;
     --focus: #93c5fd; --focus-ring: rgba(147, 197, 253, 0.35); --overlay: rgba(0, 0, 0, 0.7); --shadow: rgba(0, 0, 0, 0.6);
   }
 }
 html, body { background: var(--bg); color: var(--text); }
 a { color: var(--primary); }
-input, select, textarea { background-color: var(--surface); color: var(--text); border-color: var(--border); }
+input, select, textarea { background-color: var(--surface); color: var(--text); border-color: var(--border); color-scheme: inherit; }
+/* Native pickers (date, select popups) follow the theme. */
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea { color-scheme: dark; }
+[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { color-scheme: light; }
 input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Autofill: keep text readable on the browser's autofill tint. */
@@ -159,6 +168,16 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   -webkit-text-fill-color: var(--text); caret-color: var(--text);
   -webkit-box-shadow: 0 0 0 1000px var(--surface-2) inset; transition: background-color 9999s;
 }
-/* Leaflet: tiles stay light (no dark style for the standard OSM tiles); theme only the controls. */
-[data-theme="dark"] .leaflet-bar a, [data-theme="dark"] .leaflet-control-attribution { background: var(--surface); color: var(--text); border-color: var(--border); }
-[data-theme="dark"] .leaflet-control-attribution a { color: var(--primary); }
+/* Leaflet: the standard OSM tiles have no dark style, so the map stays light in both themes and its controls and
+   attribution stay light with it (paper tokens; solid backing over the tiles). */
+.leaflet-container .leaflet-bar a, .leaflet-container .leaflet-control-attribution {
+  background: var(--paper) !important; color: var(--paper-text) !important; border-color: var(--paper-line) !important;
+}
+.leaflet-container .leaflet-control-attribution a { color: var(--paper-text) !important; text-decoration: underline; }
+
+/* Disabled buttons (QA #95): one readable look in both themes instead of a faded primary color.
+   Beats inline background/opacity so every disabled button is covered. */
+button:disabled, button[aria-disabled="true"] {
+  background: var(--disabled-bg) !important; color: var(--disabled-text) !important;
+  border-color: var(--disabled-border) !important; opacity: 1 !important; cursor: not-allowed;
+}

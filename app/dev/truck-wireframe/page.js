@@ -12,8 +12,8 @@ const FAKE = {
   trailer: { unit_number: 'T-22', license_plate: 'TRL0022', license_state: 'CA', empty_weight_lb: 14600 },
   driver: { name: 'Pat Driver (FAKE)', phone: '555-010-0104', cdl_number: 'D0000000', cdl_state: 'CA', cdl_expiry: '2027-03-01', med_card_expiry: '2026-11-02' },
   history: [
-    { id: 1, ticket_date: '2026-10-16', gross_weight_lb: 78420, scale_name: 'CAT Scale var(--text) (FAKE), Testville CA', created_at: '2026-10-16T15:00:00Z' },
-    { id: 2, ticket_date: '2026-10-09', gross_weight_lb: 71260, scale_name: 'CAT Scale var(--text) (FAKE)', created_at: '2026-10-09T15:00:00Z' },
+    { id: 1, ticket_date: '2026-10-16', gross_weight_lb: 78420, scale_name: 'CAT Scale #000 (FAKE), Testville CA', created_at: '2026-10-16T15:00:00Z' },
+    { id: 2, ticket_date: '2026-10-09', gross_weight_lb: 71260, scale_name: 'CAT Scale #001 (FAKE)', created_at: '2026-10-09T15:00:00Z' },
     { id: 3, ticket_date: '2026-10-02', gross_weight_lb: 34510, scale_name: 'Empty weigh (FAKE)', created_at: '2026-10-02T15:00:00Z' },
   ],
 };

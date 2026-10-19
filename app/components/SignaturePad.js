@@ -197,7 +197,7 @@ export default function SignaturePad({ onDone, onCancel, initialName = '', title
         {onCancel && <button type="button" onClick={onCancel} style={{ ...btn, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>Cancel</button>}
         <button type="button" onClick={clear} style={{ ...btn, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>Clear</button>
         <button type="button" onClick={done} disabled={!ready}
-          style={{ ...btn, flex: 1, border: 'none', background: ready ? 'var(--primary)' : 'var(--primary-soft)', color: 'var(--on-primary)', cursor: ready ? 'pointer' : 'not-allowed' }}>Done</button>
+          style={{ ...btn, flex: 1, border: 'none', background: ready ? 'var(--primary)' : 'var(--disabled-bg)', color: ready ? 'var(--on-primary)' : 'var(--disabled-text)', cursor: ready ? 'pointer' : 'not-allowed' }}>Done</button>
       </div>
     </div>
   );

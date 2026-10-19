@@ -68,7 +68,7 @@ export default function ConfirmButton({ label = 'Delete', confirmLabel = 'Confir
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancel(); } }}>
       {prompt && <span className="confirm-prompt" aria-hidden="true" style={{ fontSize: '0.9rem', color: 'var(--text)' }}>{prompt}</span>}
       <button type="button" disabled={busy} onClick={confirm}
-        style={{ ...base, border: 'none', background: danger ? 'var(--danger)' : 'var(--primary)', color: 'var(--on-primary)' }}>{busy ? '…' : confirmLabel}</button>
+        style={{ ...base, border: 'none', background: danger ? 'var(--danger-solid)' : 'var(--primary)', color: danger ? 'var(--on-danger)' : 'var(--on-primary)' }}>{busy ? '…' : confirmLabel}</button>
       <button ref={cancelRef} type="button" disabled={busy} onClick={cancel} style={{ ...base, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }}>Cancel</button>
     </span>
   );

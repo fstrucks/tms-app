@@ -32,7 +32,7 @@ export function outsideRecipients(to, cc, domains) {
 
 // Primary button style that clearly looks disabled (grey, faded, not-allowed cursor) instead of staying blue.
 export function primaryButtonStyle(base, disabled) {
-  return disabled ? { ...base, background: 'var(--text-muted)', color: 'var(--surface-2)', opacity: 0.6, cursor: 'not-allowed' } : { ...base, cursor: 'pointer' };
+  return disabled ? { ...base, background: 'var(--disabled-bg)', color: 'var(--disabled-text)', cursor: 'not-allowed' } : { ...base, cursor: 'pointer' };
 }
 
 // Automatic copy (PACKET_CC_EMAIL, default marc@fstrucks.com): the address to CC, or null when it's off or already

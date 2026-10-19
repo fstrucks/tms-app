@@ -11,7 +11,7 @@ const st = {
   muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   error: { color: 'var(--danger)' },
   ok: { color: 'var(--success)' },
-  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'light' },
+  input: { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.6rem', fontSize: '1rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' },
   label: { display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '0.25rem' },
   pick: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '1rem', cursor: 'pointer', textAlign: 'center' },
   btn: { width: '100%', minHeight: 48, padding: '0.8rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' },

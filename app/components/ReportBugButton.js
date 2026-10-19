@@ -104,7 +104,7 @@ export default function ReportBugButton() {
             {msg && <p role={msg.kind === 'ok' ? 'status' : 'alert'} data-testid="bug-msg"
               style={{ margin: '0.75rem 0 0', padding: '0.6rem 0.75rem', borderRadius: 8, background: msg.kind === 'ok' ? 'var(--success-bg)' : msg.kind === 'setup' ? 'var(--warning-bg)' : 'var(--danger-bg)', color: msg.kind === 'ok' ? 'var(--success)' : msg.kind === 'setup' ? 'var(--warning)' : 'var(--danger)' }}>{msg.text}</p>}
             <button type="submit" disabled={busy} data-testid="bug-submit"
-              style={{ width: '100%', minHeight: 48, marginTop: '0.9rem', border: 'none', borderRadius: 10, background: busy ? 'var(--primary-soft)' : 'var(--primary)', color: 'var(--on-primary)', fontSize: '1rem', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+              style={{ width: '100%', minHeight: 48, marginTop: '0.9rem', border: 'none', borderRadius: 10, background: busy ? 'var(--disabled-bg)' : 'var(--primary)', color: busy ? 'var(--disabled-text)' : 'var(--on-primary)', fontSize: '1rem', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
               {busy ? 'Sending…' : 'Send report'}
             </button>
           </form>
