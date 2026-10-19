@@ -117,7 +117,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           : <>{err && <p role="alert" style={{ fontSize: 14, color: 'var(--danger)' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success)' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success-solid)', color: 'var(--on-success)' }, !ok || busy || capFull)} disabled={!ok || busy || capFull} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div></>}
         </div>}
     </section>

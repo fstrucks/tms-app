@@ -450,9 +450,9 @@ export default function DocumentsPage() {
                       {d.ai_extracted_data ? 'Re-run extraction' : typeChanged[d.id] ? 'Read as rate con' : 'Run extraction'}
                     </button>
                     {d.load_id ? (
-                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: 'var(--success)', marginTop: '0.25rem' }}>View load</Link>
+                      <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: 'var(--success-solid)', color: 'var(--on-success)', marginTop: '0.25rem' }}>View load</Link>
                     ) : d.ai_extracted_data ? (
-                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: 'var(--success)', opacity: creating[d.id] ? 0.6 : 1 }}>
+                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: 'var(--success-solid)', color: 'var(--on-success)', opacity: creating[d.id] ? 0.6 : 1 }}>
                         {creating[d.id] ? 'Creating load…' : 'Create load'}
                       </button>
                     ) : null}

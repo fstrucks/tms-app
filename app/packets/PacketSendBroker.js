@@ -70,7 +70,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
   };
   return (
     <section aria-label="Send to broker" style={box}>
-      <h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker {info.sends?.length > 0 && <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: 'var(--on-primary)', background: 'var(--success)' }}>Sent</span>}</h2>
+      <h2 style={{ fontSize: 16, margin: '0 0 0.4rem' }}>Send to broker {info.sends?.length > 0 && <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: 'var(--on-success)', background: 'var(--success-solid)' }}>Sent</span>}</h2>
       {info.sends?.length > 0 && <ul style={{ fontSize: 14, paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>
         {info.sends.map((s) => <li key={s.id || s.sent_at} data-testid="send-row">{s.confirmed || s.postmark_message_id ? 'Sent' : 'Not confirmed:'} {formatSentAt(s.sent_at)} to {(s.to || []).join(', ')}{s.cc?.length ? ` (cc ${s.cc.join(', ')})` : ''}</li>)}
       </ul>}
@@ -131,7 +131,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
             </div></div>
           : <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...btn, flex: 1 }} onClick={() => setStep('write')} disabled={busy}>Edit</button>
-            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success)' }, !ok || busy || capFull || !size.ok)} disabled={!ok || busy || capFull || !size.ok} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
+            <button style={primaryButtonStyle({ ...primary, flex: 2, background: 'var(--success-solid)', color: 'var(--on-success)' }, !ok || busy || capFull || !size.ok)} disabled={!ok || busy || capFull || !size.ok} onClick={() => doSend(false)}>{busy ? 'Sending…' : 'Send now'}</button>
           </div>}
         </div>}
     </section>

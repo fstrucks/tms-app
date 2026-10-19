@@ -423,7 +423,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
             ? <button style={{ ...s.primary, opacity: dirty && !busy && !blockers.length ? 1 : 0.5 }} disabled={!dirty || busy} aria-disabled={blockers.length > 0} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</button>
             : <>
               {fillWhy.length > 0 && <p role="status" data-testid="fill-why" style={{ margin: '0 0 0.4rem', fontSize: 14, color: 'var(--warning)' }}>To fill: {fillWhy.map((w, i) => <span key={w.code}>{i ? ' · ' : ''}{w.field ? <a href="#" onClick={(e) => { e.preventDefault(); setPage(w.field.page); if (w.code === 'unsigned') { setSel(null); startSign(w.field); } else setSel(w.field.id); }}>{w.text}</a> : w.text}</span>)}</p>}
-              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: 'var(--success)', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
+              <button style={filled?.url ? { ...s.btn, width: '100%', opacity: busy ? 0.5 : 1 } : { ...s.primary, background: 'var(--success-solid)', color: 'var(--on-success)', opacity: busy || fillWhy.length ? 0.5 : 1 }} disabled={busy || fillWhy.length > 0} aria-disabled={fillWhy.length > 0} onClick={doFill}>{busy ? 'Working…' : filled?.url ? 'Fill again' : 'Fill & download PDF'}</button>
             </>}
         </div>
       </div>}

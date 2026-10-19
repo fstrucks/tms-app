@@ -157,3 +157,14 @@ test('account menu Theme row: label stacked above equal, non-wrapping segments',
   assert.match(src, /whiteSpace: 'nowrap' \}\}>Theme<\/div>/);
   assert.match(src, /flex: '1 1 0', minWidth: 0, minHeight: 36, padding: '0 0\.25rem', fontSize: 14, whiteSpace: 'nowrap'/);
 });
+
+// QA #95 r2: solid success/primary/danger buttons: text on the fill >= 4.5:1 in both themes.
+test('solid buttons: on-success/success-solid, on-primary/primary, on-danger/danger-solid >= 4.5:1 in both themes', () => {
+  for (const [name, t] of Object.entries(THEMES)) {
+    for (const [fg, bg] of [['on-success', 'success-solid'], ['on-primary', 'primary'], ['on-danger', 'danger-solid']]) {
+      const r = ratio(t[fg], t[bg]); assert.ok(r >= 4.5, `${name} --${fg} on --${bg} = ${r.toFixed(2)}`);
+    }
+  }
+  // No solid success fill left on the old text-color token.
+  assert.equal(execSync("grep -rn \"background: 'var(--success)'\" app || true", { encoding: 'utf8' }).trim(), '');
+});

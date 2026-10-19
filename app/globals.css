@@ -121,6 +121,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   --danger: #b91c1c; --danger-bg: #fef2f2; --danger-border: #fca5a5;
   --info-bg: #eff6ff;
   --danger-solid: #b91c1c; --on-danger: #ffffff;
+  --success-solid: #15803d; --on-success: #ffffff;
   --disabled-bg: #e5e7eb; --disabled-text: #4b5563; --disabled-border: #9ca3af;
   --focus: #2563eb; --focus-ring: rgba(37, 99, 235, 0.15);
   --overlay: rgba(15, 23, 42, 0.55); --shadow: rgba(0, 0, 0, 0.15);
@@ -137,6 +138,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   --danger: #f87171; --danger-bg: #3a0d0d; --danger-border: #b91c1c;
   --info-bg: #172554;
   --danger-solid: #b91c1c; --on-danger: #ffffff;
+  --success-solid: #166534; --on-success: #ffffff;
   --disabled-bg: #374151; --disabled-text: #d1d5db; --disabled-border: #6b7280;
   --focus: #93c5fd; --focus-ring: rgba(147, 197, 253, 0.35);
   --overlay: rgba(0, 0, 0, 0.7); --shadow: rgba(0, 0, 0, 0.6);
@@ -173,6 +175,9 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 .leaflet-container .leaflet-bar a, .leaflet-container .leaflet-control-attribution {
   background: var(--paper) !important; color: var(--paper-text) !important; border-color: var(--paper-line) !important;
 }
+/* Full-width strip so tile labels don't peek out beside the attribution box. */
+.leaflet-container .leaflet-bottom.leaflet-right { left: 0; }
+.leaflet-container .leaflet-bottom.leaflet-right .leaflet-control-attribution { float: none; width: 100%; margin: 0; text-align: right; }
 .leaflet-container .leaflet-control-attribution a { color: var(--paper-text) !important; text-decoration: underline; }
 
 /* Disabled buttons (QA #95): one readable look in both themes instead of a faded primary color.

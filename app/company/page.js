@@ -144,7 +144,7 @@ export default function CompanyProfilePage() {
               <input id={SIG_INPUT} type="file" accept="image/png,image/jpeg,image/webp,image/heic" onChange={onSig} style={VISUALLY_HIDDEN} tabIndex={-1} disabled={busy} />
               <label htmlFor={SIG_INPUT} role="button" style={{ ...s.pick, ...(busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{sigFile ? 'Choose a different signature image' : '✍️ Choose signature image'}</label>
               {sigPreview && <img src={sigPreview} alt="Signature preview" style={{ display: 'block', maxWidth: '100%', maxHeight: 120, margin: '0.5rem 0', border: '1px solid var(--divider)', borderRadius: 8, background: 'var(--paper)' }} />}
-              <button type="button" style={{ ...s.btn, background: 'var(--success)', ...(busy || !sigFile ? { opacity: 0.6 } : null) }} disabled={busy || !sigFile} onClick={sign}>Sign as {form.signer_name || 'authorized signer'}</button>
+              <button type="button" style={{ ...s.btn, background: 'var(--success-solid)', color: 'var(--on-success)', ...(busy || !sigFile ? { opacity: 0.6 } : null) }} disabled={busy || !sigFile} onClick={sign}>Sign as {form.signer_name || 'authorized signer'}</button>
             </div>
           )}
         </section>
