@@ -49,7 +49,9 @@ test('suggestLoad: number first, then driver active load, then date; null when u
   assert.deepEqual(suggestLoad(loads, { refs: ['A77'] }), { loadId: L2, reason: 'number' }); // stops.pickup_number
   assert.deepEqual(suggestLoad(loads, { refs: ['nomatch'], userId: DRIVER }), { loadId: L1, reason: 'driver_active' });
   assert.deepEqual(suggestLoad(loads, { date: '2026-10-25' }), { loadId: L2, reason: 'date' });
-  assert.equal(suggestLoad(loads, { date: '2026-11-30' }), null);
+  assert.deepEqual(suggestLoad(loads, { date: '2026-11-30' }), { loadId: L1, reason: 'only_in_transit' }); // QA (a)
+  assert.equal(suggestLoad([loads[1]], { date: '2026-11-30' }), null);
+  assert.equal(suggestLoad([...loads, { ...loads[0], id: 'x2' }], {}), null); // two on the road: no guess
   assert.equal(suggestLoad([], { refs: ['x'] }), null);
 });
 
@@ -147,4 +149,74 @@ test('wiring: Documents tab picker, load page via API with thumbnails, uploads l
   assert.match(load, /<LoadDocThumb doc=\{d\}/);
   assert.match(read('../../app/lib/scanUpload.js'), /\/api\/documents\/\$\{row\.id\}\/load/);
   assert.match(read('../../app/api/extract/route.js'), /reclassifyLoadDoc\(admin, doc, user, finish, kind, loadData\)/);
+});
+
+// ---- QA round 1 (a)–(e) ----
+import { fetchVisibleLoads, fetchVisibleLoad, ownCompanyFirst, isLoadOwnerView } from '../../app/lib/visibleLoads.js';
+import { loadDeletePrompt } from '../../app/lib/loadDelete.js';
+import * as TICKETS from '../../app/api/loads/[id]/scale-tickets/route.js';
+
+test('(b) loads come from visible_loads(): driver gets rows; own company first; fallback only when the function is missing', async () => {
+  const calls = [];
+  const sb = (rpcRes, sel = { data: [{ id: 'own' }], error: null }) => ({
+    rpc: async (fn, a) => { calls.push([fn, a]); return rpcRes; },
+    from: () => ({ select: () => ({ order: async () => sel, eq: () => ({ maybeSingle: async () => ({ data: { id: 'own1' }, error: null }) }) }) }),
+  });
+  let r = await fetchVisibleLoads(sb({ data: [{ visible_loads: { id: L1, viewer_role: 'driver' } }], error: null }));
+  assert.deepEqual(r.data.map((l) => l.id), [L1]);
+  assert.deepEqual(calls[0], ['visible_loads', { p_statuses: null, p_load: null }]);
+  r = await fetchVisibleLoads(sb({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }));
+  assert.equal(r.viaRpc, false);
+  r = await fetchVisibleLoads(sb({ data: null, error: { code: '500', message: 'boom' } }));
+  assert.ok(r.error);
+  assert.deepEqual(ownCompanyFirst([{ id: 1, viewer_role: 'owner' }, { id: 2, viewer_role: 'management' }]).map((l) => l.id), [1]);
+  assert.deepEqual(ownCompanyFirst([{ id: 2, viewer_role: 'dispatcher' }]).map((l) => l.id), [2]);
+  const one = await fetchVisibleLoad(sb({ data: [{ id: L1, viewer_role: 'management' }], error: null }), L1);
+  assert.equal(one.data.id, L1);
+  assert.ok(isLoadOwnerView({ viewer_role: 'owner' }) && isLoadOwnerView({}) && !isLoadOwnerView({ viewer_role: 'driver' }));
+});
+
+test('(b) wiring: /loads, /loads/[id] and the Documents scanner use visible_loads(); owner-only controls gated', () => {
+  assert.match(read('../../app/loads/LoadsData.js'), /fetchVisibleLoads\(supabase/);
+  assert.doesNotMatch(read('../../app/loads/LoadsData.js'), /\.from\('loads'\)/);
+  const load = read('../../app/loads/[id]/page.js');
+  assert.match(load, /fetchVisibleLoad\(supabase, id\)/);
+  assert.match(load, /\{owner && <div style=\{\{ \.\.\.s\.card, borderColor: 'var\(--danger-border\)' \}\}>/);
+  assert.match(load, /\{hasStatus && owner && \(/);
+  assert.match(load, /Scan document/);
+  assert.match(read('../../app/documents/page.js'), /await fetchVisibleLoads\(supabase\)/);
+});
+
+test('(c) delete prompt separates your documents from team documents', () => {
+  assert.equal(loadDeletePrompt(3, true, {}, 1), 'Delete this load, its stops and your 3 documents? 1 team document will be kept, unlinked.');
+  assert.equal(loadDeletePrompt(3, false, {}, 1), 'Delete this load and its stops? 4 documents will be kept, unlinked.');
+  assert.equal(loadDeletePrompt(2, true, { expenses: 1 }), 'Delete this load, its stops and 2 documents? 1 expense will be kept, unlinked.');
+  const load = read('../../app/loads/[id]/page.js');
+  assert.match(load, /loadDeletePrompt\(ownDocs\.length, alsoDocs, linked, teamDocs\)/);
+  assert.match(load, /team document\$\{teamDocs === 1 \? '' : 's'\} will be unlinked, not deleted/);
+});
+
+test('(a) Scale tickets box also returns scale-ticket documents linked to the load (not already on a ticket)', async () => {
+  const { svc, deps } = ctx('owner', OWNER);
+  await svc.from('documents').update({ load_id: L1 }).eq('id', DOC_DRV);
+  await svc.from('documents').update({ doc_type: 'scale_ticket' }).eq('id', DOC_DRV);
+  const ownDb = fakeSupabase({ tables: { ...seed(), company_profiles: [{ id: 'p1', owner_id: OWNER }] }, user: { id: OWNER }, role: 'owner' });
+  const j = await (await TICKETS.GET(req('GET'), { params: { id: L1 }, deps: { mkUserClient: () => ownDb, sb: svc } })).json();
+  assert.deepEqual(j.ticketDocs.map((d) => d.id).sort(), [DOC_DRV, DOC_OWN].sort());
+  assert.ok(j.ticketDocs.every((d) => d.url));
+  const other = await (await TICKETS.GET(req('GET'), { params: { id: L1 }, deps: { ...ctx('driver', DRIVER2).deps } })).json();
+  assert.deepEqual(other.ticketDocs || [], []); // not his load
+});
+
+test('(e) Change role: Also drives starts off unless the member already has it', () => {
+  const inv = read('../../app/account/invite/page.js');
+  assert.match(inv, /also: x\.also_drives === true, confirm: false/);
+  assert.doesNotMatch(inv, /also: x\.role === 'driver' \|\|/);
+});
+
+test('(d) PDF thumbnails render page 1 with the shared pdf.js worker; tile fallback', () => {
+  const t = read('../../app/components/LoadDocThumb.js');
+  assert.match(t, /import\('pdfjs-dist\/legacy\/build\/pdf\.mjs'\)/);
+  assert.match(t, /workerSrc = '\/pdfjs\/pdf\.worker\.min\.mjs'/);
+  assert.match(t, /isPdf\(doc\) \? 'PDF' : 'DOC'/);
 });

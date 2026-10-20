@@ -159,7 +159,7 @@ export default function InviteTesterPage() {
                       <button type="button" style={{ ...s.small, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
                       <button type="button" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(null)}>Keep</button></span>
                   : <button type="button" data-testid="invite-cancel" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(x.id)}>Cancel</button>)}
-                {confirmCancel !== x.id && roleEditable(x, st.ownerId) && roleEdit?.id !== x.id && <button type="button" data-testid="role-edit" style={s.small} disabled={!!busy} onClick={() => { setRoleEdit({ id: x.id, role: x.role, also: x.role === 'driver' || x.also_drives === true, confirm: false }); setRoleMsg(null); }}>Change role</button>}
+                {confirmCancel !== x.id && roleEditable(x, st.ownerId) && roleEdit?.id !== x.id && <button type="button" data-testid="role-edit" style={s.small} disabled={!!busy} onClick={() => { setRoleEdit({ id: x.id, role: x.role, also: x.also_drives === true, confirm: false }); setRoleMsg(null); }}>Change role</button>}
                 {st.alsoDrives && confirmCancel !== x.id && alsoDrivesEditable(x, st.ownerId) && roleEdit?.id !== x.id && (
                   <label data-testid="also-drives" title={ALSO_DRIVES_HELP} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 44, fontSize: 14 }}>
                     <input type="checkbox" data-testid="also-drives-toggle" checked={x.also_drives === true} disabled={!!busy} onChange={(e) => toggleAlso(x, e.target.checked)} style={{ width: 22, height: 22 }} />

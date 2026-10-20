@@ -21,6 +21,7 @@ import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { fetchLoadDocs } from '../../lib/loadDocsClient';
+import { fetchVisibleLoad, isLoadOwnerView } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
@@ -71,7 +72,7 @@ export default function LoadDetailPage() {
     if (!isLoadId(id)) return setError({ retry: false, text: 'Load not found.' });
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
-      supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
+      fetchVisibleLoad(supabase, id), // PR #110: members read loads only through visible_loads()
       fetchLoadDocs(supabase, id),
     ]);
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
@@ -149,7 +150,10 @@ export default function LoadDetailPage() {
   }
 
   // Only the owner deletes loads, and only his own uploads can be deleted with it; team members' uploads are unlinked.
-  const ownDocs = docs.filter((d) => d.own !== false);
+  // Deletable with the load: your own uploads linked to it (Truck-tab scale ticket photos stay with their ticket).
+  const ownDocs = docs.filter((d) => d.own !== false && d.source !== 'scale_ticket');
+  const teamDocs = docs.filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const owner = isLoadOwnerView(load);
   async function removeLoad() {
     setDelError(null);
     const r = await deleteLoad(supabase, id, { docs: ownDocs, deleteDocs: alsoDocs });
@@ -203,7 +207,8 @@ export default function LoadDetailPage() {
                       </div>
                     ))}
                   </dl>
-                  {weightEdit === null ? (
+                  {/* PR #110: team members (driver / dispatcher / management) see the load read-only here. */}
+                  {!owner ? null : weightEdit === null ? (
                     <button type="button" data-testid="edit-weight" onClick={() => { setWeightErr(null); setWeightEdit(load.weight != null ? String(load.weight) : ''); }}
                       style={{ marginTop: '0.5rem', minHeight: 40, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 14 }}>
                       {load.weight != null ? 'Edit weight' : 'Add weight'}
@@ -219,7 +224,7 @@ export default function LoadDetailPage() {
                       {weightErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: 14, margin: 0, flexBasis: '100%' }}>{weightErr}</p>}
                     </form>
                   )}
-                  {hasStatus && (
+                  {hasStatus && owner && (
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>
                       <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
@@ -232,7 +237,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 {/* Assigned driver + "Show rate to driver": only once migration 20261018000600 added the columns. */}
-                {Object.prototype.hasOwnProperty.call(load, 'show_rate_to_driver') && (
+                {owner && Object.prototype.hasOwnProperty.call(load, 'show_rate_to_driver') && (
                   <LoadDriverSettings supabase={supabase} load={load} cardStyle={s.card}
                     onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
                 )}
@@ -281,19 +286,19 @@ export default function LoadDetailPage() {
                     </div>
                   ))}
                 </div>
-                <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
+                {owner && <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
                   <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
                   {ownDocs.length > 0 && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
                       <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
-                      <span>Also delete {ownDocs.length} linked document{ownDocs.length === 1 ? '' : 's'}</span>
+                      <span>Also delete {teamDocs ? 'your ' : ''}{ownDocs.length} linked document{ownDocs.length === 1 ? '' : 's'}{teamDocs ? `; ${teamDocs} team document${teamDocs === 1 ? '' : 's'} will be unlinked, not deleted` : ''}</span>
                     </label>
                   )}
                   {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked)} onConfirm={removeLoad} />
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked, teamDocs)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
-                </div>
+                </div>}
               </>
             )}
           </>

@@ -60,10 +60,14 @@ export function suggestLoad(loads, { refs = [], date = null, userId = null } = {
     }).filter(Boolean).sort((x, y) => x.dist - y.dist);
     if (near.length === 1 || (near.length > 1 && near[0].dist < near[1].dist)) return { loadId: near[0].l.id, reason: 'date' };
   }
+  // PR #110 QA (a): a scale ticket rarely prints a load number. When the company has exactly one load on the road,
+  // suggest it (still only a suggestion; the user confirms with Save).
+  const onRoad = list.filter((l) => l.status === 'in_transit');
+  if (onRoad.length === 1) return { loadId: onRoad[0].id, reason: 'only_in_transit' };
   return null;
 }
 
-export const SUGGEST_REASON = { number: 'matches the load number on the document', driver_active: 'your active load', date: 'matches the date on the document' };
+export const SUGGEST_REASON = { number: 'matches the load number on the document', driver_active: 'your active load', date: 'matches the date on the document', only_in_transit: 'the only load in transit' };
 
 // Picker label for a load.
 export function loadPickLabel(l) {

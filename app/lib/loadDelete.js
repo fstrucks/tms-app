@@ -38,12 +38,17 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}) {
+// n = the caller's own documents on this load (the only ones a load delete can delete); team = documents uploaded by
+// team members (never deleted here, only unlinked: their rows aren't the owner's, and loads.id → documents.load_id
+// is ON DELETE SET NULL). PR #110 QA (c): the prompt says which is which.
+export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}, team = 0) {
   const kept = [];
-  if (n && !deleteDocs) kept.push(plural(n, 'document', 'documents'));
+  if (n && !deleteDocs) kept.push(plural(n + team, 'document', 'documents'));
+  else if (team) kept.push(plural(team, 'team document', 'team documents'));
   if (expenses) kept.push(plural(expenses, 'expense', 'expenses'));
   if (mileage) kept.push(plural(mileage, 'mileage entry', 'mileage entries'));
+  if (!n && team && !kept.some((k) => k.includes('team'))) kept.unshift(plural(team, 'team document', 'team documents'));
   const keptText = kept.length ? ` ${kept.length > 1 ? kept.slice(0, -1).join(', ') + ' and ' + kept.at(-1) : kept[0]} will be kept, unlinked.` : '';
-  const head = n && deleteDocs ? `Delete this load, its stops and ${plural(n, 'document', 'documents')}?` : 'Delete this load and its stops?';
+  const head = n && deleteDocs ? `Delete this load, its stops and ${team ? 'your ' : ''}${plural(n, 'document', 'documents')}?` : 'Delete this load and its stops?';
   return head + keptText;
 }

@@ -12,6 +12,7 @@ import { pickupStop, deliveryStop } from '../lib/loadTabs';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
 import { fetchDispatchLoads } from '../lib/dispatch';
 import { viewingFor } from '../lib/activeCompanyView';
+import { fetchVisibleLoads } from '../lib/visibleLoads';
 
 // One fetch of the loads list, shared by the /loads page (all widths) and the desktop list pane
 // shown next to /loads/[id] at >= 1024px (pick 2A). Fetch/auth behaviour is unchanged from the old page.
@@ -55,10 +56,10 @@ export function LoadsProvider({ children }) {
       if (r.error || r.setup) { console.error('[loads] company fetch', r.error || 'setup'); return fail("Couldn't load this company's loads."); }
       setError(null); setLoads(r.loads.filter((l) => l.owner_id === v.owner_id)); setLoaded(true); return;
     }
-    const { data, error } = await supabase
-      .from('loads')
-      .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start, timezone)')
-      .order('created_at', { ascending: false });
+    // PR #110: through visible_loads() so drivers, dispatchers and Management see their loads (loads RLS is own-row).
+    const { data, error } = await fetchVisibleLoads(supabase, {
+      fallbackCols: 'id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start, timezone)',
+    });
     if (req !== reqRef.current) return; // a newer fetch (e.g. after sign-in) superseded this one
     if (error) { console.error('[loads] fetch', error); return fail("Couldn't load your loads."); }
     setError(null);

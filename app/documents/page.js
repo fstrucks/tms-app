@@ -11,6 +11,7 @@ import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
 import DocLoadLink from '../components/DocLoadLink';
+import { fetchVisibleLoads } from '../lib/visibleLoads';
 import { isLoadDocType, suggestLoad, loadForSuggest, loadPickLabel } from '../lib/loadDocs';
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 import Link from 'next/link';
@@ -364,7 +365,7 @@ export default function DocumentsPage() {
   async function openScanner(files) {
     // Loads first, so the scanner opens with the suggested load already picked (its Load picker reads it once).
     // Loads for the "link to load" picker (newest first). Failure just leaves "No load".
-    const { data, error } = await supabase.from('loads').select('id, broker_load_number, broker_name, status, assigned_driver_user_id, notes, created_at, stops(*)').order('created_at', { ascending: false }).limit(100);
+    const { data, error } = await fetchVisibleLoads(supabase); // PR #110: drivers / members too
     if (error) console.error('[scan] loads', error);
     const rows = (data || []).map(loadForSuggest);
     // PR #110: preselect the scanner's Load with the user's active load (in transit / dispatched to them).
