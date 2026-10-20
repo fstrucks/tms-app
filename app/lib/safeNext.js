@@ -1,6 +1,6 @@
 // Validate a ?next= redirect target. Only same-site paths are allowed: a single leading '/',
 // not '//' or '/\', no scheme, no control chars, not /login itself. Anything else -> fallback.
-export const DEFAULT_NEXT = '/documents';
+export const DEFAULT_NEXT = '/'; // Home (Oct 20 2026: was /documents). An explicit safe ?next still wins.
 
 export function safeNext(raw, fallback = DEFAULT_NEXT) {
   if (typeof raw !== 'string' || !raw || raw.length > 2048) return fallback;
@@ -34,6 +34,12 @@ export function safeNext(raw, fallback = DEFAULT_NEXT) {
 export function loginHref(current) {
   const n = safeNext(current, '');
   return n ? `/login?next=${encodeURIComponent(n)}` : '/login';
+}
+
+// Magic-link redirect: carries ?next only when the sign-in page got an explicit, safe one (else the link lands on Home).
+export function magicLinkRedirect(origin, rawNext) {
+  const n = safeNext(rawNext, '');
+  return `${origin}/auth/callback${n ? `?next=${encodeURIComponent(n)}` : ''}`;
 }
 
 // ---- ?next after sign-out (QA, Oct 19) ----

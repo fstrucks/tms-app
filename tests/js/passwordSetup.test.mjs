@@ -19,14 +19,14 @@ test('hasPassword uses user_metadata.password_set only', () => {
 });
 test('callbackDestination: recovery always goes to reset form', () => {
   const u = { user_metadata: { password_set: true } };
-  assert.equal(callbackDestination({ type: 'recovery', next: '/account/password', user: u }), '/account/password?mode=reset&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: 'recovery', next: '/account/password', user: u }), '/account/password?mode=reset&next=%2F');
   assert.equal(callbackDestination({ type: 'recovery', next: '/loads', user: u }), '/account/password?mode=reset&next=%2Floads');
 });
 test('callbackDestination: invite/magic link without password -> setup; with password -> next', () => {
   assert.equal(callbackDestination({ type: 'invite', next: '/loads', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Floads');
-  assert.equal(callbackDestination({ type: null, next: null, user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: null, next: null, user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2F');
   assert.equal(callbackDestination({ type: 'magiclink', next: '/loads', user: { user_metadata: { password_set: true } } }), '/loads');
-  assert.equal(callbackDestination({ type: null, next: '//evil.com', user: { user_metadata: { password_set: true } } }), '/documents');
+  assert.equal(callbackDestination({ type: null, next: '//evil.com', user: { user_metadata: { password_set: true } } }), '/');
 });
 test('recoveryRedirect and otpType', () => {
   assert.equal(recoveryRedirect('https://tms-app-two-pi.vercel.app'), 'https://tms-app-two-pi.vercel.app/auth/callback?type=recovery&next=%2Faccount%2Fpassword');
@@ -64,9 +64,9 @@ test('sign out clears header user immediately', () => {
 });
 import { pageMode } from '../../app/lib/passwordSetup.js';
 test('invite with next=/account/password opens setup mode', () => {
-  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Fdocuments');
-  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: { password_set: true } } }), '/account/password?mode=setup&next=%2Fdocuments');
-  assert.equal(callbackDestination({ type: 'magiclink', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2Fdocuments');
+  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2F');
+  assert.equal(callbackDestination({ type: 'invite', next: '/account/password', user: { user_metadata: { password_set: true } } }), '/account/password?mode=setup&next=%2F');
+  assert.equal(callbackDestination({ type: 'magiclink', next: '/account/password', user: { user_metadata: {} } }), '/account/password?mode=setup&next=%2F');
   assert.equal(callbackDestination({ type: 'magiclink', next: '/account/password', user: { user_metadata: { password_set: true } } }), '/account/password');
 });
 test('pageMode: no mode param still shows setup when password_set is not true', () => {
