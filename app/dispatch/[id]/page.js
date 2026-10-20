@@ -13,7 +13,7 @@ import { Loading, LoadError } from '../../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { StatusBadge, fmtMoney } from '../../lib/loads';
 import { isLoadId } from '../../lib/loadNew';
-import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions } from '../../lib/loadDriver';
+import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions, withOwnerDriver } from '../../lib/loadDriver';
 import {
   STATUSES, SETUP_MSG, resolveDispatchAccess, fetchDispatchLoads, loadToForm, formToPatch, stopsToForm, formToStops,
   saveLoad, saveStops, rateConUrl, notesMayShowPay,
@@ -88,7 +88,7 @@ export default function DispatchLoadPage() {
     apply(load);
     const drv = await fetchDriverChoices(supabase, load.owner_id);
     if (drv.error) console.error('[dispatch] drivers', drv.error);
-    setDrivers(drv.choices || []);
+    setDrivers(withOwnerDriver(drv.choices, load.owner_id));
     setDriversLoaded(true);
     return false;
   }

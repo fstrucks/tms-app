@@ -199,7 +199,7 @@ test('both Driver cards use the shared helpers; no hard-coded Off text or early 
   }
   for (const src of [owner, page, newLoad]) assert.doesNotMatch(src, />Off: the assigned driver never sees/);
   assert.match(owner, /setChoices\(r\.choices \|\| \[\]\); setLoaded\(true\)/);
-  assert.match(page, /setDrivers\(drv\.choices \|\| \[\]\);\s*setDriversLoaded\(true\)/);
+  assert.match(page, /setDrivers\(withOwnerDriver\(drv\.choices, load\.owner_id\)\);\s*setDriversLoaded\(true\)/); // owner listed (Oct 20)
 });
 
 // ---------- Taylor's driver QA (Oct 18): cookie session on the rate con route, role-appropriate /dispatch copy ----------
