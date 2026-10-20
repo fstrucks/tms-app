@@ -24,7 +24,7 @@ import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
-import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped } from '../lib/rateconDrafts';
+import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped } from '../lib/rateconDrafts';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -91,12 +91,15 @@ export default function DocumentsPage() {
   const [canChangeType, setCanChangeType] = useState(false);
   // PR #110: drivers don't upload rate cons (they carry the rate) and don't get the ratecon@ email card.
   const [isDriver, setIsDriver] = useState(false);
+  const skipScopeRef = useRef({ role: null, ownerId: null }); // banners: owner/management/dispatcher of this company only
   const [typeBusy, setTypeBusy] = useState({});
   const [typeChanged, setTypeChanged] = useState({}); // id → true after a change to rate con ("Read as rate con" offered)
   useEffect(() => { (async () => {
     const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
+    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null };
+    loadSkipped();
     if (j.role === 'driver') { setIsDriver(true); setUploadType((t) => (t === 'rate_confirmation' ? 'bol' : t)); }
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [typeErr, setTypeErr] = useState({}); // id → { error, docType } after a failed save (old type kept)
@@ -275,10 +278,7 @@ export default function DocumentsPage() {
   const skipped = visibleSkipped(skippedRows, dismissed);
   const dismissSkipped = (ids) => setDismissed(addDismissed(typeof window !== 'undefined' ? window.localStorage : null, ids));
   async function loadSkipped() {
-    const since = new Date(Date.now() - 7 * 864e5).toISOString();
-    const { data, error } = await supabase.from('inbound_emails').select('id, subject, received_at, rejected_attachments')
-      .eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
-    if (!error) setSkipped(data || []);
+    setSkipped(await fetchSkipped(supabase, skipScopeRef.current));
   }
 
   useEffect(() => {
@@ -453,7 +453,7 @@ export default function DocumentsPage() {
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
             {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
-            {skipped.map((m) => (
+            {!isDriver && skipped.map((m) => (
               <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', paddingTop: 10 }}>{skippedLine(m)}</span>
                 <button type="button" data-testid="email-skipped-dismiss" onClick={() => dismissSkipped([m.id])} aria-label={`Dismiss: ${skippedLine(m)}`}
