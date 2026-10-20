@@ -7,7 +7,7 @@ import { ROLE_LABELS } from '../../lib/companyRoles';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
 import { existingHint } from '../../lib/testerInvites';
-import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning, applyRoleResult } from '../../lib/memberRoles';
+import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning, applyRoleResult, alsoDrivesEditable, ALSO_DRIVES_ROLES, ALSO_DRIVES_HELP, alsoDrivesText, applyAlsoDrives } from '../../lib/memberRoles';
 
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
@@ -78,11 +78,25 @@ export default function InviteTesterPage() {
     load();
   }
 
+  // "Also drives" for the new role (only once 20261020000100 is applied; a Driver never carries it).
+  const keepAlso = (e) => (st.alsoDrives && ALSO_DRIVES_ROLES.includes(e?.role) ? e.also === true : false);
+
+  async function toggleAlso(x, on) {
+    if (busy) return;
+    if (!on && typeof window !== 'undefined' && !window.confirm(`Turn off Also drives for ${x.name || x.email}? They’ll be unassigned from any loads they drive.`)) return;
+    setBusy(`also:${x.id}`); setRoleMsg(null);
+    const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'also_drives', user_id: x.id, on }) });
+    setBusy(null);
+    if (r.error) return setRoleMsg({ ok: false, text: r.error });
+    setSt((prev) => (prev.invites ? { ...prev, invites: applyAlsoDrives(prev.invites, x.id, r.also_drives) } : prev));
+    setRoleMsg({ ok: true, text: alsoDrivesText(x.name || x.email, r.also_drives, r.unassigned) });
+  }
+
   // Save role → (driver moving away: how many loads they'd be unassigned from) → confirmation.
   async function askRole(x) {
     if (busy || !roleEdit) return;
     setRoleMsg(null);
-    if (!unassignsLoads(x.role, roleEdit.role)) return setRoleEdit({ ...roleEdit, confirm: true, assigned: 0 });
+    if (!unassignsLoads(x.role, roleEdit.role, x.also_drives === true, keepAlso(roleEdit))) return setRoleEdit({ ...roleEdit, confirm: true, assigned: 0 });
     setBusy(`preview:${x.id}`);
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role_preview', user_id: x.id }) });
     setBusy(null);
@@ -93,11 +107,11 @@ export default function InviteTesterPage() {
   async function saveRole(x) {
     if (busy || !roleEdit) return;
     setBusy(`role:${x.id}`); setRoleMsg(null);
-    const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role', user_id: x.id, role: roleEdit.role }) });
+    const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'role', user_id: x.id, role: roleEdit.role, ...(st.alsoDrives ? { also_drives: keepAlso(roleEdit) } : {}) }) });
     setBusy(null);
     if (r.error) { setRoleEdit((e) => (e ? { ...e, confirm: false } : e)); return setRoleMsg({ ok: false, text: r.error }); }
     // QA #97: show the new role on the row right away, from the role the server confirmed (the list reload follows).
-    setSt((prev) => (prev.invites ? { ...prev, invites: applyRoleResult(prev.invites, x.id, r.role) } : prev));
+    setSt((prev) => (prev.invites ? { ...prev, invites: applyRoleResult(prev.invites, x.id, r.role, r.also_drives) } : prev));
     setRoleEdit(null); setRoleMsg({ ok: true, text: successText(x.name || x.email, r.role, r.unassigned) });
     load({ expectRole: { id: x.id, role: r.role } });
   }
@@ -136,7 +150,7 @@ export default function InviteTesterPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name ? `${x.name} · ` : ''}{x.email}</div>
-                  <div style={s.muted}><span style={badge(x.status === 'add_pending' ? 'pending' : x.status)}>{x.status === 'pending' ? 'Pending' : x.status === 'add_pending' ? 'Waiting to accept' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.added_at ? ` · added ${formatSentAt(x.added_at)}` : x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
+                  <div style={s.muted}><span style={badge(x.status === 'add_pending' ? 'pending' : x.status)}>{x.status === 'pending' ? 'Pending' : x.status === 'add_pending' ? 'Waiting to accept' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.also_drives ? ' + Driver' : ''}{x.added_at ? ` · added ${formatSentAt(x.added_at)}` : x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
                 </div>
                 <div data-testid="invite-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
                 {confirmCancel !== x.id && x.status !== 'add_pending' && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
@@ -145,7 +159,12 @@ export default function InviteTesterPage() {
                       <button type="button" style={{ ...s.small, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
                       <button type="button" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(null)}>Keep</button></span>
                   : <button type="button" data-testid="invite-cancel" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(x.id)}>Cancel</button>)}
-                {confirmCancel !== x.id && roleEditable(x, st.ownerId) && roleEdit?.id !== x.id && <button type="button" data-testid="role-edit" style={s.small} disabled={!!busy} onClick={() => { setRoleEdit({ id: x.id, role: x.role, confirm: false }); setRoleMsg(null); }}>Change role</button>}
+                {confirmCancel !== x.id && roleEditable(x, st.ownerId) && roleEdit?.id !== x.id && <button type="button" data-testid="role-edit" style={s.small} disabled={!!busy} onClick={() => { setRoleEdit({ id: x.id, role: x.role, also: x.role === 'driver' || x.also_drives === true, confirm: false }); setRoleMsg(null); }}>Change role</button>}
+                {st.alsoDrives && confirmCancel !== x.id && alsoDrivesEditable(x, st.ownerId) && roleEdit?.id !== x.id && (
+                  <label data-testid="also-drives" title={ALSO_DRIVES_HELP} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 44, fontSize: 14 }}>
+                    <input type="checkbox" data-testid="also-drives-toggle" checked={x.also_drives === true} disabled={!!busy} onChange={(e) => toggleAlso(x, e.target.checked)} style={{ width: 22, height: 22 }} />
+                    {busy === `also:${x.id}` ? 'Saving…' : 'Also drives'}
+                  </label>)}
                 </div>
                 </div>
                 {roleEdit?.id === x.id && (
@@ -156,6 +175,11 @@ export default function InviteTesterPage() {
                         {EDITABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}{r === x.role ? ' (current)' : ''}</option>)}
                       </select>
                       <p style={{ ...s.muted, fontSize: 13, margin: '0.35rem 0 0' }}>{ROLE_HELP[roleEdit.role]}</p>
+                      {st.alsoDrives && ALSO_DRIVES_ROLES.includes(roleEdit.role) && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, fontSize: 14 }}>
+                          <input type="checkbox" data-testid="role-also-drives" checked={roleEdit.also === true} disabled={!!busy} onChange={(e) => setRoleEdit({ ...roleEdit, also: e.target.checked })} style={{ width: 22, height: 22 }} />
+                          Also drives{x.role === 'driver' ? ' (keeps their loads)' : ''}
+                        </label>)}
                       <div style={{ display: 'flex', gap: 8, marginTop: '0.6rem' }}>
                         <button type="button" data-testid="role-save" style={{ ...s.small, background: 'var(--primary)', borderColor: 'var(--primary)', color: 'var(--on-primary)', opacity: roleEdit.role === x.role ? 0.5 : 1 }} disabled={!!busy || roleEdit.role === x.role} onClick={() => askRole(x)}>{busy === `preview:${x.id}` ? 'Checking loads…' : 'Save role'}</button>
                         <button type="button" style={s.small} disabled={!!busy} onClick={() => setRoleEdit(null)}>Cancel</button>
@@ -163,7 +187,7 @@ export default function InviteTesterPage() {
                     </>) : (
                       <div ref={confirmRef} tabIndex={-1} data-above-fab data-testid="role-confirm" role="alertdialog" aria-label="Confirm role change" style={{ outline: 'none' }}>
                         <p style={{ margin: '0 0 0.6rem', fontSize: 14 }}>{confirmText(x.name || x.email, x.role, roleEdit.role)}</p>
-                        {unassignsLoads(x.role, roleEdit.role) && (roleEdit.assigned == null || roleEdit.assigned > 0) && (
+                        {unassignsLoads(x.role, roleEdit.role, x.also_drives === true, keepAlso(roleEdit)) && (roleEdit.assigned == null || roleEdit.assigned > 0) && (
                           <p data-testid="role-unassign-warning" style={{ margin: '0 0 0.6rem', fontSize: 14, color: 'var(--warning)', background: 'var(--warning-bg)', borderRadius: 8, padding: '0.45rem 0.6rem' }}>
                             {roleEdit.assigned == null ? `If ${x.name || x.email} is assigned to loads, changing their role unassigns them.` : unassignWarning(x.name || x.email, roleEdit.assigned)}
                           </p>

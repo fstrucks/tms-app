@@ -194,6 +194,22 @@ export function cardAudience(userId, memberRows) {
   return mine.some((r) => r.role === 'owner') ? 'owner' : 'member';
 }
 
+// "Also drives" (20261020000100): a Management / Dispatcher member who also drives sees the loads assigned to him
+// on Home, like a driver (Dispatch keeps the whole company view). Plain drivers already get only their own loads
+// from visible_loads(). → the loads for the card.
+export const alsoDrives = (userId, memberRows) => (memberRows || []).some((r) => r && (!userId || r.user_id === userId) && r.also_drives === true && r.role !== 'owner');
+export function homeLoadsFor(loads, userId, memberRows, audience) {
+  if (audience !== 'member' || !alsoDrives(userId, memberRows)) return loads;
+  return (loads || []).filter((l) => l && l.assigned_driver_user_id === userId);
+}
+// company_members select for Home: also_drives only exists after 20261020000100.
+export async function fetchMyMemberRows(supabase, userId) {
+  const q = (cols) => supabase.from('company_members').select(cols).eq('user_id', userId);
+  let m = await q('user_id, role, also_drives');
+  if (m.error && /also_drives/.test(m.error.message || '')) m = await q('user_id, role');
+  return m;
+}
+
 export const STOP_LABEL = (s) => (s?.stop_type === 'pickup' ? 'Pickup' : s?.stop_type === 'delivery' ? 'Delivery' : 'Stop');
 
 // PostgREST / Postgres "function not found" (migration not applied yet).

@@ -22,8 +22,8 @@ export function withSelfDriver(choices, self) {
   return [{ user_id: self.id, email: self.email ? `${SELF_DRIVER_PREFIX} (${self.email})` : SELF_DRIVER_PREFIX, self: true }, ...list];
 }
 // Dispatch pages (management / dispatchers): the company owner can be a load's driver, so show him as "Owner"
-// rather than "no longer on the company". Assigning him there works on existing loads (dispatch_update_load);
-// dispatch_create_load (0100) still requires a Driver member, so /dispatch/new doesn't offer him.
+// rather than "no longer on the company". Assigning him works on existing loads (dispatch_update_load) and, once
+// 20261020000100 is applied, on /dispatch/new too (dispatch_create_load accepts the owner).
 export function withOwnerDriver(choices, ownerId) {
   const list = (choices || []).filter((c) => c && c.user_id !== ownerId);
   return ownerId ? [...list, { user_id: ownerId, email: OWNER_DRIVER_LABEL, owner: true }] : list;

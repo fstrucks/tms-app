@@ -68,6 +68,7 @@ export async function ownerCompany(sb, userId) {
 export function inviteRows(users, members, profile) {
   const memberRole = new Map((members || []).map((m) => [m.user_id, m.role]));
   const memberAt = new Map((members || []).map((m) => [m.user_id, m.created_at || null]));
+  const memberAlso = new Map((members || []).map((m) => [m.user_id, m.also_drives === true])); // 20261020000100
   // QA #103 (b, c): an invite date only when THIS company sent the invite; otherwise "added <date>": the pending
   // add's own time, or when the membership row was created (direct add).
   const ownInvite = (u) => inviteMeta(u).company === profile.id;
@@ -77,6 +78,7 @@ export function inviteRows(users, members, profile) {
     .map((u) => ({
       id: u.id, email: normalizeEmail(u.email), name: u.user_metadata?.full_name || null,
       role: memberRole.get(u.id) || (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.role) || inviteMeta(u).role || null, linked: memberRole.has(u.id),
+      also_drives: memberAlso.get(u.id) === true,
       status: !memberRole.has(u.id) && pendingAdds(u)[profile.id] ? 'add_pending' : inviteStatus(u),
       invited_at: ownInvite(u) || (!addedAt(u) && memberRole.has(u.id)) ? u.invited_at || null : null, added_at: addedAt(u), accepted_at: u.email_confirmed_at || u.confirmed_at || null, last_sign_in_at: u.last_sign_in_at || null,
     }))
