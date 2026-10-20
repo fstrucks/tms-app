@@ -14,6 +14,9 @@ import { THEME_CHOICES, THEME_EVENT, THEME_KEY, THEME_LABELS, readTheme, setThem
 import { companyOwnerStatus, cachedOwner, clearOwnerCache } from '../../lib/accountOwner';
 import { checkUntilDefinite } from '../../lib/roleRefresh';
 import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
+import { fetchActiveCompany } from '../../lib/activeCompanyClient';
+import { ACTIVE_EVENT } from '../../lib/activeCompany';
+import { ROLE_LABELS } from '../../lib/companyRoles';
 // Back to this page after signing in (header Sign in, and after Sign out).
 const hereLogin = () => (typeof window === 'undefined' ? '/login' : loginHref(window.location.pathname + window.location.search));
 
@@ -57,6 +60,17 @@ export default function AccountMenu({ showEmail = false }) {
     // (lib/roleRefresh) instead of waiting for a reload.
     return checkUntilDefinite(() => companyOwnerStatus(supabase, uid), (r) => { if (r.definite) setOwner(r.owner); });
   }, [uid, open, authTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Active company name + role, shown for everyone (single-company users too); the switcher below stays multi-only.
+  const [company, setCompany] = useState(null);
+  const [coTick, setCoTick] = useState(0);
+  useEffect(() => { const f = () => setCoTick((n) => n + 1); window.addEventListener(ACTIVE_EVENT, f); return () => window.removeEventListener(ACTIVE_EVENT, f); }, []);
+  useEffect(() => {
+    if (!uid) { setCompany(null); return undefined; }
+    let live = true;
+    fetchActiveCompany().then((d) => { if (live && !d.error) setCompany(d.active || null); }); // keep the last good answer on error
+    return () => { live = false; };
+  }, [uid, coTick, authTick]);
 
   useEffect(() => {
     if (!supabase) return setReady(true);
@@ -130,17 +144,29 @@ export default function AccountMenu({ showEmail = false }) {
       onPointerDown={(e) => notePress(e.pointerType || 'mouse')} onTouchStart={() => notePress('touch')}
       onBlur={(e) => { if (shouldCloseOnBlur({ open, focusStaysInside: !!wrapRef.current?.contains(e.relatedTarget), pressInside: pressRef.current })) setOpen(false); }}>
       <button ref={btnRef} type="button" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
-        aria-label={`Account: ${email}`} onClick={() => setOpen((v) => !v)}
+        aria-label={`Account: ${email}${company?.name ? `, ${company.name}` : ''}`} onClick={() => setOpen((v) => !v)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 44, minWidth: 44, padding: '0 0.4rem', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}>
         <span aria-hidden="true" style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
           {email[0].toUpperCase()}
         </span>
-        {showEmail && <span className="account-email" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{email}</span>}
+        {showEmail && (
+          <span className="account-email" style={{ alignItems: 'flex-start', maxWidth: 200, minWidth: 0, lineHeight: 1.2, textAlign: 'left' }}>
+            <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{email}</span>
+            {company?.name && <span data-testid="account-company-short" style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>{company.name}</span>}
+          </span>
+        )}
       </button>
       {open && (
         <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey} tabIndex={-1}
           style={{ outline: 'none', position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, boxShadow: '0 8px 24px var(--shadow)', padding: '0.25rem' }}>
-          <div style={{ padding: '0.6rem 0.8rem', color: 'var(--text-muted)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid var(--divider)' }}>{email}</div>
+          <div style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--divider)', maxWidth: 280, boxSizing: 'border-box' }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
+            {company?.name && (
+              <div data-testid="account-company" title={company.name} style={{ marginTop: 2, color: 'var(--text)', fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {company.name}{company.role && <span style={{ fontWeight: 400, fontSize: 13, color: 'var(--text-muted)' }}> · {ROLE_LABELS[company.role] || company.role}</span>}
+              </div>
+            )}
+          </div>
           <CompanySwitcher uid={uid} />
           <Link ref={(el) => { itemRefs.current[0] = el; }} href="/account/password" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
