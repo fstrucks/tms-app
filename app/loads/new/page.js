@@ -129,7 +129,7 @@ export default function NewLoadPage() {
                     {drivers.choices.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
                   </select>
                 </label>
-                {drivers.choices.length === 0 && <p style={{ ...s.muted, margin: '0.3rem 0 0' }}>No drivers on your company yet. Invite one from the account menu.</p>}
+                {drivers.choices.filter((c) => !c.self).length === 0 && <p style={{ ...s.muted, margin: '0.3rem 0 0' }}>No other drivers on your company yet. Pick Me to drive it yourself, or invite a driver from the account menu.</p>}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: 'pointer' }}>
                   <input type="checkbox" name="show_rate_to_driver" checked={form.show_rate_to_driver === true}
                     onChange={(e) => setForm((x) => ({ ...x, show_rate_to_driver: e.target.checked }))} style={{ width: 22, height: 22 }} />

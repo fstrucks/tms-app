@@ -14,7 +14,7 @@ import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
 import { pickupStop, deliveryStop } from '../lib/loadTabs';
 import { resolveDispatchAccess, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, DISPATCH_LOAD_ERROR } from '../lib/dispatch';
 import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../lib/onlineRetry';
-import { fetchDriverChoices } from '../lib/loadDriver';
+import { fetchDriverChoices, withOwnerDriver } from '../lib/loadDriver';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
@@ -48,7 +48,7 @@ export default function DispatchPage() {
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
     if (res.setup) { setState({ status: 'setup' }); return false; }
     if (res.error) { console.error('[dispatch] loads', res.error); return fail('Couldn’t load the loads. Check your connection and tap Retry.'); }
-    setState({ status: 'ready', company, loads: res.loads.filter((l) => l.owner_id === company.owner_id), drivers: driverMap(drv.choices) });
+    setState({ status: 'ready', company, loads: res.loads.filter((l) => l.owner_id === company.owner_id), drivers: driverMap(withOwnerDriver(drv.choices, company.owner_id)) });
     return false;
   }
   const live = useRef(true);

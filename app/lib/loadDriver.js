@@ -10,11 +10,34 @@ export const DRIVER_GONE_TEXT = 'This load’s driver is no longer a driver. Pic
 export const isDriverGone = (error) => /assigned_driver_not_driver/.test(String(error?.message || error || ''));
 export const isMissingDriverColumn = (error) => !!error && (['42703', 'PGRST204'].includes(error.code) || /Could not find the|does not exist/i.test(error.message || '')) && MISSING_COL.test(error.message || '');
 
+// Owner-operators drive their own loads (Marc, Oct 20 2026). load_driver_choices() lists only members with role
+// Driver, and the owner is never one, so the owner couldn't pick himself. The database already accepts the owner as
+// a load's driver (loads_check_assigned_driver: assigned_driver_user_id = loads.user_id is allowed, 0600/0700), so
+// the owner's own pages (/loads/new, the load page) add "Me (email)" first. No SQL.
+export const SELF_DRIVER_PREFIX = 'Me';
+export const OWNER_DRIVER_LABEL = 'Owner (drives this load)';
+export function withSelfDriver(choices, self) {
+  const list = (choices || []).filter((c) => c && c.user_id !== self?.id);
+  if (!self?.id) return list;
+  return [{ user_id: self.id, email: self.email ? `${SELF_DRIVER_PREFIX} (${self.email})` : SELF_DRIVER_PREFIX, self: true }, ...list];
+}
+// Dispatch pages (management / dispatchers): the company owner can be a load's driver, so show him as "Owner"
+// rather than "no longer on the company". Assigning him there works on existing loads (dispatch_update_load);
+// dispatch_create_load (0100) still requires a Driver member, so /dispatch/new doesn't offer him.
+export function withOwnerDriver(choices, ownerId) {
+  const list = (choices || []).filter((c) => c && c.user_id !== ownerId);
+  return ownerId ? [...list, { user_id: ownerId, email: OWNER_DRIVER_LABEL, owner: true }] : list;
+}
+
 // → { available, choices: [{ user_id, email }], error }
+// No ownerId = the signed-in owner's own company: the owner himself is offered first (withSelfDriver).
 export async function fetchDriverChoices(supabase, ownerId = null) {
   const { data, error } = await supabase.rpc('load_driver_choices', ownerId ? { p_owner: ownerId } : {});
   if (error) return { available: !isMissingFunction(error), choices: [], error: isMissingFunction(error) ? null : error };
-  return { available: true, choices: data || [], error: null };
+  if (ownerId) return { available: true, choices: data || [], error: null };
+  let self = null;
+  try { const { data: sd } = await supabase.auth.getSession(); const u = sd?.session?.user; self = u ? { id: u.id, email: u.email || null } : null; } catch { self = null; }
+  return { available: true, choices: withSelfDriver(data || [], self), error: null };
 }
 
 export const SAVE_ERRORS = {
