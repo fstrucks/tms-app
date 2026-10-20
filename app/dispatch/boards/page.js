@@ -1,4 +1,5 @@
 'use client';
+import { activeDispatchCompany } from '../../lib/activeCompanyClient';
 
 // /dispatch/boards: Load boards (phase 1). Buttons open each board's own site (config: lib/loadBoards.js), and
 // "Save a load from a board" creates a load with any number of stops (2–20). The owner's load is inserted under the
@@ -66,7 +67,7 @@ export default function LoadBoardsPage() {
     const ctx = await fetchDispatchContext(supabase);
     if (ctx.error) return fail();
     if (!ctx.setup && ctx.companies.length) {
-      const company = ctx.companies[0];
+      const company = await activeDispatchCompany(ctx.companies);
       const res = await fetchDispatchLoads(supabase);
       if (res.error) return fail();
       setState({ status: 'ready', role: company.role, company, loads: boardLoads((res.loads || []).filter((l) => l.owner_id === company.owner_id)) });

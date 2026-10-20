@@ -43,6 +43,7 @@ export async function addExisting({ sb, owner, profile, existing, role, users, n
   if (!other) {
     const m = await ensureMembership(sb, profile, existing.id, role);
     if (m.error) return { error: 'Couldn’t add them to your company. Try again.', status: 500 };
+    if (!m.existing) existing.added_at = new Date(now).toISOString();
     return { ok: true, added: true, user: existing, linked: true, role, message: `${email} already had a PowerHaul account, so they were added to your company as ${roleText(role)}. No email was sent.` };
   }
   const map = { ...pendingAdds(existing), [profile.id]: { by: owner.id, role, at: new Date(now).toISOString(), company_name: cleanName(profile.legal_name || '') || null } };
@@ -90,4 +91,12 @@ export async function respondAdd({ sb, user, company, accept }) {
   delete map[company];
   const err = await writeMeta(sb.auth.admin, user, { [PENDING_KEY]: map });
   return err ? { error: 'Couldn’t save that. Try again.', status: 500 } : { ok: true, joined: false };
+}
+
+// Join success text, from the fresh active-company answer (lib/activeCompany: owned company stays the default,
+// otherwise the newest join becomes active).
+export function joinedText(a, ac) {
+  const role = roleText(a.role);
+  if (ac?.active?.profile_id === a.company) return `You joined ${a.company_name} as ${role}, and you’re working in it now. Switch companies anytime from the account menu.`;
+  return `You joined ${a.company_name} as ${role}. You’re still working in ${ac?.active?.name || 'your current company'}. Tap Switch now, or use Company in the account menu.`;
 }

@@ -90,7 +90,7 @@ test('welcome: auto-open waits for an open menu to close (MutationObserver, no p
   let opened = 0;
   whenUiIdle(() => opened++, doc, MO);
   assert.equal(opened, 0, 'not while the menu is open');
-  assert.equal(mo.t, body); assert.equal(mo.o.subtree, true); assert.deepEqual(mo.o.attributeFilter, ['aria-expanded', 'role', 'aria-modal']);
+  assert.equal(mo.t, body); assert.equal(mo.o.subtree, true); assert.deepEqual(mo.o.attributeFilter, ['aria-expanded', 'role', 'aria-modal', 'data-ui-busy', 'data-pending-add', 'data-pending-add-check']);
   mo.cb(); assert.equal(opened, 0);
   busy = false; mo.cb(); mo.cb();
   assert.equal(opened, 1, 'opens once when the menu closes'); assert.equal(mo.off, true);

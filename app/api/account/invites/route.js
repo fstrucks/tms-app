@@ -36,7 +36,7 @@ export async function GET(req, { deps } = {}) {
   const c = await ownerCtx(req, deps); if (c.err) return c.err;
   const all = await listAllUsers(c.sb.auth.admin);
   if (all.error) return json({ error: 'Could not load invites. Try again.' }, 503);
-  const { data: members, error } = await c.sb.from('company_members').select('user_id, role').eq('profile_id', c.profile.id);
+  const { data: members, error } = await c.sb.from('company_members').select('user_id, role, created_at').eq('profile_id', c.profile.id);
   if (error) return json({ error: 'Could not load your company members. Try again.' }, 500);
   return json({ invites: inviteRows(all.users, members, c.profile), roles: INVITE_ROLES, defaultRole: DEFAULT_INVITE_ROLE,
     limit: { hourly: HOURLY_LIMIT, used: recentSends(all.users, c.owner.id, (deps?.now || Date.now)()) }, company: c.profile.legal_name || null, ownerId: c.owner.id });

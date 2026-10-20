@@ -67,14 +67,20 @@ export async function ownerCompany(sb, userId) {
 // Rows for the list: this company's members (minus the owner) plus anyone this owner invited.
 export function inviteRows(users, members, profile) {
   const memberRole = new Map((members || []).map((m) => [m.user_id, m.role]));
+  const memberAt = new Map((members || []).map((m) => [m.user_id, m.created_at || null]));
+  // QA #103 (b, c): an invite date only when THIS company sent the invite; otherwise "added <date>": the pending
+  // add's own time, or when the membership row was created (direct add).
+  const ownInvite = (u) => inviteMeta(u).company === profile.id;
+  const addedAt = (u) => (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.at) || (!ownInvite(u) && memberAt.get(u.id)) || null;
   return (users || [])
     .filter((u) => u.id !== profile.owner_id && (memberRole.has(u.id) || inviteMeta(u).company === profile.id || !!pendingAdds(u)[profile.id]))
     .map((u) => ({
       id: u.id, email: normalizeEmail(u.email), name: u.user_metadata?.full_name || null,
       role: memberRole.get(u.id) || (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.role) || inviteMeta(u).role || null, linked: memberRole.has(u.id),
-      status: !memberRole.has(u.id) && pendingAdds(u)[profile.id] ? 'add_pending' : inviteStatus(u), invited_at: u.invited_at || null, accepted_at: u.email_confirmed_at || u.confirmed_at || null, last_sign_in_at: u.last_sign_in_at || null,
+      status: !memberRole.has(u.id) && pendingAdds(u)[profile.id] ? 'add_pending' : inviteStatus(u),
+      invited_at: ownInvite(u) || (!addedAt(u) && memberRole.has(u.id)) ? u.invited_at || null : null, added_at: addedAt(u), accepted_at: u.email_confirmed_at || u.confirmed_at || null, last_sign_in_at: u.last_sign_in_at || null,
     }))
-    .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || String(b.invited_at || '').localeCompare(String(a.invited_at || '')));
+    .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || String(b.invited_at || b.added_at || '').localeCompare(String(a.invited_at || a.added_at || '')));
 }
 
 // Rate limit from data we already have (no table): invites/resends this owner made in the last hour, read from

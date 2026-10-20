@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import BugReportsMenuItem from '../BugReportsMenuItem';
+import CompanySwitcher from './CompanySwitcher';
 import { getSupabase } from '../../lib/supabase';
 import { loginHref, rememberSignOutNext } from '../../lib/safeNext';
 import { openWelcome } from '../../lib/welcome';
@@ -140,6 +141,7 @@ export default function AccountMenu({ showEmail = false }) {
         <div id={menuId} role="menu" aria-label="Account" onKeyDown={onKey} tabIndex={-1}
           style={{ outline: 'none', position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000, minWidth: 220, background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, boxShadow: '0 8px 24px var(--shadow)', padding: '0.25rem' }}>
           <div style={{ padding: '0.6rem 0.8rem', color: 'var(--text-muted)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid var(--divider)' }}>{email}</div>
+          <CompanySwitcher uid={uid} open={open} />
           <Link ref={(el) => { itemRefs.current[0] = el; }} href="/account/password" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             {user.user_metadata?.password_set ? 'Change password' : 'Set password'}

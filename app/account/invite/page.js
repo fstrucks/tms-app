@@ -136,7 +136,7 @@ export default function InviteTesterPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name ? `${x.name} · ` : ''}{x.email}</div>
-                  <div style={s.muted}><span style={badge(x.status === 'add_pending' ? 'pending' : x.status)}>{x.status === 'pending' ? 'Pending' : x.status === 'add_pending' ? 'Waiting to accept' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
+                  <div style={s.muted}><span style={badge(x.status === 'add_pending' ? 'pending' : x.status)}>{x.status === 'pending' ? 'Pending' : x.status === 'add_pending' ? 'Waiting to accept' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.added_at ? ` · added ${formatSentAt(x.added_at)}` : x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
                 </div>
                 <div data-testid="invite-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
                 {confirmCancel !== x.id && x.status !== 'add_pending' && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
@@ -149,7 +149,7 @@ export default function InviteTesterPage() {
                 </div>
                 </div>
                 {roleEdit?.id === x.id && (
-                  <div data-testid="role-editor" style={{ background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
+                  <div data-testid="role-editor" data-ui-busy style={{ background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
                     {!roleEdit.confirm ? (<>
                       <label htmlFor={`role-${x.id}`} style={{ ...s.label, marginTop: 0 }}>Role for {x.name || x.email}</label>
                       <select id={`role-${x.id}`} data-testid="role-select" style={s.input} value={roleEdit.role} disabled={!!busy} onChange={(e) => setRoleEdit({ ...roleEdit, role: e.target.value })}>
