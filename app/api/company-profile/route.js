@@ -21,9 +21,10 @@ async function ctx(req) {
   const { data: u } = await sb.auth.getUser(token);
   if (!u?.user) return { err: json({ error: 'Your sign-in expired. Please sign in again.' }, 401) };
   const { data: members } = await sb.from('company_members').select('profile_id,user_id,role').eq('user_id', u.user.id);
-  const { data: profiles, error } = await sb.from('company_profiles').select('*').limit(1);
+  // A user can be in more than one company (an owner who was also added elsewhere): always prefer the one they own.
+  const { data: profiles, error } = await sb.from('company_profiles').select('*').order('created_at', { ascending: true }).limit(20);
   if (error) return { err: json({ error: 'Could not load the company profile.' }, 500) };
-  const profile = profiles?.[0] || null;
+  const profile = (profiles || []).find((p) => p.owner_id === u.user.id) || profiles?.[0] || null;
   return { sb, user: u.user, profile, role: profile ? roleFor(u.user.id, profile, members || []) : 'owner' };
 }
 

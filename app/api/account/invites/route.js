@@ -8,7 +8,8 @@
 // Uses the service-role client the app already uses (SUPABASE_SERVICE_ROLE_KEY via serviceClient) for auth.admin.
 import { serviceClient, userClient, bearer, checkUser, authErrInfo } from '../../../lib/packetServer';
 import { validateRoleChange, validateMemberId, setMemberRole, memberAssignedCount, NOT_OWNER_ROLE_TEXT } from '../../../lib/memberRoles';
-import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends } from '../../../lib/testerInvites';
+import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends, findByEmail } from '../../../lib/testerInvites';
+import { pendingAdds, cancelAdd } from '../../../lib/companyAdds';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,7 +74,11 @@ export async function POST(req, { deps } = {}) {
   } else if (b?.action === 'cancel') {
     const email = normalizeEmail(b.email);
     if (!email) return json({ error: 'Which invite? Missing email.' }, 422);
-    r = await cancelInvite({ sb: c.sb, owner: c.owner, profile: c.profile, email, id: b.id ? String(b.id) : null });
+    const all = await listAllUsers(c.sb.auth.admin);
+    if (all.error) return json({ error: 'Could not check existing accounts. Try again.' }, 503);
+    const u = findByEmail(all.users, email);
+    if (u && pendingAdds(u)[c.profile.id]) r = await cancelAdd({ sb: c.sb, profile: c.profile, user: u });
+    else r = await cancelInvite({ sb: c.sb, owner: c.owner, profile: c.profile, email, id: b.id ? String(b.id) : null });
     if (r.error) return json({ error: r.error, ...(r.code ? { code: r.code } : {}), ...(r.partial ? { partial: true } : {}) }, r.status || 500);
     return json({ ok: true, cancelled: r.cancelled });
   } else {
@@ -82,5 +87,5 @@ export async function POST(req, { deps } = {}) {
     r = await invite({ sb: c.sb, owner: c.owner, profile: c.profile, input: v, redirectTo, now, ...(deps?.sleep ? { sleep: deps.sleep } : {}) });
   }
   if (r.error) return json({ error: r.error, ...(r.code ? { code: r.code } : {}) }, r.status || 500);
-  return json({ ok: true, emailed: r.emailed !== false, linked: r.linked, ...(r.listed === false ? { listed: false } : {}), ...(r.message ? { message: r.message } : {}), ...(r.warning ? { warning: r.warning } : {}), email: normalizeEmail(r.user?.email) });
+  return json({ ok: true, emailed: r.emailed !== false, linked: r.linked, ...(r.added ? { added: true } : {}), ...(r.pending ? { pending: true } : {}), ...(r.listed === false ? { listed: false } : {}), ...(r.message ? { message: r.message } : {}), ...(r.warning ? { warning: r.warning } : {}), email: normalizeEmail(r.user?.email) });
 }

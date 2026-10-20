@@ -9,6 +9,7 @@
 // the auth user's app_metadata.tester_invite (only the service role can write it; user_metadata is user-editable, so
 // it only carries the display name).
 import { ROLE_LABELS } from './companyRoles.js';
+import { addExisting, pendingAdds } from './companyAdds.js';
 
 export const INVITE_ROLES = ['driver', 'dispatcher', 'management']; // never 'owner'
 export const DEFAULT_INVITE_ROLE = 'driver'; // least privilege; pick Dispatcher/Management for testers who edit packets
@@ -67,11 +68,11 @@ export async function ownerCompany(sb, userId) {
 export function inviteRows(users, members, profile) {
   const memberRole = new Map((members || []).map((m) => [m.user_id, m.role]));
   return (users || [])
-    .filter((u) => u.id !== profile.owner_id && (memberRole.has(u.id) || inviteMeta(u).company === profile.id))
+    .filter((u) => u.id !== profile.owner_id && (memberRole.has(u.id) || inviteMeta(u).company === profile.id || !!pendingAdds(u)[profile.id]))
     .map((u) => ({
       id: u.id, email: normalizeEmail(u.email), name: u.user_metadata?.full_name || null,
-      role: memberRole.get(u.id) || inviteMeta(u).role || null, linked: memberRole.has(u.id),
-      status: inviteStatus(u), invited_at: u.invited_at || null, accepted_at: u.email_confirmed_at || u.confirmed_at || null, last_sign_in_at: u.last_sign_in_at || null,
+      role: memberRole.get(u.id) || (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.role) || inviteMeta(u).role || null, linked: memberRole.has(u.id),
+      status: !memberRole.has(u.id) && pendingAdds(u)[profile.id] ? 'add_pending' : inviteStatus(u), invited_at: u.invited_at || null, accepted_at: u.email_confirmed_at || u.confirmed_at || null, last_sign_in_at: u.last_sign_in_at || null,
     }))
     .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || String(b.invited_at || '').localeCompare(String(a.invited_at || '')));
 }
@@ -146,7 +147,8 @@ export async function invite({ sb, owner, profile, input, redirectTo, now = Date
   if (existing) {
     const st = inviteStatus(existing);
     if (st === 'pending') return { error: `${input.email} was already invited${existing.invited_at ? ` on ${existing.invited_at.slice(0, 10)}` : ''} and hasn’t accepted yet. Use Resend instead.`, status: 409, code: 'already_invited', id: existing.id };
-    return { error: `${input.email} already has a PowerHaul account. No invite was sent.`, status: 409, code: 'already_registered', id: existing.id };
+    // Existing account: add them instead of inviting (see companyAdds.js; may need their Accept).
+    return addExisting({ sb, owner, profile, existing, role: input.role, users: all.users, now });
   }
   const rl = rateLimit(all.users, owner.id, null, now); if (rl) return rl;
   // Display-only values for the email template ({{ .Data.company_name }}, {{ .Data.inviter_name }}); never trusted.
@@ -274,6 +276,7 @@ export function existingHint(list, typed) {
   if (!e || !EMAIL.test(e)) return null;
   const x = (list || []).find((r) => normalizeEmail(r.email) === e);
   if (!x) return null;
+  if (x.status === 'add_pending') return { kind: 'pending', text: `${e} was already added and hasn’t accepted yet.` };
   if (x.status === 'pending') return { kind: 'pending', text: `${e} already has a pending invite. Use Resend in the list below instead of sending a new one.` };
   return { kind: 'member', text: `${e} is already in your company${x.role ? ` (${ROLE_LABELS[x.role] || x.role})` : ''}. No new invite is needed.` };
 }

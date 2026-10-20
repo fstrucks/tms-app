@@ -2,6 +2,7 @@ import './globals.css';
 import ReportBugButton from './components/ReportBugButton';
 import AppNav from './components/AppNav';
 import WelcomeScreen from './components/WelcomeScreen';
+import CompanyAddPrompt from './components/CompanyAddPrompt';
 import { THEME_INIT_SCRIPT, THEME_COLORS } from './lib/theme';
 
 export const metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
       <body>
         <ReportBugButton />
         <AppNav />
+        <CompanyAddPrompt />
         <div className="app-container">{children}</div>
         <WelcomeScreen />
       </body>
