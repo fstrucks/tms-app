@@ -17,7 +17,7 @@ import CurrentLoadPanels from './CurrentLoadPanels';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
-  deliveredPromptMode, markDelivered, isOverdueInTransit, countRateconsWaiting, rateconsWaitingText,
+  deliveredPromptMode, markDelivered, fetchMyMemberRows, homeLoadsFor, isOverdueInTransit, countRateconsWaiting, rateconsWaitingText,
 } from '../lib/homeCurrentLoad';
 
 const s = {
@@ -187,7 +187,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
     setError(null);
     if (!(await hasSession(supabase))) { if (r === req.current) setError('Your session has expired or is still loading. Tap Retry, or sign in again.'); return; }
     // Members of someone else's company see no loads under own-row RLS, so they get no card (never a false "No loads").
-    const m = await supabase.from('company_members').select('user_id, role').eq('user_id', user.id);
+    const m = await fetchMyMemberRows(supabase, user.id);
     if (r !== req.current) return;
     if (m.error) { console.error('[home] members', m.error); return setError("Couldn't load your current load."); }
     const who = cardAudience(user.id, m.data);
@@ -197,7 +197,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
     // Before 20261018000600 a member's own-row select is always empty: no card rather than a false "No loads".
     setAudience(who === 'member' && !res.viaRpc ? 'hidden' : who);
     setNow(Date.now());
-    setLoads(res.loads);
+    setLoads(homeLoadsFor(res.loads, user.id, m.data, who)); // an also-driver sees his own assigned loads
     if (who === 'owner') countRateconsWaiting(supabase).then((n) => { if (r === req.current) setWaiting(n); });
   }
 

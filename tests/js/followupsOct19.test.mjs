@@ -194,7 +194,7 @@ test('applyRoleResult: only the changed, linked member row gets the confirmed ro
   assert.deepEqual(applyRoleResult(list, U2, 'dispatcher').map((r) => r.role), ['driver', 'driver'], 'unlinked invite rows untouched');
   assert.equal(applyRoleResult(list, U1, 'owner'), list, 'never owner');
   const page = read('app/account/invite/page.js');
-  assert.match(page, /setSt\(\(prev\) => \(prev\.invites \? \{ \.\.\.prev, invites: applyRoleResult\(prev\.invites, x\.id, r\.role\) \} : prev\)\);\s*setRoleEdit\(null\);/);
+  assert.match(page, /setSt\(\(prev\) => \(prev\.invites \? \{ \.\.\.prev, invites: applyRoleResult\(prev\.invites, x\.id, r\.role, r\.also_drives\) \} : prev\)\);\s*setRoleEdit\(null\);/);
   assert.match(page, /load\(\{ expectRole: \{ id: x\.id, role: r\.role \} \}\)/);
 });
 

@@ -7,7 +7,7 @@
 // No domain limit on invites: outside addresses are allowed (PACKET_SEND_ALLOWED_DOMAINS is for packet emails only).
 // Uses the service-role client the app already uses (SUPABASE_SERVICE_ROLE_KEY via serviceClient) for auth.admin.
 import { serviceClient, userClient, bearer, checkUser, authErrInfo } from '../../../lib/packetServer';
-import { validateRoleChange, validateMemberId, setMemberRole, memberAssignedCount, NOT_OWNER_ROLE_TEXT } from '../../../lib/memberRoles';
+import { validateRoleChange, validateMemberId, validateAlsoDrives, setMemberRole, setMemberAlsoDrives, memberAssignedCount, NOT_OWNER_ROLE_TEXT } from '../../../lib/memberRoles';
 import { ownerCompany, listAllUsers, inviteRows, validateInvite, invite, resend, cancelInvite, redirectFor, normalizeEmail, INVITE_ROLES, DEFAULT_INVITE_ROLE, HOURLY_LIMIT, recentSends, findByEmail } from '../../../lib/testerInvites';
 import { pendingAdds, cancelAdd } from '../../../lib/companyAdds';
 
@@ -36,13 +36,17 @@ export async function GET(req, { deps } = {}) {
   const c = await ownerCtx(req, deps); if (c.err) return c.err;
   const all = await listAllUsers(c.sb.auth.admin);
   if (all.error) return json({ error: 'Could not load invites. Try again.' }, 503);
-  const { data: members, error } = await c.sb.from('company_members').select('user_id, role, created_at').eq('profile_id', c.profile.id);
+  // also_drives comes with 20261020000100; before it is applied the column is missing, so fall back (alsoDrives: false).
+  let mem = await c.sb.from('company_members').select('user_id, role, created_at, also_drives').eq('profile_id', c.profile.id);
+  const alsoDrives = !mem.error;
+  if (mem.error && /also_drives/.test(mem.error.message || '')) mem = await c.sb.from('company_members').select('user_id, role, created_at').eq('profile_id', c.profile.id);
+  const { data: members, error } = mem;
   if (error) return json({ error: 'Could not load your company members. Try again.' }, 500);
   return json({ invites: inviteRows(all.users, members, c.profile), roles: INVITE_ROLES, defaultRole: DEFAULT_INVITE_ROLE,
-    limit: { hourly: HOURLY_LIMIT, used: recentSends(all.users, c.owner.id, (deps?.now || Date.now)()) }, company: c.profile.legal_name || null, ownerId: c.owner.id });
+    limit: { hourly: HOURLY_LIMIT, used: recentSends(all.users, c.owner.id, (deps?.now || Date.now)()) }, company: c.profile.legal_name || null, ownerId: c.owner.id, alsoDrives });
 }
 
-const ROLE_ACTIONS = new Set(['role', 'role_preview']);
+const ROLE_ACTIONS = new Set(['role', 'role_preview', 'also_drives']);
 export async function POST(req, { deps } = {}) {
   // Peek at the action (without consuming the body) so a non-owner gets text about what they tried to do.
   const peek = await req.clone().json().catch(() => null);
@@ -56,9 +60,17 @@ export async function POST(req, { deps } = {}) {
     const v = validateRoleChange(b);
     if (v.error) return json({ error: v.error }, v.status);
     if (v.userId === c.owner.id) return json({ error: 'The owner’s role can’t be changed here.', code: 'owner_locked' }, 409);
-    const rr = await setMemberRole(c.uc, v.userId, v.role);
+    const rr = await setMemberRole(c.uc, v.userId, v.role, v.alsoDrives);
     if (rr.error) { if (rr.code === 'unknown' || rr.code === 'setup') console.error('[invites] role', rr.code); return json({ error: rr.error, code: rr.code }, rr.status); }
-    return json({ ok: true, user_id: v.userId, role: rr.role, previous: rr.previous, unassigned: rr.unassigned });
+    return json({ ok: true, user_id: v.userId, role: rr.role, previous: rr.previous, unassigned: rr.unassigned, ...('alsoDrives' in rr ? { also_drives: rr.alsoDrives } : {}) });
+  }
+  if (b?.action === 'also_drives') {
+    const v = validateAlsoDrives(b);
+    if (v.error) return json({ error: v.error }, v.status);
+    if (v.userId === c.owner.id) return json({ error: 'The owner’s role can’t be changed here.', code: 'owner_locked' }, 409);
+    const rr = await setMemberAlsoDrives(c.uc, v.userId, v.on);
+    if (rr.error) { if (rr.code === 'unknown' || rr.code === 'setup') console.error('[invites] also_drives', rr.code); return json({ error: rr.error, code: rr.code }, rr.status); }
+    return json({ ok: true, user_id: v.userId, also_drives: rr.on, unassigned: rr.unassigned });
   }
   if (b?.action === 'role_preview') {
     const v = validateMemberId(b);

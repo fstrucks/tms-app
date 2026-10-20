@@ -160,7 +160,7 @@ test('assigned_driver_not_driver → one clear message everywhere it can surface
 
 test('page: Save role counts loads first; the warning shows in the confirmation; success says how many were unassigned', () => {
   const page = readFileSync('app/account/invite/page.js', 'utf8');
-  assert.match(page, /if \(!unassignsLoads\(x\.role, roleEdit\.role\)\) return setRoleEdit\(\{ \.\.\.roleEdit, confirm: true, assigned: 0 \}\);/);
+  assert.match(page, /if \(!unassignsLoads\(x\.role, roleEdit\.role, x\.also_drives === true, keepAlso\(roleEdit\)\)\) return setRoleEdit\(\{ \.\.\.roleEdit, confirm: true, assigned: 0 \}\);/);
   assert.match(page, /action: 'role_preview', user_id: x\.id/);
   assert.match(page, /data-testid="role-unassign-warning"/);
   assert.match(page, /unassignWarning\(x\.name \|\| x\.email, roleEdit\.assigned\)/);

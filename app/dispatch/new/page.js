@@ -12,7 +12,7 @@ import SignInLink from '../../components/SignInLink';
 import StopsEditor, { Field, STOP_STYLES } from '../../components/StopsEditor';
 import { Loading, LoadError } from '../../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
-import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions } from '../../lib/loadDriver';
+import { fetchDriverChoices, driverLabel, driverRateHelp, driverOptions, withOwnerDriver } from '../../lib/loadDriver';
 import {
   STATUSES, SETUP_MSG, fetchDispatchContext, loadToForm, blankStop, formToStops, formToNewLoad, createLoad,
   notesMayShowPay, notMemberCopy, fetchMyRoles,
@@ -53,7 +53,7 @@ export default function DispatchNewLoadPage() {
     setDriversLoaded(false);
     const drv = await fetchDriverChoices(supabase, company.owner_id);
     if (drv.error) console.error('[dispatch new] drivers', drv.error);
-    setDrivers(drv.choices || []);
+    setDrivers(withOwnerDriver(drv.choices, company.owner_id)); // owner-operator: allowed by dispatch_create_load since 20261020000100
     setDriversLoaded(true);
   }
 
