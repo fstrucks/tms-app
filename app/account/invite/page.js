@@ -57,7 +57,7 @@ export default function InviteTesterPage() {
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ email: f.email, name: f.name, role: f.role }) });
     setBusy(null);
     if (r.error) return setMsg({ ok: false, text: r.error });
-    setMsg(r.warning ? { warn: true, text: r.warning } : { ok: true, text: `Invite sent to ${r.email}. They’ll get an email to set their password.` });
+    setMsg(r.warning ? { warn: true, text: r.warning } : (r.added || r.pending) && r.message ? { ok: true, text: r.message } : { ok: true, text: `Invite sent to ${r.email}. They’ll get an email to set their password.` });
     setF((x) => ({ ...x, email: '', name: '' })); load();
   }
   async function again(email) {
@@ -74,7 +74,7 @@ export default function InviteTesterPage() {
     setBusy(`cancel:${x.id}`); setMsg(null);
     const r = await api('/api/account/invites', { method: 'POST', body: JSON.stringify({ action: 'cancel', email: x.email, id: x.id }) });
     setBusy(null); setConfirmCancel(null);
-    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: `Invite to ${r.cancelled} cancelled.` });
+    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: x.status === 'add_pending' ? `Add for ${r.cancelled} cancelled.` : `Invite to ${r.cancelled} cancelled.` });
     load();
   }
 
@@ -109,7 +109,7 @@ export default function InviteTesterPage() {
   return (
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Invite a tester</h1>
-      <p style={{ ...s.muted, marginTop: 0 }}>They get an email to set a password, then join {st.company || 'your company'}.{st.limit ? ` ${Math.max(0, st.limit.hourly - st.limit.used)} of ${st.limit.hourly} invites left this hour.` : ''}</p>
+      <p style={{ ...s.muted, marginTop: 0 }}>They get an email to set a password, then join {st.company || 'your company'}. Already on PowerHaul? Enter their email and they’re added instead (if they’re in another company, they accept first).{st.limit ? ` ${Math.max(0, st.limit.hourly - st.limit.used)} of ${st.limit.hourly} invites left this hour.` : ''}</p>
       <form method="post" action={fallbackAction('/account/invite')} onSubmit={send} noValidate data-auth-form="invite" style={s.card} data-testid="invite-form">
         <label htmlFor="inv-email" style={{ ...s.label, marginTop: 0 }}>Email</label>
         <input id="inv-email" style={s.input} type="email" inputMode="email" autoComplete="off" required value={f.email} onChange={(e) => { setF({ ...f, email: e.target.value }); if (msg && !msg.ok && !msg.warn) setMsg(null); }} placeholder="name@example.com" />
@@ -136,12 +136,12 @@ export default function InviteTesterPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name ? `${x.name} · ` : ''}{x.email}</div>
-                  <div style={s.muted}><span style={badge(x.status)}>{x.status === 'pending' ? 'Pending' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
+                  <div style={s.muted}><span style={badge(x.status === 'add_pending' ? 'pending' : x.status)}>{x.status === 'pending' ? 'Pending' : x.status === 'add_pending' ? 'Waiting to accept' : 'Accepted'}</span> {ROLE_LABELS[x.role] || ''}{x.added_at ? ` · added ${formatSentAt(x.added_at)}` : x.invited_at ? ` · invited ${formatSentAt(x.invited_at)}` : ''}{!x.linked ? ' · not linked yet' : ''}</div>
                 </div>
                 <div data-testid="invite-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
-                {confirmCancel !== x.id && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
-                {x.status === 'pending' && (confirmCancel === x.id
-                  ? <span data-testid="cancel-confirm" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 13 }}>Cancel this invite?</span>
+                {confirmCancel !== x.id && x.status !== 'add_pending' && (x.status === 'pending' || !x.linked) && <button type="button" style={s.small} disabled={!!busy} onClick={() => again(x.email)}>{busy === x.email ? 'Sending…' : x.status === 'pending' ? 'Resend' : 'Link'}</button>}
+                {(x.status === 'pending' || x.status === 'add_pending') && (confirmCancel === x.id
+                  ? <span data-testid="cancel-confirm" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 13 }}>{x.status === 'add_pending' ? 'Cancel this add?' : 'Cancel this invite?'}</span>
                       <button type="button" style={{ ...s.small, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={!!busy} onClick={() => cancel(x)}>{busy === `cancel:${x.id}` ? 'Cancelling…' : 'Yes, cancel'}</button>
                       <button type="button" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(null)}>Keep</button></span>
                   : <button type="button" data-testid="invite-cancel" style={s.small} disabled={!!busy} onClick={() => setConfirmCancel(x.id)}>Cancel</button>)}
@@ -149,7 +149,7 @@ export default function InviteTesterPage() {
                 </div>
                 </div>
                 {roleEdit?.id === x.id && (
-                  <div data-testid="role-editor" style={{ background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
+                  <div data-testid="role-editor" data-ui-busy style={{ background: 'var(--surface-2)', border: '1px solid var(--divider)', borderRadius: 10, padding: '0.75rem', marginTop: '0.5rem' }}>
                     {!roleEdit.confirm ? (<>
                       <label htmlFor={`role-${x.id}`} style={{ ...s.label, marginTop: 0 }}>Role for {x.name || x.email}</label>
                       <select id={`role-${x.id}`} data-testid="role-select" style={s.input} value={roleEdit.role} disabled={!!busy} onChange={(e) => setRoleEdit({ ...roleEdit, role: e.target.value })}>

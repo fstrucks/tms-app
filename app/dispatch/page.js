@@ -1,4 +1,5 @@
 'use client';
+import { fetchActiveCompany } from '../lib/activeCompanyClient';
 
 // /dispatch: the owner's loads for management and dispatchers (Marc approved, via Sam, Oct 18 2026).
 // Data: public.dispatch_context() + public.dispatch_loads() (SECURITY DEFINER, role-checked in the database).
@@ -40,7 +41,10 @@ export default function DispatchPage() {
     if (acc.status === 'setup') { setState({ status: 'setup' }); return false; }
     if (acc.status === 'unknown') { console.error('[dispatch] access', acc.error?.code || '', acc.error?.message || ''); return fail(DISPATCH_LOAD_ERROR); }
     if (acc.status === 'not-member') { setState({ status: 'not-member', copy: notMemberCopy(acc.roles) }); return false; }
-    const company = acc.companies[0];
+    // Several companies: follow the account menu's active company (lib/activeCompany). Its own company → owner copy.
+    const ac = await fetchActiveCompany();
+    if (ac.multi && ac.active?.role === 'owner') { setState({ status: 'not-member', copy: notMemberCopy(['owner']) }); return false; }
+    const company = (ac.multi && acc.companies.find((x) => x.owner_id === ac.active?.owner_id)) || acc.companies[0];
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
     if (res.setup) { setState({ status: 'setup' }); return false; }
     if (res.error) { console.error('[dispatch] loads', res.error); return fail('Couldn’t load the loads. Check your connection and tap Retry.'); }

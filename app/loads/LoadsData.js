@@ -9,6 +9,9 @@ import { Loading, LoadError } from '../components/DataState';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
 import { pickupStop, deliveryStop } from '../lib/loadTabs';
+import { fetchActiveCompany } from '../lib/activeCompanyClient';
+import { fetchDispatchLoads } from '../lib/dispatch';
+import { viewingFor } from '../lib/activeCompanyView';
 
 // One fetch of the loads list, shared by the /loads page (all widths) and the desktop list pane
 // shown next to /loads/[id] at >= 1024px (pick 2A). Fetch/auth behaviour is unchanged from the old page.
@@ -30,6 +33,7 @@ export function LoadsProvider({ children }) {
   const [loads, setLoads] = useState([]);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false); // true once a fetch finished without error
+  const [viewing, setViewing] = useState(null); // another company picked in the account menu (lib/activeCompanyView)
   const reqRef = useRef(0);
   const loadedRef = useRef(false);
   loadedRef.current = loaded;
@@ -39,6 +43,18 @@ export function LoadsProvider({ children }) {
     // After data has loaded, failures keep the list and show a non-blocking banner (like /documents, /mileage).
     const fail = (msg) => setError(loadedRef.current ? { subtle: true, text: `Couldn't refresh. Showing the last loaded loads. ${msg}` } : { subtle: false, text: msg });
     if (!(await hasSession(supabase))) { if (req === reqRef.current) fail("Your session has expired or is still loading. Tap Retry, or sign in again."); return; }
+    // In more than one company and another company is active: show that company's loads (management/dispatcher,
+    // via the existing dispatch_loads RPC), or point a driver to Home. Owners of the active company see their own.
+    const v = viewingFor(await fetchActiveCompany(), (await supabase.auth.getSession())?.data?.session?.user?.id);
+    if (req !== reqRef.current) return;
+    setViewing(v);
+    if (v) {
+      if (v.kind === 'driver') { setError(null); setLoads([]); setLoaded(true); return; }
+      const r = await fetchDispatchLoads(supabase);
+      if (req !== reqRef.current) return;
+      if (r.error || r.setup) { console.error('[loads] company fetch', r.error || 'setup'); return fail("Couldn't load this company's loads."); }
+      setError(null); setLoads(r.loads.filter((l) => l.owner_id === v.owner_id)); setLoaded(true); return;
+    }
     const { data, error } = await supabase
       .from('loads')
       .select('id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, created_at, stops(sequence, stop_type, company_name, city, state, appointment_start, timezone)')
@@ -69,26 +85,27 @@ export function LoadsProvider({ children }) {
   // Optimistic patch from the detail pane (e.g. status change) so the list stays in sync.
   const patchLoad = (id, patch) => setLoads((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
-  return <Ctx.Provider value={{ user, checking, loads, error, loaded, reload: loadLoads, patchLoad }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, checking, loads, error, loaded, viewing, reload: loadLoads, patchLoad }}>{children}</Ctx.Provider>;
 }
 
 export function LoadsList({ selectedId = null }) {
-  const { user, checking, loads, error, loaded, reload } = useLoads();
+  const { user, checking, loads, error, loaded, viewing, reload } = useLoads();
   if (supabaseConfigError) return <p style={s.error}>{supabaseConfigError}</p>;
   if (checking) return <p style={s.muted}>Checking sign-in…</p>;
   if (!user) return <p>Please <SignInLink style={s.link}>sign in</SignInLink> to see your loads.</p>;
   return (
     <>
+      {viewing && <p data-testid="loads-viewing" style={{ fontSize: 14, background: 'var(--info-bg)', borderRadius: 8, padding: '0.5rem 0.65rem', margin: '0 0 0.75rem' }}>{viewing.text} <Link href={viewing.href} style={s.link}>{viewing.linkText}</Link></p>}
       {error && <LoadError message={error.text} subtle={error.subtle} onRetry={reload} />}
       {!loaded && !error && <Loading label="Loading loads…" />}
-      {loaded && loads.length === 0 && !error && (
+      {loaded && loads.length === 0 && !error && !viewing && (
         <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
       )}
       {loaded && loads.length > 0 && <LoadsTabs loads={loads} renderLoad={(l) => {
         const stops = [pickupStop(l), deliveryStop(l)];
         const sel = l.id === selectedId;
         return (
-          <Link key={l.id} href={`/loads/${l.id}`} aria-current={sel ? 'page' : undefined}
+          <Link key={l.id} href={viewing ? `/dispatch/${l.id}` : `/loads/${l.id}`} aria-current={sel ? 'page' : undefined}
             style={{ ...s.card, ...(sel ? { borderColor: 'var(--primary)', boxShadow: '0 0 0 1px var(--primary)', background: 'var(--info-bg)' } : null) }}>
             <div style={s.row}>
               <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

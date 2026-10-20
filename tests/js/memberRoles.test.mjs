@@ -180,6 +180,6 @@ test('role descriptions: Dispatcher mentions the dispatch center; the editor use
   assert.match(ROLE_HELP.management, /^Management: same as Dispatcher/);
   const page = readFileSync('app/account/invite/page.js', 'utf8');
   assert.doesNotMatch(page, /#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\b|rgba?\(/, 'no hardcoded colors (dark mode #95)');
-  assert.match(page, /data-testid="role-editor" style=\{\{ background: 'var\(--surface-2\)', border: '1px solid var\(--divider\)'/);
+  assert.match(page, /data-testid="role-editor" data-ui-busy style=\{\{ background: 'var\(--surface-2\)', border: '1px solid var\(--divider\)'/);
   assert.match(page, /data-testid="role-unassign-warning" style=\{\{[^}]*color: 'var\(--warning\)', background: 'var\(--warning-bg\)'/);
 });

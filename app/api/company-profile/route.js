@@ -4,6 +4,7 @@ import { buildRow, validateProfile, publicProfile } from '../../lib/companyProfi
 import { saveProfileGraceful, saveErrorMessage } from '../../lib/companyProfileSave';
 import { roleFor, canEdit, canSign } from '../../lib/companyRoles';
 import { noStoreFetch } from '../../lib/noStoreFetch';
+import { pickProfile, readActiveCookie } from '../../lib/activeCompany';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,10 +21,12 @@ async function ctx(req) {
   const sb = createClient(url, anon, { global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch }, auth: { persistSession: false } });
   const { data: u } = await sb.auth.getUser(token);
   if (!u?.user) return { err: json({ error: 'Your sign-in expired. Please sign in again.' }, 401) };
-  const { data: members } = await sb.from('company_members').select('profile_id,user_id,role').eq('user_id', u.user.id);
-  const { data: profiles, error } = await sb.from('company_profiles').select('*').limit(1);
+  const { data: members } = await sb.from('company_members').select('profile_id,user_id,role,created_at').eq('user_id', u.user.id);
+  // A user can be in more than one company: use the active one (account menu → Company; cookie re-checked here
+  // against the caller's own memberships), else the one they own, else the most recent join. See lib/activeCompany.
+  const { data: profiles, error } = await sb.from('company_profiles').select('*').order('created_at', { ascending: true }).limit(50);
   if (error) return { err: json({ error: 'Could not load the company profile.' }, 500) };
-  const profile = profiles?.[0] || null;
+  const profile = pickProfile(profiles, members, u.user.id, readActiveCookie(req, u.user.id)) || null;
   return { sb, user: u.user, profile, role: profile ? roleFor(u.user.id, profile, members || []) : 'owner' };
 }
 

@@ -1,4 +1,5 @@
 'use client';
+import { activeDispatchCompany } from '../../lib/activeCompanyClient';
 
 // /dispatch/new: management and dispatchers create a load for the company (Marc asked for it, via Sam, Oct 19 2026).
 // The load is saved under the company OWNER's account through public.dispatch_create_load (migration
@@ -47,7 +48,7 @@ export default function DispatchNewLoadPage() {
     if (ctx.setup) return setState({ status: 'setup', text: SETUP_MSG });
     if (ctx.error) { console.error('[dispatch new] context', ctx.error); return setState({ status: 'error', text: 'Couldn’t load the dispatch center.' }); }
     if (!ctx.companies.length) return setState({ status: 'not-member', copy: notMemberCopy(await fetchMyRoles(supabase)) });
-    const company = ctx.companies[0];
+    const company = await activeDispatchCompany(ctx.companies);
     setState({ status: 'ready', company });
     setDriversLoaded(false);
     const drv = await fetchDriverChoices(supabase, company.owner_id);

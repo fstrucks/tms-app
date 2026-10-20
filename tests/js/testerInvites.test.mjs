@@ -73,12 +73,12 @@ test('invite: calls inviteUserByEmail with redirectTo <site>/account/password + 
   assert.equal((await call(mockSb(), { email: 'x@fstrucks.com', role: 'owner' })).status, 422);
 });
 
-test('duplicates: already-registered → clear 409, already-invited pending → 409 "use Resend"; no email either way', async () => {
+test('duplicates: already-registered (not in a company) → added, no email; already-invited pending → 409 "use Resend"', async () => {
   const sb = mockSb({ users: [
     { id: 'u-reg', email: 'taylor@fstrucks.com', invited_at: '2026-10-10T00:00:00Z', email_confirmed_at: '2026-10-10T01:00:00Z', last_sign_in_at: '2026-10-17T10:00:00Z', user_metadata: {} },
     { id: 'u-pend', email: 'taylor+invite1@fstrucks.com', invited_at: iso(T0 - 3600e3 * 5), email_confirmed_at: null, last_sign_in_at: null, user_metadata: {}, app_metadata: { tester_invite: { by: OWNER, company: PROFILE, role: 'driver' } } }] });
   const a = await call(sb, { email: 'TAYLOR@fstrucks.com' });
-  assert.equal(a.status, 409); assert.equal(a.j.code, 'already_registered'); assert.match(a.j.error, /already has a PowerHaul account/);
+  assert.equal(a.status, 200); assert.equal(a.j.added, true); assert.match(a.j.message, /added to your company as Driver/);
   const b = await call(sb, { email: 'taylor+invite1@fstrucks.com' });
   assert.equal(b.status, 409); assert.equal(b.j.code, 'already_invited'); assert.match(b.j.error, /Use Resend/);
   assert.equal(sb.t.invites.length, 0);
@@ -238,7 +238,7 @@ test('2 cancel: re-reads the user right before deleting (accepted after the list
 
 test('2 cancel UI: Cancel on pending rows with a confirm step', () => {
   const page = readFileSync('app/account/invite/page.js', 'utf8');
-  assert.match(page, /x\.status === 'pending' && \(confirmCancel === x\.id/);
+  assert.match(page, /\(x\.status === 'pending' \|\| x\.status === 'add_pending'\) && \(confirmCancel === x\.id/);
   assert.match(page, /Cancel this invite\?/); assert.match(page, /Yes, cancel/); assert.match(page, /action: 'cancel', email: x\.email, id: x\.id/);
 });
 
@@ -303,7 +303,7 @@ test('invite list: if BOTH writes fail it says plainly it won’t be listed (lis
 });
 test('invite page: warnings are amber (not success green); a failed refresh keeps the list; re-fetch after send', () => {
   const page = readFileSync('app/account/invite/page.js', 'utf8');
-  assert.match(page, /setMsg\(r\.warning \? \{ warn: true, text: r\.warning \} : \{ ok: true, text: `Invite sent to/);
+  assert.match(page, /setMsg\(r\.warning \? \{ warn: true, text: r\.warning \} : \(r\.added \|\| r\.pending\) && r\.message \? \{ ok: true, text: r\.message \} : \{ ok: true, text: `Invite sent to/);
   assert.match(page, /data-kind=\{msg\.ok \? 'ok' : msg\.warn \? 'warn' : 'error'\}/);
   assert.match(page, /prev\.invites && !d\.signedOut \? \{ \.\.\.prev, refreshError:/);
   assert.match(page, /setF\(\(x\) => \(\{ \.\.\.x, email: '', name: '' \}\)\); load\(\);/);

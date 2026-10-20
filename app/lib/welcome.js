@@ -55,7 +55,7 @@ export function openWelcome(win = typeof window === 'undefined' ? null : window)
 
 // Another popup the user opened (account/upload menu, Report-a-bug dialog). The first-run sheet must not
 // auto-open over it: that stole focus, closed the menu, and swallowed the next tap.
-export const BUSY_UI_SELECTOR = '[role="menu"], [aria-haspopup][aria-expanded="true"], [role="dialog"][aria-modal="true"]:not([data-testid="welcome-screen"])';
+export const BUSY_UI_SELECTOR = '[role="menu"], [aria-haspopup][aria-expanded="true"], [role="dialog"][aria-modal="true"]:not([data-testid="welcome-screen"]), [role="alertdialog"], [data-ui-busy], body[data-pending-add], body[data-pending-add-check]';
 export const uiBusy = (doc = typeof document === 'undefined' ? null : document) => !!doc?.querySelector?.(BUSY_UI_SELECTOR);
 
 // Run cb now if nothing is open, otherwise once the user closes it (MutationObserver, no polling).
@@ -65,7 +65,7 @@ export function whenUiIdle(cb, doc = typeof document === 'undefined' ? null : do
   if (!MO || !doc?.body) return () => {};
   let done = false;
   const mo = new MO(() => { if (!done && !uiBusy(doc)) { done = true; mo.disconnect(); cb(); } });
-  mo.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded', 'role', 'aria-modal'] });
+  mo.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded', 'role', 'aria-modal', 'data-ui-busy', 'data-pending-add', 'data-pending-add-check'] });
   return () => { done = true; mo.disconnect(); };
 }
 
