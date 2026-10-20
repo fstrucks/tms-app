@@ -1,8 +1,8 @@
 // Home page "Current load" card (Marc's hybrid pick, Oct 18 2026). Pure helpers: no React/DOM.
 // Unit-tested in tests/js/homeCurrentLoad.test.mjs. Design: docs/design/home-current-load.md.
 //
-//  * Which load: in transit, then dispatched, then booked (stale booked loads skipped); ties go to the earliest
-//    pickup, same ordering as the Loads page "On the road" bar (groupLoads / currentInTransit in loadTabs.js).
+//  * Which load: in transit, then dispatched, then in transit > 24 h past delivery ("overdue", Oct 20 2026), then
+//    booked (stale booked loads skipped); ties go to the earliest pickup (groupLoads in loadTabs.js).
 //  * Layout: 'A' (pickup and delivery side by side) for one pickup + one drop; 'B' (next stop first, countdown,
 //    other stops folded) when the load has more than two stops.
 //  * Rate (Marc, 9:16 PM CT): the owner always sees it. A driver sees it only on loads assigned to him with
@@ -10,13 +10,23 @@
 //    the card shows whatever rate that function returns (can_see_rate), and never computes access itself.
 //  * Members (management / dispatcher / driver) read loads only through visible_loads(). Until that migration
 //    is applied the card falls back to the owner's own-row select, and members get no card (never a false empty).
-import { groupLoads, sortedStops, pickupStop, deliveryStop, currentInTransit } from './loadTabs';
+import { groupLoads, sortedStops, pickupStop, deliveryStop } from './loadTabs';
 import { fmtMoney } from './money';
 
 export const CARD_STATUSES = ['in_transit', 'dispatched', 'booked'];
 export const STALE_BOOKED_MS = 24 * 3600 * 1000; // booked load whose pickup is > 24 h in the past: skipped
 export const AMBER_MS = 2 * 3600 * 1000; // countdown turns amber under 2 h
 export const PASSED_STOP_GRACE_MS = 2 * 3600 * 1000; // in transit: a middle stop this long past its appt counts as done
+export const OVERDUE_TRANSIT_MS = 24 * 3600 * 1000; // in transit > 24 h past the delivery appt: probably delivered, not marked
+
+// An In transit load whose delivery appointment (end, else start) is more than 24 h in the past. It most likely
+// was delivered and never marked, so it ranks below current loads and the card asks "Delivered?" (Oct 20 2026).
+export function isOverdueInTransit(load, now = Date.now()) {
+  if (load?.status !== 'in_transit') return false;
+  const d = deliveryStop(load);
+  const t = ts(d?.appointment_end) ?? ts(d?.appointment_start);
+  return t !== null && t + OVERDUE_TRANSIT_MS < now;
+}
 
 // Owner fallback select (before 20261018000600). Owner-only: own-row RLS returns nothing to members.
 export const HOME_LOAD_COLS = 'id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, miles_source, notes, created_at, stops(*)';
@@ -38,28 +48,63 @@ export function eligibleBooked(loads, now = Date.now()) {
 
 const ordered = (loads, status) => groupLoads((loads || []).filter((l) => l?.status === status), 'active').flatMap((g) => g.loads);
 
-// → { load, kind: 'current' | 'next' | 'empty', status, more } (more = other loads with the same status).
-export function pickCurrentLoad(loads, now = Date.now()) {
+// In transit loads split: current ones (earliest pickup first, as the Loads page "On the road" bar) and overdue ones.
+export function transitSplit(loads, now = Date.now()) {
   const transit = ordered(loads, 'in_transit');
-  if (transit.length) {
-    const load = currentInTransit(loads); // the exact load the Loads page "On the road" bar shows
-    return { load, kind: 'current', status: 'in_transit', more: transit.length - 1 };
-  }
+  return { fresh: transit.filter((l) => !isOverdueInTransit(l, now)), overdue: transit.filter((l) => isOverdueInTransit(l, now)) };
+}
+
+// → { load, kind: 'current' | 'next' | 'empty', status, more, overdue, moreOverdue }.
+// Order: current In transit, then Dispatched, then overdue In transit (> 24 h past delivery), then Booked.
+// more = other loads with the card's status; moreOverdue = how many of those are overdue In transit.
+export function pickCurrentLoad(loads, now = Date.now()) {
+  const { fresh, overdue } = transitSplit(loads, now);
+  if (fresh.length) return { load: fresh[0], kind: 'current', status: 'in_transit', more: fresh.length - 1 + overdue.length, overdue: false, moreOverdue: overdue.length };
   const disp = ordered(loads, 'dispatched');
-  if (disp.length) return { load: disp[0], kind: 'current', status: 'dispatched', more: disp.length - 1 };
+  if (disp.length) return { load: disp[0], kind: 'current', status: 'dispatched', more: disp.length - 1, overdue: false, moreOverdue: 0 };
+  if (overdue.length) return { load: overdue[0], kind: 'current', status: 'in_transit', more: overdue.length - 1, overdue: true, moreOverdue: overdue.length - 1 };
   const booked = eligibleBooked(loads, now);
-  if (booked.length) return { load: booked[0], kind: 'next', status: 'booked', more: 0 };
-  return { load: null, kind: 'empty', status: null, more: 0 };
+  if (booked.length) return { load: booked[0], kind: 'next', status: 'booked', more: 0, overdue: false, moreOverdue: 0 };
+  return { load: null, kind: 'empty', status: null, more: 0, overdue: false, moreOverdue: 0 };
 }
 
 export function moreLine(pick) {
   if (!pick?.more) return null;
-  return pick.status === 'in_transit' ? `${pick.more} more on the road` : `${pick.more} more dispatched`;
+  if (pick.status !== 'in_transit') return `${pick.more} more dispatched`;
+  const od = pick.moreOverdue || 0;
+  if (!od) return `${pick.more} more on the road`;
+  if (od === pick.more) return `${od} more in transit past delivery (mark delivered?)`;
+  return `${pick.more - od} more on the road · ${od} past delivery`;
 }
 
-// "Up next": the next 2 booked loads (same order and stale rule as above), never the load already on the card.
+// "Up next": the next 2 booked loads (same order and stale rule as above), then overdue In transit loads (so a
+// newer booked load always comes before a stale one), never the load already on the card.
 export function upNext(loads, current, now = Date.now(), n = 2) {
-  return eligibleBooked(loads, now).filter((l) => l.id !== current?.id).slice(0, n);
+  const { overdue } = transitSplit(loads, now);
+  return [...eligibleBooked(loads, now), ...overdue].filter((l) => l.id !== current?.id).slice(0, n);
+}
+
+// "Delivered? Mark delivered": the owner marks it through the same loads.update the load page uses
+// (app/loads/[id]/page.js changeStatus). Management / dispatchers get a link to the dispatch center. Drivers: text only.
+export function deliveredPromptMode(audience, load) {
+  const base = linkBaseFor(audience, load);
+  return base === '/loads' ? 'button' : base === '/dispatch' ? 'link' : 'text';
+}
+export async function markDelivered(supabase, id) {
+  const { data, error } = await supabase.from('loads').update({ status: 'delivered' }).eq('id', id).eq('status', 'in_transit').select('status').maybeSingle();
+  if (error) return { ok: false, error };
+  if (!data) return { ok: false, error: { message: 'not_updated' } };
+  return { ok: true };
+}
+
+// Home "N rate cons waiting for review": the same rule as the Loads banner (EmailDraftsBanner / isEmailDraft):
+// emailed rate cons not yet turned into a load, minus the "Not a rate con" ones.
+export const rateconsWaitingText = (n) => (n > 0 ? (n === 1 ? '1 rate con waiting for review' : `${n} rate cons waiting for review`) : null);
+export async function countRateconsWaiting(supabase) {
+  const { count, error } = await supabase.from('documents').select('id', { count: 'exact', head: true })
+    .eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation')
+    .or('extraction_error.is.null,extraction_error.neq.not_ratecon');
+  return error ? 0 : (count || 0);
 }
 
 export const isMultiStop = (load) => sortedStops(load).length > 2;
