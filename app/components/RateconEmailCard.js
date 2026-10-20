@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ConfirmButton from './ui/ConfirmButton';
-import { rateconAddress, parseSenders } from '../lib/rateconDrafts';
+import { rateconAddress, parseSenders, copyText, EMAIL_TOTAL_MB } from '../lib/rateconDrafts';
 
 // Documents: the user's secret rate con address (ratecon+<token>@in.fstrucks.com), Copy, New address, and an
 // optional sender allowlist. Hidden quietly when migration 20261019000200 isn't applied yet.
@@ -22,6 +22,7 @@ export default function RateconEmailCard({ supabase, userId }) {
   const [msg, setMsg] = useState(null);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const addrRef = useRef(null);
 
   useEffect(() => {
     if (!supabase || !userId) return;
@@ -38,7 +39,8 @@ export default function RateconEmailCard({ supabase, userId }) {
   if (state !== 'ready') return null;
 
   async function copy() {
-    try { await navigator.clipboard.writeText(addr); setMsg({ ok: true, text: 'Address copied.' }); } catch { setMsg({ ok: false, text: 'Copy failed. Press and hold the address to copy it.' }); }
+    const r = await copyText(addr, { node: addrRef.current });
+    setMsg(r === 'copied' ? { ok: true, text: 'Copied.' } : { ok: false, text: 'Press and hold the address to copy it.' });
   }
   async function regenerate() {
     const { data, error } = await supabase.rpc('ratecon_address_regenerate');
@@ -60,7 +62,7 @@ export default function RateconEmailCard({ supabase, userId }) {
     <section style={s.card} data-testid="ratecon-email-card" aria-labelledby="ratecon-email-h">
       <h2 id="ratecon-email-h" style={{ fontSize: '1.1rem', marginTop: 0, marginBottom: '0.25rem' }}>Email rate cons to the app</h2>
       <p style={{ ...s.muted, margin: 0 }}>Forward a rate con PDF to your private address. It shows up below marked “From email”, ready for you to check and tap Create load. Nothing is booked until you do.</p>
-      <div style={s.addr} data-testid="ratecon-address">{addr}</div>
+      <div ref={addrRef} style={{ ...s.addr, userSelect: 'all', WebkitUserSelect: 'all' }} data-testid="ratecon-address">{addr}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <button type="button" onClick={copy} style={s.primary}>Copy address</button>
         <ConfirmButton label="New address" confirmLabel="Make new address" danger={false}
@@ -78,7 +80,7 @@ export default function RateconEmailCard({ supabase, userId }) {
         </div>
       )}
       {msg && <p role="status" style={{ color: msg.ok ? 'var(--success)' : 'var(--danger)', fontSize: '0.9rem', marginBottom: 0 }}>{msg.text}</p>}
-      <p style={{ ...s.muted, marginBottom: 0 }}>PDFs only, up to 10 MB each and 10 per email. Keep this address private; tap New address if it gets shared.</p>
+      <p style={{ ...s.muted, marginBottom: 0 }}>{`PDFs only, up to 10 per email, about ${EMAIL_TOTAL_MB} MB total per email (bigger emails can't be received).`} Keep this address private; tap New address if it gets shared.</p>
     </section>
   );
 }

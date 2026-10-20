@@ -130,10 +130,10 @@ test('duplicate Postmark MessageID → no-op (pre-check and insert race)', async
   const raced = await send(sb2, payload());
   assert.equal(raced.body.duplicate, true); assert.equal(sb2.db.documents.length, 0);
 });
-test('a different MessageID with the same Message-ID header is a new email (dedupe on Postmark MessageID)', async () => {
+test('a different MessageID with the same Message-ID header is a new email (dedupe on Postmark MessageID; a different PDF so the content dedupe does not apply)', async () => {
   const sb = sbWith();
   await send(sb, payload());
-  const r = await send(sb, payload({ MessageID: 'pm-rc-2' }));
+  const r = await send(sb, payload({ MessageID: 'pm-rc-2', Attachments: [{ Name: 'FAKE-ratecon-2.pdf', ContentType: 'application/pdf', Content: fakePdf('SECOND') }] }));
   assert.equal(r.body.ratecons, 1); assert.equal(sb.db.documents.length, 2);
 });
 test('upload failure skips that PDF without a half-made document', async () => {
@@ -211,4 +211,84 @@ test('wiring: route branches before packet matching; Documents badge, review, ma
   assert.ok(!/\b(drop table|drop column|truncate|delete from)\b/.test(sql));
   for (const x of ['enable row level security', 'ratecon_owner_for_token', "to service_role", 'documents_source_check']) assert.ok(sql.includes(x), x);
   assert.ok(!/postmark_server_token/i.test(read('../../app/lib/rateconEmail.js') + route));
+});
+
+// ---- #102 QA follow-ups ----
+import { dedupeRateconPdfs, pdfSha256 } from '../../app/lib/rateconEmail.js';
+import { isNotRatecon, skippedLine, visibleSkipped, readDismissed, addDismissed, copyText, REJECT_TEXT } from '../../app/lib/rateconDrafts.js';
+
+test('dedupe: same PDF in a new email (new MessageID) → skipped as already received, no second draft', async () => {
+  const sb = sbWith();
+  const r1 = await send(sb, payload());
+  assert.equal(r1.body.ratecons, 1);
+  assert.match(sb.db.documents[0].content_sha256, /^[a-f0-9]{64}$/);
+  const r2 = await send(sb, payload({ MessageID: 'pm-rc-2', Subject: 'FWD again' }));
+  assert.deepEqual([r2.status, r2.body.ratecons, r2.body.duplicates], [200, 0, 1]);
+  assert.equal(sb.db.documents.length, 1); assert.equal(sb.uploads.length, 1);
+  const e2 = sb.db.inbound_emails[1];
+  assert.equal(e2.status, 'rejected');
+  assert.deepEqual(e2.rejected_attachments, [{ name: 'FAKE-ratecon.pdf', reason: 'duplicate' }]);
+  assert.match(skippedLine(e2), /FAKE-ratecon\.pdf \(already received\)/);
+});
+test('dedupe: two identical PDFs in one email → one draft; a different PDF still goes through', async () => {
+  const sb = sbWith();
+  const r = await send(sb, payload({ Attachments: [
+    { Name: 'A.pdf', ContentType: 'application/pdf', Content: fakePdf('A') },
+    { Name: 'A-copy.pdf', ContentType: 'application/pdf', Content: fakePdf('A') },
+    { Name: 'B.pdf', ContentType: 'application/pdf', Content: fakePdf('B') },
+  ] }));
+  assert.deepEqual([r.body.ratecons, r.body.duplicates], [2, 1]);
+  assert.deepEqual(sb.db.inbound_emails[0].rejected_attachments, [{ name: 'A-copy.pdf', reason: 'duplicate' }]);
+});
+test('dedupe: another owner with the same PDF is not a duplicate; a deleted draft no longer blocks', async () => {
+  const sb = sbWith({ owners: { [TOKEN]: { user_id: USER, allowed_senders: [] }, [OTHER]: { user_id: 'other-user', allowed_senders: [] } } });
+  await send(sb, payload());
+  const addr = `ratecon+${OTHER}@in.fstrucks.com`;
+  const r = await send(sb, payload({ MessageID: 'pm-rc-o', To: addr, ToFull: [{ Email: addr }], OriginalRecipient: addr }));
+  assert.equal(r.body.ratecons, 1);
+  sb.db.documents = sb.db.documents.filter((d) => d.user_id !== USER);
+  const r3 = await send(sb, payload({ MessageID: 'pm-rc-3' }));
+  assert.equal(r3.body.ratecons, 1);
+});
+test('dedupe: missing hash column (migration not applied) → no dedupe and no hash written', async () => {
+  const sb = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ in: async () => ({ data: null, error: { code: '42703' } }) }) }) }) }) };
+  const pdfs = [{ name: 'a.pdf', bytes: Buffer.from('x') }, { name: 'b.pdf', bytes: Buffer.from('x') }];
+  const out = await dedupeRateconPdfs(sb, USER, pdfs);
+  assert.equal(out.hashColumn, false); assert.equal(out.keep.length, 1); assert.equal(out.dups.length, 1);
+  assert.equal(pdfSha256(Buffer.from('x')).length, 64);
+});
+test('oversize text names the limit; skipped line lists every reason', () => {
+  assert.match(REJECT_TEXT.too_large, /10 MB limit/);
+  assert.equal(skippedLine({ subject: 'S', rejected_attachments: [{ name: 'big.pdf', reason: 'too_large' }, { name: 'n.docx', reason: 'not_pdf' }] }),
+    'Skipped from email “S”: big.pdf (over the 10 MB limit), n.docx (not a PDF)');
+});
+test('not-a-rate-con PDFs: own label, not counted as waiting', () => {
+  const base = { source: 'email', load_id: null, doc_type: 'rate_confirmation' };
+  const notRc = { ...base, extraction_status: 'failed', extraction_error: 'not_ratecon' };
+  assert.equal(isNotRatecon(notRc), true); assert.equal(isEmailDraft(notRc), false);
+  assert.equal(isEmailDraft({ ...base, extraction_status: 'failed', extraction_error: 'nothing_read' }), true);
+  assert.equal(isNotRatecon({ ...notRc, load_id: 'L1' }), false);
+});
+test('skipped notices: dismiss persists per email id', () => {
+  const store = new Map(); const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const rows = [{ id: 'e1', rejected_attachments: [{ name: 'a', reason: 'not_pdf' }] }, { id: 'e2', rejected_attachments: [] }, { id: 'e3', rejected_attachments: [{ name: 'b', reason: 'duplicate' }] }];
+  assert.deepEqual(visibleSkipped(rows, readDismissed(storage)).map((r) => r.id), ['e1', 'e3']);
+  addDismissed(storage, ['e1']);
+  assert.deepEqual(visibleSkipped(rows, readDismissed(storage)).map((r) => r.id), ['e3']);
+  assert.deepEqual(readDismissed({ getItem: () => 'not json' }), []);
+});
+test('copy address: clipboard → copied; no clipboard → select + execCommand; nothing works → manual', async () => {
+  let wrote; assert.equal(await copyText('x', { nav: { clipboard: { writeText: async (t) => { wrote = t; } } } }), 'copied'); assert.equal(wrote, 'x');
+  const sel = { removeAllRanges() {}, addRange() {} };
+  const doc = (ok) => ({ getSelection: () => sel, createRange: () => ({ selectNodeContents() {} }), execCommand: () => ok });
+  assert.equal(await copyText('x', { nav: {}, doc: doc(true), node: {} }), 'copied');
+  assert.equal(await copyText('x', { nav: { clipboard: { writeText: async () => { throw new Error('denied'); } } }, doc: doc(false), node: {} }), 'manual');
+  assert.equal(await copyText('x', { nav: undefined, doc: undefined }), 'manual');
+});
+test('wiring: Documents dismiss + not-rate-con label + FAB padding; banner excludes not_ratecon; dispatch Save bar clears the FAB', () => {
+  const docs = readFileSync('app/documents/page.js', 'utf8');
+  assert.match(docs, /email-skipped-dismiss/); assert.match(docs, /not-ratecon-label/); assert.match(docs, /var\(--fab-space\)/);
+  assert.match(readFileSync('app/components/EmailDraftsBanner.js', 'utf8'), /extraction_error\.neq\.not_ratecon/);
+  assert.match(readFileSync('app/dispatch/[id]/page.js', 'utf8'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--fab-space\)\)'/);
+  assert.match(readFileSync('app/components/RateconEmailCard.js', 'utf8'), /copyText\(addr/);
 });
