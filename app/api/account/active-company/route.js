@@ -24,7 +24,7 @@ async function ctx(req, deps = {}) {
 
 export async function GET(req, { deps } = {}) {
   const c = await ctx(req, deps); if (c.err) return c.err;
-  return json({ companies: c.companies.map(pub), active: pub(resolveActive(c.companies, c.uid, readActiveCookie(req))) });
+  return json({ companies: c.companies.map(pub), active: pub(resolveActive(c.companies, c.uid, readActiveCookie(req, c.uid))) });
 }
 
 export async function POST(req, { deps } = {}) {
@@ -33,5 +33,5 @@ export async function POST(req, { deps } = {}) {
   const pick = c.companies.find((x) => x.profile_id === b?.profile_id);
   if (!pick) return json({ error: 'You’re not a member of that company.' }, 403);
   const https = (() => { try { return new URL(req.url).protocol === 'https:'; } catch { return true; } })();
-  return json({ ok: true, active: pub(pick) }, 200, activeCookieString(pick.profile_id, { https }));
+  return json({ ok: true, active: pub(pick) }, 200, activeCookieString(pick.profile_id, { https, uid: c.uid }));
 }

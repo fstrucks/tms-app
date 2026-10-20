@@ -23,10 +23,14 @@ test('resolveActive: valid choice wins; otherwise owned; otherwise most recent j
 });
 
 test('cookie: HttpOnly, Path=/, parsed back; junk rejected', () => {
-  const c = activeCookieString(B);
+  const c = activeCookieString(B, { uid: U });
+  assert.match(c, new RegExp(`${ACTIVE_COOKIE}=${U}\\.${B}`));
   assert.match(c, /HttpOnly/); assert.match(c, /Path=\//); assert.match(c, /Secure/);
-  assert.equal(readActiveCookie(fakeReq({ cookie: `a=1; ${ACTIVE_COOKIE}=${B}` })), B);
-  assert.equal(readActiveCookie(fakeReq({ cookie: `${ACTIVE_COOKIE}=<script>` })), null);
+  assert.equal(readActiveCookie(fakeReq({ cookie: `a=1; ${ACTIVE_COOKIE}=${U}.${B}` }), U), B);
+  // QA #103 re-test (a): a choice saved by ANOTHER account on this browser never counts for this one
+  assert.equal(readActiveCookie(fakeReq({ cookie: `${ACTIVE_COOKIE}=someone-else.${B}` }), U), null);
+  assert.equal(readActiveCookie(fakeReq({ cookie: `${ACTIVE_COOKIE}=${B}` }), U), null); // old unbound format
+  assert.equal(readActiveCookie(fakeReq({ cookie: `${ACTIVE_COOKIE}=${U}.<script>` }), U), null);
 });
 
 test('pickProfile (company profile page): uses the active company only if the caller is a member', () => {
@@ -53,8 +57,8 @@ test('Join text matches what happens next', () => {
 });
 
 function sb(mems, profiles) {
-  const from = (name) => { const f = []; const run = (one) => { const rows = (name === 'company_members' ? mems : profiles).filter((r) => f.every(([k, v]) => r[k] === v)); return { data: one ? rows[0] || null : rows, error: null }; };
-    const b = { select: () => b, eq: (k, v) => { f.push([k, v]); return b; }, maybeSingle: async () => run(true), then: (res, rej) => Promise.resolve(run(false)).then(res, rej) }; return b; };
+  const from = (name) => { const f = []; const run = (one) => { const rows = (name === 'company_members' ? mems : profiles).filter((r) => f.every(([k, v, op]) => (op === 'in' ? v.includes(r[k]) : r[k] === v))); return { data: one ? rows[0] || null : rows, error: null }; };
+    const b = { select: () => b, eq: (k, v) => { f.push([k, v]); return b; }, in: (k, vs) => { f.push([k, vs, 'in']); return b; }, maybeSingle: async () => run(true), then: (res, rej) => Promise.resolve(run(false)).then(res, rej) }; return b; };
   return { from, auth: { admin: {} } };
 }
 const uc = (id) => () => ({ auth: { getUser: async () => ({ data: { user: { id } }, error: null }) } });
@@ -68,9 +72,9 @@ test('active-company route: lists my companies, honours a valid cookie, refuses 
   const deps = { sb: s, mkUserClient: uc(U) };
   const g = await (await GET(rq(null), { deps })).json();
   assert.equal(g.companies.length, 2); assert.equal(g.active.profile_id, B);
-  assert.equal((await (await GET(rq(null, `${ACTIVE_COOKIE}=${A}`), { deps })).json()).active.profile_id, A);
+  assert.equal((await (await GET(rq(null, `${ACTIVE_COOKIE}=${U}.${A}`), { deps })).json()).active.profile_id, A);
   const bad = await POST(rq({ profile_id: 'cccccccc-0000-4000-8000-000000000004' }), { deps }); assert.equal(bad.status, 403); assert.equal(bad.headers.get('set-cookie'), null);
-  const ok = await POST(rq({ profile_id: A }), { deps }); assert.equal(ok.status, 200); assert.match(ok.headers.get('set-cookie'), new RegExp(`${ACTIVE_COOKIE}=${A}`));
+  const ok = await POST(rq({ profile_id: A }), { deps }); assert.equal(ok.status, 200); assert.match(ok.headers.get('set-cookie'), new RegExp(`${ACTIVE_COOKIE}=${U}\\.${A}`));
 });
 
 test('Team rows: pending add shows its own time; direct add shows "added"; this company’s invite keeps invited', () => {
@@ -93,4 +97,20 @@ test('welcome sheet waits for the Join check/card and never opens over the role 
   assert.match(readFileSync('app/account/invite/page.js', 'utf8'), /data-testid="role-editor" data-ui-busy/);
   const p = readFileSync('app/components/CompanyAddPrompt.js', 'utf8');
   assert.match(p, /dataset\.pendingAddCheck = '1'/); assert.match(p, /dataset\.pendingAdd = '1'/);
+});
+
+test('QA #103 re-test (a): owner who joins another company stays in their own, even with another account’s cookie on the browser', async () => {
+  const O2 = 'owner2-0000', OWN2 = 'dddddddd-0000-4000-8000-000000000005';
+  const s2 = sb([{ profile_id: OWN2, user_id: O2, role: 'owner', created_at: '2026-10-19T19:00:00Z' }, { profile_id: A, user_id: O2, role: 'dispatcher', created_at: '2026-10-19T21:40:00Z' }],
+    [{ id: OWN2, owner_id: O2, legal_name: 'QA Owner Two Fake Co' }, { id: A, owner_id: 'own-a', legal_name: 'Test Trucking Co' }]);
+  const g = await (await GET(rq(null, `${ACTIVE_COOKIE}=${U}.${A}`), { deps: { sb: s2, mkUserClient: uc(O2) } })).json();
+  assert.equal(g.active.profile_id, OWN2);
+  const a = { company: A, company_name: 'Test Trucking Co', role: 'dispatcher' };
+  assert.match(joinedText(a, g), /still working in QA Owner Two Fake Co/);
+});
+
+test('QA #103 re-test (c): accepted row shows the original add time', () => {
+  const rows = inviteRows([{ id: 'ac', email: 'ac@fstrucks.com', app_metadata: { company_added_at: { [B]: '2026-10-19T21:00:00Z' } } }],
+    [{ user_id: 'ac', role: 'driver', created_at: '2026-10-19T21:30:00Z' }], { id: B, owner_id: 'own-b' });
+  assert.equal(rows[0].added_at, '2026-10-19T21:00:00Z');
 });

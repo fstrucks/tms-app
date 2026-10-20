@@ -17,6 +17,8 @@ export const pendingAdds = (u) => {
   return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
 };
 const roleText = (r) => ROLE_LABELS[r] || r;
+export const ADDED_KEY = 'company_added_at';
+export const addedTimes = (u) => { const a = u?.app_metadata?.[ADDED_KEY]; return a && typeof a === 'object' && !Array.isArray(a) ? a : {}; };
 
 async function writeMeta(admin, user, patch) {
   const r = await Promise.resolve(admin.updateUserById(user.id, { app_metadata: { ...(user.app_metadata || {}), ...patch } })).catch((e) => ({ error: e }));
@@ -85,7 +87,9 @@ export async function respondAdd({ sb, user, company, accept }) {
     const m = await ensureMembership(sb, { id: company }, user.id, valid.role);
     if (m.error) return { error: 'Couldn’t join just now. Try again.', status: 500 };
     delete map[company];
-    await writeMeta(sb.auth.admin, user, { [PENDING_KEY]: map });
+    // Keep when the owner added them, so the Team row shows the add time, not the accept time (QA #103 re-test c).
+    const addedAt = { ...addedTimes(user), ...(rec.at ? { [company]: rec.at } : {}) };
+    await writeMeta(sb.auth.admin, user, { [PENDING_KEY]: map, [ADDED_KEY]: addedAt });
     return { ok: true, joined: true, company_name: valid.company_name, role: m.role || valid.role };
   }
   delete map[company];

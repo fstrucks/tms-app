@@ -9,7 +9,7 @@
 // the auth user's app_metadata.tester_invite (only the service role can write it; user_metadata is user-editable, so
 // it only carries the display name).
 import { ROLE_LABELS } from './companyRoles.js';
-import { addExisting, pendingAdds } from './companyAdds.js';
+import { addExisting, pendingAdds, addedTimes } from './companyAdds.js';
 
 export const INVITE_ROLES = ['driver', 'dispatcher', 'management']; // never 'owner'
 export const DEFAULT_INVITE_ROLE = 'driver'; // least privilege; pick Dispatcher/Management for testers who edit packets
@@ -71,7 +71,7 @@ export function inviteRows(users, members, profile) {
   // QA #103 (b, c): an invite date only when THIS company sent the invite; otherwise "added <date>": the pending
   // add's own time, or when the membership row was created (direct add).
   const ownInvite = (u) => inviteMeta(u).company === profile.id;
-  const addedAt = (u) => (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.at) || (!ownInvite(u) && memberAt.get(u.id)) || null;
+  const addedAt = (u) => (!memberRole.has(u.id) && pendingAdds(u)[profile.id]?.at) || (memberRole.has(u.id) && addedTimes(u)[profile.id]) || (!ownInvite(u) && memberAt.get(u.id)) || null;
   return (users || [])
     .filter((u) => u.id !== profile.owner_id && (memberRole.has(u.id) || inviteMeta(u).company === profile.id || !!pendingAdds(u)[profile.id]))
     .map((u) => ({

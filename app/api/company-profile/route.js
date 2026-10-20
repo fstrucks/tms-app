@@ -26,7 +26,7 @@ async function ctx(req) {
   // against the caller's own memberships), else the one they own, else the most recent join. See lib/activeCompany.
   const { data: profiles, error } = await sb.from('company_profiles').select('*').order('created_at', { ascending: true }).limit(50);
   if (error) return { err: json({ error: 'Could not load the company profile.' }, 500) };
-  const profile = pickProfile(profiles, members, u.user.id, readActiveCookie(req)) || null;
+  const profile = pickProfile(profiles, members, u.user.id, readActiveCookie(req, u.user.id)) || null;
   return { sb, user: u.user, profile, role: profile ? roleFor(u.user.id, profile, members || []) : 'owner' };
 }
 

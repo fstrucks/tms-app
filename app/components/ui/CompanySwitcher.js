@@ -3,13 +3,18 @@
 // (validated against company_members) and reloads so every page uses it.
 import { useEffect, useState } from 'react';
 import { fetchActiveCompany, setActiveCompany } from '../../lib/activeCompanyClient';
+import { ACTIVE_EVENT } from '../../lib/activeCompany';
 import { ROLE_LABELS } from '../../lib/companyRoles';
 
-export default function CompanySwitcher({ uid, open }) {
+export default function CompanySwitcher({ uid }) {
   const [st, setSt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  useEffect(() => { if (!uid) { setSt(null); return; } let live = true; fetchActiveCompany({ fresh: open }).then((d) => { if (live) setSt(d); }); return () => { live = false; }; }, [uid, open]);
+  // Load as soon as the session is known (not on menu open), keep the last good answer while refreshing, and
+  // refresh on Join / switch (ACTIVE_EVENT).
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const f = () => setTick((n) => n + 1); window.addEventListener(ACTIVE_EVENT, f); return () => window.removeEventListener(ACTIVE_EVENT, f); }, []);
+  useEffect(() => { if (!uid) { setSt(null); return undefined; } let live = true; fetchActiveCompany().then((d) => { if (live && !d.error) setSt(d); }); return () => { live = false; }; }, [uid, tick]);
   if (!st?.multi) return null;
   async function pick(id) {
     if (busy || id === st.active?.profile_id) return;

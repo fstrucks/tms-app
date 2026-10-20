@@ -19,19 +19,25 @@ export function resolveActive(companies, uid, choice) {
   return [...list].sort((a, b) => String(b.joined_at || '').localeCompare(String(a.joined_at || '')))[0];
 }
 
-export function readActiveCookie(req) {
+// QA #103 re-test (a): the cookie is per browser, not per person, so a choice made by one test account was picked
+// up by the next account signed in on the same browser once it joined that company. The value is now
+// "<user id>.<profile id>" and only counts for that user.
+export function readActiveCookie(req, uid) {
   const raw = req?.headers?.get?.('cookie') || '';
   for (const part of raw.split(';')) {
     const i = part.indexOf('=');
     if (i > 0 && part.slice(0, i).trim() === ACTIVE_COOKIE) {
-      const v = decodeURIComponent(part.slice(i + 1).trim());
-      return UUIDISH.test(v) ? v : null;
+      let v = ''; try { v = decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
+      const dot = v.indexOf('.');
+      if (dot < 0 || !uid || v.slice(0, dot) !== uid) return null;
+      const id = v.slice(dot + 1);
+      return UUIDISH.test(id) ? id : null;
     }
   }
   return null;
 }
-export const activeCookieString = (id, { https = true } = {}) =>
-  `${ACTIVE_COOKIE}=${id ? encodeURIComponent(id) : ''}; Max-Age=${id ? ACTIVE_MAX_S : 0}; Path=/; HttpOnly; SameSite=Lax${https ? '; Secure' : ''}`;
+export const activeCookieString = (id, { https = true, uid } = {}) =>
+  `${ACTIVE_COOKIE}=${id && uid ? encodeURIComponent(`${uid}.${id}`) : ''}; Max-Age=${id ? ACTIVE_MAX_S : 0}; Path=/; HttpOnly; SameSite=Lax${https ? '; Secure' : ''}`;
 
 // Server (service-role client): the caller's companies. → { companies } | { error }
 export async function loadMyCompanies(sb, uid) {
@@ -40,11 +46,13 @@ export async function loadMyCompanies(sb, uid) {
   const { data: owned, error: e2 } = await sb.from('company_profiles').select('id').eq('owner_id', uid);
   if (e2) return { error: e2 };
   const ids = [...new Set([...(mems || []).map((m) => m.profile_id), ...(owned || []).map((p) => p.id)])];
+  if (!ids.length) return { companies: [] };
+  // QA #103 re-test (b): one query for all of them (was one per company).
+  const { data: profs, error: e3 } = await sb.from('company_profiles').select('id, owner_id, legal_name, dba_name').in('id', ids);
+  if (e3) return { error: e3 };
   const out = [];
-  for (const id of ids) {
-    const { data: p } = await sb.from('company_profiles').select('id, owner_id, legal_name, dba_name').eq('id', id).maybeSingle();
-    if (!p) continue;
-    const m = (mems || []).find((x) => x.profile_id === id);
+  for (const p of profs || []) {
+    const m = (mems || []).find((x) => x.profile_id === p.id);
     out.push({ profile_id: p.id, owner_id: p.owner_id, role: p.owner_id === uid ? 'owner' : m?.role || null,
       name: (p.dba_name || '').trim() || (p.legal_name || '').trim() || 'Company', joined_at: m?.created_at || null });
   }

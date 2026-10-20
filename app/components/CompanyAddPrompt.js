@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { ROLE_LABELS } from '../lib/companyRoles';
-import { fetchActiveCompany, setActiveCompany } from '../lib/activeCompanyClient';
+import { refreshActiveCompany, setActiveCompany } from '../lib/activeCompanyClient';
 import { joinedText } from '../lib/companyAdds';
 
 const api = makeApi(() => getSupabase()?.auth).call;
@@ -46,7 +46,7 @@ export default function CompanyAddPrompt() {
     if (r.error) return setMsg({ ok: false, text: r.error });
     setAdds((xs) => xs.filter((x) => x.company !== a.company));
     if (!accept) return setMsg({ ok: true, text: `Declined. You weren’t added to ${a.company_name}.` });
-    const ac = await fetchActiveCompany({ fresh: true });
+    const ac = await refreshActiveCompany();
     setMsg({ ok: true, text: joinedText(a, ac), switchTo: ac.active?.profile_id === a.company ? null : a.company });
   }
   if (!adds.length && !msg) return null;
