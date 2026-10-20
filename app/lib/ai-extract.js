@@ -218,6 +218,34 @@ export const DOC_TYPES = {
     },
     normalize: (r) => normalizeScaleTicket(r),
     maxOutputTokens: 300,
+  },  // Load paperwork classifier (Documents tab / load page): what kind of trucking document this is, plus the numbers
+  // and date printed on it so the app can suggest which load it belongs to. Only a suggestion; the user picks.
+  load_doc: {
+    name: 'load_doc',
+    prompt: [
+      'You are looking at a US trucking document. Return JSON only.',
+      'doc_kind: "bol" for a bill of lading (BOL / straight bill / shipper, consignee, pieces, weight, shipper signature),',
+      '"scale_ticket" for a truck scale ticket (CAT Scale or other certified scale, gross / axle weights),',
+      '"pod" for a signed proof of delivery / delivery receipt, "lumper_receipt" for a lumper / unloading fee receipt,',
+      '"rate_confirmation" for a broker rate/load confirmation, else "other".',
+      'reference_numbers: every load, PO, BOL, pro, order, shipment, pickup or reference number printed, exactly as printed (max 10). Empty list if none.',
+      'doc_date: the main date printed (ship date, weigh date) as YYYY-MM-DD (US month first), or null. Never use today\'s date.',
+    ].join('\n'),
+    schema: {
+      type: 'object', additionalProperties: false,
+      required: ['doc_kind', 'reference_numbers', 'doc_date'],
+      properties: {
+        doc_kind: { type: 'string', enum: ['bol', 'scale_ticket', 'pod', 'lumper_receipt', 'rate_confirmation', 'other'] },
+        reference_numbers: { type: 'array', items: { type: 'string' } },
+        doc_date: str,
+      },
+    },
+    normalize: (r) => ({
+      doc_kind: ['bol', 'scale_ticket', 'pod', 'lumper_receipt', 'rate_confirmation'].includes(r?.doc_kind) ? r.doc_kind : 'other',
+      reference_numbers: (Array.isArray(r?.reference_numbers) ? r.reference_numbers : []).map((x) => String(x || '').trim().slice(0, 40)).filter(Boolean).slice(0, 10),
+      doc_date: /^\d{4}-\d{2}-\d{2}$/.test(r?.doc_date || '') ? r.doc_date : null,
+    }),
+    maxOutputTokens: 300,
   },
 };
 

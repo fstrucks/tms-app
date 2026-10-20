@@ -10,6 +10,8 @@ import { UPLOAD_TYPES, CHANGE_TYPES, DOCUMENTS_SCAN_TYPE_IDS, isDocumentsTabDoc,
 import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
+import DocLoadLink from '../components/DocLoadLink';
+import { isLoadDocType, suggestLoad, loadForSuggest, loadPickLabel } from '../lib/loadDocs';
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
@@ -74,6 +76,7 @@ export default function DocumentsPage() {
   const [user, setUser] = useState(null);
   const [scanFiles, setScanFiles] = useState(null); // photos that opened the scanner
   const [scanLoads, setScanLoads] = useState([]);
+  const [scanLoadId, setScanLoadId] = useState('');
   const [checking, setChecking] = useState(true);
   const [file, setFile] = useState(null);
   const [fileKey, setFileKey] = useState(0); // remounts the hidden inputs to clear them
@@ -207,6 +210,12 @@ export default function DocumentsPage() {
       if (body.reclassified === 'coi') {
         setDocs((list) => list.filter((d) => d.id !== id)); // PR #84: COIs live in Company → Company documents
         setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI in Company → Company documents. Open Company → Insurance to read it.' });
+        return;
+      }
+      if (body.reclassified === 'bol' || body.reclassified === 'scale_ticket') {
+        // PR #110: a BOL / scale ticket uploaded as a rate con is re-typed; its "Link to load" picker opens below.
+        setDocs((list) => list.map((d) => (d.id === id ? { ...d, doc_type: body.reclassified, ai_extracted_data: body.data } : d)));
+        setStatus({ type: 'ok', text: `This looks like a ${body.reclassified === 'bol' ? 'bill of lading' : 'scale ticket'}, so it was saved as one. Pick its load below.` });
         return;
       }
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
@@ -353,11 +362,15 @@ export default function DocumentsPage() {
   }
 
   async function openScanner(files) {
-    setScanFiles(files);
+    // Loads first, so the scanner opens with the suggested load already picked (its Load picker reads it once).
     // Loads for the "link to load" picker (newest first). Failure just leaves "No load".
-    const { data, error } = await supabase.from('loads').select('id, broker_load_number, broker_name, created_at').order('created_at', { ascending: false }).limit(100);
+    const { data, error } = await supabase.from('loads').select('id, broker_load_number, broker_name, status, assigned_driver_user_id, notes, created_at, stops(*)').order('created_at', { ascending: false }).limit(100);
     if (error) console.error('[scan] loads', error);
-    setScanLoads((data || []).map((l) => ({ id: l.id, label: [l.broker_load_number ? `#${l.broker_load_number}` : 'Load', l.broker_name].filter(Boolean).join(' · ') + ` (${new Date(l.created_at).toLocaleDateString()})` })));
+    const rows = (data || []).map(loadForSuggest);
+    // PR #110: preselect the scanner's Load with the user's active load (in transit / dispatched to them).
+    setScanLoadId(suggestLoad(rows, { userId: user?.id })?.loadId || '');
+    setScanLoads(rows.map((l) => ({ id: l.id, label: loadPickLabel(l) })));
+    setScanFiles(files);
   }
 
   // Scanned rate con: the scanner's PDF goes through pickFile, exactly like a PDF from Files / PDF.
@@ -372,9 +385,10 @@ export default function DocumentsPage() {
   async function saveScan(scan) {
     if (scan.docType === 'ratecon') return applyRateConScan(scan);
     const err = await uploadScan(supabase, user?.id, scan);
-    if (err) return err;
+    if (err && !err.saved) return err;
     setScanFiles(null);
-    setStatus({ type: 'ok', text: `Saved ${scan.file.name}${scan.loadId ? ' to the load' : ''}.` });
+    setStatus(err?.warning ? { type: 'error', text: err.warning } : { type: 'ok', text: `Saved ${scan.file.name}${scan.loadId ? ' to the load' : ''}.` });
+    if (!err && scan.loadId) notifyLoadChanged(scan.loadId);
     await loadDocs();
     return null;
   }
@@ -479,7 +493,9 @@ export default function DocumentsPage() {
                   </div>
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
-                {!EXTRACTABLE(d.doc_type) ? (
+                {isLoadDocType(d.doc_type) ? (
+                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, load_id: loadId } : x))); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
+                ) : !EXTRACTABLE(d.doc_type) ? (
                   d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (
                   <p style={s.muted}>Extracting…</p>
@@ -513,7 +529,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
-      {scanFiles && <Scanner allowRateCon typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} onClose={() => setScanFiles(null)} onSave={saveScan} />}
+      {scanFiles && <Scanner allowRateCon typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} initialLoadId={scanLoadId} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }

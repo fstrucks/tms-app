@@ -42,8 +42,8 @@ test('Documents: one scanner; ratecon -> uploadRateCon path, BOL/POD -> uploadSc
   assert.match(docs, /<h1[^>]*>Document Upload<\/h1>/);
 });
 
-test('Load page scanner stays BOL/POD (no allowRateCon); Expenses has no scan', () => {
-  assert.match(load, /Scan BOL\/POD/);
+test('Load page scanner: Scan document (BOL/POD/lumper/scale ticket, no allowRateCon); Expenses has no scan', () => {
+  assert.match(load, /Scan document/); // PR #110: scale tickets too
   assert.doesNotMatch(load, /allowRateCon/);
   assert.doesNotMatch(expenses, /onScan/);
 });

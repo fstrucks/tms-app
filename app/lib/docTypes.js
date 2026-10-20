@@ -18,8 +18,8 @@ export const SCAN_DOC_TYPES = [
 // Marc 10/15: company documents (not tied to a load). Picking one defaults Load to "No load".
 export const COMPANY_DOC_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => t.company).map((t) => t.id);
 export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id); }
-// Marc 10/15 (via Sam): load-page Scan offers BOL, POD, Lumper receipt, and Other.
-export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt', 'other'];
+// Marc 10/15 (via Sam): load-page Scan offers BOL, POD, Lumper receipt, and Other. PR #110 (Marc 10/20): plus Scale ticket.
+export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt', 'scale_ticket', 'other'];
 // PR #84: the Documents tab is load paperwork only. Company types live in Company → Company documents.
 export const DOCUMENTS_SCAN_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => !t.company).map((t) => t.id);
 export const isDocumentsTabDoc = (d) => !isCompanyDocType(d?.doc_type);

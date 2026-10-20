@@ -20,6 +20,8 @@ import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
+import { fetchLoadDocs } from '../../lib/loadDocsClient';
+import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad } from '../../lib/loadSeed';
@@ -70,7 +72,7 @@ export default function LoadDetailPage() {
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       supabase.from('loads').select('*, stops(*)').eq('id', id).maybeSingle(),
-      supabase.from('documents').select('id, doc_type, file_path, original_filename, created_at').eq('load_id', id).order('created_at', { ascending: false }),
+      fetchLoadDocs(supabase, id),
     ]);
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
     if (!l) return setError({ retry: false, text: 'Load not found.' });
@@ -140,14 +142,17 @@ export default function LoadDetailPage() {
   }
 
   async function view(doc) {
+    if (doc.url) return window.open(doc.url, '_blank', 'noopener'); // signed by /api/loads/:id/documents (10 min)
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.file_path, 300);
     if (error) { console.error('[load] open file', error); return setError({ retry: false, text: "Couldn't open the file. Please try again." }); }
     window.open(data.signedUrl, '_blank', 'noopener');
   }
 
+  // Only the owner deletes loads, and only his own uploads can be deleted with it; team members' uploads are unlinked.
+  const ownDocs = docs.filter((d) => d.own !== false);
   async function removeLoad() {
     setDelError(null);
-    const r = await deleteLoad(supabase, id, { docs, deleteDocs: alsoDocs });
+    const r = await deleteLoad(supabase, id, { docs: ownDocs, deleteDocs: alsoDocs });
     if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
     list?.reload(); // the shared list (layout) outlives this page; drop the deleted load
     if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
@@ -262,14 +267,15 @@ export default function LoadDetailPage() {
                 <div style={s.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                     <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Documents</h2>
-                    <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan BOL/POD</button>
+                    <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan document</button>
                   </div>
                   {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
-                  {docs.length === 0 ? <p style={s.muted}>No linked documents.</p> : docs.map((d) => (
-                    <div key={d.id} style={s.row}>
-                      <div style={{ minWidth: 0 }}>
+                  {docs.length === 0 ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
+                    <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={s.row}>
+                      <LoadDocThumb doc={d} onOpen={() => view(d)} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                        <div style={s.muted}>{docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}</div>
+                        <div style={s.muted}><strong data-testid="load-doc-type" style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {new Date(d.created_at).toLocaleDateString()}</div>
                       </div>
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>
@@ -278,14 +284,14 @@ export default function LoadDetailPage() {
                 <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
                   <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
-                  {docs.length > 0 && (
+                  {ownDocs.length > 0 && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
                       <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
-                      <span>Also delete {docs.length} linked document{docs.length === 1 ? '' : 's'}</span>
+                      <span>Also delete {ownDocs.length} linked document{ownDocs.length === 1 ? '' : 's'}</span>
                     </label>
                   )}
                   {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(docs.length, alsoDocs, linked)} onConfirm={removeLoad} />
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>
               </>
@@ -300,9 +306,9 @@ export default function LoadDetailPage() {
           onClose={() => setScanning(false)}
           onSave={async (scan) => {
             const err = await uploadScan(supabase, user?.id, scan);
-            if (err) return err;
+            if (err && !err.saved) return err;
             setScanning(false);
-            setScanMsg(`Saved ${scan.file.name}.`);
+            setScanMsg(err?.warning || `Saved ${scan.file.name}.`);
             await fetchAll();
             return null;
           }} />

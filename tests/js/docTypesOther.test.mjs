@@ -34,7 +34,7 @@ test('Scanner Other input + validation; list pages use docTypeLabel', () => {
   assert.match(sc, /const savedType = isOther \? otherDocType\(otherName\) : docType;\s*if \(!savedType\) return setMsg/);
   assert.match(sc, /docType: savedType, loadId/);
   assert.match(read('../../app/documents/page.js'), /\{docTypeLabel\(d\.doc_type\)\}/);
-  assert.match(read('../../app/loads/[id]/page.js'), /\{docTypeLabel\(d\.doc_type\)\}/);
+  assert.match(read('../../app/loads/[id]/page.js'), /\{d\.label \|\| docTypeLabel\(d\.doc_type\)\}/); // PR #110: server label first
 });
 
 test('Documents copy + Rate Confirmation label present', () => {
