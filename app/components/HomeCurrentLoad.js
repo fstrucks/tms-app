@@ -17,6 +17,7 @@ import CurrentLoadPanels from './CurrentLoadPanels';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
+  deliveredPromptMode, markDelivered, isOverdueInTransit, countRateconsWaiting, rateconsWaitingText,
 } from '../lib/homeCurrentLoad';
 
 const s = {
@@ -97,7 +98,21 @@ function LoadCard(props) {
   );
 }
 
-function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
+function DeliveredPrompt({ load, audience, onMarkDelivered, busy, err }) {
+  const mode = deliveredPromptMode(audience, load);
+  return (
+    <div role="status" data-testid="home-delivered-prompt" style={{ background: 'var(--warning-bg)', borderRadius: 8, padding: '0.6rem 0.8rem', margin: '0 0 12px' }}>
+      <div style={{ fontWeight: 600 }}>Delivered? This load is still In transit more than a day after its delivery date.</div>
+      {mode === 'button' && <button type="button" data-testid="home-mark-delivered" disabled={busy} onClick={onMarkDelivered}
+        style={{ ...s.btn, ...s.btnPri, marginTop: 8 }}>{busy ? 'Saving…' : 'Mark delivered'}</button>}
+      {mode === 'link' && <Link href={`/dispatch/${load.id}`} style={{ ...s.link, display: 'inline-block', marginTop: 6 }}>Mark delivered in Dispatch →</Link>}
+      {mode === 'text' && <div style={{ ...s.muted, marginTop: 4 }}>Ask your dispatcher to mark it delivered.</div>}
+      {err && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
+    </div>
+  );
+}
+
+function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivered, markBusy, markErr }) {
   const owner = audience === 'owner';
   const base = linkBaseFor(audience, pick.load);
   const { load, kind } = pick;
@@ -117,6 +132,7 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
       <div style={{ ...s.muted, marginBottom: 12 }}>
         {load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}{load.broker_name ? ` · ${load.broker_name}` : ''}
       </div>
+      {pick.overdue && <DeliveredPrompt load={load} audience={audience} onMarkDelivered={onMarkDelivered} busy={markBusy} err={markErr} />}
       {layout === 'A' ? <OptionA load={load} /> : <OptionB load={load} now={now} />}
       <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap' }}>
         {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
@@ -135,16 +151,17 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience }) {
   );
 }
 
-function UpNext({ loads, base, audience }) {
+function UpNext({ loads, base, audience, now }) {
   return (
     <section data-testid="home-up-next" aria-label="Up next" style={s.card}>
       <div style={s.lbl}>Up next</div>
       {loads.length === 0 && <p style={{ ...s.muted, margin: '0.5rem 0' }}>No other booked loads.</p>}
       {loads.map((l, i) => {
         const pu = pickupStop(l);
-        const d = fmtApptDate(pu?.appointment_start, pu?.timezone);
+        const od = isOverdueInTransit(l, now); // stale In transit: listed after booked loads, flagged
+        const d = od ? 'Past delivery' : fmtApptDate(pu?.appointment_start, pu?.timezone);
         const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid var(--divider)' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
-        const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{d || 'No date'}</span></>);
+        const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span data-overdue={od ? 'true' : undefined} style={{ ...s.muted, whiteSpace: 'nowrap', ...(od ? { color: 'var(--warning)' } : {}) }}>{d || 'No date'}</span></>);
         const rowBase = linkBaseFor(audience, l); // per load: never a /loads/<id> link for a member's load
         return rowBase ? <Link key={l.id} href={`${rowBase}/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
       })}
@@ -160,6 +177,9 @@ export default function HomeCurrentLoad({ supabase, user }) {
   const [docPath, setDocPath] = useState(null);
   const [openErr, setOpenErr] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+  const [waiting, setWaiting] = useState(0); // emailed rate cons waiting for review (owner only)
+  const [markBusy, setMarkBusy] = useState(false);
+  const [markErr, setMarkErr] = useState(null);
   const req = useRef(0);
 
   async function load() {
@@ -178,6 +198,16 @@ export default function HomeCurrentLoad({ supabase, user }) {
     setAudience(who === 'member' && !res.viaRpc ? 'hidden' : who);
     setNow(Date.now());
     setLoads(res.loads);
+    if (who === 'owner') countRateconsWaiting(supabase).then((n) => { if (r === req.current) setWaiting(n); });
+  }
+
+  async function onMarkDelivered() {
+    const id = pick?.load?.id; if (!id) return;
+    setMarkErr(null); setMarkBusy(true);
+    const res = await markDelivered(supabase, id);
+    setMarkBusy(false);
+    if (!res.ok) { console.error('[home] mark delivered', res.error); return setMarkErr("Couldn't mark it delivered. Open the load and change the status there."); }
+    setLoads((ls) => (ls || []).filter((l) => l.id !== id)); // delivered loads leave the card (not in CARD_STATUSES)
   }
 
   useEffect(() => { if (supabase && user) load(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -209,8 +239,15 @@ export default function HomeCurrentLoad({ supabase, user }) {
   if (error) return <div style={{ marginTop: '1rem' }}><LoadError message={error} onRetry={load} /></div>;
   if (!loads) return <div style={{ marginTop: '1rem', maxWidth: 480 }}><Loading label="Loading your current load…" /></div>;
 
+  const waitingText = owner ? rateconsWaitingText(waiting) : null;
+  const waitingLine = waitingText && (
+    <p role="status" data-testid="home-ratecons-waiting" style={{ background: 'var(--info-bg)', color: 'var(--text)', borderRadius: 8, padding: '0.6rem 0.8rem', margin: '1rem 0 0', maxWidth: 560 }}>
+      {waitingText}. <Link href="/documents" style={{ color: 'var(--primary)', fontWeight: 600 }}>Review on Documents →</Link>
+    </p>
+  );
+
   if (pick.kind === 'empty') {
-    return (
+    return (<>{waitingLine}
       <section data-testid="home-current-load" data-kind="empty" style={{ ...s.card, border: '2px dashed var(--border)', marginTop: '1rem', maxWidth: 560 }}>
         <div style={s.lbl}>Current load</div>
         <p style={{ fontWeight: 600, margin: '0.4rem 0 0.75rem' }}>No active or booked loads</p>
@@ -221,16 +258,17 @@ export default function HomeCurrentLoad({ supabase, user }) {
           </div>
         )}
       </section>
-    );
+    </>);
   }
 
-  return (
+  return (<>{waitingLine}
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
-        <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience} />
+        <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience}
+          onMarkDelivered={onMarkDelivered} markBusy={markBusy} markErr={markErr} />
         {openErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
-      <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} audience={audience} />
+      <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} audience={audience} now={now} />
     </div>
-  );
+  </>);
 }
