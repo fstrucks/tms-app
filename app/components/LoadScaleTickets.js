@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { loadScaleTickets } from '../lib/scaleTicketsLoad';
+import LoadDocThumb from './LoadDocThumb';
 
 const lb = (n) => (n == null ? '—' : `${Number(n).toLocaleString('en-US')} lb`);
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
@@ -24,9 +25,23 @@ export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardSty
         <Link href="/truck" style={{ color: 'var(--primary)', fontSize: 14 }}>{st.canEdit ? 'Add on Truck tab' : 'Truck tab'}</Link>
       </div>
       {st.state === 'error' ? <p style={{ color: 'var(--danger)', fontSize: 14 }}>{st.error}</p>
-        : !st.tickets.length ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No scale tickets linked to this load.</p>
+        : !st.tickets.length && !st.ticketDocs?.length ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No scale tickets linked to this load.</p>
         : (<>
-          {st.loadWeight == null && <p style={{ color: 'var(--warning)', fontSize: 13, margin: '0 0 0.5rem' }}>Add the load weight to compare with the rate con.</p>}
+          {/* PR #110: scale-ticket documents (Documents tab / load-page scan) with no weight entered on the Truck tab yet. */}
+          {st.ticketDocs?.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {st.ticketDocs.map((d) => (
+                <li key={d.id} data-testid="load-ticket-doc-row" style={{ borderTop: '1px solid var(--divider)', padding: '8px 0', display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <LoadDocThumb doc={{ ...d, label: 'Scale ticket' }} onOpen={() => d.url && window.open(d.url, '_blank', 'noopener')} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ overflowWrap: 'anywhere' }}>{mdy(d.doc_date || d.created_at?.slice(0, 10))} · Scale ticket</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 13, overflowWrap: 'anywhere' }}>{d.original_filename} · weight not entered{st.canEdit ? ' (add it on the Truck tab)' : ''}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {st.tickets.length > 0 && st.loadWeight == null && <p style={{ color: 'var(--warning)', fontSize: 13, margin: '0 0 0.5rem' }}>Add the load weight to compare with the rate con.</p>}
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {st.tickets.map((t) => (
               <li key={t.id} data-testid="load-ticket-row" style={{ borderTop: '1px solid var(--divider)', padding: '8px 0' }}>

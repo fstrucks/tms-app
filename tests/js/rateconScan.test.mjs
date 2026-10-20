@@ -33,7 +33,7 @@ test('Scanner: Rate con is first only with allowRateCon (no default type); hides
 
 test('Documents: one scanner; ratecon -> uploadRateCon path, BOL/POD -> uploadScan', () => {
   assert.match(docs, /<UploadMenu [^>]*onScan=\{openScanner\}/);
-  assert.match(docs, /<Scanner allowRateCon typeIds=\{DOCUMENTS_SCAN_TYPE_IDS\} initialFiles=\{scanFiles\}/); // PR #84: no company types
+  assert.match(docs, /<Scanner allowRateCon=\{!isDriver\} typeIds=\{DOCUMENTS_SCAN_TYPE_IDS\} initialFiles=\{scanFiles\}/); // PR #84: no company types; PR #110: not for drivers
   assert.match(docs, /if \(scan\.docType === 'ratecon'\) return applyRateConScan\(scan\);\s*const err = await uploadScan/);
   const fn = docs.slice(docs.indexOf('function applyRateConScan'), docs.indexOf('async function saveScan'));
   assert.match(fn, /pickFile\(pdf\);\s*uploadRateCon\(pdf\);/);
@@ -42,8 +42,8 @@ test('Documents: one scanner; ratecon -> uploadRateCon path, BOL/POD -> uploadSc
   assert.match(docs, /<h1[^>]*>Document Upload<\/h1>/);
 });
 
-test('Load page scanner stays BOL/POD (no allowRateCon); Expenses has no scan', () => {
-  assert.match(load, /Scan BOL\/POD/);
+test('Load page scanner: Scan document (BOL/POD/lumper/scale ticket, no allowRateCon); Expenses has no scan', () => {
+  assert.match(load, /Scan document/); // PR #110: scale tickets too
   assert.doesNotMatch(load, /allowRateCon/);
   assert.doesNotMatch(expenses, /onScan/);
 });

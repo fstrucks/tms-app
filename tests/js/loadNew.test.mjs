@@ -18,7 +18,7 @@ test('[id] rejects a non-UUID id before querying (no endless "Loading load…")'
   const src = read('app/loads/[id]/page.js');
   const guard = src.indexOf('if (!isLoadId(id))');
   assert.ok(guard > 0, 'guard present');
-  assert.ok(guard < src.indexOf(".from('loads').select('*, stops(*)')"), 'guard runs before the load query');
+  assert.ok(guard < src.indexOf('fetchVisibleLoad(supabase, id)'), 'guard runs before the load query'); // PR #110: via visible_loads()
   assert.equal(isLoadId('new'), false);
   assert.equal(isLoadId(''), false);
   assert.equal(isLoadId(undefined), false);

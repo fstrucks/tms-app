@@ -108,7 +108,9 @@ export async function POST(req) {
   // Digital PDF: read the text layer first. A clear COI (ACORD 25 wording) is reclassified without an AI call.
   let pdfText = '';
   if (mime === 'application/pdf') pdfText = await pdfTextOf(bytes);
-  if (classifyDocText(pdfText) === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  const textKind = classifyDocText(pdfText);
+  if (textKind === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  if (textKind === 'bol' || textKind === 'scale_ticket') return reclassifyLoadDoc(admin, doc, user, finish, textKind, null);
   const model = pickModel(process.env.OPENAI_MODEL);
   const ai = await callRateConModel({ apiKey, model, mime, name, bytes });
   if (!ai.ok) {
@@ -119,7 +121,9 @@ export async function POST(req) {
   let extracted = ai.extracted;
 
   const { document_kind: aiKind, heading_text: aiText, ...loadData } = extracted || {};
-  if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  const kind = decideDocKind({ pdfText, aiKind, aiText });
+  if (kind === 'coi') return reclassifyCoi(admin, doc, user, finish);
+  if (kind === 'bol' || kind === 'scale_ticket') return reclassifyLoadDoc(admin, doc, user, finish, kind, loadData);
   extracted = { ...loadData, total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
   const { error: upErr } = await admin.from('documents').update({ ai_extracted_data: extracted })
     .eq('id', doc.id).eq('user_id', user.id);
@@ -141,4 +145,16 @@ async function reclassifyCoi(admin, doc, user, finish) {
   if (error) { await finish('error'); return fail(500, GENERIC, 'reclassify', error.message); }
   await finish('success');
   return json({ reclassified: 'coi', docType: 'coi', data: null });
+}
+
+// PR #110: a BOL or scale ticket uploaded as a rate con is re-typed so it shows under its load. The numbers and date
+// read off it are kept in ai_extracted_data (doc_kind / reference_numbers / doc_date) for the "Link to load" suggestion.
+async function reclassifyLoadDoc(admin, doc, user, finish, kind, data) {
+  const refs = [data?.load_number, ...(Array.isArray(data?.reference_numbers) ? data.reference_numbers : [])].map((x) => String(x || '').trim()).filter(Boolean).slice(0, 10);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(data?.pickup?.date || '') ? data.pickup.date : null;
+  const read = { doc_kind: kind, reference_numbers: refs, doc_date: date };
+  const { error } = await admin.from('documents').update({ doc_type: kind, ai_extracted_data: read }).eq('id', doc.id).eq('user_id', user.id);
+  if (error) { await finish('error'); return fail(500, GENERIC, 'reclassify', error.message); }
+  await finish('success');
+  return json({ reclassified: kind, docType: kind, data: read });
 }

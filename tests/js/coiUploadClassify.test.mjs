@@ -51,10 +51,10 @@ test('wiring: documents page type picker + only rate cons extracted; extract rou
   assert.match(doc, /id="upload-type"/); assert.match(doc, /doc_type: docType/);
   assert.match(doc, /docType === 'rate_confirmation'\) extract\(/); assert.match(doc, /body\.reclassified === 'coi'/);
   const r = read('../../app/api/extract/route.js') + read('../../app/lib/rateconExtract.js');
-  assert.match(r, /document_kind: \{ type: 'string', enum: \['rate_confirmation', 'coi', 'other'\]/);
+  assert.match(r, /document_kind: \{ type: 'string', enum: \['rate_confirmation', 'coi', 'bol', 'scale_ticket', 'other'\]/); // PR #110
   assert.match(r, /required: \['document_kind', 'heading_text',/);
-  assert.match(r, /classifyDocText\(pdfText\) === 'coi'\) return reclassifyCoi/);
-  assert.match(r, /decideDocKind\(\{ pdfText, aiKind, aiText \}\) === 'coi'/);
+  assert.match(r, /const textKind = classifyDocText\(pdfText\);\s*if \(textKind === 'coi'\) return reclassifyCoi/);
+  assert.match(r, /const kind = decideDocKind\(\{ pdfText, aiKind, aiText \}\);\s*if \(kind === 'coi'\) return reclassifyCoi/);
   assert.match(r, /update\(\{ doc_type: 'coi', ai_extracted_data: null \}\)/);
   const ins = read('../../app/company/CompanyInsurance.js');
   assert.match(ins, /href="#vault-coi"/); assert.match(ins, />Upload COI</); // PR #84: vault COI row

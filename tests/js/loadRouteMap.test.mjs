@@ -322,11 +322,14 @@ test('API: GET is cache-only; POST steps for the owner; drivers get the cached v
   }
   assert.equal(pj.calculated_miles, 239); assert.equal(pj.canEdit, true); assert.ok(!JSON.stringify(pj).includes(FAKE_KEY));
 
-  const d2 = fakeSupabase({ tables: seed(), user: { id: DRIVER }, role: 'driver' });
+  // PR #110: only the ASSIGNED driver gets the view, and without rate fields unless Show rate is on.
+  const seeded = seed(); seeded.loads = seeded.loads.map((l) => (l.id === L1 ? { ...l, assigned_driver_user_id: DRIVER, show_rate_to_driver: false, rate_per_mile: 2.5 } : l));
+  const d2 = fakeSupabase({ tables: seeded, user: { id: DRIVER }, role: 'driver' });
   const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWNER }] }, user: { id: DRIVER }, role: 'driver' });
   const ors2 = fakeOrs();
   const dj = await (await MAP.POST(req('POST'), { params: { id: L1 }, deps: { mkUserClient: () => uc, sb: d2, authRetryMs: 0, shared: null, route: { env, fetchImpl: ors2.impl, take: allow } } })).json();
   assert.equal(dj.canEdit, false); assert.equal(ors2.calls.length, 0);
+  assert.ok(dj.load && !('rate_per_mile' in dj.load), 'no RPM for a driver without Show rate');
 
   const noTok = await MAP.GET(req('GET', null), { params: { id: L1 }, deps });
   assert.equal(noTok.status, 401); assert.match((await noTok.json()).error, /Sign in first/);

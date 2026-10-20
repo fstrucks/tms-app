@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import SignInLink from '../../components/SignInLink';
 import StopsEditor from '../../components/StopsEditor';
+import LoadDocsCard from '../../components/LoadDocsCard';
 import { Loading, LoadError } from '../../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { StatusBadge, fmtMoney } from '../../lib/loads';
@@ -227,6 +228,11 @@ export default function DispatchLoadPage() {
             </div>
           </form>
         )}
+      {/* PR #110: the load's documents (BOLs, scale tickets, …) for Dispatchers / Management, outside the form. */}
+      {user && state.status === 'ready' && load && (
+        <LoadDocsCard supabase={supabase} loadId={load.id} userId={user.id} cardStyle={s.card}
+          loadLabel={[load.broker_load_number ? `#${load.broker_load_number}` : 'This load', load.broker_name].filter(Boolean).join(' · ')} />
+      )}
     </main>
   );
 }
