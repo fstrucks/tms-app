@@ -35,3 +35,14 @@ export async function fetchVisibleLoad(supabase, id) {
 
 // Owner-only controls on the load page (weight, status, driver settings, delete). The fallback path is owner-only.
 export const isLoadOwnerView = (load) => !!load && (load.viewer_role == null || load.viewer_role === 'owner');
+
+// Child cards (map, miles) patch the load after the server recalculates. When the database said this viewer can't
+// see the rate (visible_loads().can_see_rate = false), rate fields in a patch are dropped (defense in depth; the
+// map endpoint already leaves them out for drivers without "Show rate to driver").
+export const RATE_KEYS = ['rate', 'rate_per_mile'];
+export function mergeLoadPatch(load, patch) {
+  if (!patch) return load;
+  if (load?.can_see_rate !== false) return { ...load, ...patch };
+  const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => !RATE_KEYS.includes(k)));
+  return { ...load, ...clean };
+}

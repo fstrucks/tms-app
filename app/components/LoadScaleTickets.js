@@ -34,8 +34,8 @@ export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardSty
                 <li key={d.id} data-testid="load-ticket-doc-row" style={{ borderTop: '1px solid var(--divider)', padding: '8px 0', display: 'flex', gap: 10, alignItems: 'center' }}>
                   <LoadDocThumb doc={{ ...d, label: 'Scale ticket' }} onOpen={() => d.url && window.open(d.url, '_blank', 'noopener')} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div>{mdy(d.doc_date || d.created_at?.slice(0, 10))} · Scale ticket</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename} · weight not entered{st.canEdit ? ' (add it on the Truck tab)' : ''}</div>
+                    <div style={{ overflowWrap: 'anywhere' }}>{mdy(d.doc_date || d.created_at?.slice(0, 10))} · Scale ticket</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 13, overflowWrap: 'anywhere' }}>{d.original_filename} · weight not entered{st.canEdit ? ' (add it on the Truck tab)' : ''}</div>
                   </div>
                 </li>
               ))}

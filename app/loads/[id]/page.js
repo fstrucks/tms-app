@@ -21,7 +21,7 @@ import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { fetchLoadDocs } from '../../lib/loadDocsClient';
-import { fetchVisibleLoad, isLoadOwnerView } from '../../lib/visibleLoads';
+import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
@@ -185,7 +185,7 @@ export default function LoadDetailPage() {
 
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
                 <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck}
-                  onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} onRouteFilled={refreshAll} />
+                  onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} onRouteFilled={refreshAll} />
 
                 <div style={s.card}>
                   <dl style={s.dl}>
@@ -267,7 +267,7 @@ export default function LoadDetailPage() {
                 </div>
 
                 <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
-                <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onPlannedCleared={() => setRouteCheck((n) => n + 1)} onLoadChange={(patch) => setLoad((l) => ({ ...l, ...patch }))} />
+                <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onPlannedCleared={() => setRouteCheck((n) => n + 1)} onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>

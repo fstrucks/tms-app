@@ -14,11 +14,29 @@ export const maxDuration = 30; // every request answers by HANDLER_DEADLINE_MS (
 
 const SETUP = { setupNeeded: true, state: 'setup', message: 'The map needs a database update that hasn’t been applied yet.' };
 
-function respond(r, canEdit) {
-  if (r.notFound) return json({ error: 'Load not found.', state: 'failed' }, 404);
+function respond(r, canEdit, gate = {}) {
+  if (r.notFound || gate.hidden) return json({ error: 'Load not found.', state: 'failed' }, 404);
   if (r.setupNeeded) return json(SETUP);
   if (r.error) return json({ error: r.error, state: 'failed', retry: true }, 500);
-  return json({ ...r.view, canEdit });
+  const view = gate.canSeeRate === false ? redactRate(r.view) : r.view;
+  return json({ ...view, canEdit });
+}
+
+// PR #110 QA (rate leak): the map view carried load.rate_per_mile from the service client, so a driver got the RPM
+// even with "Show rate to driver" off (the load page then showed Rate/mile + RPM). Same rule as visible_loads():
+// owner / management / dispatcher see the rate; a driver only on a load assigned to him with show_rate_to_driver on.
+// A driver who isn't assigned to the load gets 404 (visible_loads() wouldn't show it to him either).
+export const RATE_ROLES = new Set(['owner', 'management', 'dispatcher']);
+export function redactRate(view) {
+  if (!view?.load) return view;
+  const { rate_per_mile, rate, ...load } = view.load; // eslint-disable-line no-unused-vars
+  return { ...view, load };
+}
+async function rateGate(c, loadId) {
+  if (RATE_ROLES.has(c.role)) return { canSeeRate: true };
+  const { data } = await c.db.from('loads').select('assigned_driver_user_id,show_rate_to_driver').eq('id', loadId).eq('user_id', c.ownerId).maybeSingle();
+  if (!data || data.assigned_driver_user_id !== c.user.id) return { hidden: true, canSeeRate: false };
+  return { canSeeRate: data.show_rate_to_driver === true };
 }
 const crashed = (where, e) => {
   console.error(`[map] ${where}`, String(e?.name || ''), String(e?.message || e).slice(0, 200));
@@ -33,7 +51,9 @@ export async function GET(req, { params, deps } = {}) {
   return withDeadline((async () => {
     try {
       const c = await mapCtx(req, deps); if (c.res) return c.res;
-      return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), c.canEdit);
+      const gate = await rateGate(c, params?.id);
+      if (gate.hidden) return respond({}, false, gate);
+      return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), c.canEdit, gate);
     } catch (e) { return crashed('GET', e); }
   })(), deadlineOf(deps), late);
 }
@@ -42,10 +62,12 @@ export async function POST(req, { params, deps } = {}) {
   return withDeadline((async () => {
     try {
       const c = await mapCtx(req, deps); if (c.res) return c.res;
-      if (!c.canEdit) return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), false);
+      const gate = await rateGate(c, params?.id);
+      if (gate.hidden) return respond({}, false, gate);
+      if (!c.canEdit) return respond(await getRoute(c.db, c.ownerId, params?.id, deps?.route), false, gate);
       let shared = deps?.shared;
       if (shared === undefined) { try { shared = serviceClient(); } catch { shared = null; } }
-      return respond(await ensureRoute(c.db, c.ownerId, params?.id, { ...(deps?.route || {}), shared }), true);
+      return respond(await ensureRoute(c.db, c.ownerId, params?.id, { ...(deps?.route || {}), shared }), true, gate);
     } catch (e) { return crashed('POST', e); }
   })(), deadlineOf(deps), late);
 }

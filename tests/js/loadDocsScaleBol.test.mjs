@@ -220,3 +220,43 @@ test('(d) PDF thumbnails render page 1 with the shared pdf.js worker; tile fallb
   assert.match(t, /workerSrc = '\/pdfjs\/pdf\.worker\.min\.mjs'/);
   assert.match(t, /isPdf\(doc\) \? 'PDF' : 'DOC'/);
 });
+
+// ---- QA round 2: rate leak ----
+import * as MAP from '../../app/api/loads/[id]/map/route.js';
+import { mergeLoadPatch } from '../../app/lib/visibleLoads.js';
+
+function mapCtxFor(role, userId, loadPatch = {}) {
+  const tables = { loads: [{ id: L1, user_id: OWNER, rate: 2500, rate_per_mile: 2.5, total_miles: 1000, assigned_driver_user_id: DRIVER, show_rate_to_driver: false, ...loadPatch }], stops: [] };
+  const svc = fakeSupabase({ tables });
+  const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWNER }] }, user: { id: userId }, role });
+  return { mkUserClient: () => uc, sb: svc, route: {} };
+}
+const mapJson = async (deps, method = 'GET') => { const r = await MAP[method](req(method), { params: { id: L1 }, deps }); return { status: r.status, j: await r.json() }; };
+
+test('rate leak: map endpoint never sends rate/RPM to a driver without Show rate; 404 for an unassigned driver', async () => {
+  let { status, j } = await mapJson(mapCtxFor('driver', DRIVER));
+  assert.equal(status, 200);
+  assert.doesNotMatch(JSON.stringify(j), /2\.5|2500/);
+  ({ status } = await mapJson(mapCtxFor('driver', DRIVER2)));
+  assert.equal(status, 404);
+  ({ status } = await mapJson(mapCtxFor('driver', DRIVER2), 'POST'));
+  assert.equal(status, 404);
+  const v = { state: 'ready', load: { total_miles: 900, rate_per_mile: 2.5, rate: 1, calculated_miles: 880 } };
+  assert.deepEqual(MAP.redactRate(v).load, { total_miles: 900, calculated_miles: 880 });
+  assert.equal(v.load.rate_per_mile, 2.5); // not mutated
+});
+
+test('rate leak: client merge drops rate fields when the database said can_see_rate=false', () => {
+  assert.deepEqual(mergeLoadPatch({ id: 1, can_see_rate: false, rate: null }, { total_miles: 900, rate_per_mile: 2.7 }), { id: 1, can_see_rate: false, rate: null, total_miles: 900 });
+  assert.equal(mergeLoadPatch({ id: 1, can_see_rate: true }, { rate_per_mile: 2.7 }).rate_per_mile, 2.7);
+  assert.equal(mergeLoadPatch({ id: 1 }, { rate_per_mile: 2.7 }).rate_per_mile, 2.7); // owner fallback (no flag)
+  const load = read('../../app/loads/[id]/page.js');
+  assert.doesNotMatch(load, /onLoadChange=\{\(patch\) => setLoad\(\(l\) => \(\{ \.\.\.l, \.\.\.patch \}\)\)\}/);
+});
+
+test('drivers: no Rate confirmation upload type, no ratecon@ card, no rate con in the scanner', () => {
+  const d = read('../../app/documents/page.js');
+  assert.match(d, /UPLOAD_TYPES\.filter\(\(t\) => !isDriver \|\| t\.id !== 'rate_confirmation'\)/);
+  assert.match(d, /\{!isDriver && <RateconEmailCard/);
+  assert.match(d, /if \(j\.role === 'driver'\) \{ setIsDriver\(true\)/);
+});

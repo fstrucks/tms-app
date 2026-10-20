@@ -89,12 +89,15 @@ export default function DocumentsPage() {
   const [uploadType, setUploadType] = useState('rate_confirmation');
   // Change type on saved documents: owner/management only (server enforces). Never re-runs extraction by itself.
   const [canChangeType, setCanChangeType] = useState(false);
+  // PR #110: drivers don't upload rate cons (they carry the rate) and don't get the ratecon@ email card.
+  const [isDriver, setIsDriver] = useState(false);
   const [typeBusy, setTypeBusy] = useState({});
   const [typeChanged, setTypeChanged] = useState({}); // id → true after a change to rate con ("Read as rate con" offered)
   useEffect(() => { (async () => {
     const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
+    if (j.role === 'driver') { setIsDriver(true); setUploadType((t) => (t === 'rate_confirmation' ? 'bol' : t)); }
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [typeErr, setTypeErr] = useState({}); // id → { error, docType } after a failed save (old type kept)
   async function changeType(d, docType) {
@@ -421,7 +424,7 @@ export default function DocumentsPage() {
               <label htmlFor="upload-type" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '0 0 0.3rem' }}>Document type</label>
               <select id="upload-type" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
                 style={{ width: '100%', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.6rem', marginBottom: '0.5rem', background: 'var(--surface)' }}>
-                {UPLOAD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                {UPLOAD_TYPES.filter((t) => !isDriver || t.id !== 'rate_confirmation').map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
               <UploadMenu key={`menu-${fileKey}`} onFile={pickFile} onScan={openScanner} disabled={uploading || converting} />
               <div aria-live="polite" aria-atomic="true">
@@ -445,7 +448,7 @@ export default function DocumentsPage() {
 
           {status && <p style={status.type === 'ok' ? s.ok : s.error}>{status.text}</p>}
 
-          <RateconEmailCard supabase={supabase} userId={user.id} />
+          {!isDriver && <RateconEmailCard supabase={supabase} userId={user.id} />}
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
@@ -530,7 +533,7 @@ export default function DocumentsPage() {
           </div>
         </>
       )}
-      {scanFiles && <Scanner allowRateCon typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} initialLoadId={scanLoadId} onClose={() => setScanFiles(null)} onSave={saveScan} />}
+      {scanFiles && <Scanner allowRateCon={!isDriver} typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} initialLoadId={scanLoadId} onClose={() => setScanFiles(null)} onSave={saveScan} />}
     </main>
   );
 }
