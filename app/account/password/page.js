@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
-import { safeNext, loginHref } from '../../lib/safeNext';
+import { safeNext, loginHref, DEFAULT_NEXT } from '../../lib/safeNext';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { validatePassword, MIN_PASSWORD, PASSWORD_PATH, pageMode } from '../../lib/passwordSetup';
 
@@ -27,7 +27,7 @@ function friendly(err) {
 export default function SetPasswordPage() {
   const [user, setUser] = useState(undefined); // undefined = loading, null = signed out
   const [qMode, setQMode] = useState(null);
-  const [next, setNext] = useState('/documents');
+  const [next, setNext] = useState(DEFAULT_NEXT);
   const [pw, setPw] = useState('');
   const [confirm, setConfirm] = useState('');
   const [show, setShow] = useState(false);

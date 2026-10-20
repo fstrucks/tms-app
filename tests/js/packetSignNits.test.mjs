@@ -43,14 +43,14 @@ test('pad: "Sign the signature field." opens the pad; Done/Cancel close the edit
 test('sign-in returns to the packet: header link + sign-out carry a safe same-origin next', () => {
   assert.equal(loginHref('/packets/abc?x=1'), '/login?next=%2Fpackets%2Fabc%3Fx%3D1');
   assert.equal(safeNext(decodeURIComponent('%2Fpackets%2Fabc')), '/packets/abc');
-  for (const bad of ['https://evil.com', '//evil.com', '/\\evil.com', '/login']) assert.equal(safeNext(bad), '/documents', bad);
+  for (const bad of ['https://evil.com', '//evil.com', '/\\evil.com', '/login']) assert.equal(safeNext(bad), '/', bad);
   assert.equal(callbackDestination({ type: 'magiclink', next: '/packets/abc', user: { user_metadata: { password_set: true } } }), '/packets/abc');
   const a = src('app/components/ui/AccountMenu.js');
   assert.match(a, /loginHref\(window\.location\.pathname \+ window\.location\.search\)/);
   assert.match(a, /<Link href=\{loginHrefState\}/);
   const login = src('app/login/page.js');
   assert.match(login, /window\.location\.assign\(nextAfterSignIn\(nextParam\(\), /); // safeNext inside, plus the sign-out owner check
-  assert.match(login, /auth\/callback\?next=' \+ encodeURIComponent\(safeNext\(nextParam\(\)\)\)/);
+  assert.match(login, /emailRedirectTo: magicLinkRedirect\(window\.location\.origin, nextParam\(\)\)/);
 });
 
 import { dragDelta } from '../../app/lib/packetDrag.js';

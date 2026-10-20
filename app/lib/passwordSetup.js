@@ -1,4 +1,4 @@
-import { safeNext } from './safeNext.js';
+import { safeNext, DEFAULT_NEXT } from './safeNext.js';
 
 export const MIN_PASSWORD = 8;
 export const PASSWORD_PATH = '/account/password';
@@ -27,10 +27,10 @@ export function otpType(raw) { return OTP_TYPES.includes(raw) ? raw : null; }
 // Where /auth/callback sends the user after the session is set.
 export function callbackDestination({ type, next, user, session }) {
   const n = safeNext(next);
-  if (type === 'recovery') return `${PASSWORD_PATH}?mode=reset&next=${encodeURIComponent(n === PASSWORD_PATH ? '/documents' : n)}`;
+  if (type === 'recovery') return `${PASSWORD_PATH}?mode=reset&next=${encodeURIComponent(n === PASSWORD_PATH ? DEFAULT_NEXT : n)}`;
   const onPw = n === PASSWORD_PATH || n.startsWith(PASSWORD_PATH + '?') || n.startsWith(PASSWORD_PATH + '#');
   // Invite template links use next=/account/password: that must still open setup mode.
-  if (type === 'invite' || !hasPassword(user)) return `${PASSWORD_PATH}?mode=setup&next=${encodeURIComponent(onPw ? '/documents' : n)}`;
+  if (type === 'invite' || !hasPassword(user)) return `${PASSWORD_PATH}?mode=setup&next=${encodeURIComponent(onPw ? DEFAULT_NEXT : n)}`;
   if (onPw) return n;
   return n;
 }

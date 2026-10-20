@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { safeNext, nextAfterSignIn } from '../lib/safeNext';
+import { safeNext, nextAfterSignIn, magicLinkRedirect } from '../lib/safeNext';
 import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
 import { useHydrated, fallbackAction, NOJS_MSG } from '../lib/authForms';
 import { readCredentials, validateCredentials, submitDisabled } from '../lib/loginForm';
@@ -61,7 +61,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOtp({
         email: em,
         options: {
-          emailRedirectTo: window.location.origin + '/auth/callback?next=' + encodeURIComponent(safeNext(nextParam())),
+          emailRedirectTo: magicLinkRedirect(window.location.origin, nextParam()), // no ?next → Home
           shouldCreateUser: false, // invite-only: no public signups
         },
       });

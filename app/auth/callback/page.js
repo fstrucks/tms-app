@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from '../../lib/supabase';
-import { safeNext, loginHref, nextAfterSignIn } from '../../lib/safeNext';
+import { safeNext, loginHref, nextAfterSignIn, DEFAULT_NEXT } from '../../lib/safeNext';
 import { callbackDestination, otpType } from '../../lib/passwordSetup';
 
 // Magic-link landing page. The Supabase client has detectSessionInUrl off on this route, so the
@@ -13,7 +13,7 @@ let run = null; // React strict mode runs effects twice in dev: the exchange run
 
 export default function AuthCallback() {
   const [failed, setFailed] = useState(false);
-  const [next, setNext] = useState('/documents');
+  const [next, setNext] = useState(DEFAULT_NEXT);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const h = new URLSearchParams(window.location.hash.replace(/^#/, ''));
