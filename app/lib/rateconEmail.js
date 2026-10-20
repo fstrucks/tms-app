@@ -47,6 +47,26 @@ export const rateconPath = (userId, name, now = Date.now(), i = 0) => `${userId}
 const shortHash = (s) => createHash('sha256').update(String(s)).digest('hex').slice(0, 8);
 
 const json = (body, status = 200) => Response.json(body, { status });
+export const pdfSha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+// Content dedupe: drops PDFs this owner already received by email (same sha256 of the bytes, any time; a
+// deleted draft no longer counts) and repeats inside the same email. Returns { keep, dups }; each kept PDF
+// carries .sha256. Missing column (migration 20261019000300 not applied) → no dedupe, nothing breaks.
+export async function dedupeRateconPdfs(sb, userId, pdfs) {
+  const withHash = pdfs.map((p) => ({ ...p, sha256: pdfSha256(p.bytes) }));
+  if (!withHash.length) return { keep: [], dups: [] };
+  let seen = new Set();
+  const { data, error } = await sb.from('documents').select('content_sha256').eq('user_id', userId).eq('source', 'email')
+    .in('content_sha256', [...new Set(withHash.map((p) => p.sha256))]);
+  if (error) console.error('[inbound ratecon] dedupe lookup', error.code);
+  else seen = new Set((data || []).map((r) => r.content_sha256));
+  const keep = [], dups = [];
+  for (const p of withHash) {
+    if (seen.has(p.sha256)) { dups.push({ name: p.name, reason: 'duplicate' }); continue; }
+    seen.add(p.sha256); keep.push(p);
+  }
+  return { keep, dups, hashColumn: !error };
+}
 
 // Handles one rate con email. Always 200 for anything Postmark shouldn't retry (unknown token, blocked sender,
 // duplicate, no PDFs). 500 only when nothing was saved, so a Postmark retry can try again.
@@ -72,20 +92,22 @@ export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }
     return json({ ok: true, matched: false });
   }
   const userId = owner.user_id;
+  const { keep: pdfs, dups, hashColumn } = await dedupeRateconPdfs(sb, userId, mail.pdfs);
+  const rejected = [...mail.rejected, ...dups];
   const { data: email, error: eErr } = await sb.from('inbound_emails')
-    .insert({ ...base, owner_id: userId, status: mail.pdfs.length ? 'matched' : 'rejected', attachment_count: mail.pdfs.length }).select('id').single();
+    .insert({ ...base, rejected_attachments: rejected, owner_id: userId, status: pdfs.length ? 'matched' : 'rejected', attachment_count: pdfs.length }).select('id').single();
   if (eErr) {
     if (eErr.code === '23505') return json({ ok: true, duplicate: true }); // a parallel retry won the race
     console.error('[inbound ratecon] email insert', eErr.code); return json({ error: 'Save failed' }, 500);
   }
 
   const now = (deps.now || Date.now)(); const created = [];
-  for (const [i, pdf] of mail.pdfs.entries()) {
+  for (const [i, pdf] of pdfs.entries()) {
     const path = rateconPath(userId, pdf.name, now, i);
     const { error: upErr } = await sb.storage.from('documents').upload(path, pdf.bytes, { contentType: 'application/pdf' });
     if (upErr) { console.error('[inbound ratecon] upload', upErr.message); continue; }
     const { data: doc, error: dErr } = await sb.from('documents').insert({ user_id: userId, doc_type: 'rate_confirmation', file_path: path,
-      original_filename: pdf.name, source: 'email', inbound_email_id: email.id, extraction_status: 'pending' }).select('id').single();
+      original_filename: pdf.name, source: 'email', inbound_email_id: email.id, extraction_status: 'pending', ...(hashColumn ? { content_sha256: pdf.sha256 } : {}) }).select('id').single();
     if (dErr) { await sb.storage.from('documents').remove([path]); console.error('[inbound ratecon] document insert', dErr.code); continue; }
     created.push({ id: doc.id, bytes: pdf.bytes, name: pdf.name });
   }
@@ -94,7 +116,7 @@ export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }
     const run = (async () => { for (const d of created) await (deps.extract || extractEmailRateCon)({ sb, userId, docId: d.id, bytes: d.bytes, name: d.name, deps }).catch(() => {}); })();
     (deps.waitUntil || ((p) => p))(run);
   }
-  return json({ ok: true, matched: true, ratecons: created.length, rejected: mail.rejected.length });
+  return json({ ok: true, matched: true, ratecons: created.length, rejected: rejected.length, duplicates: dups.length });
 }
 
 // Runs the existing rate con reader on one emailed PDF. Any failure keeps the file and marks it failed, so it

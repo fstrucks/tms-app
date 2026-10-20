@@ -21,7 +21,7 @@ import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
-import { emailDraftState, emailReadProblem, isEmailDraft, REJECT_TEXT } from '../lib/rateconDrafts';
+import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped } from '../lib/rateconDrafts';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -256,12 +256,16 @@ export default function DocumentsPage() {
   }
 
   // Attachments skipped from recent rate con emails (not a PDF, over 10 MB, …), last 7 days. Optional: errors hide it.
-  const [skipped, setSkipped] = useState([]);
+  const [skippedRows, setSkipped] = useState([]);
+  const [dismissed, setDismissed] = useState([]);
+  useEffect(() => { setDismissed(readDismissed(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
+  const skipped = visibleSkipped(skippedRows, dismissed);
+  const dismissSkipped = (ids) => setDismissed(addDismissed(typeof window !== 'undefined' ? window.localStorage : null, ids));
   async function loadSkipped() {
     const since = new Date(Date.now() - 7 * 864e5).toISOString();
     const { data, error } = await supabase.from('inbound_emails').select('id, subject, received_at, rejected_attachments')
       .eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
-    if (!error) setSkipped((data || []).filter((m) => Array.isArray(m.rejected_attachments) && m.rejected_attachments.length));
+    if (!error) setSkipped(data || []);
   }
 
   useEffect(() => {
@@ -382,7 +386,7 @@ export default function DocumentsPage() {
   }
 
   return (
-    <main style={s.main}>
+    <main style={{ ...s.main, paddingBottom: 'calc(1rem + var(--fab-space))' }}>
       <h1 style={{ fontSize: '1.5rem' }}>Document Upload</h1>
 
       {supabaseConfigError ? (
@@ -432,9 +436,11 @@ export default function DocumentsPage() {
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
             {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
             {skipped.map((m) => (
-              <p key={m.id} data-testid="email-skipped" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem' }}>
-                Skipped from email{m.subject ? ` “${m.subject}”` : ''}: {m.rejected_attachments.map((r) => `${r.name} (${REJECT_TEXT[r.reason] || r.reason})`).join(', ')}
-              </p>
+              <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', paddingTop: 10 }}>{skippedLine(m)}</span>
+                <button type="button" data-testid="email-skipped-dismiss" onClick={() => dismissSkipped([m.id])} aria-label={`Dismiss: ${skippedLine(m)}`}
+                  style={{ flex: 'none', minWidth: 44, minHeight: 44, border: 'none', background: 'none', color: 'var(--warning)', fontSize: 20, lineHeight: 1, cursor: 'pointer' }}>×</button>
+              </div>
             ))}
             <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
@@ -447,7 +453,7 @@ export default function DocumentsPage() {
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>
                       {d.source === 'email' && <span data-testid="from-email-badge" style={s.badge}>From email</span>}
-                      {docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}
+                      {isNotRatecon(d) ? <span data-testid="not-ratecon-label">Not a rate con · needs manual entry</span> : docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}
                     </div>
                     {canChangeType && (
                       <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: 'var(--text)', marginTop: 4 }}>

@@ -12,6 +12,7 @@ export default function EmailDraftsBanner() {
     const sb = getSupabase(); if (!sb) return;
     let live = true;
     sb.from('documents').select('id', { count: 'exact', head: true }).eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation')
+      .or('extraction_error.is.null,extraction_error.neq.not_ratecon') // not-a-rate-con PDFs don't count
       .then(({ count, error }) => { if (live && !error) setN(count || 0); });
     return () => { live = false; };
   }, []);

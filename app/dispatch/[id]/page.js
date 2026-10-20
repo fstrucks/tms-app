@@ -151,7 +151,7 @@ export default function DispatchLoadPage() {
   const driverOpts = driverOptions(drivers, form?.assigned_driver_user_id, driversLoaded);
 
   return (
-    <main style={s.main}>
+    <main style={{ ...s.main, paddingBottom: 'calc(1rem + var(--fab-space))' }}>
       <p style={{ margin: '0 0 0.25rem' }}><Link href="/dispatch" style={{ ...s.link, display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Dispatch</Link></p>
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p>
         : checking ? <p style={s.muted}>Checking sign-in…</p>
@@ -221,7 +221,7 @@ export default function DispatchLoadPage() {
             <StopsEditor stops={stops} setStops={setStops} stopErrors={stopErrors} browserTz={browserTz} onEdit={() => setMsg(null)} />
 
             {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)' }}>{msg.text}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + 8px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--fab-space))', zIndex: 61, background: 'var(--surface)', padding: '0.5rem 0' }}>
               <button type="button" onClick={() => apply(load)} disabled={saving} style={{ ...s.small, minHeight: 44 }}>Discard changes</button>
               <button type="submit" disabled={saving} style={s.pri}>{saving ? 'Saving…' : 'Save changes'}</button>
             </div>
