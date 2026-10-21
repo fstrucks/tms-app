@@ -104,7 +104,7 @@ create table if not exists public.invoices (
   paid_amount numeric(12, 2) null check (paid_amount is null or paid_amount >= 0),
   void_reason text null,
   auto_drafted boolean not null default false,
-  created_by uuid null references auth.users(id) on delete set null,
+  created_by uuid null default auth.uid() references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint invoices_number_when_final check ((status = 'draft') = (invoice_number is null) or status = 'void')
@@ -112,6 +112,8 @@ create table if not exists public.invoices (
 create unique index if not exists invoices_owner_number_uniq on public.invoices (owner_id, invoice_number) where invoice_number is not null;
 create unique index if not exists invoices_one_active_per_load on public.invoices (load_id) where load_id is not null and status <> 'void';
 create index if not exists invoices_owner_idx on public.invoices (owner_id, created_at desc);
+-- created_by defaults to the caller (also on databases where the table already existed).
+alter table public.invoices alter column created_by set default auth.uid();
 
 -- 7. Invoice log: downloads, prints, "Mark as sent", paid, void. Insert-only for users.
 create table if not exists public.invoice_events (
@@ -252,7 +254,8 @@ create policy factors_write on public.factors for all to authenticated
 drop policy if exists invoices_select on public.invoices;
 create policy invoices_select on public.invoices for select to authenticated using (public.billing_can_view(owner_id));
 drop policy if exists invoices_insert on public.invoices;
-create policy invoices_insert on public.invoices for insert to authenticated with check (public.billing_can_edit(owner_id));
+create policy invoices_insert on public.invoices for insert to authenticated
+  with check (public.billing_can_edit(owner_id) and created_by = auth.uid());
 drop policy if exists invoices_update on public.invoices;
 create policy invoices_update on public.invoices for update to authenticated
   using (public.billing_can_edit(owner_id)) with check (public.billing_can_edit(owner_id));

@@ -97,4 +97,8 @@ ok((await err(M, `insert into public.invoice_events (invoice_id, owner_id, kind,
 ok((await err(M, `insert into public.invoice_events (invoice_id, owner_id, kind, created_by) values ('${I1}', '${O}', 'marked_sent', '${O}')`)) !== null, 'cannot log as someone else');
 ok((await err(P, `insert into public.invoice_events (invoice_id, owner_id, kind, created_by) values ('${I1}', '${O}', 'download', '${P}')`)) !== null, 'dispatcher cannot log events');
 ok((await err(O, `update public.invoice_events set note='x'`)) !== null || (await db.query(`select count(*)::int n from public.invoice_events where note='x'`)).rows[0].n === 0, 'events cannot be edited');
+const cb = (await db.query(`select created_by from public.invoices where id='${I1}'`)).rows[0].created_by;
+ok(cb === M, 'created_by defaults to the caller');
+ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, '${O}')`)) !== null, 'cannot insert an invoice as someone else');
+ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, null)`)) !== null, 'cannot insert with created_by null');
 console.log(process.exitCode ? 'FAILED' : 'all ok');
