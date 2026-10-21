@@ -62,8 +62,8 @@ export function validateFactor(f = {}) {
     cutoff_time: str(f.cutoff_time, 40), packet_format: fmt, notes: str(f.notes, 1000) } };
 }
 
-// Company billing settings form → { patch } | { error }. The prefix is fixed at INV- for now (Marc's pick);
-// the next number is read-only (only finalize moves it).
+// Company billing settings form → { patch, nextNumber? } | { error }. The next number is not part of the
+// row patch: it goes through set_invoice_next_number() (the counter guard ignores direct updates).
 export function validateBillingSettings(b = {}, factorIds = []) {
   const patch = {};
   if ('default_terms_days' in b) { const t = parseTerms(b.default_terms_days, { allowNull: false }); if (t.error) return { error: t.error }; patch.default_terms_days = t.value; }
@@ -74,7 +74,31 @@ export function validateBillingSettings(b = {}, factorIds = []) {
   }
   if ('remit_to' in b) patch.remit_to = str(b.remit_to, 500);
   if ('invoice_prefix' in b) { const p = parsePrefix(b.invoice_prefix); if (p.error) return { error: p.error }; patch.invoice_prefix = p.value; }
+  if ('invoice_next_number' in b && b.invoice_next_number !== '' && b.invoice_next_number != null) {
+    const n = parseNextNumber(b.invoice_next_number); if (n.error) return { error: n.error };
+    return { patch, nextNumber: n.value };
+  }
   return { patch };
+}
+
+// Next invoice number typed on the Billing card → { value } | { error }. Whole number, 1–99,999,999.
+// The database also refuses anything below the highest number already used + 1.
+export function parseNextNumber(v) {
+  const t = String(v ?? '').trim();
+  if (!/^\d{1,8}$/.test(t) || Number(t) < 1) return { error: 'Next invoice number: a whole number like 1001.' };
+  return { value: Number(t) };
+}
+
+// set_invoice_next_number errors → { status, error, pending? }.
+export function nextNumberError(e, prefix = DEFAULT_PREFIX) {
+  const m = String(e?.message || '');
+  if (e?.code === 'PGRST202' || e?.code === '42883' || /could not find the function|function .*set_invoice_next_number.* does not exist/i.test(m))
+    return { status: 409, pending: true, error: 'Changing the next invoice number needs a database update that isn’t applied yet. Your other billing settings saved; the next number is unchanged.' };
+  const low = m.match(/next_number_too_low:(\d+)/);
+  if (low) return { status: 422, error: `Next invoice number must be at least ${prefix}${low[1]} (numbers already used can’t be reused).` };
+  if (/not_allowed/.test(m)) return { status: 403, error: 'Only the owner or Management can change the next invoice number.' };
+  if (/next_number_invalid/.test(m)) return { status: 422, error: 'Next invoice number: a whole number like 1001.' };
+  return { status: 500, error: 'Couldn’t change the next invoice number. Please try again.' };
 }
 
 // Invoice number prefix (Taylor QA #4): letters, digits, - _ / and up to 10 characters; '' → INV-.
