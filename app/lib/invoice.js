@@ -73,7 +73,16 @@ export function validateBillingSettings(b = {}, factorIds = []) {
     patch.default_factor_id = id;
   }
   if ('remit_to' in b) patch.remit_to = str(b.remit_to, 500);
+  if ('invoice_prefix' in b) { const p = parsePrefix(b.invoice_prefix); if (p.error) return { error: p.error }; patch.invoice_prefix = p.value; }
   return { patch };
+}
+
+// Invoice number prefix (Taylor QA #4): letters, digits, - _ / and up to 10 characters; '' → INV-.
+export function parsePrefix(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return { value: DEFAULT_PREFIX };
+  if (!/^[A-Za-z0-9_/-]{1,10}$/.test(t)) return { error: 'Prefix: up to 10 letters, numbers, - _ or /, like INV-.' };
+  return { value: t };
 }
 
 // Billing settings the client sees.
@@ -209,4 +218,19 @@ export function invoiceFileName(inv, kind = 'invoice', n = 0) {
   const base = fileSafe(inv?.load_ref?.load_number) || fileSafe(inv?.invoice_number) || 'Invoice';
   const label = DOC_FILE_LABELS[kind] || DOC_FILE_LABELS.other;
   return `${base}_${label}${n > 0 ? `-${n}` : ''}.pdf`;
+}
+
+// Load status after invoice steps (Taylor QA #1). An invoice means the work is done, so finalize moves any open load
+// (booked / dispatched / in transit / delivered) to Invoiced, and a payment moves it to Paid. Cancelled loads (TONU)
+// and loads already further along are left alone. → the new status, or null for "no change".
+const LOAD_RANK = { booked: 0, dispatched: 1, in_transit: 2, delivered: 3, invoiced: 4, paid: 5 };
+export function loadStatusAfter(step, current) {
+  const target = step === 'paid' ? 'paid' : step === 'finalize' ? 'invoiced' : null;
+  if (!target || current === 'cancelled' || !(current in LOAD_RANK)) return null;
+  return LOAD_RANK[current] < LOAD_RANK[target] ? target : null;
+}
+const LOAD_LABEL = { invoiced: 'Invoiced', paid: 'Paid' };
+// Message tail that only claims what the database confirmed.
+export function loadStatusNote(before, after) {
+  return after && after !== before && LOAD_LABEL[after] ? ` The load is now ${LOAD_LABEL[after]}.` : '';
 }

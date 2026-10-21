@@ -6,7 +6,7 @@
 //   DELETE → deletes this load's unnumbered draft (owner / management). Opening the tab again starts a fresh draft
 //           from the load while it's delivered; use Void to keep it cleared.
 //   POST  { action: 'finalize' } → gives the next number (finalize_invoice) and moves the load to Invoiced.
-import { billingCtx, json, readBody, invoiceContext, saveDraft, invoiceResponse, isMissing, SETUP, UUID } from '../../../../lib/invoiceServer';
+import { billingCtx, json, readBody, invoiceContext, saveDraft, invoiceResponse, isMissing, SETUP, UUID, applyLoadStatus } from '../../../../lib/invoiceServer';
 import { cleanLines, parseTerms, dbErrorText } from '../../../../lib/invoice';
 
 export const runtime = 'nodejs';
@@ -58,14 +58,19 @@ export async function POST(req, { params, deps } = {}) {
   if (ctx.invoice.status !== 'draft') return json({ error: 'This invoice is already finalized.', invoice: ctx.invoice }, 409);
   if (!ctx.profile) return json({ error: 'Fill in your company profile first (Account menu → Company).' }, 409);
   // Refresh the copy of the broker / remit-to details right before the number is given.
-  const d = await saveDraft(x, ctx, {}); if (d.res) return d.res;
+  const d = await saveDraft(x, ctx, { keepTerms: true }); if (d.res) return d.res;
   const { data, error } = await x.db.rpc('finalize_invoice', { p_invoice: d.invoice.id });
   if (error) return isMissing(error) ? json(SETUP, 409) : json({ error: dbErrorText(error, 'Couldn’t finalize the invoice. Please try again.') }, 422);
   const inv = Array.isArray(data) ? data[0] : data;
   if (!inv?.invoice_number) return json({ error: 'Couldn’t finalize the invoice. Please try again.' }, 500);
   ctx.invoice = inv;
-  ctx.load = { ...ctx.load, status: ctx.load.status === 'delivered' ? 'invoiced' : ctx.load.status };
-  return json({ ok: true, ...invoiceResponse(x, ctx) });
+  // finalize_invoice() only moves Delivered → Invoiced; a Booked / In transit load (QA #1) is moved here. The status
+  // returned is the one read back from the database, so the message never claims a change that didn't happen.
+  const before = ctx.load.status;
+  const { data: now } = await x.svc.from('loads').select('status').eq('id', ctx.load.id).eq('user_id', x.c.ownerId).maybeSingle();
+  const status = await applyLoadStatus(x.svc, x.c.ownerId, { ...ctx.load, status: now?.status ?? before }, 'finalize');
+  ctx.load = { ...ctx.load, status };
+  return json({ ok: true, loadStatusBefore: before, ...invoiceResponse(x, ctx) });
 }
 
 export async function DELETE(req, { params, deps } = {}) {

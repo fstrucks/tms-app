@@ -5,7 +5,7 @@
 //     same as the load paperwork routes (PR #110).
 import { loadDocsCtx, json, UUID, docInCompany } from './loadDocsServer.js';
 import { isMissing } from './truckServer.js';
-import { canViewInvoices, canEditInvoices, draftFields, brokerForLoad, AUTO_DRAFT_STATUSES, publicBilling } from './invoice.js';
+import { canViewInvoices, canEditInvoices, draftFields, brokerForLoad, AUTO_DRAFT_STATUSES, publicBilling, loadStatusAfter, remitToFor } from './invoice.js';
 
 export { json, UUID, isMissing };
 export const SETUP = { error: 'Invoicing needs a database update that hasn’t been applied yet.', setupNeeded: true };
@@ -65,6 +65,11 @@ export async function invoiceContext(x, loadId, { autoDraft = true } = {}) {
     const d = await saveDraft(x, ctx, {});
     if (d.res) return d;
     ctx.invoice = d.invoice;
+  } else if (ctx.invoice?.status === 'draft' && canEdit) {
+    // A saved broker now matches (or the load's broker changed): refresh the draft so its bill-to and terms are the
+    // ones that finalize will use (Taylor QA #5: the auto-draft showed Net 30, then finalize switched to Net 15).
+    const { broker } = pieces(ctx);
+    if ((broker?.id || null) !== (ctx.invoice.broker_id || null)) { const d = await saveDraft(x, ctx, {}); if (!d.res) ctx.invoice = d.invoice; }
   }
   return ctx;
 }
@@ -82,7 +87,10 @@ export async function saveDraft(x, ctx, patch) {
   const { broker, factor } = pieces(ctx);
   const existing = ctx.invoice ? { ...ctx.invoice, ...(patch.lines ? { line_items: patch.lines } : {}) } : (patch.lines ? { line_items: patch.lines } : null);
   const fields = draftFields({ load: ctx.load, broker, factor, company: ctx.profile, existing });
-  if (patch.terms_days != null) fields.terms_days = patch.terms_days; // per-invoice override; otherwise broker / company terms
+  // Terms (Taylor QA #5): what the draft shows is what gets used. An explicit value wins; otherwise keep the draft's terms
+  // unless the broker changed (then the new broker's / company terms). Finalize always keeps the draft's terms.
+  if (patch.terms_days != null) fields.terms_days = patch.terms_days;
+  else if (ctx.invoice && (patch.keepTerms || (fields.broker_id || null) === (ctx.invoice.broker_id || null))) fields.terms_days = ctx.invoice.terms_days;
   if ('notes' in patch) fields.notes = patch.notes;
   if (ctx.invoice) {
     if (ctx.invoice.status !== 'draft') return { res: json({ error: 'This invoice is finalized. Void it to make changes.' }, 409) };
@@ -108,9 +116,21 @@ export function invoiceResponse(x, ctx) {
       broker_id: ctx.load.broker_id ?? null, factored: typeof ctx.load.factored === 'boolean' ? ctx.load.factored : null },
     matchedBrokerId: broker?.id || null,
     brokers: ctx.brokers.map((b) => ({ id: b.id, name: b.name, billing_emails: b.billing_emails, terms_days: b.terms_days, noa_on_file: b.noa_on_file })),
-    factors: ctx.factors.map((f) => ({ id: f.id, name: f.name, submission_email: f.submission_email, portal_url: f.portal_url, packet_format: f.packet_format })),
+    factors: ctx.factors.map((f) => ({ id: f.id, name: f.name, submission_email: f.submission_email, portal_url: f.portal_url, packet_format: f.packet_format, remit_to: f.remit_to })),
     settings: publicBilling(ctx.profile), hasProfile: !!ctx.profile,
+    remitTo: { own: remitToFor({ factored: false, company: ctx.profile }), factor: remitToFor({ factored: true, factor: ctx.factors.find((f) => f.id === ctx.profile?.default_factor_id) || null, company: ctx.profile }) },
   };
+}
+
+// Move the load per loadStatusAfter() with the service client (company-filtered), then read it back.
+// → the load's status as saved (unchanged when the rule says so or the write didn't land).
+export async function applyLoadStatus(svc, ownerId, load, step) {
+  const next = loadStatusAfter(step, load?.status);
+  if (!load?.id || !next) return load?.status ?? null;
+  const { error } = await svc.from('loads').update({ status: next }).eq('id', load.id).eq('user_id', ownerId).eq('status', load.status);
+  if (error) console.error('[invoices] load status', error.code);
+  const { data } = await svc.from('loads').select('status').eq('id', load.id).eq('user_id', ownerId).maybeSingle();
+  return data?.status ?? load.status;
 }
 
 // Company logo bytes for the PDF (null when none or unreadable).
