@@ -57,10 +57,20 @@ export const parseSenders = (text) => String(text || '').split(/[\s,;]+/).map((x
 // Only owner / management / dispatcher see them (drivers never), and only for the active company.
 export const SKIPPED_ROLES = ['owner', 'management', 'dispatcher'];
 export const canSeeSkipped = (role) => SKIPPED_ROLES.includes(role);
-export async function fetchSkipped(supabase, { role, ownerId, now = Date.now() } = {}) {
-  if (!canSeeSkipped(role) || !ownerId) return [];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Scope: a row tagged with a company (company_id = company_profiles.id) belongs only to that company; an older,
+// untagged row (company_id null) belongs to the company whose owner received it (owner_id).
+export function skippedRowInScope(row, { ownerId, companyId } = {}) {
+  if (!row) return false;
+  if (row.company_id) return !!companyId && row.company_id === companyId;
+  return !!ownerId && row.owner_id === ownerId;
+}
+export async function fetchSkipped(supabase, { role, ownerId, companyId = null, now = Date.now() } = {}) {
+  if (!canSeeSkipped(role) || !UUID_RE.test(ownerId || '')) return [];
+  const cid = UUID_RE.test(companyId || '') ? companyId : null;
   const since = new Date(now - 7 * 864e5).toISOString();
-  const { data, error } = await supabase.from('inbound_emails').select('id, subject, received_at, rejected_attachments')
-    .eq('owner_id', ownerId).eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
-  return error ? [] : data || [];
+  const scope = cid ? `and(company_id.is.null,owner_id.eq.${ownerId}),company_id.eq.${cid}` : `and(company_id.is.null,owner_id.eq.${ownerId})`;
+  const { data, error } = await supabase.from('inbound_emails').select('id, owner_id, company_id, subject, received_at, rejected_attachments')
+    .or(scope).eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
+  return error ? [] : (data || []).filter((r) => skippedRowInScope(r, { ownerId, companyId: cid }));
 }

@@ -292,3 +292,14 @@ test('wiring: Documents dismiss + not-rate-con label + FAB padding; banner exclu
   assert.match(readFileSync('app/dispatch/[id]/page.js', 'utf8'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--fab-space\)\)'/);
   assert.match(readFileSync('app/components/RateconEmailCard.js', 'utf8'), /copyText\(addr/);
 });
+
+test('webhook tags new rate con emails with the receiving company (company_id = company_profiles.id)', async () => {
+  const sb = sbWith();
+  sb.db.company_profiles = [{ id: '00000000-0000-4000-8000-0000000000f1', owner_id: USER }];
+  await send(sb, payload());
+  assert.equal(sb.db.inbound_emails[0].owner_id, USER);
+  assert.equal(sb.db.inbound_emails[0].company_id, '00000000-0000-4000-8000-0000000000f1');
+  const sb2 = sbWith(); // no profile yet: still saved, untagged
+  await send(sb2, payload());
+  assert.equal(sb2.db.inbound_emails[0].company_id, null);
+});
