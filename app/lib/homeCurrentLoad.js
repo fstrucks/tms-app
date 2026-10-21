@@ -10,6 +10,7 @@
 //    the card shows whatever rate that function returns (can_see_rate), and never computes access itself.
 //  * Members (management / dispatcher / driver) read loads only through visible_loads(). Until that migration
 //    is applied the card falls back to the owner's own-row select, and members get no card (never a false empty).
+import { completedNextIndex } from './stopProgress.js';
 import { groupLoads, sortedStops, pickupStop, deliveryStop } from './loadTabs';
 import { fmtMoney } from './money';
 
@@ -119,9 +120,13 @@ export function routeLabel(load) {
 // Option B: the stop to show first. Before in transit: the first stop. In transit: the first stop after stop 1
 // whose appointment (end, else start) has not passed by more than 2 h, or that has no appointment; else the last
 // stop. There is no per-stop "done" field today, so this is a best guess from the appointments and is shown as such.
+// PR #115: when any stop has completion data (stops.completed_at), the next stop is the first one not completed,
+// whatever the status. The appointment guess below is the fallback for loads with no completion data.
 export function nextStopIndex(load, now = Date.now()) {
   const st = sortedStops(load);
   if (!st.length) return -1;
+  const done = completedNextIndex(load);
+  if (done !== null) return done;
   if (load?.status !== 'in_transit') return 0;
   for (let i = 1; i < st.length; i++) {
     const t = ts(st[i].appointment_end) ?? ts(st[i].appointment_start);
