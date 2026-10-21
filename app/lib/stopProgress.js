@@ -8,10 +8,12 @@ export const supportsStopCompletion = (load) => { const st = load?.stops || []; 
 export const isStopDone = (s) => !!s?.completed_at;
 export const hasCompletionData = (load) => (load?.stops || []).some(isStopDone);
 
-// First stop not completed; all completed → last stop. null when there's no completion data (caller falls back).
+// When the stops carry the completion columns: first stop not completed (even with none marked yet, so Undo of the
+// pickup brings the pickup back); all completed → last stop. null only when the columns are absent (caller falls back
+// to the appointment guess).
 export function completedNextIndex(load) {
   const st = byseq(load);
-  if (!st.length || !st.some(isStopDone)) return null;
+  if (!st.length || !supportsStopCompletion(load)) return null;
   const i = st.findIndex((s) => !isStopDone(s));
   return i === -1 ? st.length - 1 : i;
 }
@@ -38,11 +40,11 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   const stop = st.find((s) => s.id === stopId);
   if (!stop) return { error: 'Stop not found.', code: 404 };
   if (action === 'undo') {
-    if (!isStopDone(stop)) return { error: 'That stop isn’t marked done.', code: 409 };
+    if (!isStopDone(stop)) return { noop: true }; // already open (e.g. a second tap): success, no write
     return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status: null };
   }
   if (action !== 'done' && action !== 'skip') return { error: 'Bad request.', code: 400 };
-  if (isStopDone(stop)) return { error: 'That stop is already marked done.', code: 409 };
+  if (isStopDone(stop)) return { noop: true }; // already marked (stale view / second tap): success, no write
   const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
   const status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
   return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status };

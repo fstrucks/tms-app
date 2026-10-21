@@ -23,7 +23,7 @@ test('nextStopIndex: first stop not completed, even when status is still dispatc
   assert.equal(nextStopIndex({ status: 'in_transit', stops: legacy }, NOW), 1);
   assert.equal(supportsStopCompletion({ stops: legacy }), false);
   assert.equal(supportsStopCompletion({ stops: st }), true);
-  assert.equal(completedNextIndex({ stops: st }), null);
+  assert.equal(completedNextIndex({ stops: st }), 0); // columns present, nothing marked → first stop
 });
 
 test('labels, roles, plans', () => {
@@ -37,7 +37,7 @@ test('labels, roles, plans', () => {
   assert.equal(planStopAction(load, S1, 'skip', { now: 'T' }).status, null);
   assert.equal(planStopAction(load, S2, 'done', { now: 'T' }).status, null);
   assert.equal(planStopAction({ ...load, status: 'in_transit' }, S1, 'done', { now: 'T' }).status, null);
-  assert.equal(planStopAction(load, S1, 'undo').code, 409);
+  assert.equal(planStopAction(load, S1, 'undo').noop, true);
   assert.equal(planStopAction(load, SX, 'done').code, 404);
   assert.equal(planStopAction(load, S1, 'nope').code, 400);
   assert.equal(lastCompletedStop({ stops: [{ ...load.stops[0], completed_at: '2026-10-20T01:00:00Z' }, { ...load.stops[1], completed_at: '2026-10-20T02:00:00Z' }] }).id, S2);
@@ -63,7 +63,7 @@ test('route: assigned driver marks pickup → stop done + load in_transit; undo 
   const c = ctx('driver', DRIVER);
   let r = await call(c, S1, 'done');
   assert.equal(r.status, 200); assert.equal(r.j.stop.completion, 'done'); assert.ok(r.j.stop.completed_at); assert.equal(r.j.status, 'in_transit');
-  r = await call(c, S1, 'done'); assert.equal(r.status, 409);
+  r = await call(c, S1, 'done'); assert.equal(r.status, 200); assert.equal(r.j.already, true); assert.equal(r.j.stop.completion, 'done'); // second tap = success + current row
   r = await call(c, S1, 'undo'); assert.equal(r.status, 200); assert.equal(r.j.stop.completed_at, null);
 });
 
@@ -87,4 +87,30 @@ test('UI wiring: Home card and load page render StopActions; theme colors only',
   assert.match(home, /<StopActions /); assert.match(page, /<StopActions /);
   assert.match(comp, /supportsStopCompletion\(load\)/); assert.match(comp, /Skip to next stop/);
   assert.ok(!/(?<![A-Za-z0-9 ])#[0-9a-f]{3,6}\b|rgba?\(/i.test(comp));
+});
+
+test('QA #115 item 2: Undo of the pickup on an in_transit load brings the pickup back as next (Home + Route + load page)', () => {
+  const st = [stop(S1, 1, 'pickup'), stop(S2, 2, 'delivery')];
+  // in_transit, columns present, nothing marked (state right after Undo): old guess would say stop 2
+  assert.equal(nextStopIndex({ status: 'in_transit', stops: st }, NOW), 0);
+  assert.equal(nextStopIndex({ status: 'in_transit', stops: st }, NOW + 20 * H), 0);
+  // columns absent → old appointment guess unchanged
+  const legacy = st.map(({ completed_at, completion, completed_by, ...r }) => r);
+  assert.equal(nextStopIndex({ status: 'in_transit', stops: legacy }, NOW), 1);
+  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'in_transit', stops: st }, NOW)]), 'Picked up');
+});
+
+test('QA #115 nit (a): a repeat tap is success and returns the server row; undo of an open stop too', async () => {
+  const c = ctx('driver', DRIVER);
+  assert.equal((await call(c, S1, 'done')).status, 200);
+  const again = await call(c, S1, 'done');
+  assert.equal(again.status, 200); assert.equal(again.j.ok, true); assert.equal(again.j.already, true); assert.ok(again.j.stop.completed_at);
+  assert.equal((await call(c, S1, 'undo')).j.stop.completed_at, null);
+  const undo2 = await call(c, S1, 'undo');
+  assert.equal(undo2.status, 200); assert.equal(undo2.j.already, true); assert.equal(undo2.j.stop.completed_at, null);
+  const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
+  assert.match(comp, /onRefresh\?\.\(\)/);
+  const home = readFileSync(new URL('../../app/components/HomeCurrentLoad.js', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../../app/loads/[id]/page.js', import.meta.url), 'utf8');
+  assert.match(home, /onRefresh=\{load\}/); assert.match(page, /onRefresh=\{\(\) => fetchRef\.current\?\.\(\)\}/);
 });

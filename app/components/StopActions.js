@@ -22,7 +22,7 @@ export function applyStopResult(load, r) {
   return { ...load, ...(r.status ? { status: r.status } : {}), stops: (load.stops || []).map((x) => (x.id === r.stop.id ? { ...x, ...r.stop } : x)) };
 }
 
-export default function StopActions({ supabase, load, userId, role, onChange, now }) {
+export default function StopActions({ supabase, load, userId, role, onChange, onRefresh, now }) {
   const [err, setErr] = useState(null);
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -40,7 +40,8 @@ export default function StopActions({ supabase, load, userId, role, onChange, no
     setBusy(false);
     if (r.setupNeeded) { setHidden(true); return false; }
     if (!r.ok) { setErr(r.error || 'Couldn’t save. Try again.'); return false; }
-    onChange?.(applyStopResult(load, r));
+    onChange?.(applyStopResult(load, r)); // server row (also for "already done": treated as success)
+    try { onRefresh?.(); } catch (e) { console.error('[stops] refresh', e); } // then re-read the load from the server
     return true;
   }
   const btn = { minHeight: 44, padding: '0 14px', borderRadius: 8, fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' };

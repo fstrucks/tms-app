@@ -23,6 +23,10 @@ export async function POST(req, { params, deps } = {}) {
   if (!supportsStopCompletion(load)) return json(SETUP, 409);
   const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id });
   if (plan.error) return json({ error: plan.error }, plan.code);
+  if (plan.noop) { // already in the requested state: return the current row so the client refreshes its view
+    const { geocode_address, ...cur } = (load.stops || []).find((s) => s.id === params.stopId) || {}; // eslint-disable-line no-unused-vars
+    return json({ ok: true, already: true, stop: cur, status: load.status });
+  }
   const { data: stop, error: sErr } = await svc.from('stops').update(plan.stopPatch).eq('id', params.stopId).eq('load_id', load.id).select('*').maybeSingle();
   if (sErr) return isMissing(sErr) ? json(SETUP, 409) : json({ error: 'Couldn’t save the stop.' }, 500);
   if (!stop) return json({ error: 'Stop not found.' }, 404);
