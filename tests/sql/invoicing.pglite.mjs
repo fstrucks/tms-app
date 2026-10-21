@@ -101,4 +101,19 @@ const cb = (await db.query(`select created_by from public.invoices where id='${I
 ok(cb === M, 'created_by defaults to the caller');
 ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, '${O}')`)) !== null, 'cannot insert an invoice as someone else');
 ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, null)`)) !== null, 'cannot insert with created_by null');
+
+// next-number function (20261021130000): run twice, then the role checks
+const NN = readFileSync(R + '20261021130000_invoice_next_number.sql', 'utf8');
+await db.exec(NN); await db.exec(NN); // idempotent
+const nextNo = async () => (await db.query(`select invoice_next_number n from public.company_profiles where id='${C1}'`)).rows[0].n;
+ok((await err(O, `select public.set_invoice_next_number('${O}', 1400)`)) === null && (await nextNo()) === 1400, 'next number: owner sets 1400');
+ok((await err(M, `select public.set_invoice_next_number('${O}', 1500)`)) === null && (await nextNo()) === 1500, 'next number: management sets 1500');
+ok((await err(P, `select public.set_invoice_next_number('${O}', 2000)`))?.includes('not_allowed') && (await nextNo()) === 1500, 'next number: dispatcher refused');
+ok((await err(D, `select public.set_invoice_next_number('${O}', 2000)`))?.includes('not_allowed') && (await nextNo()) === 1500, 'next number: driver refused');
+ok((await err(O2, `select public.set_invoice_next_number('${O}', 2000)`))?.includes('not_allowed'), 'next number: other company refused');
+ok((await err(O, `select public.set_invoice_next_number('${O}', 1002)`))?.includes('next_number_too_low:1003') && (await nextNo()) === 1500, 'next number: below highest used + 1 refused (min 1003)');
+ok((await err(O, `select public.set_invoice_next_number('${O}', null)`))?.includes('next_number_invalid') && (await nextNo()) === 1500, 'next number: null refused');
+ok((await err(O, `update public.company_profiles set invoice_next_number=1 where id='${C1}'`)) === null && (await nextNo()) === 1500, 'next number: direct update still ignored');
+const I4 = (await as(O, `insert into public.invoices (owner_id, load_id, line_items, total) values ('${O}', null, ${LINES}, 2400) returning id`))[0].id;
+ok((await as(O, `select invoice_number from public.finalize_invoice('${I4}')`))[0].invoice_number === 'INV-1500' && (await nextNo()) === 1501, 'next number: finalize afterward uses INV-1500, counter 1501');
 console.log(process.exitCode ? 'FAILED' : 'all ok');

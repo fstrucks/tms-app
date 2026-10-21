@@ -80,13 +80,14 @@ export default function CompanyBilling() {
   const [logoUrl, setLogoUrl] = useState(null);
   const [logoLoading, setLogoLoading] = useState(false);
   const [savedMsg, setSavedMsg] = useState(null);
+  const [pending, setPending] = useState(null);
 
   const load = useCallback(async () => {
     const j = await api('/api/billing');
     if (j.status === 403) return setSt({ hidden: true });
     if (j.error) return setSt({ error: j.error, setupNeeded: j.setupNeeded });
     setSt(j);
-    setForm({ invoice_prefix: j.settings?.invoice_prefix || 'INV-', default_terms_days: String(j.settings?.default_terms_days ?? 30), default_factor_id: j.settings?.default_factor_id || '', remit_to: j.settings?.remit_to || '' });
+    setForm({ invoice_prefix: j.settings?.invoice_prefix || 'INV-', invoice_next_number: String(j.settings?.invoice_next_number ?? 1001), default_terms_days: String(j.settings?.default_terms_days ?? 30), default_factor_id: j.settings?.default_factor_id || '', remit_to: j.settings?.remit_to || '' });
     // Keep the current logo on screen while its link refreshes (no 'No logo' flash on reload).
     if (j.settings?.has_logo) { setLogoLoading(true); const l = await api('/api/billing/logo'); setLogoLoading(false); setLogoUrl(l.url || null); } else setLogoUrl(null);
   }, []);
@@ -100,8 +101,11 @@ export default function CompanyBilling() {
 
   async function saveSettings(e) {
     e.preventDefault(); setMsg(null); setErr(null); setSavedMsg(null);
-    const j = await api('/api/billing', { method: 'PATCH', body: JSON.stringify(form) });
+    const body = { ...form }; if (String(body.invoice_next_number) === String(st.settings.invoice_next_number)) delete body.invoice_next_number;
+    const j = await api('/api/billing', { method: 'PATCH', body: JSON.stringify(body) });
+    if (j.nextNumberPending) { setPending(j.error); load(); return; }
     if (j.error) return setErr(j.error);
+    setPending(null);
     setSavedMsg('Saved.'); load();
     setTimeout(() => setSavedMsg(null), 4000);
   }
@@ -143,7 +147,11 @@ export default function CompanyBilling() {
       <p style={{ ...s.muted, marginTop: 4 }}>Used on your invoices. {ro && 'Only the owner or Management can change these.'}</p>
       <form onSubmit={saveSettings}>
         <Field label="Invoice number prefix"><input style={s.input} disabled={ro} value={form.invoice_prefix} onChange={(e) => setForm({ ...form, invoice_prefix: e.target.value })} data-testid="invoice-prefix" /></Field>
-        <p style={{ margin: '0.5rem 0 0' }}>Next invoice number: <strong data-testid="next-invoice-number">{(form.invoice_prefix || 'INV-')}{st.settings.invoice_next_number}</strong> <span style={s.muted}>(given when you finalize an invoice)</span></p>
+        {ro ? <p style={{ margin: '0.5rem 0 0' }}>Next invoice number: <strong data-testid="next-invoice-number">{(form.invoice_prefix || 'INV-')}{st.settings.invoice_next_number}</strong> <span style={s.muted}>(given when you finalize an invoice)</span></p> : <>
+          <Field label="Next invoice number"><input style={s.input} inputMode="numeric" value={form.invoice_next_number} onChange={(e) => setForm({ ...form, invoice_next_number: e.target.value })} data-testid="invoice-next-number" /></Field>
+          <p style={{ ...s.muted, margin: '4px 0 0' }}>The next finalized invoice will be <strong data-testid="next-invoice-number">{(form.invoice_prefix || 'INV-')}{form.invoice_next_number}</strong>. It can’t go below a number you’ve already used.</p>
+          {pending && <p role="alert" data-testid="next-number-pending" style={{ ...s.muted, margin: '4px 0 0' }}>{pending}</p>}
+        </>}
         <Field label="Default payment terms (days)"><input style={s.input} inputMode="numeric" disabled={ro} value={form.default_terms_days} onChange={(e) => setForm({ ...form, default_terms_days: e.target.value })} /></Field>
         <p style={{ ...s.muted, margin: '4px 0 0' }}>{/^\d+$/.test(form.default_terms_days) ? termsLabel(form.default_terms_days) : ''} unless a broker has its own terms.</p>
         <Field label="Default factoring company (new loads are factored when one is set)">

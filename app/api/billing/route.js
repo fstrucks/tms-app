@@ -1,7 +1,9 @@
-// GET → { role, canEdit, settings, brokers, factors } (office roles). PATCH { default_terms_days, default_factor_id, remit_to }
-// (owner / management). Fake data only in tests.
+// GET → { role, canEdit, settings, brokers, factors } (office roles). PATCH { invoice_prefix, invoice_next_number,
+// default_terms_days, default_factor_id, remit_to } (owner / management). The next number goes through the
+// set_invoice_next_number RPC (user token, so the database checks the role); until that migration is applied
+// the route answers 409 { nextNumberPending } and the other fields still save. Fake data only in tests.
 import { billingCtx, json, isMissing, SETUP, readBody, companyProfile } from '../../lib/invoiceServer';
-import { publicBilling, validateBillingSettings, dbErrorText } from '../../lib/invoice';
+import { publicBilling, validateBillingSettings, dbErrorText, nextNumberError } from '../../lib/invoice';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,5 +34,14 @@ export async function PATCH(req, { deps } = {}) {
   const { data, error } = await db.from('company_profiles').update(v.patch).eq('id', profile.id).select('*').maybeSingle();
   if (error) return isMissing(error) ? json(SETUP, 409) : json({ error: dbErrorText(error) }, 422);
   if (!data) return json({ error: 'That didn’t save. Please try again.' }, 500);
+  if (v.nextNumber != null && v.nextNumber !== data.invoice_next_number) {
+    const { error: nErr } = await db.rpc('set_invoice_next_number', { p_owner: c.ownerId, p_next: v.nextNumber });
+    if (nErr) {
+      const e = nextNumberError(nErr, data.invoice_prefix || 'INV-');
+      return json({ error: e.error, nextNumberPending: !!e.pending, settings: publicBilling(data) }, e.status);
+    }
+    const { profile: fresh } = await companyProfile(svc, c.ownerId);
+    return json({ ok: true, settings: publicBilling(fresh || { ...data, invoice_next_number: v.nextNumber }) });
+  }
   return json({ ok: true, settings: publicBilling(data) });
 }
