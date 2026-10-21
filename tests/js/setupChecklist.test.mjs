@@ -39,6 +39,12 @@ test('migration allow-list matches equipment and binder keys', () => {
   assert.ok(DRIVER_EQUIPMENT_KEYS.includes('fire_extinguisher'));
   assert.ok(DRIVER_BINDER_KEYS.includes('eld_manual'));
   assert.ok(!DRIVER_BINDER_KEYS.includes('binder_medical'));
+  assert.match(sql, /checked_by uuid not null default auth\.uid\(\)/);
+  assert.match(sql, /checked_by = auth\.uid\(\)/);
+  const reminders = readFileSync(new URL('../../supabase/migrations/20261021120100_compliance_reminders.sql', import.meta.url), 'utf8');
+  assert.match(reminders, /acted_by uuid not null default auth\.uid\(\)/);
+  assert.match(reminders, /acted_by = auth\.uid\(\)/);
+  assert.doesNotMatch(reminders, /for all to authenticated/);
 });
 
 test('MCS-150 month and year come from the last two USDOT digits, with no weekend shift', () => {

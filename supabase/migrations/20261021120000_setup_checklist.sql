@@ -26,7 +26,7 @@ create table if not exists public.company_checklist_status (
   trailer_id uuid,
   driver_id uuid,
   status text not null check (status in ('done', 'not_yet', 'not_needed', 'skipped')),
-  checked_by uuid references auth.users(id),
+  checked_by uuid not null default auth.uid() references auth.users(id),
   checked_at timestamptz not null default now(),
   expiry_on date,
   note text,
@@ -115,15 +115,20 @@ create policy company_checklist_status_select on public.company_checklist_status
     )
   );
 
+-- checked_by defaults to auth.uid(). Insert and update must record the signed-in user
+-- (same pattern as documents.user_id). Select still shows a teammate's earlier tick.
 drop policy if exists company_checklist_status_insert on public.company_checklist_status;
 create policy company_checklist_status_insert on public.company_checklist_status
   for insert to authenticated
   with check (
-    public.company_can_edit(company_id)
-    or (
-      public.company_role(company_id) = 'driver'
-      and public.checklist_item_access(item_key) = 'equipment'
-      and public.checklist_driver_truck(truck_id)
+    checked_by = auth.uid()
+    and (
+      public.company_can_edit(company_id)
+      or (
+        public.company_role(company_id) = 'driver'
+        and public.checklist_item_access(item_key) = 'equipment'
+        and public.checklist_driver_truck(truck_id)
+      )
     )
   );
 
@@ -139,11 +144,14 @@ create policy company_checklist_status_update on public.company_checklist_status
     )
   )
   with check (
-    public.company_can_edit(company_id)
-    or (
-      public.company_role(company_id) = 'driver'
-      and public.checklist_item_access(item_key) = 'equipment'
-      and public.checklist_driver_truck(truck_id)
+    checked_by = auth.uid()
+    and (
+      public.company_can_edit(company_id)
+      or (
+        public.company_role(company_id) = 'driver'
+        and public.checklist_item_access(item_key) = 'equipment'
+        and public.checklist_driver_truck(truck_id)
+      )
     )
   );
 
