@@ -73,7 +73,16 @@ export function validateBillingSettings(b = {}, factorIds = []) {
     patch.default_factor_id = id;
   }
   if ('remit_to' in b) patch.remit_to = str(b.remit_to, 500);
+  if ('invoice_prefix' in b) { const p = parsePrefix(b.invoice_prefix); if (p.error) return { error: p.error }; patch.invoice_prefix = p.value; }
   return { patch };
+}
+
+// Invoice number prefix (Taylor QA #4): letters, digits, - _ / and up to 10 characters; '' → INV-.
+export function parsePrefix(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return { value: DEFAULT_PREFIX };
+  if (!/^[A-Za-z0-9_/-]{1,10}$/.test(t)) return { error: 'Prefix: up to 10 letters, numbers, - _ or /, like INV-.' };
+  return { value: t };
 }
 
 // Billing settings the client sees.

@@ -139,3 +139,18 @@ test('company page shows Billing to office roles only; no outside email anywhere
   assert.match(page, /role !== 'driver' && <CompanyBilling \/>/);
   for (const f of ['../../app/company/CompanyBilling.js', '../../app/lib/invoiceServer.js', '../../app/api/billing/route.js']) assert.ok(!/postmark/i.test(read(f)), f);
 });
+
+test('QA #4: prefix is editable (owner / management), validated; billing nits', async () => {
+  const { parsePrefix } = await import('../../app/lib/invoice.js');
+  assert.deepEqual(parsePrefix(''), { value: 'INV-' });
+  assert.deepEqual(parsePrefix(' FT- '), { value: 'FT-' });
+  assert.ok(parsePrefix('bad prefix!').error && parsePrefix('x'.repeat(11)).error);
+  const c = ctx('management', MGMT);
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_prefix: 'FT-' }), { deps: c.deps })).status, 200);
+  assert.equal(c.svc.db.company_profiles[0].invoice_prefix, 'FT-');
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_prefix: 'no spaces' }), { deps: c.deps })).status, 422);
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_prefix: 'X-' }), { deps: ctx('dispatcher', DISP).deps })).status, 403);
+  const ui = read('../../app/company/CompanyBilling.js');
+  assert.match(ui, /data-testid="billing-saved"/);
+  assert.match(ui, /st\.settings\.has_logo \|\| logoLoading \? <p style=\{s\.muted\} data-testid="logo-loading">/);
+});
