@@ -64,11 +64,13 @@ export function fixUsable(fix, now = Date.now()) {
   if (fix.at != null && now - fix.at > MAX_FIX_AGE_MS) return false;
   return true;
 }
+export const VERY_ROUGH_MI = 50;
 export const isCoarseFix = (fix) => !!fix && fix.accuracy != null && fix.accuracy > MAX_ACCURACY_M;
 // "Approximate location (within about 12 mi)". null for a precise fix.
 export function coarseFixNote(fix) {
   if (!isCoarseFix(fix)) return null;
-  const mi = Math.max(1, Math.round(fix.accuracy / 1609.344));
+  const mi = Math.max(1, Math.round(fix.accuracy / 1609.344)); // meters → miles (correct; desktop IP fixes can be ±1,000+ mi)
+  if (mi > VERY_ROUGH_MI) return 'Very rough location (from your network, not GPS), so miles and drive time left may be off.';
   return `Approximate location (within about ${mi.toLocaleString('en-US')} mi), so miles and drive time left are rough.`;
 }
 

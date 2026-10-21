@@ -77,3 +77,21 @@ test('QA #118: a coarse desktop fix (Seattle ≈ 47.6,-122.4, ±25 km) is shown 
   assert.match(p, /data-testid="eta-coarse"/); assert.match(p, /Working out miles left…/);
   assert.match(p, /truck=\{usableFix \?/);
 });
+
+import { boundsWithTruck, fitTarget } from '../../app/lib/loadRoute.js';
+test('QA #118 nit: over 50 mi accuracy gets the "very rough" wording; meters→miles is right', () => {
+  const f = (m) => coarseFixNote({ lat: 47.6, lng: -122.4, accuracy: m });
+  assert.match(f(80_467), /within about 50 mi/);                       // 50 mi exactly
+  assert.equal(f(2_916_092), 'Very rough location (from your network, not GPS), so miles and drive time left may be off.'); // ≈1,812 mi
+  assert.match(f(90_000), /^Very rough location/);
+});
+test('QA #118 nit: map framing includes the truck dot and live leg; refit once, maxZoom kept', () => {
+  const b = boundsWithTruck([[45.5, -122.7], [43.6, -116.2]], { lat: 47.6, lng: -122.4 }, [[47.6, -122.4], [46, -119]]);
+  assert.deepEqual(b.slice(2), [[47.6, -122.4], [47.6, -122.4], [46, -119]]);
+  assert.deepEqual(boundsWithTruck([[1, 2]], { lat: NaN, lng: 1 }), [[1, 2]]);
+  assert.equal(fitTarget(b).kind, 'bounds');
+  const src = readFileSync(new URL('../../app/components/RouteMap.js', import.meta.url), 'utf8');
+  assert.match(src, /\[\.\.\.bounds, \.\.\.extra\.current\]/);
+  assert.match(src, /truckFitted\.current !== m/);
+  assert.match(src, /maxZoom: 12/);
+});
