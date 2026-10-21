@@ -154,3 +154,42 @@ test('QA #4: prefix is editable (owner / management), validated; billing nits', 
   assert.match(ui, /data-testid="billing-saved"/);
   assert.match(ui, /st\.settings\.has_logo \|\| logoLoading \? <p style=\{s\.muted\} data-testid="logo-loading">/);
 });
+
+test('QA #4: next invoice number goes through set_invoice_next_number; pending fallback; too-low message', async () => {
+  const { parseNextNumber, validateBillingSettings: vb } = await import('../../app/lib/invoice.js');
+  assert.deepEqual(parseNextNumber(' 1500 '), { value: 1500 });
+  assert.ok(parseNextNumber('0').error && parseNextNumber('12a').error && parseNextNumber('123456789').error);
+  assert.deepEqual(vb({ invoice_next_number: '1500' }), { patch: {}, nextNumber: 1500 });
+  const withRpc = (role, uid, rpcImpl) => {
+    const c = ctx(role, uid); const calls = [];
+    const base = c.deps.mkUserClient();
+    const uc = { ...base, rpc: async (fn, args) => { if (fn === 'packet_role') return base.rpc(fn); calls.push([fn, args]); return rpcImpl(c, args); } };
+    return { c, calls, deps: { ...c.deps, mkUserClient: () => uc } };
+  };
+  // applied: RPC with the company owner id, fresh number returned
+  let t = withRpc('management', MGMT, (c, a) => { c.svc.db.company_profiles[0].invoice_next_number = a.p_next; return { data: a.p_next, error: null }; });
+  let r = await BILLING.PATCH(req('PATCH', { invoice_next_number: '1500', default_terms_days: '30' }), { deps: t.deps });
+  assert.equal(r.status, 200);
+  assert.deepEqual(t.calls, [['set_invoice_next_number', { p_owner: OWNER, p_next: 1500 }]]);
+  assert.equal((await r.json()).settings.invoice_next_number, 1500);
+  // unchanged number: no RPC
+  t = withRpc('owner', OWNER, () => ({ data: null, error: null }));
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_next_number: 1001 }), { deps: t.deps })).status, 200);
+  assert.equal(t.calls.length, 0);
+  // not applied yet: 409 pending, other fields saved, number unchanged
+  t = withRpc('owner', OWNER, () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.set_invoice_next_number' } }));
+  r = await BILLING.PATCH(req('PATCH', { invoice_next_number: '1500', default_terms_days: '45' }), { deps: t.deps });
+  const j = await r.json();
+  assert.equal(r.status, 409); assert.equal(j.nextNumberPending, true); assert.match(j.error, /isn’t applied yet/);
+  assert.equal(t.c.svc.db.company_profiles[0].default_terms_days, 45);
+  assert.equal(t.c.svc.db.company_profiles[0].invoice_next_number, 1001);
+  // too low
+  t = withRpc('owner', OWNER, () => ({ data: null, error: { code: 'P0001', message: 'next_number_too_low:1003' } }));
+  r = await BILLING.PATCH(req('PATCH', { invoice_next_number: '1002' }), { deps: t.deps });
+  assert.equal(r.status, 422); assert.match((await r.json()).error, /at least INV-1003/);
+  // bad input / dispatcher
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_next_number: 'abc' }), { deps: ctx('owner', OWNER).deps })).status, 422);
+  assert.equal((await BILLING.PATCH(req('PATCH', { invoice_next_number: '2000' }), { deps: ctx('dispatcher', DISP).deps })).status, 403);
+  const ui = read('../../app/company/CompanyBilling.js');
+  assert.match(ui, /\{ro \? <p/); assert.match(ui, /data-testid="invoice-next-number"/); assert.match(ui, /data-testid="next-number-pending"/);
+});
