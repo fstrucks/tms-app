@@ -97,6 +97,10 @@ ok((await err(M, `insert into public.invoice_events (invoice_id, owner_id, kind,
 ok((await err(M, `insert into public.invoice_events (invoice_id, owner_id, kind, created_by) values ('${I1}', '${O}', 'marked_sent', '${O}')`)) !== null, 'cannot log as someone else');
 ok((await err(P, `insert into public.invoice_events (invoice_id, owner_id, kind, created_by) values ('${I1}', '${O}', 'download', '${P}')`)) !== null, 'dispatcher cannot log events');
 ok((await err(O, `update public.invoice_events set note='x'`)) !== null || (await db.query(`select count(*)::int n from public.invoice_events where note='x'`)).rows[0].n === 0, 'events cannot be edited');
+const cb = (await db.query(`select created_by from public.invoices where id='${I1}'`)).rows[0].created_by;
+ok(cb === M, 'created_by defaults to the caller');
+ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, '${O}')`)) !== null, 'cannot insert an invoice as someone else');
+ok((await err(M, `insert into public.invoices (owner_id, load_id, line_items, total, created_by) values ('${O}', null, '[]', 0, null)`)) !== null, 'cannot insert with created_by null');
 console.log(process.exitCode ? 'FAILED' : 'all ok');
 
 // ---- 20261021000200: auto-draft on delivered ----
@@ -115,4 +119,15 @@ await as(O, `update public.loads set status='delivered' where id='${L4}'`);
 const ad4 = (await db.query(`select total, line_items from public.invoices where load_id='${L4}'`)).rows[0];
 ok(ad4 && Number(ad4.total) === 0 && ad4.line_items.length === 0, 'no rate → empty draft (cannot be finalized until a charge is added)');
 ok((await db.query(`select status from public.loads where id='${L4}'`)).rows[0].status === 'delivered', 'status change still saved');
+// The trigger is SECURITY DEFINER, so its insert isn't held to the insert policy: it works when the server's service
+// role (no signed-in user, created_by null) or a member who can't create invoices sets the status.
+const L5 = '33333333-3333-3333-3333-333333333335', L6 = '33333333-3333-3333-3333-333333333336';
+await db.exec(`insert into public.loads (id, user_id, status, broker_load_number, rate) values ('${L5}','${O}','in_transit','TEST-2003',500),('${L6}','${O}','in_transit','TEST-2004',600);
+grant update on public.loads to authenticated; create policy loads_member_test on public.loads for all to authenticated using (true) with check (true);`);
+await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); update public.loads set status='delivered' where id='${L5}';`);
+const s5 = (await db.query(`select created_by from public.invoices where load_id='${L5}'`)).rows;
+ok(s5.length === 1 && s5[0].created_by === null, 'service-role status change still auto-drafts (created_by null)');
+await as(D, `update public.loads set status='delivered' where id='${L6}'`);
+const s6 = (await db.query(`select created_by from public.invoices where load_id='${L6}'`)).rows;
+ok(s6.length === 1 && s6[0].created_by === D, 'a driver marking delivered still auto-drafts (insert policy not applied inside the trigger)');
 console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft)');
