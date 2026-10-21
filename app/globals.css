@@ -191,6 +191,11 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 /* Disabled buttons (QA #95): one readable look in both themes instead of a faded primary color.
    Beats inline background/opacity so every disabled button is covered. */
+@media print {
+  .appnav-top, .appnav-mtop, .appnav-bottom, .no-print { display: none !important; }
+  body.has-appnav { padding-bottom: 0 !important; }
+  .print-sheet { background: #fff !important; color: #111 !important; }
+}
 button:disabled, button[aria-disabled="true"] {
   background: var(--disabled-bg) !important; color: var(--disabled-text) !important;
   border-color: var(--disabled-border) !important; opacity: 1 !important; cursor: not-allowed;

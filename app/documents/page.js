@@ -408,6 +408,7 @@ export default function DocumentsPage() {
   return (
     <main style={{ ...s.main, paddingBottom: 'calc(1rem + var(--fab-space))' }}>
       <h1 style={{ fontSize: '1.5rem' }}>Document Upload</h1>
+      <p style={{ margin: '0.15rem 0 0.6rem' }}><Link href="/documents/checklist">Setup checklist</Link></p>
 
       {supabaseConfigError ? (
         <p style={s.error}>{supabaseConfigError}</p>
