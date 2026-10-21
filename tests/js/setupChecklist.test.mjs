@@ -178,11 +178,31 @@ test('cycle coverage and the new-company guide window', () => {
   const expired = cycleState({ today: '2027-03-01', due: '2027-02-28', cycleMonths: 24, docs: [{ created_at: '2025-03-01' }], warningDays: 30 });
   assert.equal(expired.bucket, 'expired');
   const now = Date.parse('2026-10-21T12:00:00Z');
-  assert.equal(setupEntry({ created_at: '2026-10-20T00:00:00Z', owner_id: 'u' }, 'owner', now), 'guide');
+  assert.equal(setupEntry({ created_at: '2026-10-21T08:00:00Z', owner_id: 'u' }, 'owner', now), 'guide');
+  assert.equal(setupEntry({ created_at: '2026-10-20T00:00:00Z', owner_id: 'u' }, 'owner', now), 'prompt');
+  assert.equal(setupEntry({}, 'owner', now), 'prompt');
+  assert.equal(setupEntry({ created_at: '2026-10-21T08:00:00Z' }, 'owner', now, { trucks: 1 }), 'prompt');
   assert.equal(setupEntry({ created_at: '2020-01-01T00:00:00Z' }, 'owner', now), 'prompt');
-  assert.equal(setupEntry({ created_at: '2026-10-20T00:00:00Z', setup_started_at: '2026-10-20' }, 'owner', now), null);
+  assert.equal(setupEntry({ created_at: '2026-10-21T08:00:00Z', setup_started_at: '2026-10-21' }, 'owner', now), null);
   assert.equal(setupEntry({ created_at: '2020-01-01T00:00:00Z' }, 'driver', now), null);
-  assert.equal(NEW_COMPANY_MS, 14 * 86400000);
+  assert.equal(NEW_COMPANY_MS, 86400000);
+});
+
+test('a done tick shows who marked it', () => {
+  const row = buildChecklist(base({
+    trucks: [truck],
+    people: { u1: { name: 'Taylor', email: 'taylor@example.com' } },
+    statuses: [{ item_key: 'fire_extinguisher', truck_id: 't1', status: 'done', checked_by: 'u1', checked_at: '2026-10-21T15:00:00Z' }],
+  })).find((r) => r.itemKey === 'fire_extinguisher');
+  assert.equal(row.done, true);
+  assert.equal(row.ticked, true);
+  assert.equal(row.markedBy, 'Marked done by Taylor on 2026-10-21.');
+  const byEmail = buildChecklist(base({
+    trucks: [truck],
+    people: { u1: { email: 'taylor@example.com' } },
+    statuses: [{ item_key: 'fire_extinguisher', truck_id: 't1', status: 'done', checked_by: 'u1', checked_at: '2026-10-21T15:00:00Z' }],
+  })).find((r) => r.itemKey === 'fire_extinguisher');
+  assert.equal(byEmail.markedBy, 'Marked done by taylor@example.com on 2026-10-21.');
 });
 
 test('calendar lists the verified rules and not a guessed factoring card', () => {

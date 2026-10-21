@@ -30,6 +30,13 @@ export function equipmentCurrent(checkedAt, today) {
   return addDays(day, EQUIPMENT_RECHECK_DAYS) >= today;
 }
 
+function withMarker(extra, row, file, ctx) {
+  const mark = markerOf(row, extra?.done || extra?.bucket === 'done' ? file : null);
+  if (!mark) return { ...extra, ticked: false, markedBy: null };
+  const line = markedDoneLine((ctx.people || {})[mark.id], mark.at);
+  return { ...extra, ticked: !!mark.ticked, markedBy: extra?.done ? line : null, checkedBy: mark.id, checkedAt: String(mark.at || '').slice(0, 10) || null };
+}
+
 function blank(item, inst, extra) {
   return {
     itemKey: item.key, title: item.title, description: item.description || '', citation: item.citation || '',
@@ -193,13 +200,17 @@ function expiryOnFor(item, inst, ctx, row) {
   return null;
 }
 
+function doneRow(item, inst, ctx, row, file, extra) {
+  return blank(item, inst, withMarker(extra, row, file, ctx));
+}
+
 export function resolveInstance(item, inst, ctx) {
   const row = statusRow(ctx, item, inst);
   if (inst.applicable === false || (row?.status === 'not_needed' && item.level !== 'required')) {
-    return blank(item, inst, { applicable: false, counts: false, bucket: 'not_needed', done: false, detail: 'Not needed for this company.' });
+    return doneRow(item, inst, ctx, row, null, { applicable: false, counts: false, bucket: 'not_needed', done: false, detail: 'Not needed for this company.' });
   }
   if (inst.needs) {
-    return blank(item, inst, { counts: false, needs: inst.needs, bucket: 'missing', detail: inst.needs === 'driver' ? 'Add a driver on the Truck tab.' : 'Add a truck on the Truck tab.' });
+    return doneRow(item, inst, ctx, row, null, { counts: false, needs: inst.needs, bucket: 'missing', detail: inst.needs === 'driver' ? 'Add a driver on the Truck tab.' : 'Add a truck on the Truck tab.' });
   }
   const docs = docsFor(item, inst, ctx);
   const today = ctx.today;
@@ -209,17 +220,17 @@ export function resolveInstance(item, inst, ctx) {
   if (item.kinds.includes('equipment')) {
     const fresh = row?.status === 'done' && equipmentCurrent(row.checked_at, today);
     if (row?.status === 'skipped') {
-      return blank(item, inst, { skipped: true, bucket: 'missing', done: false, detail: 'Skipped. Still shown as missing. Check again within a year of the last time it was marked on the truck.' });
+      return doneRow(item, inst, ctx, row, file, { skipped: true, bucket: 'missing', done: false, detail: 'Skipped. Still shown as missing. Check again within a year of the last time it was marked on the truck.' });
     }
-    if (fresh) return blank(item, inst, { bucket: 'done', done: true, detail: `Checked ${String(row.checked_at).slice(0, 10)}. Check again in a year.` });
-    if (row?.status === 'done') return blank(item, inst, { bucket: 'missing', done: false, detail: `Last checked ${String(row.checked_at).slice(0, 10)}. Check this equipment again.` });
-    return blank(item, inst, { bucket: 'missing', done: false, detail: 'Check this on the truck. It is checked again every year.' });
+    if (fresh) return doneRow(item, inst, ctx, row, file, { bucket: 'done', done: true, detail: `Checked ${String(row.checked_at).slice(0, 10)}. Check again in a year.` });
+    if (row?.status === 'done') return doneRow(item, inst, ctx, row, file, { bucket: 'missing', done: false, detail: `Last checked ${String(row.checked_at).slice(0, 10)}. Check this equipment again.` });
+    return doneRow(item, inst, ctx, row, file, { bucket: 'missing', done: false, detail: 'Check this on the truck. It is checked again every year.' });
   }
 
   const special = specialState(item, inst, ctx, docs, row);
   if (special) {
     const skipped = !special.done && row?.status === 'skipped';
-    return blank(item, inst, {
+    return doneRow(item, inst, ctx, row, file, {
       ...special, skipped, uploadedAt: file?.created_at || null, fileName: file?.original_filename || null, documentId: file?.id || row?.document_id || null,
       detail: special.detail || '',
     });
@@ -238,10 +249,10 @@ export function resolveInstance(item, inst, ctx) {
     if (!expiryOn && proof) state = { bucket: 'done', done: true, expiryOn: null };
   }
   if (!state.done && row?.status === 'skipped') {
-    return blank(item, inst, { skipped: true, bucket: 'missing', done: false, expiryOn: state.expiryOn, detail: 'Skipped. Still shown as missing.', uploadedAt: file?.created_at || null, fileName: file?.original_filename || null });
+    return doneRow(item, inst, ctx, row, file, { skipped: true, bucket: 'missing', done: false, expiryOn: state.expiryOn, detail: 'Skipped. Still shown as missing.', uploadedAt: file?.created_at || null, fileName: file?.original_filename || null });
   }
   const detail = state.bucket === 'expired' ? `Expired ${state.expiryOn}.` : state.bucket === 'expiring' ? `Expires ${state.expiryOn}.` : state.done && file ? `On file ${String(file.created_at).slice(0, 10)}.` : state.done ? 'Marked done.' : '';
-  return blank(item, inst, {
+  return doneRow(item, inst, ctx, row, file, {
     ...state, detail, uploadedAt: file?.created_at || null, fileName: file?.original_filename || null, documentId: file?.id || null,
   });
 }
@@ -396,18 +407,44 @@ export function modelFromPayload(payload, today) {
     documents: payload?.documents || [],
     statuses: payload?.statuses || [],
     reminders: payload?.reminders || [],
+    people: payload?.people || {},
     role: payload?.role || null,
   };
 }
 
-// New company: created within 14 days and the owner has not started. Older companies get one prompt.
-export const NEW_COMPANY_MS = 14 * 24 * 60 * 60 * 1000;
-export function setupEntry(profile, role, now = Date.now()) {
+// Automatic guide only for a company created in the last day that has not been used yet.
+// Anything older, or a company that already has trucks, drivers, paperwork, or loads, gets one prompt.
+export const NEW_COMPANY_MS = 24 * 60 * 60 * 1000;
+export function companyAlreadyUsed(activity = {}) {
+  return !!(activity.trucks || activity.drivers || activity.documents || activity.loads);
+}
+export function setupEntry(profile, role, now = Date.now(), activity = {}) {
   if (!profile || role !== 'owner') return null;
   if (profile.setup_started_at || profile.setup_prompted_at || profile.setup_completed_at) return null;
   const created = Date.parse(profile.created_at || '');
-  if (Number.isFinite(created) && now - created >= 0 && now - created < NEW_COMPANY_MS) return 'guide';
+  const recent = Number.isFinite(created) && now - created >= 0 && now - created < NEW_COMPANY_MS;
+  if (recent && !companyAlreadyUsed(activity)) return 'guide';
   return 'prompt';
+}
+
+export function personLabel(person) {
+  const name = String(person?.name || '').trim();
+  if (name) return name;
+  const email = String(person?.email || '').trim();
+  return email || null;
+}
+
+// Who completed a done item: the tick if there is one, otherwise the person who uploaded the file.
+export function markerOf(row, file) {
+  if (row?.status === 'done' && row.checked_by) return { id: row.checked_by, at: row.checked_at || null, ticked: true };
+  if (file?.user_id) return { id: file.user_id, at: file.created_at || null, ticked: false };
+  return null;
+}
+export function markedDoneLine(person, at) {
+  const label = personLabel(person);
+  const day = String(at || '').slice(0, 10);
+  if (!label || !isISODate(day)) return null;
+  return `Marked done by ${label} on ${day}.`;
 }
 
 export function visibleToRole(row, role) {

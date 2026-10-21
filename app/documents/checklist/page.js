@@ -12,7 +12,7 @@ import {
 import { complianceEntries, comingUp, entriesInMonth } from '../../lib/complianceCalendar.js';
 
 const s = {
-  main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 960, margin: '0 auto' },
+  main: { padding: '1rem', paddingBottom: 'calc(1rem + var(--fab-space))', fontFamily: 'system-ui', maxWidth: 960, margin: '0 auto' },
   card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.9rem', background: 'var(--surface)', marginBottom: '0.75rem' },
   muted: { color: 'var(--text-muted)', fontSize: 14, margin: '0.25rem 0' },
   btn: { minHeight: 44, padding: '0 0.85rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontWeight: 600, cursor: 'pointer' },
@@ -129,6 +129,11 @@ export default function ChecklistPage() {
           .setup-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; align-items: start; }
           .setup-next { order: 0; }
         }
+        .setup-cal-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+        @media (max-width: 420px) {
+          .setup-cal-head { flex-direction: column; align-items: flex-start; }
+          .setup-cal-nav { margin-right: 148px; }
+        }
         @media print { .no-print { display: none !important; } }
       `}</style>
       <input ref={fileRef} type="file" accept="application/pdf,image/jpeg,image/png" onChange={onFile} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} tabIndex={-1} aria-hidden="true" />
@@ -209,6 +214,11 @@ export default function ChecklistPage() {
   );
 }
 
+function canUndo(row, office) {
+  if (!row.ticked || !row.done || row.needs) return false;
+  if (row.docType && row.documentId) return false;
+  return canTick(row, office);
+}
 function canTick(row, office) {
   if (row.driverAccess === 'equipment') return true;
   if (!office) return false;
@@ -249,6 +259,7 @@ function ItemRow({ row, office, busy, highlight, act, chooseFile, call }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 650 }}>{row.title}{row.unitLabel ? ` · ${row.unitLabel}` : ''}</div>
           <div style={s.muted}>{LEVEL[row.level] || row.level}{row.detail ? ` · ${row.detail}` : ''}</div>
+          {row.markedBy && <div style={s.muted}>{row.markedBy}</div>}
         </div>
         <span style={{ background: bg, color: fg, borderRadius: 999, padding: '2px 8px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>
       </div>
@@ -264,6 +275,9 @@ function ItemRow({ row, office, busy, highlight, act, chooseFile, call }) {
         {row.documentId && office && <button type="button" style={s.btn} onClick={view}>View</button>}
         {row.applicable && !row.done && canTick(row, office) && !row.needs && (
           <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'done' }, 'Saved.')}>{tickLabel(row)}</button>
+        )}
+        {canUndo(row, office) && (
+          <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'not_yet' }, 'Reopened.')}>Undo</button>
         )}
         {row.applicable && !row.done && (office || row.driverAccess === 'equipment') && !row.needs && (
           <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'skipped' })}>Skip for now</button>
@@ -319,12 +333,12 @@ function Calendar({ viewMonth, setMonth, entries, busy, act, onJump }) {
   const datesToEnter = entries.filter((e) => e.needs === 'date' && !e.dismissed && !e.completed);
   return (
     <section style={{ ...s.card, marginTop: '0.75rem' }} aria-label="Compliance calendar">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+      <div className="setup-cal-head">
         <h2 style={{ fontSize: '1.05rem', margin: 0 }}>Compliance calendar</h2>
-        <div style={s.row}>
+        <div className="setup-cal-nav" style={s.row}>
           <button type="button" style={s.btn} onClick={() => shift(-1)} aria-label="Previous month">‹</button>
           <strong>{MONTHS[m - 1]} {y}</strong>
-          <button type="button" style={s.btn} onClick={() => shift(1)} aria-label="Next month">›</button>
+          <button type="button" data-above-fab style={s.btn} onClick={() => shift(1)} aria-label="Next month">›</button>
         </div>
       </div>
       <p style={s.muted}>On-screen only. Dates show when someone opens the app.</p>
@@ -393,11 +407,12 @@ function Guide({ step, setStep, rows, ctx, data, busy, act, setGuide, chooseFile
         stepRows.length ? stepRows.map((r) => (
           <div key={rowId(r)} style={{ padding: '0.55rem 0', borderTop: '1px solid var(--divider)' }}>
             <strong>{r.title}</strong>{r.unitLabel ? ` · ${r.unitLabel}` : ''}
-            <div style={s.muted}>{r.needs ? r.detail : r.done ? 'Done' : (r.detail || LEVEL[r.level])}</div>
-            {!r.needs && !r.done && (
+            <div style={s.muted}>{r.needs ? r.detail : r.done ? (r.markedBy || 'Done') : (r.detail || LEVEL[r.level])}</div>
+            {!r.needs && (
               <div style={{ ...s.row, marginTop: 6 }}>
-                {r.kinds.includes('upload') && r.docType && <button type="button" style={s.btn} disabled={busy} onClick={() => chooseFile(r)}>Upload</button>}
-                {canTick(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'done' }, 'Saved.')}>{tickLabel(r)}</button>}
+                {!r.done && r.kinds.includes('upload') && r.docType && <button type="button" style={s.btn} disabled={busy} onClick={() => chooseFile(r)}>Upload</button>}
+                {!r.done && canTick(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'done' }, 'Saved.')}>{tickLabel(r)}</button>}
+                {canUndo(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'not_yet' }, 'Reopened.')}>Undo</button>}
               </div>
             )}
             {r.needs === 'driver' && <Link href="/truck">Add a driver on the Truck tab</Link>}

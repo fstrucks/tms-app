@@ -46,7 +46,7 @@ export async function setupCtx(req, deps = {}) {
   const role = profile ? roleFor(u.user.id, profile, members || []) : null;
   const svc = deps.sb || (deps.mkService || serviceClient)();
   const db = profile && profile.owner_id !== u.user.id ? svc : uc;
-  return { uc, db, user: u.user, profile, role, office: isOffice(role), ownerId: profile?.owner_id || null };
+  return { uc, db, svc, user: u.user, profile, role, office: isOffice(role), ownerId: profile?.owner_id || null };
 }
 
 async function rowsOf(q) {
@@ -85,17 +85,62 @@ export async function loadSetup(c, { today = laToday() } = {}) {
       if (!pol.error) coi = coiExpiry(pol.data || [], today);
     } catch { coi = null; }
   }
+  let loads = 0;
+  if (db) {
+    const ld = await rowsOf(db.from('loads').select('id').eq('user_id', c.ownerId).limit(1));
+    if (!ld.error && ld.rows.length) loads = ld.rows.length;
+  }
   const pulled = new Map();
   for (const t of trucks) if (t.current_trailer_id) pulled.set(t.current_trailer_id, t.id);
+  const activity = { trucks: trucks.length, drivers: drivers.length, documents: documents.length, loads };
+  const people = await loadPeople(c, markerIds(statusQ.rows, documents), drivers);
   const payload = {
     role: c.role, office: c.office, today, limited, coiExpiry: coi,
     profile: publicSetupProfile(c.profile),
-    entry: c.office ? setupEntry(c.profile, c.role) : null,
+    entry: c.office ? setupEntry(c.profile, c.role, Date.now(), activity) : null,
     trucks, drivers,
     trailers: trailers.map((t) => ({ ...t, pulled_by: pulled.get(t.id) || null })),
-    documents, statuses: statusQ.rows, reminders,
+    documents, statuses: statusQ.rows, reminders, people,
   };
   return shapeForRole(payload, c);
+}
+
+function markerIds(statuses, documents) {
+  const ids = new Set();
+  for (const s of statuses || []) if (s.checked_by) ids.add(s.checked_by);
+  for (const d of documents || []) if (d.user_id) ids.add(d.user_id);
+  return [...ids];
+}
+
+function rememberPerson(people, id, patch) {
+  if (!id) return;
+  const cur = people[id] || {};
+  const name = String(patch.name || '').trim();
+  const email = String(patch.email || '').trim();
+  people[id] = { name: name || cur.name || null, email: email || cur.email || null };
+}
+
+// Name, then email, from the company profile, driver row, and the auth user behind a member.
+async function loadPeople(c, ids, drivers) {
+  const people = {};
+  const owner = c.profile;
+  if (owner?.owner_id) rememberPerson(people, owner.owner_id, { name: owner.owner_name, email: owner.email });
+  if (c.user?.id) rememberPerson(people, c.user.id, { name: c.user.user_metadata?.full_name || c.user.user_metadata?.name, email: c.user.email });
+  for (const d of drivers || []) if (d.auth_user_id && d.name) rememberPerson(people, d.auth_user_id, { name: d.name });
+  const admin = c.svc?.auth?.admin;
+  if (admin?.getUserById) {
+    for (const id of ids) {
+      if (people[id]?.name && people[id]?.email) continue;
+      try {
+        const { data } = await admin.getUserById(id);
+        const u = data?.user;
+        if (!u) continue;
+        rememberPerson(people, id, { name: u.user_metadata?.full_name || u.user_metadata?.name, email: u.email });
+      } catch { /* a missing name does not block the checklist */ }
+    }
+  }
+  const keep = new Set(ids);
+  return Object.fromEntries(Object.entries(people).filter(([id]) => keep.has(id)));
 }
 
 function shapeForRole(payload, c) {
@@ -103,6 +148,18 @@ function shapeForRole(payload, c) {
   const mine = payload.drivers.find((d) => d.auth_user_id === c.user.id) || null;
   const trucks = mine?.truck_id ? payload.trucks.filter((t) => t.id === mine.truck_id) : payload.trucks;
   const truckIds = new Set(trucks.map((t) => t.id));
+  const documents = payload.documents.filter((d) => DRIVER_DOC_TYPES.has(d.doc_type)).map((d) => ({
+    id: d.id, doc_type: d.doc_type, truck_id: d.truck_id || null, user_id: d.user_id || null, created_at: d.created_at, scope_id: scopeIdOf(d),
+  }));
+  const statuses = payload.statuses.filter((s) => {
+    const item = itemByKey(s.item_key);
+    if (!item) return false;
+    const visible = item.driverAccess === 'equipment' || item.driverAccess === 'binder' || DRIVER_DOC_TYPES.has(item.docType);
+    if (!visible) return false;
+    if (s.truck_id && !truckIds.has(s.truck_id)) return false;
+    return true;
+  }).map((s) => ({ ...s, note: null }));
+  const visiblePeople = new Set([...statuses.map((s) => s.checked_by), ...documents.map((d) => d.user_id)].filter(Boolean));
   return {
     ...payload,
     office: false,
@@ -111,17 +168,8 @@ function shapeForRole(payload, c) {
     trucks,
     drivers: mine ? [mine] : [],
     trailers: payload.trailers.filter((t) => truckIds.has(t.pulled_by)),
-    documents: payload.documents.filter((d) => DRIVER_DOC_TYPES.has(d.doc_type)).map((d) => ({
-      id: d.id, doc_type: d.doc_type, truck_id: d.truck_id || null, created_at: d.created_at, scope_id: scopeIdOf(d),
-    })),
-    statuses: payload.statuses.filter((s) => {
-      const item = itemByKey(s.item_key);
-      if (!item) return false;
-      const visible = item.driverAccess === 'equipment' || item.driverAccess === 'binder' || DRIVER_DOC_TYPES.has(item.docType);
-      if (!visible) return false;
-      if (s.truck_id && !truckIds.has(s.truck_id)) return false;
-      return true;
-    }).map((s) => ({ ...s, note: null })),
+    documents, statuses,
+    people: Object.fromEntries(Object.entries(payload.people || {}).filter(([id]) => visiblePeople.has(id))),
   };
 }
 
@@ -148,12 +196,15 @@ export async function saveStatus(c, body) {
     if (item.driverAccess !== 'equipment') return { status: 403, error: 'Drivers can check equipment only.' };
     if (!truckId) return { status: 422, error: 'Pick the truck.' };
   }
-  const expiry = cleanDate(body.expiryOn);
-  if (expiry === undefined) return { status: 422, error: 'Enter the date as YYYY-MM-DD.' };
   const row = {
     company_id: c.profile.id, item_key: item.key, truck_id: truckId, trailer_id: trailerId, driver_id: driverId,
-    status, checked_by: c.user.id, checked_at: new Date().toISOString(), expiry_on: expiry, note: cleanNote(body.note),
+    status, checked_by: c.user.id, checked_at: new Date().toISOString(), note: cleanNote(body.note),
   };
+  if (body && Object.prototype.hasOwnProperty.call(body, 'expiryOn')) {
+    const expiry = cleanDate(body.expiryOn);
+    if (expiry === undefined) return { status: 422, error: 'Enter the date as YYYY-MM-DD.' };
+    row.expiry_on = expiry;
+  }
   const found = await existingStatus(c.uc, c.profile.id, { itemKey: item.key, truckId, trailerId, driverId });
   if (found.error) return { status: isMissing(found.error) ? 503 : 500, error: isMissing(found.error) ? 'The checklist needs a database update that hasn’t been applied yet.' : 'Could not save that item.' };
   const write = found.id
