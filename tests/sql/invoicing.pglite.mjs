@@ -15,7 +15,7 @@ grant usage on schema auth to authenticated, anon; grant execute on function aut
 create table public.loads (id uuid primary key default gen_random_uuid(), user_id uuid not null, status text, broker_name text, broker_load_number text, rate numeric);
 alter table public.loads enable row level security;
 create policy loads_own on public.loads for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-grant select on public.loads to authenticated;
+grant select, update on public.loads to authenticated;
 grant usage on schema public to authenticated, anon;
 `);
 await db.exec(readFileSync(R + '20261015001200_company_profiles.sql', 'utf8'));
@@ -117,3 +117,32 @@ ok((await err(O, `update public.company_profiles set invoice_next_number=1 where
 const I4 = (await as(O, `insert into public.invoices (owner_id, load_id, line_items, total) values ('${O}', null, ${LINES}, 2400) returning id`))[0].id;
 ok((await as(O, `select invoice_number from public.finalize_invoice('${I4}')`))[0].invoice_number === 'INV-1500' && (await nextNo()) === 1501, 'next number: finalize afterward uses INV-1500, counter 1501');
 console.log(process.exitCode ? 'FAILED' : 'all ok');
+
+// ---- 20261021000200: auto-draft on delivered ----
+await db.exec(readFileSync(R + '20261021000200_invoice_autodraft.sql', 'utf8'));
+await db.exec(readFileSync(R + '20261021000200_invoice_autodraft.sql', 'utf8')); // idempotent
+const L3 = '33333333-3333-3333-3333-333333333333', L4 = '33333333-3333-3333-3333-333333333334';
+await db.exec(`insert into public.loads (id, user_id, status, broker_load_number, broker_name, rate) values ('${L3}','${O}','in_transit','TEST-2001','Acme Freight Brokerage (fake)',1800.5),('${L4}','${O}','in_transit','TEST-2002',null,null);
+update public.loads set broker_id='${B}' where id='${L3}';`);
+await as(O, `update public.loads set status='delivered' where id='${L3}'`);
+const ad = (await db.query(`select * from public.invoices where load_id='${L3}'`)).rows;
+ok(ad.length === 1 && ad[0].status === 'draft' && ad[0].auto_drafted && Number(ad[0].total) === 1800.5 && ad[0].line_items[0].type === 'linehaul', 'delivered → draft with the linehaul');
+ok(ad[0].factored === true && ad[0].factor_id === F && ad[0].broker_id === B && ad[0].bill_to.emails[0] === 'ap@example.com', 'draft follows the company default factor and the broker record');
+await as(O, `update public.loads set status='invoiced' where id='${L3}'`); await as(O, `update public.loads set status='delivered' where id='${L3}'`);
+ok((await db.query(`select count(*)::int n from public.invoices where load_id='${L3}'`)).rows[0].n === 1, 'no second draft when delivered again');
+await as(O, `update public.loads set status='delivered' where id='${L4}'`);
+const ad4 = (await db.query(`select total, line_items from public.invoices where load_id='${L4}'`)).rows[0];
+ok(ad4 && Number(ad4.total) === 0 && ad4.line_items.length === 0, 'no rate → empty draft (cannot be finalized until a charge is added)');
+ok((await db.query(`select status from public.loads where id='${L4}'`)).rows[0].status === 'delivered', 'status change still saved');
+// The trigger is SECURITY DEFINER, so its insert isn't held to the insert policy: it works when the server's service
+// role (no signed-in user, created_by null) or a member who can't create invoices sets the status.
+const L5 = '33333333-3333-3333-3333-333333333335', L6 = '33333333-3333-3333-3333-333333333336';
+await db.exec(`insert into public.loads (id, user_id, status, broker_load_number, rate) values ('${L5}','${O}','in_transit','TEST-2003',500),('${L6}','${O}','in_transit','TEST-2004',600);
+grant update on public.loads to authenticated; create policy loads_member_test on public.loads for all to authenticated using (true) with check (true);`);
+await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); update public.loads set status='delivered' where id='${L5}';`);
+const s5 = (await db.query(`select created_by from public.invoices where load_id='${L5}'`)).rows;
+ok(s5.length === 1 && s5[0].created_by === null, 'service-role status change still auto-drafts (created_by null)');
+await as(D, `update public.loads set status='delivered' where id='${L6}'`);
+const s6 = (await db.query(`select created_by from public.invoices where load_id='${L6}'`)).rows;
+ok(s6.length === 1 && s6[0].created_by === D, 'a driver marking delivered still auto-drafts (insert policy not applied inside the trigger)');
+console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft)');
