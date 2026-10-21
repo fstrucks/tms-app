@@ -11,6 +11,7 @@ import { callMap } from '../lib/mapClient';
 import { getSupabase } from '../lib/supabase';
 import { sortedStops } from '../lib/loadTabs';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
+import { supportsStopCompletion } from '../lib/stopProgress';
 import { fmtApptWindow } from '../lib/loads';
 import {
   LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
@@ -238,7 +239,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       </div>
       <div style={{ margin: '0.6rem 0' }}>
         {view?.state === 'ready' && (view.stops || []).some((x) => x.lat != null)
-          ? <RouteMap stops={view.stops} geometry={view.geometry} truck={usableFix ? { lat: usableFix.lat, lng: usableFix.lng } : null} live={fresh?.geometry || null}
+          ? <RouteMap stops={view.stops} geometry={view.geometry} doneIds={supportsStopCompletion(load) ? stops.filter((x, i) => x.completed_at || i < ni).map((x) => x.id) : []} truck={usableFix ? { lat: usableFix.lat, lng: usableFix.lng } : null} live={fresh?.geometry || null}
               label={`Map: truck route ${target}${est ? `, ${fmtMilesLeft(est.miles)} left` : ''}`} />
           : <div style={{ height: 140, borderRadius: 10, background: c.soft, display: 'flex', alignItems: 'center', justifyContent: 'center', ...s.muted }}>
               {view ? (view.state === 'failed' ? view.message : 'No map yet') : 'Loading the map…'}</div>}
