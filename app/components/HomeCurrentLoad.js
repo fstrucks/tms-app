@@ -105,8 +105,8 @@ function DeliveredPrompt({ load, audience, onMarkDelivered, busy, err }) {
     <div role="status" data-testid="home-delivered-prompt" style={{ background: 'var(--warning-bg)', borderRadius: 8, padding: '0.6rem 0.8rem', margin: '0 0 12px' }}>
       <div style={{ fontWeight: 600 }}>Delivered? This load is still In transit more than a day after its delivery date.</div>
       {mode === 'button' && <button type="button" data-testid="home-mark-delivered" disabled={busy} onClick={onMarkDelivered}
-        style={{ ...s.btn, ...s.btnPri, marginTop: 8 }}>{busy ? 'Saving…' : 'Mark delivered'}</button>}
-      {mode === 'link' && <Link href={`/dispatch/${load.id}`} style={{ ...s.link, display: 'inline-block', marginTop: 6 }}>Mark delivered in Dispatch →</Link>}
+        style={{ ...s.btn, ...s.btnPri, marginTop: 8 }}>{busy ? 'Saving…' : 'Mark as delivered'}</button>}
+      {mode === 'link' && <Link href={`/dispatch/${load.id}`} style={{ ...s.link, display: 'inline-block', marginTop: 6 }}>Mark as delivered in Dispatch →</Link>}
       {mode === 'text' && <div style={{ ...s.muted, marginTop: 4 }}>Ask your dispatcher to mark it delivered.</div>}
       {err && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
     </div>

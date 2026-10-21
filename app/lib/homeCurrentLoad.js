@@ -74,7 +74,7 @@ export function moreLine(pick) {
   if (pick.status !== 'in_transit') return `${pick.more} more dispatched`;
   const od = pick.moreOverdue || 0;
   if (!od) return `${pick.more} more on the road`;
-  if (od === pick.more) return `${od} more in transit past delivery (mark delivered?)`;
+  if (od === pick.more) return `${od} more in transit past delivery (mark as delivered?)`;
   return `${pick.more - od} more on the road · ${od} past delivery`;
 }
 
@@ -85,7 +85,7 @@ export function upNext(loads, current, now = Date.now(), n = 2) {
   return [...eligibleBooked(loads, now), ...overdue].filter((l) => l.id !== current?.id).slice(0, n);
 }
 
-// "Delivered? Mark delivered": the owner marks it through the same loads.update the load page uses
+// "Delivered? Mark as delivered": the owner marks it through the same loads.update the load page uses
 // (app/loads/[id]/page.js changeStatus). Management / dispatchers get a link to the dispatch center. Drivers: text only.
 export function deliveredPromptMode(audience, load) {
   const base = linkBaseFor(audience, load);

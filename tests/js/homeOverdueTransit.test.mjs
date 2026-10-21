@@ -27,7 +27,7 @@ test("Marc's case: an old Oct 9 in transit load no longer beats a newer in trans
   const cur = L('new', 'in_transit', NOW - 5 * H, NOW + 20 * H);
   const p = pickCurrentLoad([old, cur], NOW);
   assert.equal(p.load.id, 'new'); assert.equal(p.overdue, false);
-  assert.equal(moreLine(p), '1 more in transit past delivery (mark delivered?)');
+  assert.equal(moreLine(p), '1 more in transit past delivery (mark as delivered?)');
   assert.deepEqual(upNext([old, cur], p.load, NOW).map((l) => l.id), ['old']);
 });
 
@@ -89,6 +89,6 @@ test('rate cons waiting: same filter as the Loads banner, excludes not_ratecon; 
 
 test('Home card wires the prompt and the waiting line to /documents', () => {
   const src = readFileSync(new URL('../../app/components/HomeCurrentLoad.js', import.meta.url), 'utf8');
-  assert.match(src, /home-delivered-prompt/); assert.match(src, /Mark delivered/);
+  assert.match(src, /home-delivered-prompt/); assert.match(src, /Mark as delivered/);
   assert.match(src, /home-ratecons-waiting/); assert.match(src, /href="\/documents"/);
 });

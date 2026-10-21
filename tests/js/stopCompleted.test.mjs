@@ -194,7 +194,7 @@ test('Undo after the final delivery; busy/second tap ignored; action labels + co
   assert.match(comp, /onClick=\{\(\) => \{ if \(!tapOk\(\)\) return; setErr\(null\); setPending\('done'\); \}\}/);
   assert.match(comp, /TAP_COOLDOWN_MS = 800/);
   assert.match(comp, /disabled=\{busy\} style=\{pri\} onClick=\{\(\) => act\(target, pending\)\}/);
-  // confirm text: "Yes, mark picked up" / "Yes, mark delivered"
+  // confirm text: "Yes, mark as picked up" / "Yes, mark as delivered"
   const yes = (l) => `Yes, ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
   assert.equal(yes(stopActionLabel({ stop_type: 'pickup' })), 'Yes, mark as picked up');
   assert.equal(yes(stopActionLabel({ stop_type: 'delivery' })), 'Yes, mark as delivered');
