@@ -115,6 +115,7 @@ test('GET: owner opening a delivered load gets an automatic draft matched to the
   assert.equal(j.invoice.terms_days, 15);
   assert.equal(j.matchedBrokerId, B1);
   assert.equal(c.svc.db.invoice_events[0].kind, 'drafted');
+  assert.equal(c.svc.db.invoices[0].created_by, OWNER, 'created_by = the signed-in user (insert policy)');
   await INV.GET(req('GET'), { params: { id: L1 }, deps: c.deps });
   assert.equal(c.svc.db.invoices.length, 1, 'no second draft');
 });
