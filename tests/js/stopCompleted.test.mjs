@@ -170,3 +170,14 @@ test('prod (Marc): profile owner_id ≠ loads.user_id — owner-member who is al
   c2.deps.mkUserClient = () => uc2;
   assert.equal((await call(c2, S1, 'done')).status, 404);
 });
+
+test('prod suspect: server read without completion keys (stale PostgREST schema cache) → 409, and the UI now says so instead of hiding', async () => {
+  // Client data (visible_loads → to_jsonb) has the keys, so the buttons show; the route's PostgREST embed stops(*)
+  // comes from the schema cache and, before `notify pgrst, 'reload schema'`, lacks them.
+  const c = ctx('owner', OWNER, { legacy: true });
+  const r = await call(c, S1, 'done');
+  assert.equal(r.status, 409); assert.equal(r.j.setupNeeded, true);
+  const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
+  assert.ok(!/setHidden\(true\)/.test(comp), 'no silent hide');
+  assert.match(comp, /isn’t available on the server yet\. Nothing was saved\./);
+});

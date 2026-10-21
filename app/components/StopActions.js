@@ -42,7 +42,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
     setErr(null); setBusy(true);
     const r = await post(supabase, load.id, stop.id, action);
     setBusy(false); setPending(null);
-    if (r.setupNeeded) { setHidden(true); return false; }
+    if (r.setupNeeded) { setErr('Stop check-off isn’t available on the server yet. Nothing was saved.'); return false; } // was a silent hide (prod Oct 20)
     if (!r.ok) { setErr(r.error); return false; }
     onChange?.(applyStopResult(load, r)); // the re-read server row (also for "already done": treated as success)
     try { onRefresh?.(); } catch (e) { console.error('[stops] refresh', e); } // then re-read the whole load
