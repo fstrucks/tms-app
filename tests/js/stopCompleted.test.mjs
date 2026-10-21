@@ -27,9 +27,9 @@ test('nextStopIndex: first stop not completed, even when status is still dispatc
 });
 
 test('labels, roles, plans', () => {
-  assert.equal(stopActionLabel({ stop_type: 'pickup' }), 'Mark picked up');
-  assert.equal(stopActionLabel({ stop_type: 'delivery' }), 'Mark delivered');
-  assert.equal(stopActionLabel({ stop_type: 'stop' }), 'Mark done');
+  assert.equal(stopActionLabel({ stop_type: 'pickup' }), 'Mark as picked up');
+  assert.equal(stopActionLabel({ stop_type: 'delivery' }), 'Mark as delivered');
+  assert.equal(stopActionLabel({ stop_type: 'stop' }), 'Mark as done');
   assert.equal(stopDoneLabel({ stop_type: 'pickup' }), 'Picked up');
   assert.equal(stopDoneLabel({ stop_type: 'delivery' }), 'Delivered');
   const load = { status: 'dispatched', assigned_driver_user_id: DRIVER, stops: [stop(S1, 1, 'pickup'), stop(S2, 2, 'delivery')] };
@@ -103,7 +103,7 @@ test('in_transit with no marks = pickup implied done; Undo path uses dispatched 
   // columns absent → old appointment guess unchanged
   const legacy = st.map(({ completed_at, completion, completed_by, ...r }) => r);
   assert.equal(nextStopIndex({ status: 'in_transit', stops: legacy }, NOW), 1);
-  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'dispatched', stops: st }, NOW)]), 'Mark picked up');
+  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'dispatched', stops: st }, NOW)]), 'Mark as picked up');
 });
 
 test('QA #115 nit (a): a repeat tap is success and returns the server row; undo of an open stop too', async () => {
@@ -196,8 +196,8 @@ test('Undo after the final delivery; busy/second tap ignored; action labels + co
   assert.match(comp, /disabled=\{busy\} style=\{pri\} onClick=\{\(\) => act\(target, pending\)\}/);
   // confirm text: "Yes, mark picked up" / "Yes, mark delivered"
   const yes = (l) => `Yes, ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
-  assert.equal(yes(stopActionLabel({ stop_type: 'pickup' })), 'Yes, mark picked up');
-  assert.equal(yes(stopActionLabel({ stop_type: 'delivery' })), 'Yes, mark delivered');
+  assert.equal(yes(stopActionLabel({ stop_type: 'pickup' })), 'Yes, mark as picked up');
+  assert.equal(yes(stopActionLabel({ stop_type: 'delivery' })), 'Yes, mark as delivered');
   assert.match(comp, /`Yes, \$\{label\.charAt\(0\)\.toLowerCase\(\)\}\$\{label\.slice\(1\)\}`/);
   // last completed after delivery = the delivery
   const load = { stops: [{ id: S1, sequence: 1, stop_type: 'pickup', completed_at: '2026-10-20T01:00:00Z', completion: 'done' }, { id: S2, sequence: 2, stop_type: 'delivery', completed_at: '2026-10-20T02:00:00Z', completion: 'done' }] };
