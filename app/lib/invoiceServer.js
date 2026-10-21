@@ -3,7 +3,7 @@
 //     20261021000100 (office roles read, owner / management write) is the final guard;
 //   - loads, stops and documents are read with the service client, always filtered to the company (user_id = ownerId),
 //     same as the load paperwork routes (PR #110).
-import { loadDocsCtx, json, UUID } from './loadDocsServer.js';
+import { loadDocsCtx, json, UUID, docInCompany } from './loadDocsServer.js';
 import { isMissing } from './truckServer.js';
 import { canViewInvoices, canEditInvoices, draftFields, brokerForLoad, AUTO_DRAFT_STATUSES, publicBilling } from './invoice.js';
 
@@ -120,4 +120,31 @@ export async function loadLogo(svc, path) {
     const { data } = await svc.storage.from('documents').download(path);
     return data ? { bytes: new Uint8Array(await data.arrayBuffer()), type: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' } : null;
   } catch { return null; }
+}
+
+// ---- PR 3: bundle ----
+// The invoice + its load's paperwork (documents linked to the load, uploaded by someone in the company).
+export async function invoiceWithDocs(x, invoiceId) {
+  const { c, svc, db } = x;
+  if (!UUID.test(invoiceId || '')) return { res: json({ error: 'Invoice not found.' }, 404) };
+  const { data: inv, error } = await db.from('invoices').select('*').eq('id', invoiceId).eq('owner_id', c.ownerId).maybeSingle();
+  if (error) return { res: isMissing(error) ? json(SETUP, 409) : json({ error: 'Couldn’t load the invoice.' }, 500) };
+  if (!inv) return { res: json({ error: 'Invoice not found.' }, 404) };
+  let docs = [], load = null, others = [];
+  if (inv.load_id) {
+    const [l, d, o] = await Promise.all([
+      svc.from('loads').select('id,user_id,rate,status').eq('id', inv.load_id).eq('user_id', c.ownerId).maybeSingle(),
+      svc.from('documents').select('id,user_id,load_id,doc_type,file_path,original_filename,created_at').eq('load_id', inv.load_id),
+      db.from('invoices').select('id,invoice_number,status,sent_at').eq('owner_id', c.ownerId).eq('load_id', inv.load_id),
+    ]);
+    load = l.data || null;
+    for (const doc of d.data || []) if (await docInCompany(svc, c.ownerId, doc)) docs.push(doc);
+    others = (o.data || []).filter((i) => i.id !== inv.id && i.invoice_number && i.sent_at).map((i) => i.invoice_number);
+  }
+  // Company NOA (company documents) goes last when the invoice is factored.
+  if (inv.factored) {
+    const { data: noa } = await svc.from('documents').select('id,user_id,load_id,doc_type,file_path,original_filename,created_at').eq('user_id', c.ownerId).eq('doc_type', 'noa').order('created_at', { ascending: false }).limit(1);
+    if (noa?.[0]) docs.push(noa[0]);
+  }
+  return { invoice: { ...inv, load_rate: load?.rate ?? null }, docs, load, otherSent: others };
 }

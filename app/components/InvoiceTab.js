@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import ConfirmButton from './ui/ConfirmButton';
+import InvoiceBundle from './InvoiceBundle';
 import { fmtMoney } from '../lib/money';
 import { EXTRA_TYPES, lineLabel, statusLabel, termsLabel, totalOf, cleanLines } from '../lib/invoice';
 
@@ -157,6 +158,8 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
       </div>
       {msg && <p role="status" style={{ color: 'var(--success)', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err && <p role="alert" style={s.err}>{err}</p>}
+      {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next) => { if (next?.status === 'void') load(); else if (next) setSt((x) => ({ ...x, invoice: next })); if (next?.status === 'paid' || next?.status === 'short_paid') cb.current.onLoadStatus?.('paid'); }} />}
+      {st.voidedCount > 0 && <p style={s.muted}>{st.voidedCount} voided invoice{st.voidedCount === 1 ? '' : 's'} for this load (see Invoices).</p>}
     </div>
   );
 }

@@ -182,6 +182,12 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Carrier packets
           </Link>
+          {['owner', 'management', 'dispatcher'].includes(company?.role) && (
+            <Link href="/invoices" role="menuitem" onClick={() => setOpen(false)} data-testid="menu-invoices"
+              style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
+              Invoices
+            </Link>
+          )}
           <Link ref={(el) => { itemRefs.current[3] = el; }} href="/account/settings" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Settings
