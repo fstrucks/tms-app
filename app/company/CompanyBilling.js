@@ -78,14 +78,17 @@ export default function CompanyBilling() {
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
   const [logoUrl, setLogoUrl] = useState(null);
+  const [logoLoading, setLogoLoading] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(null);
 
   const load = useCallback(async () => {
     const j = await api('/api/billing');
     if (j.status === 403) return setSt({ hidden: true });
     if (j.error) return setSt({ error: j.error, setupNeeded: j.setupNeeded });
     setSt(j);
-    setForm({ default_terms_days: String(j.settings?.default_terms_days ?? 30), default_factor_id: j.settings?.default_factor_id || '', remit_to: j.settings?.remit_to || '' });
-    if (j.settings?.has_logo) { const l = await api('/api/billing/logo'); setLogoUrl(l.url || null); } else setLogoUrl(null);
+    setForm({ invoice_prefix: j.settings?.invoice_prefix || 'INV-', default_terms_days: String(j.settings?.default_terms_days ?? 30), default_factor_id: j.settings?.default_factor_id || '', remit_to: j.settings?.remit_to || '' });
+    // Keep the current logo on screen while its link refreshes (no 'No logo' flash on reload).
+    if (j.settings?.has_logo) { setLogoLoading(true); const l = await api('/api/billing/logo'); setLogoLoading(false); setLogoUrl(l.url || null); } else setLogoUrl(null);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -96,10 +99,11 @@ export default function CompanyBilling() {
   const factorName = (id) => st.factors.find((f) => f.id === id)?.name;
 
   async function saveSettings(e) {
-    e.preventDefault(); setMsg(null); setErr(null);
+    e.preventDefault(); setMsg(null); setErr(null); setSavedMsg(null);
     const j = await api('/api/billing', { method: 'PATCH', body: JSON.stringify(form) });
     if (j.error) return setErr(j.error);
-    setMsg('Billing settings saved.'); load();
+    setSavedMsg('Saved.'); load();
+    setTimeout(() => setSavedMsg(null), 4000);
   }
   async function onLogo(e) {
     const file = e.target.files?.[0]; e.target.value = ''; setMsg(null); setErr(null);
@@ -138,7 +142,8 @@ export default function CompanyBilling() {
       <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Billing</h2>
       <p style={{ ...s.muted, marginTop: 4 }}>Used on your invoices. {ro && 'Only the owner or Management can change these.'}</p>
       <form onSubmit={saveSettings}>
-        <p style={{ margin: '0.5rem 0 0' }}>Next invoice number: <strong data-testid="next-invoice-number">{st.settings.invoice_prefix}{st.settings.invoice_next_number}</strong> <span style={s.muted}>(given when you finalize an invoice)</span></p>
+        <Field label="Invoice number prefix"><input style={s.input} disabled={ro} value={form.invoice_prefix} onChange={(e) => setForm({ ...form, invoice_prefix: e.target.value })} data-testid="invoice-prefix" /></Field>
+        <p style={{ margin: '0.5rem 0 0' }}>Next invoice number: <strong data-testid="next-invoice-number">{(form.invoice_prefix || 'INV-')}{st.settings.invoice_next_number}</strong> <span style={s.muted}>(given when you finalize an invoice)</span></p>
         <Field label="Default payment terms (days)"><input style={s.input} inputMode="numeric" disabled={ro} value={form.default_terms_days} onChange={(e) => setForm({ ...form, default_terms_days: e.target.value })} /></Field>
         <p style={{ ...s.muted, margin: '4px 0 0' }}>{/^\d+$/.test(form.default_terms_days) ? termsLabel(form.default_terms_days) : ''} unless a broker has its own terms.</p>
         <Field label="Default factoring company (new loads are factored when one is set)">
@@ -148,13 +153,18 @@ export default function CompanyBilling() {
           </select>
         </Field>
         <Field label="Remit-to on invoices that aren’t factored (blank = company address)"><textarea style={{ ...s.input, minHeight: 64, padding: 10 }} disabled={ro} value={form.remit_to} onChange={(e) => setForm({ ...form, remit_to: e.target.value })} /></Field>
-        {!ro && <button type="submit" style={{ ...s.primary, marginTop: '0.75rem' }}>Save billing settings</button>}
+        {!ro && <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: '0.75rem' }}>
+          <button type="submit" style={s.primary}>Save billing settings</button>
+          {savedMsg && <span role="status" data-testid="billing-saved" style={{ color: 'var(--success)', fontWeight: 600 }}>✓ {savedMsg}</span>}
+        </div>}
       </form>
 
       <h3 style={s.h3}>Logo (optional)</h3>
-      {logoUrl ? <img src={logoUrl} alt="Company logo" style={{ maxHeight: 64, maxWidth: 220, display: 'block', margin: '0.5rem 0' }} /> : <p style={s.muted}>No logo. Invoices show your company name.</p>}
+      {logoUrl ? <img src={logoUrl} alt="Company logo" style={{ maxHeight: 64, maxWidth: 220, display: 'block', margin: '0.5rem 0' }} />
+        : st.settings.has_logo || logoLoading ? <p style={s.muted} data-testid="logo-loading">Loading logo…</p>
+        : <p style={s.muted}>No logo. Invoices show your company name.</p>}
       {!ro && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <label style={{ ...s.btn, display: 'inline-flex', alignItems: 'center' }}>{logoUrl ? 'Replace logo' : 'Upload logo'}<input type="file" accept="image/png,image/jpeg" onChange={onLogo} style={{ display: 'none' }} /></label>
+        <label style={{ ...s.btn, display: 'inline-flex', alignItems: 'center' }}>{logoUrl || st.settings.has_logo ? 'Replace logo' : 'Upload logo'}<input type="file" accept="image/png,image/jpeg" onChange={onLogo} style={{ display: 'none' }} /></label>
         {logoUrl && <ConfirmButton label="Remove logo" prompt="Remove the logo from your invoices?" onConfirm={removeLogo} />}
       </div>}
 
