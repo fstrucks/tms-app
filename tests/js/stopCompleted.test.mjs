@@ -151,3 +151,22 @@ test('UI: one confirm at a time; Yes calls the API; failures show an error', () 
   const map = readFileSync(new URL('../../app/components/LoadMapPanel.js', import.meta.url), 'utf8');
   assert.match(map, /doneIds=\{supportsStopCompletion\(load\)/);
 });
+
+test('prod (Marc): profile owner_id ≠ loads.user_id — owner-member who is also the assigned driver still saves', async () => {
+  // Marc's profile names another owner id; his membership role there is owner; the load sits under his own user id.
+  const PROFILE_OWNER = '00000000-0000-4000-8000-0000000000e1';
+  const c = ctx('owner', DRIVER);
+  c.svc.from = ((from) => (t) => { const q = from(t); return q; })(c.svc.from);
+  const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: PROFILE_OWNER }] }, user: { id: DRIVER }, role: 'owner' });
+  const rpc = uc.rpc.bind(uc);
+  uc.rpc = (fn, a) => (fn === 'packet_role' ? Promise.resolve({ data: a?.p_owner === PROFILE_OWNER ? 'owner' : null, error: null }) : rpc(fn, a));
+  c.deps.mkUserClient = () => uc;
+  // load L1 belongs to OWNER (≠ PROFILE_OWNER) and DRIVER is assigned → allowed as assigned driver
+  const r = await call(c, S1, 'done');
+  assert.equal(r.status, 200); assert.equal(r.j.stop.completion, 'done');
+  // not assigned, no role for the load's owner → 404
+  const c2 = ctx('owner', DRIVER2); const uc2 = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: PROFILE_OWNER }] }, user: { id: DRIVER2 }, role: 'owner' });
+  const rpc2 = uc2.rpc.bind(uc2); uc2.rpc = (fn, a) => (fn === 'packet_role' ? Promise.resolve({ data: a?.p_owner === PROFILE_OWNER ? 'owner' : null, error: null }) : rpc2(fn, a));
+  c2.deps.mkUserClient = () => uc2;
+  assert.equal((await call(c2, S1, 'done')).status, 404);
+});

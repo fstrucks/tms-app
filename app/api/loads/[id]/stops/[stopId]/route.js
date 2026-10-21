@@ -1,7 +1,8 @@
 // POST { action: 'done' | 'skip' | 'undo' } → { ok, stop, status }
 // Marks one stop picked up / delivered / done, skipped, or un-marks it. Allowed: owner / management / dispatcher on any
 // company load, or the load's assigned driver. The role is resolved for the LOAD's company (packet_role(load owner)),
-// not the caller's first company profile, so an owner who also belongs to another company isn't sent to the wrong one.
+// not the caller's company profile: 36fc0fc filtered loads.user_id = company_profiles.owner_id, which 404s whenever
+// those differ (Marc, Oct 20: owner via company_members, load under his own user id). Assigned driver always allowed.
 // The write uses the service role, then the stop is RE-READ and checked: a write that changed nothing is an error.
 // Marking the first pickup done moves booked / dispatched → in_transit; undoing it (nothing else marked) moves
 // in_transit → dispatched. Before migration 20261020000400: 409 { setupNeeded } (the UI hides the buttons).
@@ -28,6 +29,9 @@ export async function POST(req, { params, deps } = {}) {
     const { data: r2 } = await c.uc.rpc('packet_role', { p_owner: load.user_id });
     role = typeof r2 === 'string' ? r2 : null;
   }
+  // The assigned driver may always check off his own load's stops, even when no company role resolves for the load's
+  // owner (e.g. loads.user_id differs from the company profile's owner_id).
+  if (!role && load.assigned_driver_user_id === c.user.id) role = 'driver';
   if (!role || !canCompleteStops(role, load, c.user.id)) return json({ error: 'Load not found.' }, 404);
   if (!supportsStopCompletion(load)) return json(SETUP, 409);
   const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id });
