@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { decodePolyline, PIN_LABEL, fitTarget, FIT_PADDING } from '../lib/loadRoute';
+import { decodePolyline, PIN_LABEL, fitTarget, FIT_PADDING, boundsWithTruck } from '../lib/loadRoute';
 
 export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const ATTRIBUTION = '© <a href="https://openrouteservice.org/" target="_blank" rel="noopener">openrouteservice</a> by HeiGIT | © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
@@ -40,6 +40,8 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
   const el = useRef(null);
   const map = useRef(null);
   const overlay = useRef(null);
+  const extra = useRef([]);      // truck dot + live leg, included in the fit (QA #118)
+  const truckFitted = useRef(null);
   useEffect(() => {
     if (!el.current) return;
     const touch = L.Browser.mobile || L.Browser.touch;
@@ -61,7 +63,8 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
     if (line.length > 1) { L.polyline(line, { color: '#2563eb', weight: 4, opacity: live ? 0.35 : 0.85 }).addTo(m); bounds.push(...line); }
     // QA #83 r3: fit the route line + all pins with padding only once the container has a real size, and again
     // when its width/height changes (phone rotation, desktop pane). Fitting at 0×0 zoomed in so far pins were off-screen.
-    const fit = () => fitView(m, el.current, bounds);
+    const fit = () => fitView(m, el.current, [...bounds, ...extra.current]);
+    m._phFit = fit; truckFitted.current = null;
     let raf = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(fit) : null;
     if (raf == null) fit();
     let last = '';
@@ -84,7 +87,12 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
     g.clearLayers();
     const leg = decodePolyline(live || '');
     if (leg.length > 1) L.polyline(leg, { color: '#1d4ed8', weight: 5, opacity: 0.95 }).addTo(g);
-    if (truck && Number.isFinite(truck.lat) && Number.isFinite(truck.lng)) L.marker([truck.lat, truck.lng], { icon: truckIcon(), title: 'You (approximate)', keyboard: false }).addTo(g);
+    const hasTruck = truck && Number.isFinite(truck.lat) && Number.isFinite(truck.lng);
+    if (hasTruck) L.marker([truck.lat, truck.lng], { icon: truckIcon(), title: 'You (approximate)', keyboard: false }).addTo(g);
+    // QA #118: re-frame once when the truck first shows up on this map so the dot isn't off-screen. Later refreshes
+    // don't re-fit (no tile churn); resizes include it. fitView's maxZoom 12 stops a truck sitting on a pin from zooming in too far.
+    extra.current = boundsWithTruck([], hasTruck ? truck : null, leg);
+    if (hasTruck && truckFitted.current !== m) { truckFitted.current = m; m._phFit?.(); }
   }, [truck?.lat, truck?.lng, live, JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (label && el.current) el.current.setAttribute('aria-label', label); }, [label]);
 

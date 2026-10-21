@@ -1,0 +1,97 @@
+// Auto-start location (Marc, Oct 21). Fake data only; no real positions.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { readAutoLocation, markOptedIn, setAutoLocation, shouldAutoStart, showLocationButton, queryGeoPermission, deniedHelp, OPTIN_KEY, AUTO_KEY } from '../../app/lib/autoLocation.js';
+
+const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m }; };
+
+test('flags: opt-in after a tap; auto-start on by default; turning it off stops auto-start', () => {
+  const st = mem();
+  assert.deepEqual(readAutoLocation(st), { optedIn: false, enabled: true });
+  markOptedIn(st); assert.equal(st.m.get(OPTIN_KEY), '1');
+  assert.deepEqual(readAutoLocation(st), { optedIn: true, enabled: true });
+  setAutoLocation(st, false); assert.equal(st.m.get(AUTO_KEY), '0'); assert.equal(readAutoLocation(st).enabled, false);
+  setAutoLocation(st, true); assert.equal(st.m.has(AUTO_KEY), false);
+  assert.deepEqual(readAutoLocation(null), { optedIn: false, enabled: true }); // no storage (private mode)
+  const broken = { getItem: () => { throw new Error('x'); }, setItem: () => { throw new Error('x'); } };
+  assert.doesNotThrow(() => { markOptedIn(broken); readAutoLocation(broken); });
+  for (const v of st.m.values()) assert.ok(v === '1' || v === '0', 'only on/off flags, never a position');
+});
+
+test('auto-start rules per permission state', () => {
+  assert.equal(shouldAutoStart('granted', { optedIn: false, enabled: true }), true);
+  assert.equal(shouldAutoStart('granted', { optedIn: true, enabled: false }), false);
+  assert.equal(shouldAutoStart('prompt', { optedIn: false, enabled: true }), false);
+  assert.equal(shouldAutoStart('prompt', { optedIn: true, enabled: true }), true);
+  assert.equal(shouldAutoStart('denied', { optedIn: true, enabled: true }), false);
+  assert.equal(shouldAutoStart('unsupported', { optedIn: true, enabled: true }), false);
+  assert.equal(showLocationButton('prompt', { optedIn: false, enabled: true }), true);
+  assert.equal(showLocationButton('prompt', { optedIn: true, enabled: true }), false);
+  assert.equal(showLocationButton('granted', { optedIn: true, enabled: false }), true, 'off → manual button');
+  assert.equal(showLocationButton('denied', { optedIn: false, enabled: true }), false);
+});
+
+test('queryGeoPermission: real states, missing API and throwing API fall back to prompt', async () => {
+  const geo = {};
+  assert.equal((await queryGeoPermission({ geolocation: geo, permissions: { query: async () => ({ state: 'granted' }) } })).state, 'granted');
+  assert.equal((await queryGeoPermission({ geolocation: geo, permissions: { query: async () => ({ state: 'denied' }) } })).state, 'denied');
+  assert.equal((await queryGeoPermission({ geolocation: geo })).state, 'prompt');
+  assert.equal((await queryGeoPermission({ geolocation: geo, permissions: { query: async () => { throw new TypeError('unsupported name'); } } })).state, 'prompt');
+  assert.equal((await queryGeoPermission({})).state, 'unsupported');
+});
+
+test('denied help text per platform', () => {
+  assert.match(deniedHelp('ios'), /Location Services → Safari Websites/);
+  assert.match(deniedHelp('ios'), /aA/);
+  assert.match(deniedHelp('android'), /Site settings → Location/);
+  assert.match(deniedHelp('desktop'), /reload/);
+});
+
+test('wiring: map panel uses the rules; settings page + menu link exist', () => {
+  const p = readFileSync(new URL('../../app/components/LoadMapPanel.js', import.meta.url), 'utf8');
+  assert.match(p, /queryGeoPermission\(navigator\)/);
+  assert.match(p, /markOptedIn\(/);
+  assert.match(p, /showLocationButton\(perm, prefs\)/);
+  assert.match(p, /deniedHelp\(platform\)/);
+  assert.ok(!/localStorage\.setItem\([^)]*(lat|lng|coords)/.test(p), 'never stores a position');
+  const set = readFileSync(new URL('../../app/account/settings/page.js', import.meta.url), 'utf8');
+  assert.match(set, /Auto-start location/); assert.match(set, /setAutoLocation\(/);
+  const menu = readFileSync(new URL('../../app/components/ui/AccountMenu.js', import.meta.url), 'utf8');
+  assert.match(menu, /href="\/account\/settings"/);
+});
+
+import { fixUsable, shouldRefresh, isCoarseFix, coarseFixNote, MAX_ACCURACY_M } from '../../app/lib/loadEta.js';
+test('QA #118: a coarse desktop fix (Seattle ≈ 47.6,-122.4, ±25 km) is shown and routed to Boise, flagged approximate', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const fix = { lat: 47.6, lng: -122.4, accuracy: 25_000, at: now - 1000 }; // fake
+  const boise = { id: 's2', lat: 43.615, lng: -116.202 };
+  assert.ok(fixUsable(fix, now), 'marker shows');
+  assert.deepEqual(shouldRefresh({ last: null, fix, stop: boise, now }), { go: true, reason: 'first' }, 'route requested');
+  assert.ok(isCoarseFix(fix)); assert.match(coarseFixNote(fix), /Approximate location \(within about 16 mi\)/);
+  const precise = { ...fix, accuracy: 30 };
+  assert.equal(isCoarseFix(precise), false); assert.equal(coarseFixNote(precise), null);
+  assert.equal(isCoarseFix({ ...fix, accuracy: MAX_ACCURACY_M }), false);
+  assert.ok(!fixUsable({ ...fix, at: now - 6 * 60_000 }, now), 'stale still dropped');
+  const p = readFileSync(new URL('../../app/components/LoadMapPanel.js', import.meta.url), 'utf8');
+  assert.match(p, /data-testid="eta-coarse"/); assert.match(p, /Working out miles left…/);
+  assert.match(p, /truck=\{usableFix \?/);
+});
+
+import { boundsWithTruck, fitTarget } from '../../app/lib/loadRoute.js';
+test('QA #118 nit: over 50 mi accuracy gets the "very rough" wording; meters→miles is right', () => {
+  const f = (m) => coarseFixNote({ lat: 47.6, lng: -122.4, accuracy: m });
+  assert.match(f(80_467), /within about 50 mi/);                       // 50 mi exactly
+  assert.equal(f(2_916_092), 'Very rough location (from your network, not GPS), so miles and drive time left may be off.'); // ≈1,812 mi
+  assert.match(f(90_000), /^Very rough location/);
+});
+test('QA #118 nit: map framing includes the truck dot and live leg; refit once, maxZoom kept', () => {
+  const b = boundsWithTruck([[45.5, -122.7], [43.6, -116.2]], { lat: 47.6, lng: -122.4 }, [[47.6, -122.4], [46, -119]]);
+  assert.deepEqual(b.slice(2), [[47.6, -122.4], [47.6, -122.4], [46, -119]]);
+  assert.deepEqual(boundsWithTruck([[1, 2]], { lat: NaN, lng: 1 }), [[1, 2]]);
+  assert.equal(fitTarget(b).kind, 'bounds');
+  const src = readFileSync(new URL('../../app/components/RouteMap.js', import.meta.url), 'utf8');
+  assert.match(src, /\[\.\.\.bounds, \.\.\.extra\.current\]/);
+  assert.match(src, /truckFitted\.current !== m/);
+  assert.match(src, /maxZoom: 12/);
+});

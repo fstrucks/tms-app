@@ -20,7 +20,7 @@ export const PERIODIC_MS = 20 * 60_000;          // or every 20 min while moving
 export const PERIODIC_MIN_MOVE_MI = 0.5;
 export const MANUAL_FLOOR_MS = 2 * 60_000;       // Refresh button floor
 export const NEAR_STOP_MI = 1;                   // "At or near the stop": no more routing
-export const MAX_ACCURACY_M = 2_000;             // coarser fixes aren't used for routing
+export const MAX_ACCURACY_M = 2_000;             // coarser fixes are still shown + routed, flagged "approximate" (QA #118)
 export const MAX_FIX_AGE_MS = 5 * 60_000;
 export const LAST_GOOD_MAX_MS = 60 * 60_000;     // show the last good answer (with its age) up to 60 min
 export const ERROR_RETRY_MS = 10 * 60_000;       // timeout / busy / quota
@@ -57,12 +57,21 @@ export function parseOrigin(body) {
   return { lat, lng, accuracy: Number.isFinite(acc) && acc >= 0 ? acc : null };
 }
 
-// A browser fix good enough to route from.
+// A browser fix we can show and route from: real coordinates, not stale. QA #118 (Taylor, desktop Wi-Fi/IP location):
+// fixes coarser than 2 km used to be dropped silently (no marker, no miles). Now they're used and flagged instead.
 export function fixUsable(fix, now = Date.now()) {
   if (!fix || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return false;
-  if (fix.accuracy != null && fix.accuracy > MAX_ACCURACY_M) return false;
   if (fix.at != null && now - fix.at > MAX_FIX_AGE_MS) return false;
   return true;
+}
+export const VERY_ROUGH_MI = 50;
+export const isCoarseFix = (fix) => !!fix && fix.accuracy != null && fix.accuracy > MAX_ACCURACY_M;
+// "Approximate location (within about 12 mi)". null for a precise fix.
+export function coarseFixNote(fix) {
+  if (!isCoarseFix(fix)) return null;
+  const mi = Math.max(1, Math.round(fix.accuracy / 1609.344)); // meters → miles (correct; desktop IP fixes can be ±1,000+ mi)
+  if (mi > VERY_ROUGH_MI) return 'Very rough location (from your network, not GPS), so miles and drive time left may be off.';
+  return `Approximate location (within about ${mi.toLocaleString('en-US')} mi), so miles and drive time left are rough.`;
 }
 
 // Should the browser ask the server for a new route? → { go, reason }

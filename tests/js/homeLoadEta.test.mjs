@@ -34,9 +34,9 @@ test('haversine, rounding (2 decimals ≈ 0.7 mi) and origin validation', () => 
   for (const b of [{}, { lat: 91, lng: 0 }, { lat: 0, lng: 181 }, { lat: 'x', lng: 1 }, { lat: null, lng: null }, { lat: '', lng: '' }, null]) assert.equal(parseOrigin(b), null);
 });
 
-test('fixUsable: coarse (> 2 km) or stale (> 5 min) fixes are not routed from', () => {
+test('fixUsable: stale (> 5 min) fixes are not routed from; coarse (> 2 km) ones are used and flagged (QA #118)', () => {
   assert.ok(fixUsable(fixAt(ONTARIO), T0));
-  assert.ok(!fixUsable(fixAt(ONTARIO, T0, MAX_ACCURACY_M + 1), T0));
+  assert.ok(fixUsable(fixAt(ONTARIO, T0, MAX_ACCURACY_M + 1), T0));
   assert.ok(!fixUsable(fixAt(ONTARIO, T0 - MAX_FIX_AGE_MS - 1), T0));
   assert.ok(!fixUsable(null, T0));
 });
@@ -243,7 +243,8 @@ test('privacy: coordinates are never logged, even when the handler crashes, and 
     assert.equal([...uc.calls, ...sb.calls].filter((c) => c.op !== 'select').length, 0, 'no writes');
   } finally { console.error = orig.e; console.log = orig.l; console.warn = orig.w; }
   const src = read('app/lib/loadEtaServer.js') + read('app/api/loads/[id]/eta/route.js') + read('app/components/LoadMapPanel.js');
-  assert.ok(!/localStorage|sessionStorage|document\.cookie/.test(src.replace(/never in localStorage, cookies/g, '')), 'no device storage');
+  // Oct 21: only the auto-start on/off flags go to localStorage, through lib/autoLocation (tested there); no position.
+  assert.ok(!/localStorage|sessionStorage|document\.cookie/.test(src.replace(/never in localStorage, cookies/g, '').replace(/typeof window !== 'undefined' \? window\.localStorage : null/g, '').replace(/in localStorage \(lib\/autoLocation\)/g, '')), 'no device storage');
   assert.ok(!/console\.(log|error|warn)\([^)]*(lat|lng|fix|origin|body)/.test(src), 'no location in logs');
   assert.ok(!/\.(insert|update|upsert)\(/.test(read('app/lib/loadEtaServer.js')), 'no database writes');
 });
@@ -279,18 +280,18 @@ test('panels: WAI-ARIA tabs + arrows + dots + scroll-snap; Panel 2 (and Leaflet)
   assert.ok(!/LoadMapPanel|milesLeft|fmtMilesLeft|Drive time|left to delivery|loadEta/.test(home), 'front panel: no miles-left line');
 });
 
-test('map panel: location only after a tap (never on load), polled only while shown and visible; Drive time + ETA + ideal-conditions note', () => {
+test('map panel: location after a tap, or automatically when allowed (Oct 21 auto-start), polled only while shown and visible; Drive time + ETA + ideal-conditions note', () => {
   const src = read('app/components/LoadMapPanel.js');
   assert.match(src, /data-testid="eta-use-location" onClick=\{\(\) => readLocation\(\)\}/);
-  assert.match(src, /navigator\.permissions\?\.query\?\.\(\{ name: 'geolocation' \}\)/);
-  assert.match(src, /if \(!active \|\| perm !== 'granted'\) return undefined;/);
+  assert.match(src, /queryGeoPermission\(navigator\)/);
+  assert.match(src, /if \(!active \|\| !\(auto \|\| \(perm === 'granted' && gotFix\.current\)\)\) return undefined;/);
   assert.match(src, /document\.visibilityState === 'visible'\) readLocation\(\{ quiet: gotFix\.current \}\)/);
   assert.match(src, /enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000/);
   assert.ok(!/watchPosition/.test(src));
   assert.match(src, /<b>Drive time<\/b>/); assert.match(src, /<b>ETA<\/b>/);
   assert.match(src, /Ideal conditions: no traffic, breaks or fuel stops\./);
   assert.match(src, /total route/);
-  assert.match(src, /Location is blocked for this site/);
+  assert.match(src, /deniedHelp\(platform\)/);
   const map = read('app/components/RouteMap.js');
   assert.match(map, /truck = null, live = null, label = null/);
   assert.match(map, /aria-label="Map of pickup and delivery with the truck route"/, 'load page label unchanged');
@@ -359,7 +360,7 @@ test('map panel: "Finding your location…" from the tap until a fix, an error o
   assert.match(src, /\(p\) => \{ stopLocating\(\); gotFix\.current = true;/, 'cleared on a fix');
   assert.match(src, /\(e\) => \{ stopLocating\(\); if \(e\?\.code === 1\)/, 'cleared on any error incl. timeout (code 3) and denied (code 1)');
   assert.match(src, /locating && !fresh && \(\s*<p role="status" data-testid="eta-locating"[^>]*>Finding your location…<\/p>/);
-  assert.match(src, /!locating && \(perm === 'prompt' \|\| perm === 'unknown'\) && \(\s*<button type="button" data-testid="eta-use-location"/, 'button hidden while locating (no double prompt)');
+  assert.match(src, /!locating && !fix && showLocationButton\(perm, prefs\) && \(\s*<button type="button" data-testid="eta-use-location"/, 'button hidden while locating (no double prompt)');
   assert.match(src, /useEffect\(\(\) => \(\) => \{ if \(locTimer\.current\) clearTimeout\(locTimer\.current\); \}, \[\]\);/, 'timer cleared on unmount');
-  assert.ok(!/localStorage\.|sessionStorage\.|document\.cookie/.test(src), 'position still memory-only');
+  assert.ok(!/localStorage\.|sessionStorage\.|document\.cookie/.test(src.replace(/typeof window !== 'undefined' \? window\.localStorage : null/g, '').replace(/in localStorage \(lib\/autoLocation\)/g, '')), 'position still memory-only');
 });

@@ -3,18 +3,20 @@
 // (ideal conditions, no traffic data), ETA in the stop's time zone, and Navigate buttons (Trucker Path, Google Maps,
 // Apple Maps) + Copy address. Mounted only after Panel 2 is first shown (CurrentLoadPanels).
 // PRIVACY: the position stays in memory (refs/state) only: never in localStorage, cookies or the URL, never logged,
-// never stored on the server. It is read only while this panel is showing and the page is visible.
+// never stored on the server. It is read only while this panel is showing and the page is visible. Only two on/off
+// flags (opted in / auto-start off) live in localStorage (lib/autoLocation).
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { callMap } from '../lib/mapClient';
 import { getSupabase } from '../lib/supabase';
 import { sortedStops } from '../lib/loadTabs';
+import { readAutoLocation, markOptedIn, shouldAutoStart, showLocationButton, queryGeoPermission, deniedHelp } from '../lib/autoLocation';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { supportsStopCompletion } from '../lib/stopProgress';
 import { fmtApptWindow } from '../lib/loads';
 import {
-  LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
+  LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, coarseFixNote, haversineMi,
   fmtDriveTime, fmtMilesLeft, fmtEta, etaTarget, totalRouteMiles, ageText, postEta, ETA_ERROR_TEXT, platformOf,
   stopAddress, googleMapsUrl, appleMapsUrl, truckerPathLink, TP_FALLBACK_MS,
 } from '../lib/loadEta';
@@ -85,15 +87,17 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
     return () => { live = false; };
   }, [load.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Permission state without prompting. A prompt only ever follows a tap on "Use my location".
+  // Permission state without prompting (Permissions API, with a fallback when it's missing). Auto-start rules: lib/autoLocation.
+  const [prefs, setPrefs] = useState({ optedIn: false, enabled: true });
+  useEffect(() => { setPrefs(readAutoLocation(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation || (typeof window !== 'undefined' && window.isSecureContext === false)) { setPerm('unsupported'); return undefined; }
-    let st = null;
+    if (typeof navigator === 'undefined' || (typeof window !== 'undefined' && window.isSecureContext === false)) { setPerm('unsupported'); return undefined; }
+    let st = null; let live = true;
     const upd = () => setPerm(st.state === 'granted' ? 'granted' : st.state === 'denied' ? 'denied' : (gotFix.current ? 'granted' : 'prompt'));
-    navigator.permissions?.query?.({ name: 'geolocation' }).then((x) => { st = x; upd(); x.onchange = upd; }).catch(() => setPerm('prompt'));
-    if (!navigator.permissions?.query) setPerm('prompt');
-    return () => { if (st) st.onchange = null; };
+    queryGeoPermission(navigator).then((r) => { if (!live) return; if (r.status) { st = r.status; upd(); r.status.onchange = upd; } else setPerm(r.state); });
+    return () => { live = false; if (st) st.onchange = null; };
   }, []);
+  const auto = shouldAutoStart(perm, prefs);
 
   const stopLocating = () => { setLocating(false); if (locTimer.current) { clearTimeout(locTimer.current); locTimer.current = null; } };
   useEffect(() => () => { if (locTimer.current) clearTimeout(locTimer.current); }, []);
@@ -108,7 +112,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       locTimer.current = setTimeout(() => { locTimer.current = null; setLocating(false); }, LOCATING_MAX_MS);
     }
     navigator.geolocation.getCurrentPosition(
-      (p) => { stopLocating(); gotFix.current = true; setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
+      (p) => { stopLocating(); gotFix.current = true; markOptedIn(typeof window !== 'undefined' ? window.localStorage : null); setPerm('granted'); setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: Date.now() }); },
       (e) => { stopLocating(); if (e?.code === 1) { gotFix.current = false; setPerm('denied'); } else setErr((x) => x || { code: 'no_fix', at: Date.now() }); },
       { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 },
     );
@@ -135,14 +139,16 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
 
   // Poll once a minute, only while this panel is showing and the page is visible.
   useEffect(() => {
-    if (!active || perm !== 'granted') return undefined;
+    // granted → automatic (unless Auto-start is off); prompt → automatic only after an earlier successful tap.
+    // After a manual tap in this session (gotFix) keep polling even if Auto-start is off.
+    if (!active || !(auto || (perm === 'granted' && gotFix.current))) return undefined;
     const tick = () => { setNow(Date.now()); if (document.visibilityState === 'visible') readLocation({ quiet: gotFix.current }); };
     tick();
     const t = setInterval(tick, LOCATION_POLL_MS);
     const vis = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', vis);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis); };
-  }, [active, perm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, perm, auto]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function route(manual = false) {
     if (inflight.current || !view?.live || !hasStopPin) return;
@@ -227,9 +233,9 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   let locLine = null;
   if (!view?.live || !hasStopPin) locLine = !hasStopPin && view ? ETA_ERROR_TEXT.no_stop_location : null;
   else if (perm === 'unsupported') locLine = 'This browser can’t share location, so live miles aren’t available.';
-  else if (perm === 'denied') locLine = 'Location is blocked for this site. Turn it on in your browser settings to see miles and drive time left.';
+  else if (perm === 'denied') locLine = deniedHelp(platform);
   else if (locating && !fresh) locLine = null; // "Finding your location…" below
-  else if (perm === 'prompt' || perm === 'unknown') locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and is never saved.';
+  else if (perm === 'prompt' || perm === 'unknown' || (perm === 'granted' && !auto && !fix)) locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and is never saved.';
 
   return (
     <section data-testid="home-load-map" aria-label="Current load map and miles left" style={s.card}>
@@ -245,6 +251,8 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
               {view ? (view.state === 'failed' ? view.message : 'No map yet') : 'Loading the map…'}</div>}
       </div>
       {headline}
+      {usableFix && coarseFixNote(usableFix) && <p data-testid="eta-coarse" style={{ ...s.muted, fontSize: '0.8rem', margin: '4px 0 0' }}>{coarseFixNote(usableFix)}</p>}
+      {usableFix && !est && !near && !errText && busy && <p data-testid="eta-working" role="status" style={{ ...s.muted, margin: '4px 0 0' }}>Working out miles left…</p>}
       {stop && (
         <div style={{ fontSize: '0.9rem', marginTop: 6 }}>
           {stop.company_name && <div style={{ fontWeight: 600 }}>{stop.company_name}</div>}
@@ -260,7 +268,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       {view?.live && hasStopPin && locating && !fresh && (
         <p role="status" data-testid="eta-locating" style={{ ...s.muted, margin: '0.4rem 0' }}>Finding your location…</p>
       )}
-      {view?.live && hasStopPin && !locating && (perm === 'prompt' || perm === 'unknown') && (
+      {view?.live && hasStopPin && !locating && !fix && showLocationButton(perm, prefs) && (
         <button type="button" data-testid="eta-use-location" onClick={() => readLocation()} style={{ ...s.btn, width: '100%', marginBottom: 8 }}>📍 Use my location</button>
       )}
       {errText && !near && <p role="status" data-testid="eta-error" style={{ color: c.warning, fontSize: '0.85rem', margin: '0.3rem 0' }}>{errText}</p>}

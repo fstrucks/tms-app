@@ -293,3 +293,11 @@ export function fitTarget(points) {
   if (n - s < 1e-6 && e - w < 1e-6) return { kind: 'point', point: [s, w] };
   return { kind: 'bounds', bounds: [[s, w], [n, e]] };
 }
+
+// QA #118: map points to frame = route bounds + the driver's dot + the live leg (bad coords skipped).
+export function boundsWithTruck(bounds, truck, leg = []) {
+  const out = [...(bounds || [])];
+  if (truck && Number.isFinite(truck.lat) && Number.isFinite(truck.lng)) out.push([truck.lat, truck.lng]);
+  for (const p of leg || []) if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) out.push(p);
+  return out;
+}
