@@ -1,5 +1,6 @@
 // Per-stop completion (migration 20261020000400): stops.completed_at / completion ('done' | 'skipped') / completed_by.
 // Pure, JSX-free (Node tests import it).
+const IMPLIED_PICKED = ['in_transit'];
 const byseq = (load) => [...(load?.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
 
@@ -14,6 +15,13 @@ export const hasCompletionData = (load) => (load?.stops || []).some(isStopDone);
 export function completedNextIndex(load) {
   const st = byseq(load);
   if (!st.length || !supportsStopCompletion(load)) return null;
+  // In transit with nothing marked (picked up before check-off existed, or status set by hand): the first pickup is
+  // implicitly done. Undo of that pickup moves the load back to dispatched (server), so the pickup shows again.
+  if (!st.some(isStopDone) && IMPLIED_PICKED.includes(load?.status)) {
+    const p = st.findIndex((s) => s.stop_type === 'pickup');
+    const after = (p === -1 ? 0 : p) + 1;
+    return after < st.length ? after : st.length - 1;
+  }
   const i = st.findIndex((s) => !isStopDone(s));
   return i === -1 ? st.length - 1 : i;
 }
@@ -41,12 +49,17 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   if (!stop) return { error: 'Stop not found.', code: 404 };
   if (action === 'undo') {
     if (!isStopDone(stop)) return { noop: true }; // already open (e.g. a second tap): success, no write
-    return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status: null };
+    // Undo of the first pickup while nothing else is marked: back to dispatched, so the card shows the pickup again
+    // (an in_transit load with no marks counts the pickup as done).
+    const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
+    const othersDone = st.some((s) => s.id !== stop.id && isStopDone(s));
+    const status = firstPickup?.id === stop.id && !othersDone && load.status === 'in_transit' ? 'dispatched' : null;
+    return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status, fromStatuses: ['in_transit'] };
   }
   if (action !== 'done' && action !== 'skip') return { error: 'Bad request.', code: 400 };
   if (isStopDone(stop)) return { noop: true }; // already marked (stale view / second tap): success, no write
   const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
   const status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
-  return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status };
+  return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: START_STATUSES };
 }
 export { START_STATUSES };

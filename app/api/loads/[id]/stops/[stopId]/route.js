@@ -1,42 +1,54 @@
 // POST { action: 'done' | 'skip' | 'undo' } → { ok, stop, status }
 // Marks one stop picked up / delivered / done, skipped, or un-marks it. Allowed: owner / management / dispatcher on any
-// company load, or the load's assigned driver (checked here; the write uses the service role filtered to the company).
-// Marking the first pickup done moves a booked / dispatched load to in_transit.
-// Before migration 20261020000400 the stops have no completed_at column: 409 { setupNeeded } (the UI hides the buttons).
+// company load, or the load's assigned driver. The role is resolved for the LOAD's company (packet_role(load owner)),
+// not the caller's first company profile, so an owner who also belongs to another company isn't sent to the wrong one.
+// The write uses the service role, then the stop is RE-READ and checked: a write that changed nothing is an error.
+// Marking the first pickup done moves booked / dispatched → in_transit; undoing it (nothing else marked) moves
+// in_transit → dispatched. Before migration 20261020000400: 409 { setupNeeded } (the UI hides the buttons).
 import { loadDocsCtx, json, UUID } from '../../../../../lib/loadDocsServer';
 import { isMissing } from '../../../../../lib/truckServer';
-import { canCompleteStops, planStopAction, supportsStopCompletion, START_STATUSES } from '../../../../../lib/stopProgress';
+import { canCompleteStops, planStopAction, supportsStopCompletion } from '../../../../../lib/stopProgress';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const SETUP = { error: 'Stop check-off needs a database update that hasn’t been applied yet.', setupNeeded: true };
+const NOT_SAVED = { error: 'That didn’t save. Please try again.', notSaved: true };
+const clean = ({ geocode_address, ...r } = {}) => r; // eslint-disable-line no-unused-vars
 
 export async function POST(req, { params, deps } = {}) {
   const x = await loadDocsCtx(req, deps); if (x.res) return x.res;
   const { c, svc } = x;
   if (!UUID.test(params?.id || '') || !UUID.test(params?.stopId || '')) return json({ error: 'Stop not found.' }, 404);
   let body; try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
-  const { data: load, error: lErr } = await svc.from('loads').select('id,user_id,status,assigned_driver_user_id, stops(*)')
-    .eq('id', params.id).eq('user_id', c.ownerId).maybeSingle();
+  const { data: load, error: lErr } = await svc.from('loads').select('id,user_id,status,assigned_driver_user_id, stops(*)').eq('id', params.id).maybeSingle();
   if (lErr) return json({ error: 'Couldn’t load this load.' }, 500);
-  if (!load || !canCompleteStops(c.role, load, c.user.id)) return json({ error: 'Load not found.' }, 404);
+  if (!load) return json({ error: 'Load not found.' }, 404);
+  let role = load.user_id === c.ownerId ? c.role : null;
+  if (!role && c.uc) {
+    const { data: r2 } = await c.uc.rpc('packet_role', { p_owner: load.user_id });
+    role = typeof r2 === 'string' ? r2 : null;
+  }
+  if (!role || !canCompleteStops(role, load, c.user.id)) return json({ error: 'Load not found.' }, 404);
   if (!supportsStopCompletion(load)) return json(SETUP, 409);
   const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id });
   if (plan.error) return json({ error: plan.error }, plan.code);
-  if (plan.noop) { // already in the requested state: return the current row so the client refreshes its view
-    const { geocode_address, ...cur } = (load.stops || []).find((s) => s.id === params.stopId) || {}; // eslint-disable-line no-unused-vars
-    return json({ ok: true, already: true, stop: cur, status: load.status });
+  if (plan.noop) return json({ ok: true, already: true, stop: clean((load.stops || []).find((s) => s.id === params.stopId)), status: load.status });
+
+  const upd = await svc.from('stops').update(plan.stopPatch).eq('id', params.stopId).eq('load_id', load.id).select('id');
+  if (upd.error) return isMissing(upd.error) ? json(SETUP, 409) : json({ error: 'Couldn’t save the stop.' }, 500);
+  if (!upd.data?.length) { console.error('[stops] update changed 0 rows'); return json(NOT_SAVED, 500); }
+  const { data: stop, error: rErr } = await svc.from('stops').select('*').eq('id', params.stopId).eq('load_id', load.id).maybeSingle();
+  const want = plan.stopPatch.completed_at;
+  if (rErr || !stop || (want ? !stop.completed_at || stop.completion !== plan.stopPatch.completion : stop.completed_at != null)) {
+    console.error('[stops] re-read mismatch', rErr?.code || '');
+    return json(NOT_SAVED, 500);
   }
-  const { data: stop, error: sErr } = await svc.from('stops').update(plan.stopPatch).eq('id', params.stopId).eq('load_id', load.id).select('*').maybeSingle();
-  if (sErr) return isMissing(sErr) ? json(SETUP, 409) : json({ error: 'Couldn’t save the stop.' }, 500);
-  if (!stop) return json({ error: 'Stop not found.' }, 404);
   let status = load.status;
   if (plan.status) {
-    const { data: s2, error: uErr } = await svc.from('loads').update({ status: plan.status }).eq('id', load.id).eq('user_id', c.ownerId)
-      .in('status', START_STATUSES).select('status').maybeSingle();
+    const { data: s2, error: uErr } = await svc.from('loads').update({ status: plan.status }).eq('id', load.id).eq('user_id', load.user_id)
+      .in('status', plan.fromStatuses).select('status').maybeSingle();
     if (uErr) console.error('[stops] status', uErr.code);
     else if (s2?.status) status = s2.status;
   }
-  const { geocode_address, ...out } = stop; // eslint-disable-line no-unused-vars
-  return json({ ok: true, stop: out, status });
+  return json({ ok: true, stop: clean(stop), status });
 }

@@ -51,7 +51,7 @@ export async function truckCtx(req, { mkUserClient = userClient, sb: svc, mkServ
     db = svc || mkService();
     if (!db) return { res: json({ error: 'The Truck tab isn’t set up for team members yet.' }, 503) };
   }
-  return { db, user, ownerId, role, canEdit: canEditTruck(role) };
+  return { db, uc, user, ownerId, role, canEdit: canEditTruck(role) };
 }
 
 // Everything the Truck tab shows, for one truck. → data | { setupNeeded } | { error }

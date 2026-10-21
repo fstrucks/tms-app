@@ -36,7 +36,7 @@ const truckIcon = () => L.divIcon({
   iconSize: [18, 18], iconAnchor: [9, 9],
 });
 
-export default function RouteMap({ stops, geometry, truck = null, live = null, label = null }) {
+export default function RouteMap({ stops, geometry, truck = null, live = null, label = null, doneIds = [] }) {
   const el = useRef(null);
   const map = useRef(null);
   const overlay = useRef(null);
@@ -52,8 +52,9 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
     const bounds = [];
     pts.forEach((s, i) => {
       const lab = PIN_LABEL(s, i, pts.length);
-      const color = lab === 'P' ? '#15803d' : lab === 'D' ? '#b91c1c' : '#1d4ed8';
-      L.marker([s.lat, s.lng], { icon: pin(lab, color), title: `${s.stop_type || 'stop'}${s.city ? `: ${s.city}${s.state ? `, ${s.state}` : ''}` : ''}`, keyboard: false }).addTo(m);
+      const done = doneIds.includes(s.id); // PR #115 follow-up: checked-off stops are grey with a check
+      const color = done ? '#6b7280' : lab === 'P' ? '#15803d' : lab === 'D' ? '#b91c1c' : '#1d4ed8';
+      L.marker([s.lat, s.lng], { icon: pin(done ? '✓' : lab, color), title: `${s.stop_type || 'stop'}${s.city ? `: ${s.city}${s.state ? `, ${s.state}` : ''}` : ''}`, keyboard: false }).addTo(m);
       bounds.push([s.lat, s.lng]);
     });
     const line = decodePolyline(geometry || '');
@@ -72,7 +73,7 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
     ro?.observe(el.current);
     map.current = m;
     return () => { if (raf != null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf); ro?.disconnect(); m.remove(); map.current = null; };
-  }, [JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(stops), geometry, doneIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Truck dot + live leg, redrawn in place on the current map (no fitBounds here).
   useEffect(() => {
