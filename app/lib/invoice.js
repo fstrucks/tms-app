@@ -219,3 +219,18 @@ export function invoiceFileName(inv, kind = 'invoice', n = 0) {
   const label = DOC_FILE_LABELS[kind] || DOC_FILE_LABELS.other;
   return `${base}_${label}${n > 1 ? `-${n}` : ''}.pdf`;
 }
+
+// Load status after invoice steps (Taylor QA #1). An invoice means the work is done, so finalize moves any open load
+// (booked / dispatched / in transit / delivered) to Invoiced, and a payment moves it to Paid. Cancelled loads (TONU)
+// and loads already further along are left alone. → the new status, or null for "no change".
+const LOAD_RANK = { booked: 0, dispatched: 1, in_transit: 2, delivered: 3, invoiced: 4, paid: 5 };
+export function loadStatusAfter(step, current) {
+  const target = step === 'paid' ? 'paid' : step === 'finalize' ? 'invoiced' : null;
+  if (!target || current === 'cancelled' || !(current in LOAD_RANK)) return null;
+  return LOAD_RANK[current] < LOAD_RANK[target] ? target : null;
+}
+const LOAD_LABEL = { invoiced: 'Invoiced', paid: 'Paid' };
+// Message tail that only claims what the database confirmed.
+export function loadStatusNote(before, after) {
+  return after && after !== before && LOAD_LABEL[after] ? ` The load is now ${LOAD_LABEL[after]}.` : '';
+}

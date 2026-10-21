@@ -181,3 +181,44 @@ test('load page: Invoice tab hidden for drivers; auto-draft migration fires on d
   assert.match(sql, /after update of status on public\.loads/);
   assert.match(sql, /exception when others/);
 });
+
+test('QA #1: load status rule — finalize moves any open load to Invoiced; cancelled / later stay; message only claims real changes', async () => {
+  const { loadStatusAfter, loadStatusNote } = await import('../../app/lib/invoice.js');
+  for (const s of ['booked', 'dispatched', 'in_transit', 'delivered']) assert.equal(loadStatusAfter('finalize', s), 'invoiced', s);
+  for (const s of ['invoiced', 'paid', 'cancelled', 'weird']) assert.equal(loadStatusAfter('finalize', s), null, s);
+  assert.equal(loadStatusAfter('paid', 'booked'), 'paid');
+  assert.equal(loadStatusAfter('paid', 'cancelled'), null);
+  assert.equal(loadStatusNote('booked', 'invoiced'), ' The load is now Invoiced.');
+  assert.equal(loadStatusNote('booked', 'booked'), '');
+  const c = ctx('owner', OWNER, { loads: [{ id: L1, user_id: OWNER, status: 'booked', rate: 2400, broker_load_number: 'TEST-1001' }] });
+  await INV.PATCH(req('PATCH', { line_items: [{ type: 'linehaul', amount: 2400 }] }), { params: { id: L1 }, deps: c.deps });
+  const j = await (await INV.POST(req('POST', { action: 'finalize' }), { params: { id: L1 }, deps: c.deps })).json();
+  assert.equal(j.load.status, 'invoiced');
+  assert.equal(j.loadStatusBefore, 'booked');
+  assert.equal(c.svc.db.loads[0].status, 'invoiced', 'saved in the database, not just the response');
+  const k = ctx('owner', OWNER, { loads: [{ id: L1, user_id: OWNER, status: 'cancelled', rate: 300, broker_load_number: 'TEST-TONU' }] });
+  await INV.PATCH(req('PATCH', { line_items: [{ type: 'tonu', amount: 300 }] }), { params: { id: L1 }, deps: k.deps });
+  const jk = await (await INV.POST(req('POST', { action: 'finalize' }), { params: { id: L1 }, deps: k.deps })).json();
+  assert.equal(jk.load.status, 'cancelled');
+  assert.match(read('../../app/components/InvoiceTab.js'), /loadStatusNote\(j\.loadStatusBefore, j\.load\?\.status\)/);
+});
+
+test('QA #5: terms shown on the draft are the terms finalize uses', async () => {
+  // Auto-draft made without a broker (Net 30); a saved broker (Net 15) matches by name.
+  const c = ctx('owner', OWNER, { invoices: [{ id: 'i-auto', owner_id: OWNER, load_id: L1, status: 'draft', broker_id: null, terms_days: 30, line_items: [{ type: 'linehaul', label: 'Linehaul', amount: 2400 }], total: 2400, bill_to: {}, created_at: '1' }] });
+  const g = await (await INV.GET(req('GET'), { params: { id: L1 }, deps: c.deps })).json();
+  assert.equal(g.invoice.terms_days, 15, 'the draft is refreshed to the matched broker’s terms before finalize');
+  await INV.PATCH(req('PATCH', { terms_days: '45' }), { params: { id: L1 }, deps: c.deps });
+  await INV.PATCH(req('PATCH', { notes: 'x' }), { params: { id: L1 }, deps: c.deps });
+  assert.equal(c.svc.db.invoices[0].terms_days, 45, 'a save without terms keeps the draft’s terms');
+  const j = await (await INV.POST(req('POST', { action: 'finalize' }), { params: { id: L1 }, deps: c.deps })).json();
+  assert.equal(j.invoice.terms_days, 45, 'finalize keeps the draft’s terms');
+});
+
+test('nits: linehaul pre-filled from the rate; remit-to hint; broker auto-match is an exact saved-name match', () => {
+  const ui = read('../../app/components/InvoiceTab.js');
+  assert.match(ui, /Number\(j\.load\?\.rate\) > 0 \? \[\{ type: 'linehaul'/);
+  assert.match(ui, /data-testid="remit-hint"/);
+  assert.equal(brokerForLoad({ broker_name: 'SAMPLE TEST BROKER LLC' }, [broker]), null, 'no saved broker → no match (expected)');
+  assert.equal(brokerForLoad({ broker_name: 'acme freight brokerage (fake) ' }, [broker]).id, B1);
+});

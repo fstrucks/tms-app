@@ -6,7 +6,7 @@ import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import ConfirmButton from './ui/ConfirmButton';
 import { fmtMoney } from '../lib/money';
-import { EXTRA_TYPES, lineLabel, statusLabel, termsLabel, totalOf, cleanLines } from '../lib/invoice';
+import { EXTRA_TYPES, lineLabel, statusLabel, termsLabel, totalOf, cleanLines, loadStatusNote } from '../lib/invoice';
 
 const { call: api, token } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -20,7 +20,9 @@ const s = {
   badge: { display: 'inline-block', padding: '2px 10px', borderRadius: 999, background: 'var(--surface-2, var(--warning-bg))', fontWeight: 600, fontSize: 13 },
 };
 const toForm = (j) => ({
-  lines: (j.invoice?.line_items || []).map((l) => ({ type: l.type, amount: Number(l.amount).toFixed(2), note: l.note || '' })),
+  // No invoice yet: start from the load's rate as the linehaul (nit).
+  lines: j.invoice ? (j.invoice.line_items || []).map((l) => ({ type: l.type, amount: Number(l.amount).toFixed(2), note: l.note || '' }))
+    : Number(j.load?.rate) > 0 ? [{ type: 'linehaul', amount: Number(j.load.rate).toFixed(2), note: '' }] : [],
   notes: j.invoice?.notes || '', terms_days: String(j.invoice?.terms_days ?? j.settings?.default_terms_days ?? 30),
   broker_id: j.load?.broker_id || j.matchedBrokerId || '', factored: j.invoice ? !!j.invoice.factored : !!j.settings?.default_factor_id,
 });
@@ -82,7 +84,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
     const j = await api(`/api/loads/${loadId}/invoice`, { method: 'POST', body: JSON.stringify({ action: 'finalize' }) });
     setBusy(false);
     if (j.error) { setErr(j.error); return false; }
-    apply(j); setMsg(`Finalized as ${j.invoice.invoice_number}. The load is now Invoiced.`);
+    apply(j); setMsg(`Finalized as ${j.invoice.invoice_number}.${loadStatusNote(j.loadStatusBefore, j.load?.status)}`);
     return true;
   }
   async function pdf(print) { setErr(null); const e = await openInvoicePdf(inv.id, { print }); if (e) setErr(e); }
@@ -99,7 +101,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
         {!st.hasProfile && <p role="alert" style={s.err}>Fill in your company profile first (Account menu → Company).</p>}
 
         <label style={{ display: 'block', marginTop: '0.6rem' }}><span style={s.muted}>Bill to</span>
-          <select style={{ ...s.input, display: 'block', width: '100%' }} disabled={ro} value={form.broker_id} onChange={(e) => set({ broker_id: e.target.value })} data-testid="invoice-broker">
+          <select style={{ ...s.input, display: 'block', width: '100%' }} disabled={ro} value={form.broker_id} onChange={(e) => { const b = st.brokers.find((x) => x.id === e.target.value); set({ broker_id: e.target.value, terms_days: String(b?.terms_days ?? st.settings?.default_terms_days ?? 30) }); }} data-testid="invoice-broker">
             <option value="">{st.load.broker_name ? `${st.load.broker_name} (not saved in Billing)` : 'Pick a broker'}</option>
             {st.brokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
@@ -110,6 +112,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
           <input type="checkbox" data-testid="invoice-factored" disabled={ro || !factor} checked={!!form.factored} onChange={(e) => set({ factored: e.target.checked })} style={{ width: 22, height: 22 }} />
           <span>{factor ? `Factored: payment goes to ${factor.name}` : 'Factored (set a factoring company in Company → Billing first)'}</span>
         </label>
+        <p style={{ ...s.muted, margin: '0 0 0 30px', whiteSpace: 'pre-line' }} data-testid="remit-hint">Remit-to on the invoice: {(ro && inv?.remit_to) || (form.factored ? st.remitTo?.factor : st.remitTo?.own) || 'your company name and address'}</p>
 
         <label style={{ display: 'block', marginTop: '0.4rem' }}><span style={s.muted}>Payment terms (days) </span>
           <input style={{ ...s.input, width: 90 }} inputMode="numeric" disabled={ro} value={form.terms_days} onChange={(e) => set({ terms_days: e.target.value })} />
@@ -119,7 +122,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
 
       <div style={s.card}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Charges</h3>
-        {form.lines.length === 0 && <p style={s.muted}>No charges yet. This load has no rate; add the linehaul.</p>}
+        {form.lines.length === 0 && <p style={s.muted}>No charges yet.{Number(st.load?.rate) > 0 ? '' : ' This load has no rate; add the linehaul.'}</p>}
         {form.lines.map((l, i) => (
           <div key={i} style={{ ...s.row, flexWrap: 'wrap' }} data-testid="invoice-line">
             <span style={{ flex: '1 1 150px', fontWeight: l.type === 'linehaul' ? 600 : 400 }}>{lineLabel(l.type)}</span>
