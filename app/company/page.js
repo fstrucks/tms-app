@@ -7,6 +7,7 @@ import { ROLE_LABELS, canEdit as roleCanEdit, canSign as roleCanSign } from '../
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
 import CompanyInsurance from './CompanyInsurance';
 import CompanyDocuments from './CompanyDocuments';
+import CompanyBilling from './CompanyBilling';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
@@ -154,6 +155,7 @@ export default function CompanyProfilePage() {
       </form>
       {p && <CompanyDocuments />}
       {p && <CompanyInsurance />}
+      {p && role !== 'driver' && <CompanyBilling />}
     </main>
   );
 }
