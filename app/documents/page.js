@@ -11,6 +11,7 @@ import dynamic from 'next/dynamic';
 
 // Scanner (and pdf-lib) load only when "Scan document" is used.
 import DocLoadLink from '../components/DocLoadLink';
+import TeamDocsList from '../components/TeamDocsList';
 import { fetchVisibleLoads } from '../lib/visibleLoads';
 import { isLoadDocType, suggestLoad, loadForSuggest, loadPickLabel } from '../lib/loadDocs';
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -193,6 +194,7 @@ export default function DocumentsPage() {
   }
 
   const [status, setStatus] = useState(null);
+  const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const docsReqRef = useRef(0);
@@ -452,6 +454,20 @@ export default function DocumentsPage() {
 
           <div style={s.card}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
+            <div role="tablist" aria-label="Whose documents" data-testid="docs-view-toggle" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--surface-2)', marginBottom: '0.75rem' }}>
+              {[['mine', 'Mine'], ['team', 'Team']].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={view_ === id} data-testid={`docs-view-${id}`} onClick={() => setView(id)}
+                  style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                    background: view_ === id ? 'var(--surface)' : 'transparent', color: view_ === id ? 'var(--text)' : 'var(--text-muted)',
+                    outline: view_ === id ? '1px solid var(--border)' : 'none' }}>{label}</button>
+              ))}
+            </div>
+            {view_ === 'team' ? (
+              <>
+                <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork from your whole team, on the loads you can open.</p>
+                <TeamDocsList supabase={supabase} onDeleted={(id) => setDocs((list) => list.filter((x) => x.id !== id))} />
+              </>
+            ) : (<>
             {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
             {!isDriver && skipped.map((m) => (
               <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
@@ -530,6 +546,7 @@ export default function DocumentsPage() {
                 )}
               </div>
             ))}
+            </>)}
           </div>
         </>
       )}

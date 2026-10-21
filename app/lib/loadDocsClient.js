@@ -10,3 +10,14 @@ export async function fetchLoadDocs(supabase, loadId, { fetchImpl = (...a) => fe
   } catch { /* fall back */ }
   return supabase.from('documents').select('id, doc_type, file_path, original_filename, created_at').eq('load_id', loadId).order('created_at', { ascending: false });
 }
+
+// Documents tab "Team" view (/api/documents/team). → { data, error }
+export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a) } = {}) {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const res = await fetchImpl('/api/documents/team', { cache: 'no-store', headers: { Authorization: `Bearer ${s?.session?.access_token || ''}` } });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) return { data: j.documents || [], error: null };
+    return { data: null, error: { status: res.status, message: j.error || null } };
+  } catch (e) { return { data: null, error: { message: String(e?.message || e) } }; }
+}
