@@ -74,8 +74,9 @@ export function recipientFor(invoice, factor) {
 // Status changes after finalize. → { patch, event } | { error }
 export function statusChange(invoice, action, body = {}, today = new Date().toISOString().slice(0, 10)) {
   const s = invoice?.status;
-  if (!invoice || s === 'draft') return { error: 'Finalize the invoice first.' };
+  if (!invoice) return { error: 'Invoice not found.' };
   if (s === 'void') return { error: 'This invoice was voided.' };
+  if (s === 'draft' && action !== 'void') return { error: 'Finalize the invoice first.' };
   const note = String(body.note ?? '').trim().slice(0, 500) || null;
   if (action === 'mark_sent') {
     const to = String(body.sent_to ?? '').trim().slice(0, 300);
@@ -90,7 +91,8 @@ export function statusChange(invoice, action, body = {}, today = new Date().toIS
     return { patch: { status: short ? 'short_paid' : 'paid', paid_amount: Math.round(amt * 100) / 100, paid_at: date }, event: { kind: short ? 'short_paid' : 'paid', note }, loadStatus: 'paid' };
   }
   if (action === 'void') {
-    if (['paid', 'short_paid'].includes(s)) return { error: 'Paid invoices can’t be voided.' };
+    // Short-paid can be voided (e.g. a test invoice, or re-billing the balance); fully paid ones can't.
+    if (s === 'paid') return { error: 'Paid invoices can’t be voided.' };
     const reason = String(body.reason ?? '').trim().slice(0, 300);
     if (!reason) return { error: 'Say why it’s being voided (for your records).' };
     return { patch: { status: 'void', void_reason: reason }, event: { kind: 'void', note: reason } };

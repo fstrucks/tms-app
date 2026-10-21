@@ -44,6 +44,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
 
   const cb = useRef({}); cb.current = { onLoadStatus, onHidden }; // parent passes new arrows each render
   const apply = useCallback((j) => { setSt(j); setForm(toForm(j)); setDirty(false); if (j.load?.status) cb.current.onLoadStatus?.(j.load.status); }, []);
@@ -84,6 +85,24 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
     setBusy(false);
     if (j.error) { setErr(j.error); return false; }
     apply(j); setMsg(`Finalized as ${j.invoice.invoice_number}. The load is now Invoiced.`);
+    return true;
+  }
+  async function voidDraft() {
+    setErr(null); setMsg(null);
+    if (!voidReason.trim()) { setErr('Say why it’s being voided (for your records).'); return false; }
+    setBusy(true);
+    const j = await api(`/api/invoices/${inv.id}`, { method: 'POST', body: JSON.stringify({ action: 'void', reason: voidReason }) });
+    setBusy(false);
+    if (j.error) { setErr(j.error); return false; }
+    setVoidReason(''); await load(); setMsg('Draft voided.');
+    return true;
+  }
+  async function deleteDraft() {
+    setErr(null); setMsg(null); setBusy(true);
+    const j = await api(`/api/loads/${loadId}/invoice`, { method: 'DELETE' });
+    setBusy(false);
+    if (j.error) { setErr(j.error); return false; }
+    setSt((x) => ({ ...x, invoice: null })); setForm((f) => ({ ...f, lines: [], notes: '' })); setMsg('Draft deleted.');
     return true;
   }
   async function pdf(print) { setErr(null); const e = await openInvoicePdf(inv.id, { print }); if (e) setErr(e); }
@@ -156,6 +175,17 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
           prompt="Finalize? The invoice gets its number and the charges are locked." onConfirm={finalize} disabled={busy} />}
         {children}
       </div>
+      {st.canEdit && draft && inv && (
+        <div style={s.card} data-testid="draft-actions">
+          <h3 style={{ fontSize: '1rem', margin: 0 }}>Don’t need this draft?</h3>
+          <p style={s.muted}>Void keeps a record and no new draft is started. Delete removes it; a fresh draft is made from the load the next time this tab is opened.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input aria-label="Reason" style={{ ...s.input, flex: '1 1 200px' }} value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Reason (for Void)" />
+            <ConfirmButton label="Void draft" confirmLabel="Yes, void" prompt="Void this draft? It can’t be undone." onConfirm={voidDraft} disabled={busy} />
+            <ConfirmButton label="Delete draft" confirmLabel="Yes, delete" prompt="Delete this draft?" onConfirm={deleteDraft} disabled={busy} />
+          </div>
+        </div>
+      )}
       {msg && <p role="status" style={{ color: 'var(--success)', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err && <p role="alert" style={s.err}>{err}</p>}
       {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next) => { if (next?.status === 'void') load(); else if (next) setSt((x) => ({ ...x, invoice: next })); if (next?.status === 'paid' || next?.status === 'short_paid') cb.current.onLoadStatus?.('paid'); }} />}

@@ -61,7 +61,7 @@ export async function invoiceContext(x, loadId, { autoDraft = true } = {}) {
   if (pErr || b.error || f.error || inv.error) return { res: json({ error: 'Couldn’t load the invoice.' }, 500) };
   const brokers = b.data || [], factors = f.data || [];
   const ctx = { load, profile, brokers, factors, invoice: inv.invoice, voided: inv.voided };
-  if (!ctx.invoice && autoDraft && canEdit && AUTO_DRAFT_STATUSES.includes(load.status)) {
+  if (!ctx.invoice && autoDraft && canEdit && AUTO_DRAFT_STATUSES.includes(load.status) && !ctx.voided?.length) {
     const d = await saveDraft(x, ctx, {});
     if (d.res) return d;
     ctx.invoice = d.invoice;

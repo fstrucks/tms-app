@@ -145,3 +145,26 @@ test('Invoices menu entry: no jump while the role loads; drivers never get a lin
   rememberInvoiceMenu('u2', 'management', st); assert.equal(rememberedInvoiceMenu('u2', st), '1');
   assert.equal(rememberedInvoiceMenu('u3', st), null);
 });
+
+test('void: drafts and short-paid invoices can be voided; fully paid cannot', () => {
+  assert.equal(statusChange({ ...inv0, status: 'draft', invoice_number: null }, 'void', { reason: 'test data' }).patch.status, 'void');
+  assert.ok(statusChange({ ...inv0, status: 'draft' }, 'mark_sent', { sent_to: 'x' }).error);
+  assert.equal(statusChange({ ...inv0, status: 'short_paid' }, 'void', { reason: 'test data' }).patch.status, 'void');
+  assert.ok(statusChange({ ...inv0, status: 'paid' }, 'void', { reason: 'x' }).error);
+});
+
+test('routes: void a short-paid invoice; delete a draft; voided load is not auto-drafted again', async () => {
+  const c = ctx('management', MGMT, { invoices: [{ ...inv0, status: 'short_paid', paid_amount: 2500 }] });
+  assert.equal((await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: c.deps })).status, 200);
+  assert.equal(c.svc.db.invoices[0].status, 'void');
+  const INV = await import('../../app/api/loads/[id]/invoice/route.js');
+  c.svc.db.loads[0].status = 'delivered';
+  const g = await (await INV.GET(req('GET'), { params: { id: L1 }, deps: c.deps })).json();
+  assert.equal(g.invoice, null, 'no new draft after a void');
+  const d = ctx('owner', OWNER, { invoices: [{ ...inv0, status: 'draft', invoice_number: null }] });
+  assert.equal((await INV.DELETE(req('DELETE'), { params: { id: L1 }, deps: d.deps })).status, 200);
+  assert.equal(d.svc.db.invoices.length, 0);
+  const f = ctx('owner', OWNER);
+  assert.equal((await INV.DELETE(req('DELETE'), { params: { id: L1 }, deps: f.deps })).status, 409, 'finalized → use Void');
+  assert.equal((await INV.DELETE(req('DELETE'), { params: { id: L1 }, deps: ctx('dispatcher', DISP).deps })).status, 403);
+});
