@@ -10,6 +10,7 @@ import { buildBundlePdf, docToPdf } from '../../app/lib/invoiceBundlePdf.js';
 import * as BUNDLE from '../../app/api/invoices/[id]/bundle/route.js';
 import * as ACT from '../../app/api/invoices/[id]/route.js';
 import * as LIST from '../../app/api/invoices/route.js';
+import { invoiceMenuState, rememberInvoiceMenu, rememberedInvoiceMenu } from '../../app/lib/invoiceMenu.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const OWNER = '00000000-0000-4000-8000-0000000000a1', MGMT = '00000000-0000-4000-8000-0000000000a4', DISP = '00000000-0000-4000-8000-0000000000a5', DRIVER = '00000000-0000-4000-8000-0000000000a2';
@@ -127,5 +128,20 @@ test('list: office roles; filter open = ready + sent; driver 403', async () => {
 
 test('no email sending in invoicing; Invoices menu item for office roles only', () => {
   for (const f of ['../../app/lib/invoiceBundle.js', '../../app/api/invoices/[id]/route.js', '../../app/api/invoices/[id]/bundle/route.js', '../../app/components/InvoiceBundle.js']) assert.ok(!/postmark|sendEmail/i.test(read(f)), f);
-  assert.match(read('../../app/components/ui/AccountMenu.js'), /\['owner', 'management', 'dispatcher'\]\.includes\(company\?\.role\) && \(\s*<Link href="\/invoices"/);
+  const menu = read('../../app/components/ui/AccountMenu.js');
+  assert.match(menu, /invoicesMenu === 'show' && \(\s*<Link href="\/invoices"/);
+  assert.match(menu, /invoicesMenu === 'reserve' && <div aria-hidden="true"/);
+});
+
+test('Invoices menu entry: no jump while the role loads; drivers never get a link', () => {
+  assert.equal(invoiceMenuState('owner', null), 'show');
+  assert.equal(invoiceMenuState('dispatcher', '0'), 'show');
+  assert.equal(invoiceMenuState('driver', '1'), 'hide');
+  assert.equal(invoiceMenuState(null, '1'), 'show');
+  assert.equal(invoiceMenuState(null, '0'), 'hide');
+  assert.equal(invoiceMenuState(null, null), 'reserve');
+  const m = new Map(); const st = { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
+  rememberInvoiceMenu('u1', 'driver', st); assert.equal(rememberedInvoiceMenu('u1', st), '0');
+  rememberInvoiceMenu('u2', 'management', st); assert.equal(rememberedInvoiceMenu('u2', st), '1');
+  assert.equal(rememberedInvoiceMenu('u3', st), null);
 });

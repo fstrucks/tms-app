@@ -13,6 +13,7 @@ import { openWelcome } from '../../lib/welcome';
 import { THEME_CHOICES, THEME_EVENT, THEME_KEY, THEME_LABELS, readTheme, setTheme } from '../../lib/theme';
 import { companyOwnerStatus, cachedOwner, clearOwnerCache } from '../../lib/accountOwner';
 import { checkUntilDefinite } from '../../lib/roleRefresh';
+import { invoiceMenuState, rememberedInvoiceMenu, rememberInvoiceMenu } from '../../lib/invoiceMenu';
 import { shouldCloseOnBlur, pressEndDelay } from '../../lib/menuBlur';
 import { fetchActiveCompany } from '../../lib/activeCompanyClient';
 import { ACTIVE_EVENT } from '../../lib/activeCompany';
@@ -71,6 +72,8 @@ export default function AccountMenu({ showEmail = false }) {
     fetchActiveCompany().then((d) => { if (live && !d.error) setCompany(d.active || null); }); // keep the last good answer on error
     return () => { live = false; };
   }, [uid, coTick, authTick]);
+  useEffect(() => { if (uid && company?.role) rememberInvoiceMenu(uid, company.role); }, [uid, company?.role]);
+  const invoicesMenu = invoiceMenuState(company?.role, rememberedInvoiceMenu(uid));
 
   useEffect(() => {
     if (!supabase) return setReady(true);
@@ -182,12 +185,14 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Carrier packets
           </Link>
-          {['owner', 'management', 'dispatcher'].includes(company?.role) && (
+          {invoicesMenu === 'show' && (
             <Link href="/invoices" role="menuitem" onClick={() => setOpen(false)} data-testid="menu-invoices"
               style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
               Invoices
             </Link>
           )}
+          {/* Role still loading for a first-time user: keep the row's height so the menu doesn't jump (not a link). */}
+          {invoicesMenu === 'reserve' && <div aria-hidden="true" data-testid="menu-invoices-slot" style={{ minHeight: 44 }} />}
           <Link ref={(el) => { itemRefs.current[3] = el; }} href="/account/settings" role="menuitem" onClick={() => setOpen(false)}
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Settings
