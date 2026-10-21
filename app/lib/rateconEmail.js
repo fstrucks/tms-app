@@ -92,10 +92,13 @@ export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }
     return json({ ok: true, matched: false });
   }
   const userId = owner.user_id;
+  // Tag the row with the receiving company (company_profiles.id) so Documents can scope its notices. Best effort.
+  const { data: prof } = await sb.from('company_profiles').select('id').eq('owner_id', userId).limit(1).maybeSingle();
+  const companyId = prof?.id || null;
   const { keep: pdfs, dups, hashColumn } = await dedupeRateconPdfs(sb, userId, mail.pdfs);
   const rejected = [...mail.rejected, ...dups];
   const { data: email, error: eErr } = await sb.from('inbound_emails')
-    .insert({ ...base, rejected_attachments: rejected, owner_id: userId, status: pdfs.length ? 'matched' : 'rejected', attachment_count: pdfs.length }).select('id').single();
+    .insert({ ...base, rejected_attachments: rejected, owner_id: userId, company_id: companyId, status: pdfs.length ? 'matched' : 'rejected', attachment_count: pdfs.length }).select('id').single();
   if (eErr) {
     if (eErr.code === '23505') return json({ ok: true, duplicate: true }); // a parallel retry won the race
     console.error('[inbound ratecon] email insert', eErr.code); return json({ error: 'Save failed' }, 500);

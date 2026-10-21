@@ -92,14 +92,14 @@ export default function DocumentsPage() {
   const [canChangeType, setCanChangeType] = useState(false);
   // PR #110: drivers don't upload rate cons (they carry the rate) and don't get the ratecon@ email card.
   const [isDriver, setIsDriver] = useState(false);
-  const skipScopeRef = useRef({ role: null, ownerId: null }); // banners: owner/management/dispatcher of this company only
+  const skipScopeRef = useRef({ role: null, ownerId: null, companyId: null }); // banners: owner/management/dispatcher of this company only
   const [typeBusy, setTypeBusy] = useState({});
   const [typeChanged, setTypeChanged] = useState({}); // id → true after a change to rate con ("Read as rate con" offered)
   useEffect(() => { (async () => {
     const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
-    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null };
+    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null, companyId: j.profile?.id || null };
     loadSkipped();
     if (j.role === 'driver') { setIsDriver(true); setUploadType((t) => (t === 'rate_confirmation' ? 'bol' : t)); }
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps

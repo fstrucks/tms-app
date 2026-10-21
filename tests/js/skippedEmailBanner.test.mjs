@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { canSeeSkipped, fetchSkipped } from '../../app/lib/rateconDrafts.js';
+import { canSeeSkipped, fetchSkipped, skippedRowInScope } from '../../app/lib/rateconDrafts.js';
 
 const A = '00000000-0000-4000-8000-0000000000a1', B = '00000000-0000-4000-8000-0000000000b1';
 const now = Date.parse('2026-10-20T20:00:00Z');
@@ -20,7 +20,7 @@ test('roles: drivers never see skipped-email notices', () => {
 
 test('fetchSkipped: driver gets nothing and runs no query; others get only their company', async () => {
   const sb = fakeSupabase({ tables: rows() });
-  let queried = 0; const from = sb.from.bind(sb); sb.from = (t) => { queried++; const q = from(t); q.gte = () => q; return q; }; // fake: gte no-op (all seeded rows are recent)
+  let queried = 0; const from = sb.from.bind(sb); sb.from = (t) => { queried++; const q = from(t); q.gte = () => q; q.or = (f) => { sb.orFilters = [...(sb.orFilters || []), f]; return q; }; return q; }; // fake: gte no-op (all seeded rows are recent)
   assert.deepEqual(await fetchSkipped(sb, { role: 'driver', ownerId: A, now }), []);
   assert.deepEqual(await fetchSkipped(sb, { role: 'owner', ownerId: null, now }), []);
   assert.equal(queried, 0);
@@ -34,4 +34,25 @@ test('documents page: banners gated by role and loaded through fetchSkipped', ()
   assert.ok(!/from\('inbound_emails'\)/.test(page));
   assert.match(page, /fetchSkipped\(supabase, skipScopeRef\.current\)/);
   assert.match(page, /!isDriver && skipped\.map/);
+});
+
+const CA = '00000000-0000-4000-8000-0000000000f1', CB = '00000000-0000-4000-8000-0000000000f2';
+test('scope: untagged (company_id null) rows match by owner; tagged rows only the active company', async () => {
+  const t = rows();
+  t.inbound_emails.push(
+    { id: 'e4', owner_id: A, company_id: CA, kind: 'ratecon', subject: 'tagged A', received_at: '2026-10-20T13:00:00Z', rejected_attachments: [{ name: 'a.zip', reason: 'not_pdf' }] },
+    { id: 'e5', owner_id: A, company_id: CB, kind: 'ratecon', subject: 'tagged other', received_at: '2026-10-20T14:00:00Z', rejected_attachments: [{ name: 'b.zip', reason: 'not_pdf' }] },
+    { id: 'e6', owner_id: A, company_id: null, to_emails: null, kind: 'ratecon', subject: 'QA FAKE notrc+skip', received_at: '2026-10-20T09:00:00Z', rejected_attachments: [{ name: 'c.txt', reason: 'not_pdf' }] });
+  const sb = fakeSupabase({ tables: t });
+  const from = sb.from.bind(sb); sb.from = (x) => { const q = from(x); q.gte = () => q; q.or = (f) => { sb.orF = f; return q; }; return q; };
+  for (const role of ['owner', 'management', 'dispatcher']) {
+    const got = (await fetchSkipped(sb, { role, ownerId: A, companyId: CA, now })).map((r) => r.id).sort();
+    assert.deepEqual(got, ['e1', 'e4', 'e6'], role); // legacy null-company rows kept; other company's tag dropped
+  }
+  assert.equal(sb.orF, `and(company_id.is.null,owner_id.eq.${A}),company_id.eq.${CA}`);
+  assert.deepEqual(await fetchSkipped(sb, { role: 'driver', ownerId: A, companyId: CA, now }), []);
+  assert.ok(skippedRowInScope({ owner_id: A, company_id: null }, { ownerId: A, companyId: CA }));
+  assert.ok(!skippedRowInScope({ owner_id: B, company_id: null }, { ownerId: A, companyId: CA }));
+  assert.ok(!skippedRowInScope({ owner_id: A, company_id: CB }, { ownerId: A, companyId: CA }));
+  assert.ok(skippedRowInScope({ owner_id: B, company_id: CA }, { ownerId: A, companyId: CA }));
 });
