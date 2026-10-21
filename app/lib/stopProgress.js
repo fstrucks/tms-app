@@ -27,7 +27,10 @@ export function completedNextIndex(load) {
 }
 export const allStopsDone = (load) => { const st = load?.stops || []; return st.length > 0 && st.every(isStopDone); };
 
-export const stopActionLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Picked up' : stop?.stop_type === 'delivery' ? 'Delivered' : 'Done');
+// Button text is an ACTION (Marc, Oct 20: a bare "Delivered" read like a status). stopDoneLabel is the past tense
+// shown on a completed stop / in Undo.
+export const stopActionLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Mark picked up' : stop?.stop_type === 'delivery' ? 'Mark delivered' : 'Mark done');
+export const stopDoneLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Picked up' : stop?.stop_type === 'delivery' ? 'Delivered' : 'Done');
 export const STAFF = ['owner', 'management', 'dispatcher'];
 // Owner / management / dispatcher on any company load; anyone else only as the load's assigned driver.
 export function canCompleteStops(role, load, userId) {

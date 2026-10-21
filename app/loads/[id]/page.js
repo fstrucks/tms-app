@@ -28,7 +28,7 @@ import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
-import { stopActionLabel } from '../../lib/stopProgress';
+import { stopDoneLabel } from '../../lib/stopProgress';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -251,7 +251,7 @@ export default function LoadDetailPage() {
                     <div key={st.id} style={{ ...s.row, alignItems: 'flex-start', borderBottom: i === load.stops.length - 1 ? 'none' : s.row.borderBottom }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
-                        {st.completed_at && <div data-testid="stop-done" style={{ color: st.completion === 'skipped' ? 'var(--text-muted)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>{st.completion === 'skipped' ? 'Skipped' : `✓ ${stopActionLabel(st)}`} · {new Date(st.completed_at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
+                        {st.completed_at && <div data-testid="stop-done" style={{ color: st.completion === 'skipped' ? 'var(--text-muted)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>{st.completion === 'skipped' ? 'Skipped' : `✓ ${stopDoneLabel(st)}`} · {new Date(st.completed_at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
                         {st.company_name && <div>{st.company_name}</div>}
                         {fullAddress(st) && <div style={s.muted}>{fullAddress(st)}</div>}
                         {st.pickup_number && <div style={s.muted}>Pickup # {st.pickup_number}</div>}

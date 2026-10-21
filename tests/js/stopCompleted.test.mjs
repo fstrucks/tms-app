@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import { nextStopIndex } from '../../app/lib/homeCurrentLoad.js';
-import { supportsStopCompletion, completedNextIndex, stopActionLabel, canCompleteStops, planStopAction, lastCompletedStop } from '../../app/lib/stopProgress.js';
+import { supportsStopCompletion, completedNextIndex, stopActionLabel, stopDoneLabel, canCompleteStops, planStopAction, lastCompletedStop } from '../../app/lib/stopProgress.js';
 import * as ROUTE from '../../app/api/loads/[id]/stops/[stopId]/route.js';
 
 const OWNER = '00000000-0000-4000-8000-0000000000a1', DRIVER = '00000000-0000-4000-8000-0000000000a2', DRIVER2 = '00000000-0000-4000-8000-0000000000a3', DISP = '00000000-0000-4000-8000-0000000000a5', OTHER = '00000000-0000-4000-8000-0000000000a9';
@@ -27,9 +27,11 @@ test('nextStopIndex: first stop not completed, even when status is still dispatc
 });
 
 test('labels, roles, plans', () => {
-  assert.equal(stopActionLabel({ stop_type: 'pickup' }), 'Picked up');
-  assert.equal(stopActionLabel({ stop_type: 'delivery' }), 'Delivered');
-  assert.equal(stopActionLabel({ stop_type: 'stop' }), 'Done');
+  assert.equal(stopActionLabel({ stop_type: 'pickup' }), 'Mark picked up');
+  assert.equal(stopActionLabel({ stop_type: 'delivery' }), 'Mark delivered');
+  assert.equal(stopActionLabel({ stop_type: 'stop' }), 'Mark done');
+  assert.equal(stopDoneLabel({ stop_type: 'pickup' }), 'Picked up');
+  assert.equal(stopDoneLabel({ stop_type: 'delivery' }), 'Delivered');
   const load = { status: 'dispatched', assigned_driver_user_id: DRIVER, stops: [stop(S1, 1, 'pickup'), stop(S2, 2, 'delivery')] };
   for (const r of ['owner', 'management', 'dispatcher']) assert.ok(canCompleteStops(r, load, OTHER));
   assert.ok(canCompleteStops('driver', load, DRIVER)); assert.ok(!canCompleteStops('driver', load, DRIVER2));
@@ -101,7 +103,7 @@ test('in_transit with no marks = pickup implied done; Undo path uses dispatched 
   // columns absent → old appointment guess unchanged
   const legacy = st.map(({ completed_at, completion, completed_by, ...r }) => r);
   assert.equal(nextStopIndex({ status: 'in_transit', stops: legacy }, NOW), 1);
-  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'dispatched', stops: st }, NOW)]), 'Picked up');
+  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'dispatched', stops: st }, NOW)]), 'Mark picked up');
 });
 
 test('QA #115 nit (a): a repeat tap is success and returns the server row; undo of an open stop too', async () => {
@@ -180,4 +182,33 @@ test('prod suspect: server read without completion keys (stale PostgREST schema 
   const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
   assert.ok(!/setHidden\(true\)/.test(comp), 'no silent hide');
   assert.match(comp, /isn’t available on the server yet\. Nothing was saved\./);
+});
+
+test('Undo after the final delivery; busy/second tap ignored; action labels + confirm text', () => {
+  const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
+  // Undo is rendered whenever a stop is completed (not hidden by "All stops done" or a pending confirm)
+  assert.match(comp, /\{last && \(\s*<button type="button" data-testid="stop-undo" disabled=\{busy \|\| !!pending\}/);
+  assert.match(comp, /All stops done\./);
+  // second tap ignored: ref guard + cooldown, checked in act() and on the opening buttons
+  assert.match(comp, /async function act\(stop, action\) \{\s*if \(!tapOk\(\)\) return false;\s*busyRef\.current = true;/);
+  assert.match(comp, /onClick=\{\(\) => \{ if \(!tapOk\(\)\) return; setErr\(null\); setPending\('done'\); \}\}/);
+  assert.match(comp, /TAP_COOLDOWN_MS = 800/);
+  assert.match(comp, /disabled=\{busy\} style=\{pri\} onClick=\{\(\) => act\(target, pending\)\}/);
+  // confirm text: "Yes, mark picked up" / "Yes, mark delivered"
+  const yes = (l) => `Yes, ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
+  assert.equal(yes(stopActionLabel({ stop_type: 'pickup' })), 'Yes, mark picked up');
+  assert.equal(yes(stopActionLabel({ stop_type: 'delivery' })), 'Yes, mark delivered');
+  assert.match(comp, /`Yes, \$\{label\.charAt\(0\)\.toLowerCase\(\)\}\$\{label\.slice\(1\)\}`/);
+  // last completed after delivery = the delivery
+  const load = { stops: [{ id: S1, sequence: 1, stop_type: 'pickup', completed_at: '2026-10-20T01:00:00Z', completion: 'done' }, { id: S2, sequence: 2, stop_type: 'delivery', completed_at: '2026-10-20T02:00:00Z', completion: 'done' }] };
+  assert.equal(lastCompletedStop(load).id, S2);
+});
+
+test('server: a repeated save of the same stop is a no-op, never marks the next stop', async () => {
+  const c = ctx('owner', OWNER);
+  assert.equal((await call(c, S1, 'done')).j.stop.id, S1);
+  const again = await call(c, S1, 'done'); // double tap resent for the pickup
+  assert.equal(again.j.already, true); assert.equal(again.j.stop.id, S1);
+  const d = c.svc.db?.stops?.find((x) => x.id === S2);
+  if (d) assert.equal(d.completed_at, null, 'delivery untouched');
 });
