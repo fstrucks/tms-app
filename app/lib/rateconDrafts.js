@@ -52,3 +52,15 @@ export async function copyText(text, { nav = globalThis.navigator, doc = globalT
 
 // Sender allowlist text box → array ("a@x.com, @broker.com" or one per line).
 export const parseSenders = (text) => String(text || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+
+// "Skipped from email" notices come from the company's inbound rate con emails (subject, attachment names).
+// Only owner / management / dispatcher see them (drivers never), and only for the active company.
+export const SKIPPED_ROLES = ['owner', 'management', 'dispatcher'];
+export const canSeeSkipped = (role) => SKIPPED_ROLES.includes(role);
+export async function fetchSkipped(supabase, { role, ownerId, now = Date.now() } = {}) {
+  if (!canSeeSkipped(role) || !ownerId) return [];
+  const since = new Date(now - 7 * 864e5).toISOString();
+  const { data, error } = await supabase.from('inbound_emails').select('id, subject, received_at, rejected_attachments')
+    .eq('owner_id', ownerId).eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
+  return error ? [] : data || [];
+}
