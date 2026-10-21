@@ -26,6 +26,11 @@ export function bundleFiles(invoice, docs = []) {
   return files;
 }
 
+// Other invoices on the same load that were actually sent: not this one, not void (Taylor QA retest note a).
+export function otherSentNumbers(rows = [], currentId) {
+  return (rows || []).filter((i) => i.id !== currentId && i.status !== 'void' && i.invoice_number && i.sent_at).map((i) => i.invoice_number);
+}
+
 // Checks before sending (reference §6). level: 'bad' (missing paperwork) | 'warn'. Nothing blocks download.
 export function bundleChecks(invoice, docs = [], { otherSent = [] } = {}) {
   const has = (t) => docs.some((d) => d.doc_type === t);

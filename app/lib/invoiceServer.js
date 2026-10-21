@@ -6,6 +6,7 @@
 import { loadDocsCtx, json, UUID, docInCompany } from './loadDocsServer.js';
 import { isMissing } from './truckServer.js';
 import { canViewInvoices, canEditInvoices, draftFields, brokerForLoad, AUTO_DRAFT_STATUSES, publicBilling, loadStatusAfter, remitToFor } from './invoice.js';
+import { otherSentNumbers } from './invoiceBundle.js';
 
 export { json, UUID, isMissing };
 export const SETUP = { error: 'Invoicing needs a database update that hasn’t been applied yet.', setupNeeded: true };
@@ -159,7 +160,7 @@ export async function invoiceWithDocs(x, invoiceId) {
     ]);
     load = l.data || null;
     for (const doc of d.data || []) if (await docInCompany(svc, c.ownerId, doc)) docs.push(doc);
-    others = (o.data || []).filter((i) => i.id !== inv.id && i.invoice_number && i.sent_at).map((i) => i.invoice_number);
+    others = otherSentNumbers(o.data, inv.id);
   }
   // Company NOA (company documents) goes last when the invoice is factored.
   if (inv.factored) {

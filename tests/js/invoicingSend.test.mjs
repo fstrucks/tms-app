@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { bundleFiles, bundleChecks, emailText, recipientFor, statusChange, sizeCheck } from '../../app/lib/invoiceBundle.js';
+import { bundleFiles, bundleChecks, emailText, recipientFor, statusChange, sizeCheck, otherSentNumbers } from '../../app/lib/invoiceBundle.js';
 import { buildBundlePdf, docToPdf } from '../../app/lib/invoiceBundlePdf.js';
 import * as BUNDLE from '../../app/api/invoices/[id]/bundle/route.js';
 import * as ACT from '../../app/api/invoices/[id]/route.js';
@@ -35,6 +35,19 @@ test('checks: missing POD / lumper receipt / scale ticket; detention reminder; r
   const t = bundleChecks({ ...inv0, load_rate: 2300, line_items: [...inv0.line_items, { type: 'scale', amount: 12 }, { type: 'detention', amount: 50 }] }, [docs[2]], { otherSent: ['INV-1000'] }).map((c) => c.text).join(' | ');
   for (const m of ['No signed BOL/POD', 'no lumper receipt', 'no scale ticket', 'Detention is billed', 'doesn’t match', 'already invoiced as INV-1000']) assert.ok(t.includes(m), m);
   assert.equal(sizeCheck([{ size: 8e6 }]).ok, false);
+});
+
+test('duplicate check ignores void invoices and the current invoice', () => {
+  const rows = [
+    { id: 'a', invoice_number: 'INV-1001', status: 'void', sent_at: '2026-10-20T00:00:00Z' },
+    { id: 'b', invoice_number: 'INV-1002', status: 'sent', sent_at: '2026-10-21T00:00:00Z' },
+    { id: 'c', invoice_number: 'INV-1003', status: 'ready', sent_at: null },
+    { id: 'd', invoice_number: 'INV-1004', status: 'short_paid', sent_at: '2026-10-21T00:00:00Z' },
+  ];
+  assert.deepEqual(otherSentNumbers(rows, 'b'), ['INV-1004']);
+  assert.deepEqual(otherSentNumbers(rows, 'x'), ['INV-1002', 'INV-1004']);
+  assert.deepEqual(otherSentNumbers([rows[0]], 'z'), []);
+  assert.ok(!bundleChecks(inv0, docs.slice(0, 3), { otherSent: otherSentNumbers([rows[0]], 'z') }).some((c) => /already invoiced/.test(c.text)));
 });
 
 test('email text: subject per the reference; factored note; recipient', () => {
