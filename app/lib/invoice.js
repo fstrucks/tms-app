@@ -241,7 +241,7 @@ export const fileSafe = (v) => String(v || '').replace(/[^A-Za-z0-9._-]+/g, '-')
 export function invoiceFileName(inv, kind = 'invoice', n = 0) {
   const base = fileSafe(inv?.load_ref?.load_number) || fileSafe(inv?.invoice_number) || 'Invoice';
   const label = DOC_FILE_LABELS[kind] || DOC_FILE_LABELS.other;
-  return `${base}_${label}${n > 1 ? `-${n}` : ''}.pdf`;
+  return `${base}_${label}${n > 0 ? `-${n}` : ''}.pdf`;
 }
 
 // Load status after invoice steps (Taylor QA #1). An invoice means the work is done, so finalize moves any open load

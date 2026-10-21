@@ -3,6 +3,8 @@
 //           factoring companies and billing settings. Office roles only; drivers get 403.
 //   PATCH { line_items?, notes?, terms_days?, broker_id?, factored? } → saves the draft (owner / management).
 //           broker_id / factored are saved on the load too (the factoring switch is per load).
+//   DELETE → deletes this load's unnumbered draft (owner / management). Opening the tab again starts a fresh draft
+//           from the load while it's delivered; use Void to keep it cleared.
 //   POST  { action: 'finalize' } → gives the next number (finalize_invoice) and moves the load to Invoiced.
 import { billingCtx, json, readBody, invoiceContext, saveDraft, invoiceResponse, isMissing, SETUP, UUID, applyLoadStatus } from '../../../../lib/invoiceServer';
 import { cleanLines, parseTerms, dbErrorText } from '../../../../lib/invoice';
@@ -69,4 +71,15 @@ export async function POST(req, { params, deps } = {}) {
   const status = await applyLoadStatus(x.svc, x.c.ownerId, { ...ctx.load, status: now?.status ?? before }, 'finalize');
   ctx.load = { ...ctx.load, status };
   return json({ ok: true, loadStatusBefore: before, ...invoiceResponse(x, ctx) });
+}
+
+export async function DELETE(req, { params, deps } = {}) {
+  const x = await billingCtx(req, deps, { edit: true }); if (x.res) return x.res;
+  const ctx = await invoiceContext(x, params?.id, { autoDraft: false }); if (ctx.res) return ctx.res;
+  if (!ctx.invoice) return json({ error: 'There’s no draft to delete.' }, 404);
+  if (ctx.invoice.status !== 'draft' || ctx.invoice.invoice_number) return json({ error: 'Only drafts can be deleted. Void a finalized invoice instead.' }, 409);
+  const { data, error } = await x.db.from('invoices').delete().eq('id', ctx.invoice.id).eq('owner_id', x.c.ownerId).eq('status', 'draft').select('id');
+  if (error) return isMissing(error) ? json(SETUP, 409) : json({ error: 'Couldn’t delete the draft. Please try again.' }, 500);
+  if (!data?.length) return json({ error: 'That didn’t delete. Please try again.' }, 500);
+  return json({ ok: true, deleted: true });
 }

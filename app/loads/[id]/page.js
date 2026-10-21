@@ -69,6 +69,7 @@ export default function LoadDetailPage() {
   const [dataVer, setDataVer] = useState(0); // bumped on every re-fetch so child cards (Miles) re-read too
   // Invoicing PR 2 (layout A): Load | Invoice tabs. The Invoice tab hides itself for drivers (server 403).
   const [tab, setTab] = useState('load');
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('tab') === 'invoice') setTab('invoice'); }, []); // from the Invoices list
   const [invoiceTab, setInvoiceTab] = useState(true);
 
   async function fetchAll() {

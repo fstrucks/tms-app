@@ -145,4 +145,17 @@ ok(s5.length === 1 && s5[0].created_by === null, 'service-role status change sti
 await as(D, `update public.loads set status='delivered' where id='${L6}'`);
 const s6 = (await db.query(`select created_by from public.invoices where load_id='${L6}'`)).rows;
 ok(s6.length === 1 && s6[0].created_by === D, 'a driver marking delivered still auto-drafts (insert policy not applied inside the trigger)');
+// Void a short-paid invoice and a draft, and delete a draft, with the existing rules (no SQL change needed).
+const L7 = '33333333-3333-3333-3333-333333333337';
+await db.exec(`insert into public.loads (id, user_id, status, broker_load_number, rate) values ('${L7}','${O}','delivered','TEST-2005',700)`);
+const I7 = (await as(M, `insert into public.invoices (owner_id, load_id, line_items, total) values ('${O}', '${L7}', ${LINES}, 700) returning id`))[0].id;
+await as(M, `select public.finalize_invoice('${I7}')`);
+ok((await err(M, `update public.invoices set status='short_paid', paid_amount=600, paid_at='2026-10-21' where id='${I7}'`)) === null
+  && (await err(M, `update public.invoices set status='void', void_reason='test data' where id='${I7}'`)) === null, 'management voids a short-paid invoice');
+const DV = (await as(M, `insert into public.invoices (owner_id, load_id, line_items, total) values ('${O}', '${L7}', '[]', 0) returning id`))[0].id;
+ok((await err(M, `update public.invoices set status='void', void_reason='test data' where id='${DV}'`)) === null, 'management voids a draft (no number)');
+const DD = (await as(M, `insert into public.invoices (owner_id, load_id, line_items, total) values ('${O}', '${L7}', '[]', 0) returning id`))[0].id;
+await as(M, `delete from public.invoices where id='${DD}'`);
+ok((await db.query(`select id from public.invoices where id='${DD}'`)).rows.length === 0, 'management deletes a draft');
+ok((await err(P, `update public.invoices set status='void' where id='${DV}'`)) === null && (await db.query(`select status from public.invoices where id='${DV}'`)).rows[0].status === 'void', 'dispatcher update is a no-op (RLS)');
 console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft)');
