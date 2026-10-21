@@ -290,19 +290,34 @@ export function comingUp(entries, today, limit = 6) {
   return out;
 }
 
-// Home card: keep every checklist document expiry due within 30 days, then fill with the next dates.
-export function homeComingUp(entries, today, limit = 5) {
-  const ranked = comingUp(entries, today, 80);
-  const must = ranked.filter((e) => String(e.ruleKey || '').startsWith('expiry:') && daysBetween(today, e.due) >= 0 && daysBetween(today, e.due) <= 30);
-  const out = [...must];
-  const seen = new Set(must.map((e) => e.period));
-  for (const e of ranked) {
-    if (out.length >= Math.max(limit, must.length)) break;
-    if (seen.has(e.period)) continue;
-    seen.add(e.period);
-    out.push(e);
+function byDue(a, b) {
+  return String(a.due).localeCompare(String(b.due)) || String(a.title).localeCompare(String(b.title));
+}
+
+// A prompt asks for a date the company has not entered. Its due is today only so it can sort; it is not a real deadline.
+function isDatePrompt(entry) {
+  return entry?.needs === 'date';
+}
+
+// Home card: every calendar deadline and checklist document expiry due within 30 days, soonest first.
+// Undated prompts stay on the list, but they never take the place of one of those dated items.
+export function homeComingUp(entries, today) {
+  const open = (entries || []).filter((e) => !e.dismissed && !e.completed && isISODate(e.due));
+  const seen = new Set();
+  const unique = [];
+  for (const e of [...open].sort(byDue)) {
+    const k = `${e.ruleKey}:${e.period}:${e.truckId || ''}:${e.driverId || ''}:${e.trailerId || ''}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(e);
   }
-  return out.sort((a, b) => String(a.due).localeCompare(String(b.due)) || String(a.title).localeCompare(String(b.title)));
+  const dated = unique.filter((e) => {
+    if (isDatePrompt(e)) return false;
+    const days = daysBetween(today, e.due);
+    return days >= 0 && days <= 30;
+  });
+  const prompts = unique.filter(isDatePrompt);
+  return [...dated, ...prompts].sort(byDue);
 }
 
 export function entriesInMonth(entries, year, month) {

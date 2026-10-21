@@ -39,7 +39,7 @@ export default function HomeSetup() {
       reminders: ctx.reminders,
     }), ...expiryEntries(rows, ctx.today)];
   }, [ctx, rows, office]);
-  const soon = today ? homeComingUp(entries, today, 5) : [];
+  const soon = today ? homeComingUp(entries, today) : [];
 
   if (loading || !data?.profile || data.setupNeeded || data.needsProfile || data.entry === 'guide') return null;
 

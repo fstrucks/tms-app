@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { CATEGORIES, CHECKLIST_ITEMS, UNVERIFIED_KEYS, DRIVER_EQUIPMENT_KEYS, DRIVER_BINDER_KEYS, DRIVER_FILE_DOC_TYPES, itemByKey, answerApplies } from '../../app/lib/setupCatalog.js';
 import { categoryForDocType, DOC_CATEGORY_NAMES } from '../../app/lib/docCategories.js';
 import {
-  nextBusinessDay, iftaDue, iftaNominal, mcs150Schedule, nextMcs150Due, form2290DueForFirstUse, ucrCycle, comingUp, homeComingUp, complianceEntries,
+  nextBusinessDay, iftaDue, iftaNominal, mcs150Schedule, nextMcs150Due, form2290DueForFirstUse, ucrCycle, comingUp, homeComingUp, complianceEntries, daysBetween,
 } from '../../app/lib/complianceCalendar.js';
 import {
   buildChecklist, summarize, matchesFilter, cycleState, equipmentCurrent, setupEntry, NEW_COMPANY_MS, driverFileRows, roadsideForTruck, modelFromPayload,
@@ -247,6 +247,31 @@ test('home coming up keeps a document expiry due within 30 days', () => {
   const card = rows.find((r) => r.itemKey === 'medical_card');
   assert.equal(card.expiryOn, '2026-11-20');
   assert.ok(expiryEntries(rows, today).some((e) => e.itemKey === 'medical_card' && e.due === '2026-11-20'));
+});
+
+test('home coming up keeps IFTA when prompts and a medical expiry are also due', () => {
+  const today = '2026-10-21';
+  const calendar = complianceEntries({
+    today, dot: '0000000', answers: { interstate: true, ifta_irp: true, hvut: true },
+  });
+  const medical = {
+    ruleKey: 'expiry:medical_card', period: 'med', due: '2026-11-05', title: 'Medical examiner’s certificate (Sam)',
+    itemKey: 'medical_card', needs: 'upload', completed: false, dismissed: false,
+  };
+  const up = homeComingUp([...calendar, medical], today);
+  assert.ok(up.some((e) => e.title === 'IFTA Q3 2026 return' && e.due === '2026-11-02'));
+  assert.ok(up.some((e) => e.ruleKey === 'mcs150' && e.due === '2026-10-31'));
+  assert.ok(up.some((e) => e.itemKey === 'medical_card' && e.due === '2026-11-05'));
+  assert.equal(up.some((e) => e.ruleKey === 'ucr'), false);
+  const dated = up.filter((e) => e.needs !== 'date');
+  assert.deepEqual(dated.map((e) => e.due), ['2026-10-31', '2026-11-02', '2026-11-05']);
+  for (const e of dated) {
+    const days = daysBetween(today, e.due);
+    assert.ok(days >= 0 && days <= 30, `${e.title} ${e.due}`);
+  }
+  assert.ok(up.filter((e) => e.needs === 'date').length >= 3);
+  const dates = up.map((e) => e.due);
+  assert.deepEqual(dates, [...dates].sort());
 });
 
 test('a driver tick uses the driver name before the email', () => {
