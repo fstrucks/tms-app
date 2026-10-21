@@ -75,14 +75,14 @@ export default function ReportBugButton() {
 
   return (
     <>
-      <button type="button" data-testid="report-bug-button" onClick={() => { setOpen(true); setMsg(null); }}
+      <button type="button" className="no-print" data-testid="report-bug-button" onClick={() => { setOpen(true); setMsg(null); }}
         style={{ position: 'fixed', right: 12, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px)', zIndex: 60, minHeight: 40, padding: '0 0.85rem',
           border: '1px solid var(--divider)', borderRadius: 999, background: 'var(--surface)', color: 'var(--text)', fontSize: 14, fontWeight: 600, fontFamily: 'system-ui',
           boxShadow: '0 4px 14px var(--shadow)', cursor: 'pointer', display: open || covered ? 'none' : 'inline-flex', alignItems: 'center', gap: 6 }}>
         <span aria-hidden="true">🐞</span>Report a bug
       </button>
       {open && (
-        <div role="dialog" aria-modal="true" aria-labelledby="bug-title" data-testid="report-bug-dialog"
+        <div role="dialog" className="no-print" aria-modal="true" aria-labelledby="bug-title" data-testid="report-bug-dialog"
           onClick={(e) => { if (e.target === e.currentTarget && !busy) setOpen(false); }}
           style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'var(--overlay)', display: 'flex', alignItems: wide ? 'center' : 'flex-end', justifyContent: 'center', padding: wide ? 24 : 0, fontFamily: 'system-ui' }}>
           <form onSubmit={submit} noValidate
