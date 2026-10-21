@@ -5,7 +5,7 @@
 //     same as the load paperwork routes (PR #110).
 import { loadDocsCtx, json, UUID } from './loadDocsServer.js';
 import { isMissing } from './truckServer.js';
-import { canViewInvoices, canEditInvoices } from './invoice.js';
+import { canViewInvoices, canEditInvoices, draftFields, brokerForLoad, AUTO_DRAFT_STATUSES, publicBilling } from './invoice.js';
 
 export { json, UUID, isMissing };
 export const SETUP = { error: 'Invoicing needs a database update that hasn’t been applied yet.', setupNeeded: true };
@@ -28,4 +28,96 @@ export async function readBody(req) { try { const b = await req.json(); return b
 export async function companyProfile(svc, ownerId) {
   const { data, error } = await svc.from('company_profiles').select(PROFILE_COLS).eq('owner_id', ownerId).maybeSingle();
   return { profile: data || null, error };
+}
+
+// ---- PR 2: one load's invoice ----
+
+export async function companyLoadFull(svc, ownerId, loadId) {
+  if (!UUID.test(loadId || '')) return { load: null };
+  const { data, error } = await svc.from('loads').select('*, stops(*)').eq('id', loadId).eq('user_id', ownerId).maybeSingle();
+  return { load: data || null, error };
+}
+
+export async function activeInvoice(db, ownerId, loadId) {
+  const { data, error } = await db.from('invoices').select('*').eq('owner_id', ownerId).eq('load_id', loadId).order('created_at', { ascending: false });
+  if (error) return { error };
+  return { invoice: (data || []).find((i) => i.status !== 'void') || null, voided: (data || []).filter((i) => i.status === 'void') };
+}
+
+// Everything the Invoice tab needs. Makes the draft when the load is delivered and none exists yet (loads delivered
+// before the auto-draft trigger, or when the trigger skipped), but only for owner / management.
+export async function invoiceContext(x, loadId, { autoDraft = true } = {}) {
+  const { c, svc, db, canEdit } = x;
+  const { load, error: lErr } = await companyLoadFull(svc, c.ownerId, loadId);
+  if (lErr) return { res: json({ error: 'Couldn’t load this load.' }, 500) };
+  if (!load) return { res: json({ error: 'Load not found.' }, 404) };
+  const [{ profile, error: pErr }, b, f, inv] = await Promise.all([
+    companyProfile(svc, c.ownerId),
+    db.from('brokers').select('*').eq('owner_id', c.ownerId).order('name'),
+    db.from('factors').select('*').eq('owner_id', c.ownerId).order('name'),
+    activeInvoice(db, c.ownerId, load.id),
+  ]);
+  if ([pErr, b.error, f.error, inv.error].some(isMissing)) return { res: json(SETUP, 409) };
+  if (pErr || b.error || f.error || inv.error) return { res: json({ error: 'Couldn’t load the invoice.' }, 500) };
+  const brokers = b.data || [], factors = f.data || [];
+  const ctx = { load, profile, brokers, factors, invoice: inv.invoice, voided: inv.voided };
+  if (!ctx.invoice && autoDraft && canEdit && AUTO_DRAFT_STATUSES.includes(load.status)) {
+    const d = await saveDraft(x, ctx, {});
+    if (d.res) return d;
+    ctx.invoice = d.invoice;
+  }
+  return ctx;
+}
+
+export function pieces(ctx) {
+  const broker = brokerForLoad(ctx.load, ctx.brokers);
+  const factorId = ctx.profile?.default_factor_id || null;
+  const factor = ctx.factors.find((f) => f.id === (ctx.invoice?.factor_id || factorId)) || ctx.factors.find((f) => f.id === factorId) || null;
+  return { broker, factor };
+}
+
+// Create or refresh the draft. patch: { lines?, notes?, terms_days? }. Returns { invoice } | { res }.
+export async function saveDraft(x, ctx, patch) {
+  const { c, db } = x;
+  const { broker, factor } = pieces(ctx);
+  const existing = ctx.invoice ? { ...ctx.invoice, ...(patch.lines ? { line_items: patch.lines } : {}) } : (patch.lines ? { line_items: patch.lines } : null);
+  const fields = draftFields({ load: ctx.load, broker, factor, company: ctx.profile, existing });
+  if (patch.terms_days != null) fields.terms_days = patch.terms_days; // per-invoice override; otherwise broker / company terms
+  if ('notes' in patch) fields.notes = patch.notes;
+  if (ctx.invoice) {
+    if (ctx.invoice.status !== 'draft') return { res: json({ error: 'This invoice is finalized. Void it to make changes.' }, 409) };
+    const { data, error } = await db.from('invoices').update(fields).eq('id', ctx.invoice.id).eq('owner_id', c.ownerId).select('*').maybeSingle();
+    if (error) return { res: isMissing(error) ? json(SETUP, 409) : json({ error: 'Couldn’t save the invoice.' }, 500) };
+    if (!data) return { res: json({ error: 'That didn’t save. Please try again.' }, 500) };
+    return { invoice: data };
+  }
+  const { data, error } = await db.from('invoices').insert({ ...fields, owner_id: c.ownerId, load_id: ctx.load.id, status: 'draft', auto_drafted: !patch.lines, created_by: c.user.id }).select('*').single();
+  if (error) {
+    if (error.code === '23505') { const again = await activeInvoice(db, c.ownerId, ctx.load.id); if (again.invoice) return { invoice: again.invoice }; }
+    return { res: isMissing(error) ? json(SETUP, 409) : json({ error: 'Couldn’t start the invoice.' }, 500) };
+  }
+  await db.from('invoice_events').insert({ invoice_id: data.id, owner_id: c.ownerId, kind: 'drafted', created_by: c.user.id });
+  return { invoice: data };
+}
+
+export function invoiceResponse(x, ctx) {
+  const { broker } = pieces(ctx);
+  return {
+    canEdit: x.canEdit, invoice: ctx.invoice, voidedCount: ctx.voided?.length || 0,
+    load: { id: ctx.load.id, status: ctx.load.status, rate: ctx.load.rate, broker_name: ctx.load.broker_name, broker_load_number: ctx.load.broker_load_number,
+      broker_id: ctx.load.broker_id ?? null, factored: typeof ctx.load.factored === 'boolean' ? ctx.load.factored : null },
+    matchedBrokerId: broker?.id || null,
+    brokers: ctx.brokers.map((b) => ({ id: b.id, name: b.name, billing_emails: b.billing_emails, terms_days: b.terms_days, noa_on_file: b.noa_on_file })),
+    factors: ctx.factors.map((f) => ({ id: f.id, name: f.name, submission_email: f.submission_email, portal_url: f.portal_url, packet_format: f.packet_format })),
+    settings: publicBilling(ctx.profile), hasProfile: !!ctx.profile,
+  };
+}
+
+// Company logo bytes for the PDF (null when none or unreadable).
+export async function loadLogo(svc, path) {
+  if (!path) return null;
+  try {
+    const { data } = await svc.storage.from('documents').download(path);
+    return data ? { bytes: new Uint8Array(await data.arrayBuffer()), type: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' } : null;
+  } catch { return null; }
 }

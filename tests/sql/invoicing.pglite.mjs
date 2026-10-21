@@ -15,7 +15,7 @@ grant usage on schema auth to authenticated, anon; grant execute on function aut
 create table public.loads (id uuid primary key default gen_random_uuid(), user_id uuid not null, status text, broker_name text, broker_load_number text, rate numeric);
 alter table public.loads enable row level security;
 create policy loads_own on public.loads for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-grant select on public.loads to authenticated;
+grant select, update on public.loads to authenticated;
 grant usage on schema public to authenticated, anon;
 `);
 await db.exec(readFileSync(R + '20261015001200_company_profiles.sql', 'utf8'));
@@ -98,3 +98,21 @@ ok((await err(M, `insert into public.invoice_events (invoice_id, owner_id, kind,
 ok((await err(P, `insert into public.invoice_events (invoice_id, owner_id, kind, created_by) values ('${I1}', '${O}', 'download', '${P}')`)) !== null, 'dispatcher cannot log events');
 ok((await err(O, `update public.invoice_events set note='x'`)) !== null || (await db.query(`select count(*)::int n from public.invoice_events where note='x'`)).rows[0].n === 0, 'events cannot be edited');
 console.log(process.exitCode ? 'FAILED' : 'all ok');
+
+// ---- 20261021000200: auto-draft on delivered ----
+await db.exec(readFileSync(R + '20261021000200_invoice_autodraft.sql', 'utf8'));
+await db.exec(readFileSync(R + '20261021000200_invoice_autodraft.sql', 'utf8')); // idempotent
+const L3 = '33333333-3333-3333-3333-333333333333', L4 = '33333333-3333-3333-3333-333333333334';
+await db.exec(`insert into public.loads (id, user_id, status, broker_load_number, broker_name, rate) values ('${L3}','${O}','in_transit','TEST-2001','Acme Freight Brokerage (fake)',1800.5),('${L4}','${O}','in_transit','TEST-2002',null,null);
+update public.loads set broker_id='${B}' where id='${L3}';`);
+await as(O, `update public.loads set status='delivered' where id='${L3}'`);
+const ad = (await db.query(`select * from public.invoices where load_id='${L3}'`)).rows;
+ok(ad.length === 1 && ad[0].status === 'draft' && ad[0].auto_drafted && Number(ad[0].total) === 1800.5 && ad[0].line_items[0].type === 'linehaul', 'delivered → draft with the linehaul');
+ok(ad[0].factored === true && ad[0].factor_id === F && ad[0].broker_id === B && ad[0].bill_to.emails[0] === 'ap@example.com', 'draft follows the company default factor and the broker record');
+await as(O, `update public.loads set status='invoiced' where id='${L3}'`); await as(O, `update public.loads set status='delivered' where id='${L3}'`);
+ok((await db.query(`select count(*)::int n from public.invoices where load_id='${L3}'`)).rows[0].n === 1, 'no second draft when delivered again');
+await as(O, `update public.loads set status='delivered' where id='${L4}'`);
+const ad4 = (await db.query(`select total, line_items from public.invoices where load_id='${L4}'`)).rows[0];
+ok(ad4 && Number(ad4.total) === 0 && ad4.line_items.length === 0, 'no rate → empty draft (cannot be finalized until a charge is added)');
+ok((await db.query(`select status from public.loads where id='${L4}'`)).rows[0].status === 'delivered', 'status change still saved');
+console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft)');

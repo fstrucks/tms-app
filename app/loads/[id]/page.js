@@ -29,6 +29,7 @@ import { takeSeededLoad } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
 import { stopDoneLabel } from '../../lib/stopProgress';
+import InvoiceTab from '../../components/InvoiceTab';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -66,6 +67,9 @@ export default function LoadDetailPage() {
   const [linked, setLinked] = useState({ expenses: 0, mileage: 0 });
   const [routeCheck, setRouteCheck] = useState(0); // bumped when Planned is cleared: the map card re-checks
   const [dataVer, setDataVer] = useState(0); // bumped on every re-fetch so child cards (Miles) re-read too
+  // Invoicing PR 2 (layout A): Load | Invoice tabs. The Invoice tab hides itself for drivers (server 403).
+  const [tab, setTab] = useState('load');
+  const [invoiceTab, setInvoiceTab] = useState(true);
 
   async function fetchAll() {
     setError(null);
@@ -166,6 +170,7 @@ export default function LoadDetailPage() {
   }
 
   const hasStatus = load && Object.prototype.hasOwnProperty.call(load, 'status');
+  const showInvoice = invoiceTab && load?.viewer_role !== 'driver'; // drivers never see invoices
 
   return (
     <main style={s.main}>
@@ -185,6 +190,20 @@ export default function LoadDetailPage() {
                   {hasStatus && <StatusBadge status={load.status} />}
                 </div>
 
+                {showInvoice && (
+                  <div role="tablist" aria-label="Load sections" style={{ display: 'flex', gap: 6, margin: '0.25rem 0 0.75rem' }}>
+                    {[['load', 'Load'], ['invoice', 'Invoice']].map(([k, label]) => (
+                      <button key={k} type="button" role="tab" aria-selected={tab === k} data-testid={`load-tab-${k}`} onClick={() => setTab(k)}
+                        style={{ minHeight: 40, padding: '0 16px', borderRadius: 999, border: '1px solid var(--border)', fontWeight: 600,
+                          background: tab === k ? 'var(--primary)' : 'var(--surface)', color: tab === k ? 'var(--on-primary)' : 'var(--text)' }}>{label}</button>
+                    ))}
+                  </div>
+                )}
+                {tab === 'invoice' && showInvoice && (
+                  <InvoiceTab loadId={load.id} onHidden={() => { setInvoiceTab(false); setTab('load'); }}
+                    onLoadStatus={(status) => { if (status && status !== load.status) { setLoad((l) => ({ ...l, status })); list?.patchLoad(id, { status }); } }} />
+                )}
+                <div hidden={tab === 'invoice' && showInvoice}>
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
                 <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck}
                   onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} onRouteFilled={refreshAll} />
@@ -303,6 +322,7 @@ export default function LoadDetailPage() {
                   <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked, teamDocs)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>}
+                </div>
               </>
             )}
           </>
