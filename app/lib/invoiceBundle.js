@@ -100,3 +100,18 @@ export function statusChange(invoice, action, body = {}, today = new Date().toIS
   if (action === 'log' && ['download', 'print'].includes(body.kind)) return { patch: null, event: { kind: body.kind, files: Array.isArray(body.files) ? body.files.map(String).slice(0, 20) : [] } };
   return { error: 'Bad request.' };
 }
+
+// Invoices list tabs (QA #6). Unpaid includes short-paid; the unpaid total is what's still owed.
+export const LIST_TABS = [['all', 'All'], ['draft', 'Drafts'], ['unpaid', 'Unpaid'], ['paid', 'Paid'], ['short_paid', 'Short-paid'], ['void', 'Void']];
+export const UNPAID_STATUSES = ['ready', 'sent', 'short_paid'];
+export function inTab(inv, tab) {
+  if (tab === 'all') return true;
+  if (tab === 'unpaid') return UNPAID_STATUSES.includes(inv.status);
+  return inv.status === tab;
+}
+export const balanceDue = (inv) => Math.max(0, Math.round((Number(inv.total) || 0) * 100 - (inv.status === 'short_paid' ? Math.round((Number(inv.paid_amount) || 0) * 100) : 0)) / 100);
+export function invoiceCounts(list = []) {
+  const counts = Object.fromEntries(LIST_TABS.map(([k]) => [k, list.filter((i) => inTab(i, k)).length]));
+  const unpaidTotal = list.filter((i) => inTab(i, 'unpaid')).reduce((a, i) => a + Math.round(balanceDue(i) * 100), 0) / 100;
+  return { counts, unpaidTotal };
+}

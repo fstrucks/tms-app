@@ -118,12 +118,32 @@ test('actions: mark sent → paid (load → paid); events logged; dispatcher 403
   assert.equal((await ACT.POST(req('POST', { action: 'mark_sent', sent_to: 'x' }), { params: { id: I1 }, deps: ctx('dispatcher', DISP).deps })).status, 403);
 });
 
-test('list: office roles; filter open = ready + sent; driver 403', async () => {
-  const invoices = [{ ...inv0 }, { ...inv0, id: 'i2', status: 'paid', invoice_number: 'INV-1002' }, { ...inv0, id: 'i3', status: 'draft', invoice_number: null }];
-  const j = await (await LIST.GET(req('GET', null, '?status=open'), { deps: ctx('dispatcher', DISP, { invoices }).deps })).json();
-  assert.deepEqual(j.invoices.map((i) => i.id), [I1]);
-  assert.equal((await (await LIST.GET(req('GET'), { deps: ctx('owner', OWNER, { invoices }).deps })).json()).invoices.length, 3);
+test('list (QA #6): counts per tab, Unpaid includes short-paid, unpaid total is the balance; driver 403', async () => {
+  const invoices = [{ ...inv0 }, { ...inv0, id: 'i2', status: 'paid', invoice_number: 'INV-1002' }, { ...inv0, id: 'i3', status: 'draft', invoice_number: null },
+    { ...inv0, id: 'i4', status: 'short_paid', invoice_number: 'INV-1003', total: 1000, paid_amount: 900 }, { ...inv0, id: 'i5', status: 'sent', invoice_number: 'INV-1004', total: 500 }];
+  const j = await (await LIST.GET(req('GET'), { deps: ctx('dispatcher', DISP, { invoices }).deps })).json();
+  assert.equal(j.invoices.length, 5);
+  assert.deepEqual(j.counts, { all: 5, draft: 1, unpaid: 3, paid: 1, short_paid: 1, void: 0 });
+  assert.equal(j.unpaidTotal, 2585 + 100 + 500);
   assert.equal((await LIST.GET(req('GET'), { deps: ctx('driver', DRIVER, { invoices }).deps })).status, 403);
+  assert.match(read('../../app/invoices/page.js'), /\$\{st\.counts\[k\] \?\? 0\}/);
+});
+
+test('QA #1: Mark paid moves a Booked load to Paid and reports the status read back', async () => {
+  const c = ctx('owner', OWNER);
+  c.svc.db.loads[0].status = 'booked';
+  const j = await (await ACT.POST(req('POST', { action: 'paid' }), { params: { id: I1 }, deps: c.deps })).json();
+  assert.equal(j.loadStatusBefore, 'booked');
+  assert.equal(j.loadStatus, 'paid');
+  assert.equal(c.svc.db.loads[0].status, 'paid');
+  const k = ctx('owner', OWNER); k.svc.db.loads[0].status = 'cancelled';
+  const jk = await (await ACT.POST(req('POST', { action: 'paid' }), { params: { id: I1 }, deps: k.deps })).json();
+  assert.equal(jk.loadStatus, 'cancelled');
+  assert.match(read('../../app/components/InvoiceBundle.js'), /loadStatusNote\(j\.loadStatusBefore, j\.loadStatus\)/);
+});
+
+test('nit: copied email text starts with a To: line', () => {
+  assert.match(read('../../app/components/InvoiceBundle.js'), /st\.email\.to \? `To: \$\{st\.email\.to\}\\n` : ''\}Subject:/);
 });
 
 test('no email sending in invoicing; Invoices menu item for office roles only', () => {

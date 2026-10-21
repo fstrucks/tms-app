@@ -1,9 +1,9 @@
 // POST { action } on a finalized invoice (owner / management). Nothing is emailed from here.
 //   mark_sent { sent_to, files?, note? } → status Sent (manual; v1 has no email sending)
-//   paid { paid_amount?, paid_at? }      → Paid, or Short-paid when less than the total; the load moves to Paid
+//   paid { paid_amount?, paid_at? }      → Paid, or Short-paid when less than the total; an open load moves to Paid
 //   void { reason }                     → Void (the load can then get a new draft)
 //   log { kind: 'download' | 'print', files? } → history only
-import { billingCtx, json, readBody, UUID, isMissing, SETUP } from '../../../lib/invoiceServer';
+import { billingCtx, json, readBody, UUID, isMissing, SETUP, applyLoadStatus } from '../../../lib/invoiceServer';
 import { statusChange } from '../../../lib/invoiceBundle';
 import { dbErrorText } from '../../../lib/invoice';
 
@@ -27,8 +27,13 @@ export async function POST(req, { params, deps } = {}) {
     saved = data;
   }
   await x.db.from('invoice_events').insert({ invoice_id: inv.id, owner_id: x.c.ownerId, created_by: x.c.user.id, ...ch.event });
+  // QA #1: the old filter only moved Delivered / Invoiced loads, so a Booked load never changed. Same rule as finalize;
+  // the status is read back so the UI only reports a change that happened.
+  let loadStatusBefore = null, loadStatus = null;
   if (ch.loadStatus && inv.load_id) {
-    await x.svc.from('loads').update({ status: ch.loadStatus }).eq('id', inv.load_id).eq('user_id', x.c.ownerId).in('status', ['delivered', 'invoiced']);
+    const { data: l } = await x.svc.from('loads').select('id,status').eq('id', inv.load_id).eq('user_id', x.c.ownerId).maybeSingle();
+    loadStatusBefore = l?.status ?? null;
+    loadStatus = l ? await applyLoadStatus(x.svc, x.c.ownerId, l, 'paid') : null;
   }
-  return json({ ok: true, invoice: saved });
+  return json({ ok: true, invoice: saved, loadStatusBefore, loadStatus });
 }

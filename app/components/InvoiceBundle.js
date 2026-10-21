@@ -7,6 +7,7 @@ import { makeApi } from '../lib/packetApi';
 import ConfirmButton from './ui/ConfirmButton';
 import { fmtMoney } from '../lib/money';
 import { fmtSize } from '../lib/companyDocs';
+import { loadStatusNote } from '../lib/invoice';
 
 const { call: api, token } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -54,7 +55,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
     const j = await api(`/api/invoices/${invoiceId}`, { method: 'POST', body: JSON.stringify({ action, ...body }) });
     setBusy(null);
     if (j.error) { setErr(j.error); return false; }
-    if (okText) setMsg(okText);
+    if (okText) setMsg(`${okText}${loadStatusNote(j.loadStatusBefore, j.loadStatus)}`);
     await load(); onChanged?.(j.invoice);
     return true;
   }
@@ -66,7 +67,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
     act('log', { kind: 'download', files: which === 'merged' ? names : [name] });
   }
   async function copy() {
-    const text = `Subject: ${st.email.subject}\n\n${st.email.body}`;
+    const text = `${st.email.to ? `To: ${st.email.to}\n` : ''}Subject: ${st.email.subject}\n\n${st.email.body}`;
     try { await navigator.clipboard.writeText(text); setMsg('Email text copied. Paste it into your email or the factor’s portal.'); } catch { setErr('Couldn’t copy. Select the text below and copy it.'); }
   }
 
@@ -92,7 +93,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
           <button type="button" style={s.btn} onClick={copy}>Copy email text</button>
         </div>
         <details style={{ marginTop: '0.6rem' }}><summary style={{ cursor: 'pointer', minHeight: 32 }}>Show email text</summary>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, background: 'var(--surface-2, var(--surface))', padding: 8, borderRadius: 8 }} data-testid="bundle-email">{`Subject: ${st.email.subject}\n\n${st.email.body}`}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, background: 'var(--surface-2, var(--surface))', padding: 8, borderRadius: 8 }} data-testid="bundle-email">{`${st.email.to ? `To: ${st.email.to}\n` : ''}Subject: ${st.email.subject}\n\n${st.email.body}`}</pre>
         </details>
       </div>
 
@@ -110,7 +111,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <input aria-label="Amount received" inputMode="decimal" style={{ ...s.input, width: 140 }} value={paid.amount} onChange={(e) => setPaid({ ...paid, amount: e.target.value })} placeholder={Number(inv.total).toFixed(2)} />
               <input aria-label="Date received" type="date" style={{ ...s.input, width: 170 }} value={paid.date} onChange={(e) => setPaid({ ...paid, date: e.target.value })} />
-              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Mark this invoice paid? The load moves to Paid." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date }, 'Payment recorded.')} />
+              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Mark this invoice paid? An open load is marked Paid too." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date }, 'Payment recorded.')} />
             </div>
           </div>}
           {['paid', 'short_paid'].includes(inv.status) && <p style={{ margin: '0.5rem 0 0' }}>{inv.status === 'paid' ? 'Paid' : 'Short-paid'}: {fmtMoney(inv.paid_amount)} on {inv.paid_at}</p>}
