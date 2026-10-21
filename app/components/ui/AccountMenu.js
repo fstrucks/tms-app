@@ -182,6 +182,10 @@ export default function AccountMenu({ showEmail = false }) {
             style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
             Carrier packets
           </Link>
+          <Link ref={(el) => { itemRefs.current[3] = el; }} href="/account/settings" role="menuitem" onClick={() => setOpen(false)}
+            style={{ display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', borderRadius: 8, color: 'var(--text)', textDecoration: 'none' }}>
+            Settings
+          </Link>
           <div role="group" aria-label="Theme" style={{ padding: '0.35rem 0.8rem 0.5rem' }}>
             <div aria-hidden="true" style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 6, whiteSpace: 'nowrap' }}>Theme</div>
             <div style={{ display: 'flex', gap: 4 }}>
@@ -194,8 +198,8 @@ export default function AccountMenu({ showEmail = false }) {
               ))}
             </div>
           </div>
-          <button ref={(el) => { itemRefs.current[3] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Welcome tour</button>
-          <button ref={(el) => { itemRefs.current[4] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
+          <button ref={(el) => { itemRefs.current[4] = el; }} type="button" role="menuitem" onClick={() => { setOpen(false); openWelcome(); }} style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>Welcome tour</button>
+          <button ref={(el) => { itemRefs.current[5] = el; }} type="button" role="menuitem" disabled={busy} onClick={signOut}
             style={{ display: 'block', width: '100%', textAlign: 'left', minHeight: 44, padding: '0.6rem 0.8rem', fontSize: '1rem', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>
             {busy ? 'Signing out…' : 'Sign out'}
           </button>
