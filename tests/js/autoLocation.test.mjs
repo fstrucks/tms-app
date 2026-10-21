@@ -60,3 +60,20 @@ test('wiring: map panel uses the rules; settings page + menu link exist', () => 
   const menu = readFileSync(new URL('../../app/components/ui/AccountMenu.js', import.meta.url), 'utf8');
   assert.match(menu, /href="\/account\/settings"/);
 });
+
+import { fixUsable, shouldRefresh, isCoarseFix, coarseFixNote, MAX_ACCURACY_M } from '../../app/lib/loadEta.js';
+test('QA #118: a coarse desktop fix (Seattle ≈ 47.6,-122.4, ±25 km) is shown and routed to Boise, flagged approximate', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const fix = { lat: 47.6, lng: -122.4, accuracy: 25_000, at: now - 1000 }; // fake
+  const boise = { id: 's2', lat: 43.615, lng: -116.202 };
+  assert.ok(fixUsable(fix, now), 'marker shows');
+  assert.deepEqual(shouldRefresh({ last: null, fix, stop: boise, now }), { go: true, reason: 'first' }, 'route requested');
+  assert.ok(isCoarseFix(fix)); assert.match(coarseFixNote(fix), /Approximate location \(within about 16 mi\)/);
+  const precise = { ...fix, accuracy: 30 };
+  assert.equal(isCoarseFix(precise), false); assert.equal(coarseFixNote(precise), null);
+  assert.equal(isCoarseFix({ ...fix, accuracy: MAX_ACCURACY_M }), false);
+  assert.ok(!fixUsable({ ...fix, at: now - 6 * 60_000 }, now), 'stale still dropped');
+  const p = readFileSync(new URL('../../app/components/LoadMapPanel.js', import.meta.url), 'utf8');
+  assert.match(p, /data-testid="eta-coarse"/); assert.match(p, /Working out miles left…/);
+  assert.match(p, /truck=\{usableFix \?/);
+});

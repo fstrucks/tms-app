@@ -16,7 +16,7 @@ import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { supportsStopCompletion } from '../lib/stopProgress';
 import { fmtApptWindow } from '../lib/loads';
 import {
-  LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, haversineMi,
+  LOCATION_POLL_MS, AGE_TICK_MS, LOCATING_MAX_MS, nextAgeTickMs, LAST_GOOD_MAX_MS, ERROR_RETRY_MS, NEAR_STOP_MI, shouldRefresh, estimate, fixUsable, coarseFixNote, haversineMi,
   fmtDriveTime, fmtMilesLeft, fmtEta, etaTarget, totalRouteMiles, ageText, postEta, ETA_ERROR_TEXT, platformOf,
   stopAddress, googleMapsUrl, appleMapsUrl, truckerPathLink, TP_FALLBACK_MS,
 } from '../lib/loadEta';
@@ -251,6 +251,8 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
               {view ? (view.state === 'failed' ? view.message : 'No map yet') : 'Loading the map…'}</div>}
       </div>
       {headline}
+      {usableFix && coarseFixNote(usableFix) && <p data-testid="eta-coarse" style={{ ...s.muted, fontSize: '0.8rem', margin: '4px 0 0' }}>{coarseFixNote(usableFix)}</p>}
+      {usableFix && !est && !near && !errText && busy && <p data-testid="eta-working" role="status" style={{ ...s.muted, margin: '4px 0 0' }}>Working out miles left…</p>}
       {stop && (
         <div style={{ fontSize: '0.9rem', marginTop: 6 }}>
           {stop.company_name && <div style={{ fontWeight: 600 }}>{stop.company_name}</div>}

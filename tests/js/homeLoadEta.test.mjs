@@ -34,9 +34,9 @@ test('haversine, rounding (2 decimals ≈ 0.7 mi) and origin validation', () => 
   for (const b of [{}, { lat: 91, lng: 0 }, { lat: 0, lng: 181 }, { lat: 'x', lng: 1 }, { lat: null, lng: null }, { lat: '', lng: '' }, null]) assert.equal(parseOrigin(b), null);
 });
 
-test('fixUsable: coarse (> 2 km) or stale (> 5 min) fixes are not routed from', () => {
+test('fixUsable: stale (> 5 min) fixes are not routed from; coarse (> 2 km) ones are used and flagged (QA #118)', () => {
   assert.ok(fixUsable(fixAt(ONTARIO), T0));
-  assert.ok(!fixUsable(fixAt(ONTARIO, T0, MAX_ACCURACY_M + 1), T0));
+  assert.ok(fixUsable(fixAt(ONTARIO, T0, MAX_ACCURACY_M + 1), T0));
   assert.ok(!fixUsable(fixAt(ONTARIO, T0 - MAX_FIX_AGE_MS - 1), T0));
   assert.ok(!fixUsable(null, T0));
 });
