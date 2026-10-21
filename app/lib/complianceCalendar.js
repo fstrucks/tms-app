@@ -274,8 +274,10 @@ export function complianceEntries({ today, dot, answers = {}, iftaRenewalOn, irp
 }
 
 // Home "Coming up": the next open item per rule, overdue by up to 45 days still shows.
+// Sorted by due date so a document expiry is not hidden behind later calendar rows.
 export function comingUp(entries, today, limit = 6) {
   const open = (entries || []).filter((e) => !e.dismissed && !e.completed && isISODate(e.due) && daysBetween(today, e.due) >= -45);
+  open.sort((a, b) => String(a.due).localeCompare(String(b.due)) || String(a.title).localeCompare(String(b.title)));
   const seen = new Set();
   const out = [];
   for (const e of open) {
@@ -286,6 +288,21 @@ export function comingUp(entries, today, limit = 6) {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+// Home card: keep every checklist document expiry due within 30 days, then fill with the next dates.
+export function homeComingUp(entries, today, limit = 5) {
+  const ranked = comingUp(entries, today, 80);
+  const must = ranked.filter((e) => String(e.ruleKey || '').startsWith('expiry:') && daysBetween(today, e.due) >= 0 && daysBetween(today, e.due) <= 30);
+  const out = [...must];
+  const seen = new Set(must.map((e) => e.period));
+  for (const e of ranked) {
+    if (out.length >= Math.max(limit, must.length)) break;
+    if (seen.has(e.period)) continue;
+    seen.add(e.period);
+    out.push(e);
+  }
+  return out.sort((a, b) => String(a.due).localeCompare(String(b.due)) || String(a.title).localeCompare(String(b.title)));
 }
 
 export function entriesInMonth(entries, year, month) {

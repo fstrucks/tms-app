@@ -33,7 +33,9 @@ export function equipmentCurrent(checkedAt, today) {
 function withMarker(extra, row, file, ctx) {
   const mark = markerOf(row, extra?.done || extra?.bucket === 'done' ? file : null);
   if (!mark) return { ...extra, ticked: false, markedBy: null };
-  const line = markedDoneLine((ctx.people || {})[mark.id], mark.at);
+  const known = (ctx.people || {})[mark.id] || {};
+  const person = { email: known.email || null, name: usableName(known.name, known.email) || driverDisplayName(ctx, mark.id, row) || null };
+  const line = markedDoneLine(person, mark.at);
   return { ...extra, ticked: !!mark.ticked, markedBy: extra?.done ? line : null, checkedBy: mark.id, checkedAt: String(mark.at || '').slice(0, 10) || null };
 }
 
@@ -409,6 +411,7 @@ export function modelFromPayload(payload, today) {
     reminders: payload?.reminders || [],
     people: payload?.people || {},
     role: payload?.role || null,
+    userId: payload?.userId || null,
   };
 }
 
@@ -427,11 +430,91 @@ export function setupEntry(profile, role, now = Date.now(), activity = {}) {
   return 'prompt';
 }
 
+function usableName(name, email) {
+  const n = String(name || '').trim();
+  const e = String(email || '').trim();
+  if (!n) return '';
+  if (e && n.toLowerCase() === e.toLowerCase()) return '';
+  return n;
+}
+
 export function personLabel(person) {
-  const name = String(person?.name || '').trim();
+  const name = usableName(person?.name, person?.email);
   if (name) return name;
   const email = String(person?.email || '').trim();
   return email || null;
+}
+
+// The name on the drivers row, when this user is that driver. Profile text that is just the email does not count.
+export function driverDisplayName(ctx, userId, row) {
+  const drivers = ctx?.drivers || [];
+  const linked = drivers.find((d) => d.auth_user_id && String(d.auth_user_id) === String(userId) && String(d.name || '').trim());
+  if (linked) return String(linked.name).trim();
+  if (ctx?.role !== 'driver') return null;
+  if (ctx.userId && String(ctx.userId) !== String(userId)) return null;
+  if (row?.driverId) {
+    const named = drivers.find((d) => d.id === row.driverId && String(d.name || '').trim());
+    if (named) return String(named.name).trim();
+  }
+  if (row?.truckId) {
+    const onTruck = drivers.filter((d) => d.truck_id === row.truckId && String(d.name || '').trim());
+    if (onTruck.length === 1) return String(onTruck[0].name).trim();
+  }
+  const named = drivers.filter((d) => String(d.name || '').trim());
+  return named.length === 1 ? String(named[0].name).trim() : null;
+}
+
+// Fill names for driver members: linked driver row, then the driver on the ticked truck, then the only unlinked driver.
+export function applyDriverNames(people, ids, { drivers = [], members = [], statuses = [] } = {}) {
+  const out = {};
+  for (const id of ids || []) out[id] = { name: people?.[id]?.name ?? null, email: people?.[id]?.email ?? null };
+  for (const d of drivers) {
+    const name = String(d.name || '').trim();
+    if (!d.auth_user_id || !name || !out[d.auth_user_id]) continue;
+    out[d.auth_user_id] = { ...out[d.auth_user_id], name };
+  }
+  const driverMembers = new Set((members || []).filter((m) => m.role === 'driver' && m.user_id).map((m) => m.user_id));
+  for (const id of Object.keys(out)) {
+    if (!driverMembers.has(id) || usableName(out[id].name, out[id].email)) continue;
+    const name = nameFromTicks(id, statuses, drivers);
+    if (name) out[id] = { ...out[id], name };
+  }
+  const open = Object.keys(out).filter((id) => driverMembers.has(id) && !usableName(out[id].name, out[id].email));
+  const free = drivers.filter((d) => String(d.name || '').trim() && !d.auth_user_id);
+  if (open.length === 1 && free.length === 1) out[open[0]] = { ...out[open[0]], name: String(free[0].name).trim() };
+  for (const id of Object.keys(out)) {
+    if (!usableName(out[id].name, out[id].email)) out[id] = { ...out[id], name: null };
+  }
+  return out;
+}
+
+function nameFromTicks(userId, statuses, drivers) {
+  const mine = (statuses || []).filter((s) => s.checked_by === userId);
+  const driverIds = [...new Set(mine.map((s) => s.driver_id).filter(Boolean))];
+  if (driverIds.length === 1) {
+    const d = drivers.find((x) => x.id === driverIds[0] && String(x.name || '').trim());
+    if (d) return String(d.name).trim();
+  }
+  const trucks = [...new Set(mine.map((s) => s.truck_id).filter(Boolean))];
+  if (!trucks.length) return null;
+  const names = new Set();
+  for (const tid of trucks) {
+    const on = drivers.filter((d) => d.truck_id === tid && String(d.name || '').trim());
+    if (on.length !== 1) return null;
+    names.add(String(on[0].name).trim());
+  }
+  return names.size === 1 ? [...names][0] : null;
+}
+
+// Undo a tick that did not upload a file, and undo a skip back to not done.
+export function showUndo(row, office) {
+  if (!row?.applicable || row.needs) return false;
+  if (row.skipped) return !!(office || row.driverAccess === 'equipment');
+  if (!row.ticked || !row.done) return false;
+  if (row.docType && row.documentId) return false;
+  if (row.driverAccess === 'equipment') return true;
+  if (!office) return false;
+  return (row.kinds || []).includes('audit') || (row.kinds || []).includes('binder') || (row.kinds || []).includes('equipment');
 }
 
 // Who completed a done item: the tick if there is one, otherwise the person who uploaded the file.

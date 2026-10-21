@@ -7,7 +7,7 @@ import { getSupabase } from '../../lib/supabase';
 import { checkVaultUpload } from '../../lib/companyDocs';
 import { CATEGORIES, OPERATION_QUESTIONS, WIZARD_STEPS, GUIDANCE } from '../../lib/setupCatalog.js';
 import {
-  buildChecklist, summarize, matchesFilter, filterCounts, modelFromPayload, binderLines, visibleToRole, expiryEntries, FILTERS,
+  buildChecklist, summarize, matchesFilter, filterCounts, modelFromPayload, binderLines, visibleToRole, expiryEntries, showUndo, FILTERS,
 } from '../../lib/setupProgress.js';
 import { complianceEntries, comingUp, entriesInMonth } from '../../lib/complianceCalendar.js';
 
@@ -116,6 +116,16 @@ export default function ChecklistPage() {
     setHighlight(entry?.itemKey || null);
     setFilter('all');
   }
+  function closeGuide() {
+    setGuide(false);
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('guide')) return;
+      url.searchParams.delete('guide');
+      const qs = url.searchParams.toString();
+      window.history.replaceState(null, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
+    } catch { /* the guide still closes if the address bar cannot be updated */ }
+  }
   const shown = rows.filter((r) => matchesFilter(r, filter));
   const trucks = data?.trucks || [];
   const activeTruck = trucks.find((t) => t.id === truckPick) || trucks[0] || null;
@@ -153,7 +163,7 @@ export default function ChecklistPage() {
             {data.limited && office && <p style={s.muted}>Some truck and file details aren’t available for this sign-in. Ticks you save still count.</p>}
             {!office && <p style={s.card}>You can check equipment and read the binder list for your truck. The rest of the checklist is for the office.</p>}
             {guide && office ? (
-              <Guide step={step} setStep={setStep} rows={rows} ctx={ctx} data={data} busy={busy} act={act} setGuide={setGuide} chooseFile={chooseFile} trucks={trucks} activeTruck={activeTruck} setTruckPick={setTruckPick} progress={progress} />
+              <Guide step={step} setStep={setStep} rows={rows} ctx={ctx} data={data} busy={busy} act={act} closeGuide={closeGuide} chooseFile={chooseFile} trucks={trucks} activeTruck={activeTruck} setTruckPick={setTruckPick} progress={progress} />
             ) : (
               <div className="setup-layout">
                 <div>
@@ -214,11 +224,6 @@ export default function ChecklistPage() {
   );
 }
 
-function canUndo(row, office) {
-  if (!row.ticked || !row.done || row.needs) return false;
-  if (row.docType && row.documentId) return false;
-  return canTick(row, office);
-}
 function canTick(row, office) {
   if (row.driverAccess === 'equipment') return true;
   if (!office) return false;
@@ -276,10 +281,10 @@ function ItemRow({ row, office, busy, highlight, act, chooseFile, call }) {
         {row.applicable && !row.done && canTick(row, office) && !row.needs && (
           <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'done' }, 'Saved.')}>{tickLabel(row)}</button>
         )}
-        {canUndo(row, office) && (
+        {showUndo(row, office) && (
           <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'not_yet' }, 'Reopened.')}>Undo</button>
         )}
-        {row.applicable && !row.done && (office || row.driverAccess === 'equipment') && !row.needs && (
+        {row.applicable && !row.done && !row.skipped && (office || row.driverAccess === 'equipment') && !row.needs && (
           <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: row.itemKey, truckId: row.truckId, trailerId: row.trailerId, driverId: row.driverId, status: 'skipped' })}>Skip for now</button>
         )}
         {office && row.level !== 'required' && row.applicable && (
@@ -382,7 +387,7 @@ function NeedsCompany() {
   );
 }
 
-function Guide({ step, setStep, rows, ctx, data, busy, act, setGuide, chooseFile, trucks, activeTruck, setTruckPick, progress }) {
+function Guide({ step, setStep, rows, ctx, data, busy, act, closeGuide, chooseFile, trucks, activeTruck, setTruckPick, progress }) {
   const saveRef = useRef(null);
   const info = WIZARD_STEPS.find((w) => w.id === step);
   async function goNext() {
@@ -412,7 +417,7 @@ function Guide({ step, setStep, rows, ctx, data, busy, act, setGuide, chooseFile
               <div style={{ ...s.row, marginTop: 6 }}>
                 {!r.done && r.kinds.includes('upload') && r.docType && <button type="button" style={s.btn} disabled={busy} onClick={() => chooseFile(r)}>Upload</button>}
                 {!r.done && canTick(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'done' }, 'Saved.')}>{tickLabel(r)}</button>}
-                {canUndo(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'not_yet' }, 'Reopened.')}>Undo</button>}
+                {showUndo(r, true) && <button type="button" style={s.btn} disabled={busy} onClick={() => act({ action: 'status', itemKey: r.itemKey, truckId: r.truckId, trailerId: r.trailerId, driverId: r.driverId, status: 'not_yet' }, 'Reopened.')}>Undo</button>}
               </div>
             )}
             {r.needs === 'driver' && <Link href="/truck">Add a driver on the Truck tab</Link>}
@@ -432,10 +437,10 @@ function Guide({ step, setStep, rows, ctx, data, busy, act, setGuide, chooseFile
       )}
       <div className="no-print" style={{ ...s.row, marginTop: 12 }}>
         {step > 1 && <button type="button" style={s.btn} disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
-        <button type="button" style={s.btn} onClick={() => setGuide(false)}>Finish later</button>
+        <button type="button" style={s.btn} onClick={closeGuide}>Finish later</button>
         {step < 9 && <button type="button" style={s.btn} onClick={() => setStep(step + 1)}>Skip for now</button>}
         {step < 9 && <button type="button" style={s.primary} disabled={busy} onClick={goNext}>{step === 1 ? 'Start' : 'Save & next'}</button>}
-        {step === 9 && <button type="button" style={s.primary} onClick={() => setGuide(false)}>Done</button>}
+        {step === 9 && <button type="button" style={s.primary} onClick={closeGuide}>Done</button>}
       </div>
     </section>
   );

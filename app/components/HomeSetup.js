@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useSetup } from '../documents/checklist/useSetup';
 import { getSupabase } from '../lib/supabase';
 import { buildChecklist, summarize, modelFromPayload, roadsideForTruck, driverFileRows, expiryEntries } from '../lib/setupProgress';
-import { complianceEntries, comingUp } from '../lib/complianceCalendar';
+import { complianceEntries, homeComingUp } from '../lib/complianceCalendar';
 
 const card = { border: '1px solid var(--divider)', borderRadius: 12, padding: '0.9rem', background: 'var(--surface)', marginTop: '0.75rem' };
 const muted = { color: 'var(--text-muted)', fontSize: 14, margin: '0.25rem 0' };
@@ -39,7 +39,7 @@ export default function HomeSetup() {
       reminders: ctx.reminders,
     }), ...expiryEntries(rows, ctx.today)];
   }, [ctx, rows, office]);
-  const soon = today ? comingUp(entries, today, 5) : [];
+  const soon = today ? homeComingUp(entries, today, 5) : [];
 
   if (loading || !data?.profile || data.setupNeeded || data.needsProfile || data.entry === 'guide') return null;
 

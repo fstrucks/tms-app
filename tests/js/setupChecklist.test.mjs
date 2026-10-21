@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs';
 import { CATEGORIES, CHECKLIST_ITEMS, UNVERIFIED_KEYS, DRIVER_EQUIPMENT_KEYS, DRIVER_BINDER_KEYS, DRIVER_FILE_DOC_TYPES, itemByKey, answerApplies } from '../../app/lib/setupCatalog.js';
 import { categoryForDocType, DOC_CATEGORY_NAMES } from '../../app/lib/docCategories.js';
 import {
-  nextBusinessDay, iftaDue, iftaNominal, mcs150Schedule, nextMcs150Due, form2290DueForFirstUse, ucrCycle, comingUp, complianceEntries,
+  nextBusinessDay, iftaDue, iftaNominal, mcs150Schedule, nextMcs150Due, form2290DueForFirstUse, ucrCycle, comingUp, homeComingUp, complianceEntries,
 } from '../../app/lib/complianceCalendar.js';
 import {
   buildChecklist, summarize, matchesFilter, cycleState, equipmentCurrent, setupEntry, NEW_COMPANY_MS, driverFileRows, roadsideForTruck, modelFromPayload,
+  expiryEntries, applyDriverNames, showUndo,
 } from '../../app/lib/setupProgress.js';
 import { buildDriverFilePdf } from '../../app/lib/driverFilePdf.js';
 
@@ -226,6 +227,62 @@ test('driver file pdf is one file and skips a drug record', async () => {
     files: [{ name: 'drug.pdf', docType: 'da_consortium', contentType: 'application/pdf', bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]) }],
   });
   assert.equal(Buffer.from(pdf).subarray(0, 4).toString(), '%PDF');
+});
+
+test('home coming up keeps a document expiry due within 30 days', () => {
+  const today = '2026-10-21';
+  const calendar = [1, 2, 3, 4, 5].map((n) => ({
+    ruleKey: `rule_${n}`, period: `q${n}`, due: `2026-10-2${n}`, title: `Quarter ${n}`,
+    completed: false, dismissed: false,
+  }));
+  const medical = { ruleKey: 'expiry:medical_card', period: 'medical', due: '2026-11-20', title: 'Medical card', itemKey: 'medical_card', completed: false, dismissed: false };
+  const up = homeComingUp([...calendar, medical], today, 5);
+  assert.ok(up.some((e) => e.itemKey === 'medical_card' && e.due === '2026-11-20'));
+  const later = { ...medical, ruleKey: 'expiry:cab_card', due: '2026-11-21', period: 'later', itemKey: 'cab_card' };
+  assert.equal(homeComingUp([...calendar, later], today, 5).some((e) => e.due === '2026-11-21'), false);
+  const rows = buildChecklist(base({
+    trucks: [truck],
+    drivers: [{ id: 'd1', name: 'Sam', truck_id: 't1', med_card_expiry: '2026-11-20' }],
+  }));
+  const card = rows.find((r) => r.itemKey === 'medical_card');
+  assert.equal(card.expiryOn, '2026-11-20');
+  assert.ok(expiryEntries(rows, today).some((e) => e.itemKey === 'medical_card' && e.due === '2026-11-20'));
+});
+
+test('a driver tick uses the driver name before the email', () => {
+  const linked = buildChecklist(base({
+    role: 'driver', userId: 'u1', trucks: [truck],
+    drivers: [{ id: 'd1', name: 'Sam Driver', truck_id: 't1', auth_user_id: 'u1' }],
+    people: { u1: { email: 'sam@example.com' } },
+    statuses: [{ item_key: 'fire_extinguisher', truck_id: 't1', status: 'done', checked_by: 'u1', checked_at: '2026-10-21T15:00:00Z' }],
+  })).find((r) => r.itemKey === 'fire_extinguisher');
+  assert.equal(linked.markedBy, 'Marked done by Sam Driver on 2026-10-21.');
+  const named = applyDriverNames(
+    { u1: { name: 'sam@example.com', email: 'sam@example.com' } },
+    ['u1'],
+    { drivers: [{ id: 'd1', name: 'Sam Driver', truck_id: 't1' }], members: [{ user_id: 'u1', role: 'driver' }], statuses: [{ checked_by: 'u1', truck_id: 't1' }] },
+  );
+  assert.equal(named.u1.name, 'Sam Driver');
+  const owner = applyDriverNames(
+    { o1: { email: 'office@example.com' } },
+    ['o1'],
+    { drivers: [{ id: 'd1', name: 'Sam Driver', truck_id: 't1' }], members: [{ user_id: 'o1', role: 'owner' }], statuses: [{ checked_by: 'o1', truck_id: 't1' }] },
+  );
+  assert.equal(owner.o1.name, null);
+});
+
+test('a skipped item can be undone back to not done', () => {
+  const row = buildChecklist(base({
+    trucks: [truck],
+    statuses: [{ item_key: 'fire_extinguisher', truck_id: 't1', status: 'skipped' }],
+  })).find((r) => r.itemKey === 'fire_extinguisher');
+  assert.equal(row.skipped, true);
+  assert.equal(row.done, false);
+  assert.equal(showUndo(row, true), true);
+  assert.equal(showUndo(row, false), true);
+  const officeOnly = { applicable: true, skipped: true, done: false, driverAccess: 'office', kinds: ['upload', 'audit'] };
+  assert.equal(showUndo(officeOnly, true), true);
+  assert.equal(showUndo(officeOnly, false), false);
 });
 
 const truck = { id: 't1', unit_number: '101' };

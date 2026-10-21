@@ -8,7 +8,7 @@ import { isMissing } from './vaultServer.js';
 import { laToday } from './sendCap.js';
 import { coiExpiry } from './companyDocs.js';
 import { CHECKLIST_ITEMS, itemByKey, OPERATION_QUESTIONS } from './setupCatalog.js';
-import { setupEntry, scopeIdOf } from './setupProgress.js';
+import { setupEntry, scopeIdOf, applyDriverNames } from './setupProgress.js';
 import { isISODate } from './complianceCalendar.js';
 
 export const json = (b, s = 200) => Response.json(b, { status: s, headers: { 'Cache-Control': 'no-store' } });
@@ -93,7 +93,7 @@ export async function loadSetup(c, { today = laToday() } = {}) {
   const pulled = new Map();
   for (const t of trucks) if (t.current_trailer_id) pulled.set(t.current_trailer_id, t.id);
   const activity = { trucks: trucks.length, drivers: drivers.length, documents: documents.length, loads };
-  const people = await loadPeople(c, markerIds(statusQ.rows, documents), drivers);
+  const people = await loadPeople(c, markerIds(statusQ.rows, documents), drivers, statusQ.rows);
   const payload = {
     role: c.role, office: c.office, today, limited, coiExpiry: coi,
     profile: publicSetupProfile(c.profile),
@@ -101,6 +101,7 @@ export async function loadSetup(c, { today = laToday() } = {}) {
     trucks, drivers,
     trailers: trailers.map((t) => ({ ...t, pulled_by: pulled.get(t.id) || null })),
     documents, statuses: statusQ.rows, reminders, people,
+    userId: c.user?.id || null,
   };
   return shapeForRole(payload, c);
 }
@@ -115,13 +116,29 @@ function markerIds(statuses, documents) {
 function rememberPerson(people, id, patch) {
   if (!id) return;
   const cur = people[id] || {};
-  const name = String(patch.name || '').trim();
-  const email = String(patch.email || '').trim();
-  people[id] = { name: name || cur.name || null, email: email || cur.email || null };
+  const email = String(patch.email || cur.email || '').trim() || null;
+  let name = String(patch.name || '').trim();
+  if (email && name.toLowerCase() === email.toLowerCase()) name = '';
+  const prev = String(cur.name || '').trim();
+  const prevOk = prev && (!cur.email || prev.toLowerCase() !== String(cur.email).toLowerCase());
+  people[id] = { name: name || (prevOk ? prev : null), email };
 }
 
-// Name, then email, from the company profile, driver row, and the auth user behind a member.
-async function loadPeople(c, ids, drivers) {
+async function loadMembers(c) {
+  const members = [];
+  if (c.user?.id && c.role) members.push({ user_id: c.user.id, role: c.role });
+  if (!c.uc || !c.profile?.id) return members;
+  try {
+    const q = await rowsOf(c.uc.from('company_members').select('user_id, role').eq('profile_id', c.profile.id));
+    if (!q.error) {
+      for (const m of q.rows) if (m.user_id && !members.some((x) => x.user_id === m.user_id)) members.push(m);
+    }
+  } catch { /* a driver name can still come from the drivers table */ }
+  return members;
+}
+
+// Name, then email: driver row, member profile, then the account email.
+async function loadPeople(c, ids, drivers, statuses) {
   const people = {};
   const owner = c.profile;
   if (owner?.owner_id) rememberPerson(people, owner.owner_id, { name: owner.owner_name, email: owner.email });
@@ -139,8 +156,10 @@ async function loadPeople(c, ids, drivers) {
       } catch { /* a missing name does not block the checklist */ }
     }
   }
+  const members = await loadMembers(c);
+  const named = applyDriverNames(people, ids, { drivers, members, statuses });
   const keep = new Set(ids);
-  return Object.fromEntries(Object.entries(people).filter(([id]) => keep.has(id)));
+  return Object.fromEntries(Object.entries(named).filter(([id]) => keep.has(id)));
 }
 
 function shapeForRole(payload, c) {
