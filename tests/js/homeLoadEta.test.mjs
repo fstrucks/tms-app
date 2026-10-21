@@ -275,7 +275,7 @@ test('panels: WAI-ARIA tabs + arrows + dots + scroll-snap; Panel 2 (and Leaflet)
   assert.match(src, /dynamic\(\(\) => import\('\.\/LoadMapPanel'\)/);
   const home = read('app/components/HomeCurrentLoad.js');
   assert.match(home, /<CurrentLoadPanels enabled=\{props\.pick\.kind === 'current'\}[^>]*>\s*<FrontCard \{\.\.\.props\} \/>/);
-  assert.match(home, /<LoadCard pick=\{pick\} docPath=\{docPath\} onOpenRateCon=\{openRateCon\} now=\{now\} audience=\{audience\}[\s\S]{0,120}?\/>/, 'render line keeps the card props (overdue prompt props added Oct 20)');
+  assert.match(home, /<LoadCard pick=\{pick\} docPath=\{docPath\} onOpenRateCon=\{openRateCon\} now=\{now\} audience=\{audience\}[\s\S]{0,240}?\/>/, 'render line keeps the card props (overdue prompt props Oct 20; stop check-off props PR #115)');
   assert.ok(!/LoadMapPanel|milesLeft|fmtMilesLeft|Drive time|left to delivery|loadEta/.test(home), 'front panel: no miles-left line');
 });
 

@@ -14,6 +14,7 @@ import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
 import CurrentLoadPanels from './CurrentLoadPanels';
+import StopActions from './StopActions';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
@@ -112,7 +113,7 @@ function DeliveredPrompt({ load, audience, onMarkDelivered, busy, err }) {
   );
 }
 
-function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivered, markBusy, markErr }) {
+function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivered, markBusy, markErr, supabase, userId, onLoadChange }) {
   const owner = audience === 'owner';
   const base = linkBaseFor(audience, pick.load);
   const { load, kind } = pick;
@@ -134,6 +135,7 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivere
       </div>
       {pick.overdue && <DeliveredPrompt load={load} audience={audience} onMarkDelivered={onMarkDelivered} busy={markBusy} err={markErr} />}
       {layout === 'A' ? <OptionA load={load} /> : <OptionB load={load} now={now} />}
+      <StopActions supabase={supabase} load={load} userId={userId} now={now} onChange={onLoadChange} />
       <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap' }}>
         {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
         {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: 'var(--success)' }}>{rateText(load)}</span>}
@@ -201,6 +203,8 @@ export default function HomeCurrentLoad({ supabase, user }) {
     if (who === 'owner') countRateconsWaiting(supabase).then((n) => { if (r === req.current) setWaiting(n); });
   }
 
+  const onLoadChange = (next) => setLoads((ls) => (ls || []).map((l) => (l.id === next.id ? next : l))); // stop check-off
+
   async function onMarkDelivered() {
     const id = pick?.load?.id; if (!id) return;
     setMarkErr(null); setMarkBusy(true);
@@ -265,7 +269,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
         <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience}
-          onMarkDelivered={onMarkDelivered} markBusy={markBusy} markErr={markErr} />
+          onMarkDelivered={onMarkDelivered} markBusy={markBusy} markErr={markErr} supabase={supabase} userId={user.id} onLoadChange={onLoadChange} />
         {openErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>
       <UpNext loads={upNext(loads, pick.load, now)} base={linkBaseFor(audience, pick.load)} audience={audience} now={now} />
