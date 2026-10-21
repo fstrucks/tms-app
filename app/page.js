@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from './lib/supabase';
 import HomeCurrentLoad from './components/HomeCurrentLoad';
+import HomeSetup from './components/HomeSetup';
 
 const s = {
   main: { padding: '1.25rem var(--gutter)', fontFamily: 'system-ui', margin: '0 auto' },
@@ -37,6 +38,7 @@ export default function Home() {
             <p style={{ ...s.muted, overflow: 'hidden', textOverflow: 'ellipsis' }}>Signed in as {user.email}. Sign out from the account menu (top right).</p>
             <p style={{ lineHeight: 1.5, maxWidth: 640 }}>Welcome back. Use the menu to manage documents, loads, mileage, expenses and your weekly dashboard.</p>
             <HomeCurrentLoad supabase={supabase} user={user} />
+            <HomeSetup />
           </>
         ) : (
           <div style={s.narrow}><Link href="/login" style={s.link}>Sign in →</Link></div>
