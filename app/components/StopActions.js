@@ -2,10 +2,10 @@
 // Per-stop check-off (PR #115) for the Home current-load card and the load page: "Picked up" / "Delivered" / "Done"
 // for the next stop, "Skip to next stop", and Undo for the last one marked. Confirm-on-tap. Hidden before the
 // stops.completed_at migration, for viewers who can't act, and on loads without stops. Server enforces roles.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { sortedStops } from '../lib/loadTabs';
-import { supportsStopCompletion, canCompleteStops, stopActionLabel, lastCompletedStop, allStopsDone, isStopDone } from '../lib/stopProgress';
+import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone } from '../lib/stopProgress';
 
 async function post(supabase, loadId, stopId, action) {
   try {
@@ -24,11 +24,16 @@ export function applyStopResult(load, r) {
   return { ...load, ...(r.status ? { status: r.status } : {}), stops: (load.stops || []).map((x) => (x.id === r.stop.id ? { ...x, ...r.stop } : x)) };
 }
 
+export const TAP_COOLDOWN_MS = 800;
+
 export default function StopActions({ supabase, load, userId, role, onChange, onRefresh, now }) {
   const [err, setErr] = useState(null);
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(null); // one confirm at a time: 'done' | 'skip' | null
+  const busyRef = useRef(false); // a second tap while a save runs is ignored (state updates lag a fast double tap)
+  const coolUntil = useRef(0);   // after a save the next stop's button lands under the finger: ignore taps briefly
+  const tapOk = () => !busyRef.current && Date.now() >= coolUntil.current;
   if (hidden || !load || !supportsStopCompletion(load) || !canCompleteStops(role ?? load.viewer_role ?? 'owner', load, userId)) return null;
   const st = sortedStops(load);
   const done = allStopsDone(load);
@@ -39,8 +44,11 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const n = target ? st.indexOf(target) + 1 : 0;
 
   async function act(stop, action) {
+    if (!tapOk()) return false;
+    busyRef.current = true;
     setErr(null); setBusy(true);
     const r = await post(supabase, load.id, stop.id, action);
+    busyRef.current = false; coolUntil.current = Date.now() + TAP_COOLDOWN_MS;
     setBusy(false); setPending(null);
     if (r.setupNeeded) { setErr('Stop check-off isn’t available on the server yet. Nothing was saved.'); return false; } // was a silent hide (prod Oct 20)
     if (!r.ok) { setErr(r.error); return false; }
@@ -52,7 +60,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const pri = { ...btn, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' };
   const sec = { ...btn, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' };
   const label = target ? stopActionLabel(target) : '';
-  const question = pending === 'skip' ? `Skip stop ${n} and go to the next stop?` : `Mark stop ${n} ${label.toLowerCase()}?`;
+  const question = pending === 'skip' ? `Skip stop ${n} and go to the next stop?` : `Mark stop ${n} as ${stopDoneLabel(target).toLowerCase()}?`;
   return (
     <div data-testid="stop-actions" style={{ borderTop: '1px solid var(--divider)', marginTop: 12, paddingTop: 10 }}>
       {target ? (
@@ -64,21 +72,22 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
             <div role="group" data-testid="stop-confirm" aria-label={question} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <span style={{ flexBasis: '100%', fontWeight: 600, color: 'var(--text)' }}>{question}</span>
               <button type="button" data-testid="stop-confirm-yes" disabled={busy} style={pri} onClick={() => act(target, pending)}>
-                {busy ? 'Saving…' : pending === 'skip' ? 'Yes, skip' : `Yes, ${label.toLowerCase()}`}</button>
+                {busy ? 'Saving…' : pending === 'skip' ? 'Yes, skip' : `Yes, ${label.charAt(0).toLowerCase()}${label.slice(1)}`}</button>
               <button type="button" data-testid="stop-confirm-cancel" disabled={busy} style={sec} onClick={() => setPending(null)}>Cancel</button>
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button type="button" data-testid="stop-mark" disabled={busy} style={pri} onClick={() => { setErr(null); setPending('done'); }}>{label}</button>
-              {!isLast && <button type="button" data-testid="stop-skip" disabled={busy} style={sec} onClick={() => { setErr(null); setPending('skip'); }}>Skip to next stop</button>}
+              <button type="button" data-testid="stop-mark" disabled={busy} style={pri} onClick={() => { if (!tapOk()) return; setErr(null); setPending('done'); }}>{label}</button>
+              {!isLast && <button type="button" data-testid="stop-skip" disabled={busy} style={sec} onClick={() => { if (!tapOk()) return; setErr(null); setPending('skip'); }}>Skip to next stop</button>}
             </div>
           )}
         </>
       ) : <div style={{ fontSize: '0.9rem', color: 'var(--success)', fontWeight: 600 }}>All stops done.</div>}
-      {last && !pending && (
-        <button type="button" data-testid="stop-undo" disabled={busy} onClick={() => act(last, 'undo')}
+      {/* Undo stays for the last completed stop, including after the final delivery ("All stops done"). */}
+      {last && (
+        <button type="button" data-testid="stop-undo" disabled={busy || !!pending} onClick={() => act(last, 'undo')}
           style={{ ...btn, marginTop: 8, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px' }}>
-          Undo {last.completion === 'skipped' ? 'skip' : `“${stopActionLabel(last)}”`} (stop {st.indexOf(last) + 1})
+          Undo {last.completion === 'skipped' ? 'skip' : `“${stopDoneLabel(last)}”`} (stop {st.indexOf(last) + 1})
         </button>
       )}
       {err && <p role="alert" data-testid="stop-error" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
