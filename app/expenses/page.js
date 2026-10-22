@@ -1,5 +1,6 @@
 'use client';
 
+import { authedFetch } from '../lib/authedFetch';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import Link from 'next/link';
@@ -305,14 +306,11 @@ function ExpensesInner() {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 60_000);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token;
-      if (stale()) return;
-      if (!token) return setAi({ state: 'error', text: 'Sign in again to auto-fill from receipts. You can still enter the details manually.' });
       const body = new FormData();
       body.append('file', forAi, forAi.name);
       body.append('today', todayISO());
-      const res = await fetch('/api/extract-receipt', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body, signal: ac.signal });
+      const res = await authedFetch(supabase.auth, '/api/extract-receipt', { method: 'POST', body, signal: ac.signal });
+      if (stale()) return;
       const out = await res.json().catch(() => ({}));
       if (stale()) return;
       if (!res.ok || !out.data) {

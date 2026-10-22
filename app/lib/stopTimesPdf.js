@@ -10,6 +10,16 @@ const fullAddress = (st) => [st?.address_line1, st?.address_line2, [[st?.city, s
 
 export const DEFAULT_TZ = 'America/Chicago';
 const validTz = (tz) => { try { if (!tz) return null; new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch { return null; } };
+// JS mirror of public.us_state_tz (migration 20261010000660): main zone per US state.
+const Z = { C: 'America/Chicago', E: 'America/New_York', M: 'America/Denver', P: 'America/Los_Angeles' };
+const STATE_TZ = { AL: Z.C, AK: 'America/Anchorage', AZ: 'America/Phoenix', AR: Z.C, CA: Z.P, CO: Z.M, CT: Z.E, DE: Z.E, DC: Z.E, FL: Z.E, GA: Z.E,
+  HI: 'Pacific/Honolulu', ID: 'America/Boise', IL: Z.C, IN: 'America/Indiana/Indianapolis', IA: Z.C, KS: Z.C, KY: Z.E, LA: Z.C, ME: Z.E, MD: Z.E,
+  MA: Z.E, MI: 'America/Detroit', MN: Z.C, MS: Z.C, MO: Z.C, MT: Z.M, NE: Z.C, NV: Z.P, NH: Z.E, NJ: Z.E, NM: Z.M, NY: Z.E, NC: Z.E, ND: Z.C, OH: Z.E,
+  OK: Z.C, OR: Z.P, PA: Z.E, RI: Z.E, SC: Z.E, SD: Z.C, TN: Z.C, TX: Z.C, UT: Z.M, VT: Z.E, VA: Z.E, WA: Z.P, WV: Z.E, WI: Z.C, WY: Z.M, PR: 'America/Puerto_Rico' };
+export const stateTz = (st) => STATE_TZ[String(st || '').trim().toUpperCase()] || null;
+// A stop's zone: its own timezone (set from its state when created from a rate con), else its state's zone,
+// else the viewer's device zone, else Central. (Before: a stop with no timezone, e.g. no appointment, used the viewer's zone.)
+export const stopZone = (s, tz) => validTz(s?.timezone) || stateTz(s?.state) || validTz(tz) || DEFAULT_TZ;
 export function fmtStopTime(iso, tz) {
   if (!iso || !isFinite(Date.parse(iso))) return null;
   return new Date(iso).toLocaleString('en-US', { timeZone: validTz(tz) || DEFAULT_TZ, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
@@ -22,7 +32,7 @@ const ACTUAL = { pickup: 'Picked up', delivery: 'Delivered' };
 export function stopTimeRows(load, { tz = null, delays = [] } = {}) {
   const withArrival = (load?.stops || []).length > 0 && (load.stops || []).every((x) => Object.prototype.hasOwnProperty.call(x, 'arrived_at'));
   return [...(load?.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)).map((s, i) => {
-    const zone = validTz(s.timezone) || validTz(tz) || DEFAULT_TZ;
+    const zone = stopZone(s, tz);
     const appt = s.appointment_start ? [fmtStopTime(s.appointment_start, zone), s.appointment_end ? fmtStopTime(s.appointment_end, zone) : null].filter(Boolean).join(' to ') : null;
     const actual = s.completion === 'skipped' ? 'Skipped' : s.completed_at ? fmtStopTime(s.completed_at, zone) : 'Not recorded';
     return { n: i + 1, type: TYPE[s.stop_type] || 'Stop', name: s.company_name || '', address: fullAddress(s), appointment: appt,

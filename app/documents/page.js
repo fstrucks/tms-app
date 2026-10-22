@@ -1,5 +1,6 @@
 'use client';
 
+import { authedFetch } from '../lib/authedFetch';
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
@@ -208,10 +209,9 @@ export default function DocumentsPage() {
     setExtracting((m) => ({ ...m, [id]: true }));
     setExtractErr((m) => ({ ...m, [id]: null }));
     try {
-      const { data } = await supabase.auth.getSession();
-      const res = await fetch('/api/extract', {
+      const res = await authedFetch(supabase.auth, '/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token || ''}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documentId: id, force }),
       });
       const body = await res.json().catch(() => ({}));

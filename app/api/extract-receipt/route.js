@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isAuthOutage } from '../../lib/authedFetch.js';
 import { noStoreFetch } from '../../lib/noStoreFetch';
 import { runExtraction, RECEIPT_RATE_LIMIT } from '../../lib/ai-extract';
 
@@ -72,6 +73,7 @@ export async function POST(req) {
   const userDb = createClient(url, anonKey, { ...opts, global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch } });
   const { data: userData, error: userErr } = await userDb.auth.getUser(token);
   const user = userData?.user;
+  if (isAuthOutage(userErr)) return fail(503, 'Couldn’t check your sign-in just now. Please try again.', userErr?.message);
   if (userErr || !user) return fail(401, 'Please sign in again.', userErr?.message);
 
   // Read the body with a hard cap (don't trust Content-Length alone).
