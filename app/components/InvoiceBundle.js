@@ -8,6 +8,7 @@ import ConfirmButton from './ui/ConfirmButton';
 import { fmtMoney } from '../lib/money';
 import { fmtSize } from '../lib/companyDocs';
 import { loadStatusNote, localDate } from '../lib/invoice';
+import { balanceDue } from '../lib/invoiceBundle';
 
 const { call: api, token } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -110,16 +111,23 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
               <input style={s.input} value={sentTo} onChange={(e) => setSentTo(e.target.value)} placeholder="ap@example.com" /></label>
             <button type="button" style={{ ...s.primary, marginTop: 8 }} disabled={!!busy} onClick={() => act('mark_sent', { sent_to: sentTo, files: names }, 'Marked as sent.')}>{inv.sent_at ? 'Mark as sent again' : 'Mark as sent'}</button>
           </>}
-          {['ready', 'sent'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
-            <span style={s.muted}>Payment received (blank = full {fmtMoney(inv.total)})</span>
+          {inv.status === 'short_paid' && <p style={{ margin: '0.5rem 0 0' }} data-testid="short-paid-flag"><strong>Short-paid</strong> — {fmtMoney(inv.paid_amount)} received, {fmtMoney(balanceDue(inv))} still owed. The load stays open until the balance is collected or written off.</p>}
+          {['ready', 'sent', 'short_paid'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
+            <span style={s.muted}>{inv.status === 'short_paid' ? `Another payment (blank = the rest, ${fmtMoney(balanceDue(inv))})` : `Payment received (blank = full ${fmtMoney(inv.total)})`}</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-              <input aria-label="Amount received" inputMode="decimal" style={{ ...s.input, width: 140 }} value={paid.amount} onChange={(e) => setPaid({ ...paid, amount: e.target.value })} placeholder={Number(inv.total).toFixed(2)} />
+              <input aria-label="Amount received" inputMode="decimal" style={{ ...s.input, width: 140 }} value={paid.amount} onChange={(e) => setPaid({ ...paid, amount: e.target.value })} placeholder={(inv.status === 'short_paid' ? balanceDue(inv) : Number(inv.total)).toFixed(2)} />
               <input aria-label="Date received" type="date" style={{ ...s.input, width: 170 }} value={paid.date} onChange={(e) => setPaid({ ...paid, date: e.target.value })} />
-              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Mark this invoice paid? An open load is marked Paid too." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date || localDate() }, 'Payment recorded.')} />
+              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Record this payment? If it covers the full amount, the invoice and an open load are marked Paid; if it's short, the load stays open." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date || localDate() }, 'Payment recorded.')} />
             </div>
           </div>}
-          {['paid', 'short_paid'].includes(inv.status) && <p style={{ margin: '0.5rem 0 0' }}>{inv.status === 'paid' ? 'Paid' : 'Short-paid'}: {fmtMoney(inv.paid_amount)} on {inv.paid_at}</p>}
-          {['ready', 'sent', 'short_paid'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
+          {inv.status === 'short_paid' && <div style={{ marginTop: '0.9rem' }}>
+            <span style={s.muted}>Not collecting the rest? Write off the balance to settle the invoice.</span>
+            <div style={{ marginTop: 4 }}>
+              <ConfirmButton label="Write off balance" confirmLabel="Yes, write off" prompt={`Write off ${fmtMoney(balanceDue(inv))}? The invoice and the load are marked Paid.`} onConfirm={() => act('write_off', {}, 'Balance written off.')} />
+            </div>
+          </div>}
+          {inv.status === 'paid' && <p style={{ margin: '0.5rem 0 0' }}>Paid: {fmtMoney(inv.paid_amount)} on {inv.paid_at}{Number(inv.written_off_amount) > 0 ? ` (${fmtMoney(inv.written_off_amount)} written off${inv.written_off_at ? ` on ${inv.written_off_at}` : ''})` : ''}</p>}
+          {['ready', 'sent', 'short_paid', 'paid'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
             <span style={s.muted}>Void (e.g. wrong charges). The number is kept and you can start a new draft.</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <input aria-label="Reason" style={{ ...s.input, flex: '1 1 200px', width: 'auto' }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
