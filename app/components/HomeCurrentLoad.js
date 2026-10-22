@@ -15,6 +15,7 @@ import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
 import CurrentLoadPanels from './CurrentLoadPanels';
 import StopActions from './StopActions';
+import { StopRating, useLoadFacilities } from './FacilityReview';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
@@ -34,11 +35,15 @@ const s = {
 
 function StopBlock({ load, stop, big = false }) {
   if (!stop) return null;
+  return <StopBlockInner load={load} stop={stop} big={big} />;
+}
+function StopBlockInner({ load, stop, big }) {
+  const facilities = useLoadFacilities(load?.id, load?.stops?.length);
   const appt = fmtApptWindow(stop.appointment_start, stop.appointment_end, stop.timezone);
   return (
     <div data-testid="home-stop" style={{ minWidth: 0 }}>
       <div style={s.lbl}>{STOP_LABEL(stop)}</div>
-      {stop.company_name && <div style={{ fontWeight: 600, fontSize: big ? '1.1rem' : '1rem' }}>{stop.company_name}</div>}
+      {stop.company_name && <div style={{ fontWeight: 600, fontSize: big ? '1.1rem' : '1rem' }}>{stop.company_name}<StopRating info={facilities[stop.id]} /></div>}
       <div style={{ fontSize: '0.9rem', color: 'var(--text)' }}>{fullAddress(stop) || '—'}</div>
       <div style={{ fontSize: '0.9rem', marginTop: 2 }}><b>Appt</b> {appt || 'not set'}</div>
       {stop.stop_type === 'pickup' && <div data-testid="home-pickup-number" style={{ fontSize: '0.9rem', marginTop: 2 }}>{pickupNumberText(load, stop)}</div>}
