@@ -99,7 +99,7 @@ export default function DocumentsPage() {
     const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
-    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null, companyId: j.profile?.id || null };
+    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null, companyId: j.profile?.id || null, userId: user?.id || null };
     loadSkipped();
     if (j.role === 'driver') { setIsDriver(true); setUploadType((t) => (t === 'rate_confirmation' ? 'bol' : t)); }
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
