@@ -1,4 +1,5 @@
-// POST { action: 'done' | 'skip' | 'undo' } → { ok, stop, status }
+// POST { action: 'done' | 'skip' | 'undo' | 'deliver' | 'set_time', at? } → { ok, stop, status }
+// at (ISO): the actual time for done / skip (default now) or the corrected time for set_time.
 // Marks one stop picked up / delivered / done, skipped, or un-marks it. Allowed: owner / management / dispatcher on any
 // company load, or the load's assigned driver. The role is resolved for the LOAD's company (packet_role(load owner)),
 // not the caller's company profile: 36fc0fc filtered loads.user_id = company_profiles.owner_id, which 404s whenever
@@ -37,7 +38,7 @@ export async function POST(req, { params, deps } = {}) {
   if (!role && load.assigned_driver_user_id === c.user.id) role = 'driver';
   if (!role || !canCompleteStops(role, load, c.user.id)) return out({ error: 'Load not found.' }, 404, 'no_role');
   if (!supportsStopCompletion(load)) return out(SETUP, 409, 'no_completion_columns_in_read');
-  const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id });
+  const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id, at: body?.at ?? null });
   if (plan.error) return out({ error: plan.error }, plan.code, 'plan');
   if (plan.noop) return out({ ok: true, already: true, stop: clean((load.stops || []).find((s) => s.id === params.stopId)), status: load.status }, 200, 'noop');
 
@@ -48,7 +49,7 @@ export async function POST(req, { params, deps } = {}) {
     if (!upd.data?.length) return out(NOT_SAVED, 500, 'update_0_rows');
     const { data: fresh, error: rErr } = await svc.from('stops').select('*').eq('id', params.stopId).eq('load_id', load.id).maybeSingle();
     const want = plan.stopPatch.completed_at;
-    if (rErr || !fresh || (want ? !fresh.completed_at || fresh.completion !== plan.stopPatch.completion : fresh.completed_at != null)) {
+    if (rErr || !fresh || (want ? !fresh.completed_at || Date.parse(fresh.completed_at) !== Date.parse(want) || fresh.completion !== plan.stopPatch.completion : fresh.completed_at != null)) {
       return out(NOT_SAVED, 500, `reread_mismatch_${rErr?.code || ''}`);
     }
     stop = fresh;

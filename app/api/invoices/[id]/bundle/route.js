@@ -1,11 +1,14 @@
 // The paperwork that goes with an invoice (office roles; nothing is emailed).
 //   GET                    → { files, checks, size, email: { to, subject, body }, format }
 //   GET ?download=merged   → one PDF: invoice, rate con, BOL/POD, receipts, (NOA when factored)
+//   ?stopTimes=1 (with merged) → also the load's Stop times sheet (optional, off by default)
+//   GET ?download=stop_times → the Stop times sheet alone
 //   GET ?download=<docId|invoice> → that one file as a PDF named {LOAD}_{Doc}.pdf (photos become a PDF page)
 import { billingCtx, json, invoiceWithDocs, companyProfile, loadLogo } from '../../../../lib/invoiceServer';
-import { bundleFiles, bundleChecks, sizeCheck, emailText, recipientFor } from '../../../../lib/invoiceBundle';
+import { withStopTimes, STOP_TIMES_KIND, bundleFiles, bundleChecks, sizeCheck, emailText, recipientFor } from '../../../../lib/invoiceBundle';
 import { buildBundlePdf, docToPdf } from '../../../../lib/invoiceBundlePdf';
 import { invoicePdf } from '../../../../lib/invoicePdf';
+import { stopTimesPdf } from '../../../../lib/stopTimesPdf';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,14 +30,26 @@ export async function GET(req, { params, deps } = {}) {
   const b = await invoiceWithDocs(x, params?.id); if (b.res) return b.res;
   const { invoice, docs } = b;
   const { profile } = await companyProfile(x.svc, x.c.ownerId);
-  const dl = new URL(req.url).searchParams.get('download');
+  const sp = new URL(req.url).searchParams;
+  const dl = sp.get('download');
+  const sheet = async () => {
+    if (!invoice.load_id) return null;
+    const { data: load } = await x.svc.from('loads').select('id,broker_load_number,broker_name, stops(*)').eq('id', invoice.load_id).eq('user_id', x.c.ownerId).maybeSingle();
+    return load ? stopTimesPdf(load, profile, { tz: sp.get('tz') }) : null;
+  };
+  if (dl === STOP_TIMES_KIND) {
+    const bytes = await sheet(); if (!bytes) return json({ error: 'This invoice has no load.' }, 404);
+    return pdfRes(bytes, withStopTimes([], invoice, true)[0].name);
+  }
   if (dl) {
     const download = async (p) => { const { data } = await x.svc.storage.from('documents').download(p); return data ? new Uint8Array(await data.arrayBuffer()) : null; };
     const inv = await invoicePdf(invoice, profile, { logo: await loadLogo(x.svc, profile?.logo_path) });
     const files = bundleFiles(invoice, docs);
     if (dl === 'invoice') return pdfRes(inv, files[0].name);
     if (dl === 'merged') {
-      const r = await buildBundlePdf(inv, files.slice(1).map((f) => ({ ...f, doc: docs.find((d) => d.id === f.docId) })), download);
+      const list = withStopTimes(files, invoice, sp.get('stopTimes') === '1');
+      const st = list.some((f) => f.kind === STOP_TIMES_KIND) ? await sheet() : null;
+      const r = await buildBundlePdf(inv, list.slice(1).map((f) => (f.kind === STOP_TIMES_KIND ? { ...f, pdfBytes: st } : { ...f, doc: docs.find((d) => d.id === f.docId) })), download);
       return pdfRes(r.bytes, files[0].name.replace(/_Invoice\.pdf$/, '_Packet.pdf'));
     }
     const f = files.find((y) => y.docId === dl);

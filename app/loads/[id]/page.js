@@ -28,6 +28,7 @@ import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
+import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
 
@@ -271,6 +272,7 @@ export default function LoadDetailPage() {
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
                   <StopActions supabase={supabase} load={load} userId={user.id} onChange={(next) => { setLoad((l) => ({ ...l, status: next.status, stops: next.stops })); list?.patchLoad?.(id, { status: next.status }); }} onRefresh={() => fetchRef.current?.()} />
+                  <StopTimesDownload supabase={supabase} load={load} />
                   {load.stops.length === 0 ? <p style={s.muted}>No stops.</p> : load.stops.map((st, i) => (
                     <div key={st.id} style={{ ...s.row, alignItems: 'flex-start', borderBottom: i === load.stops.length - 1 ? 'none' : s.row.borderBottom }}>
                       <div style={{ minWidth: 0 }}>

@@ -44,13 +44,39 @@ export function lastCompletedStop(load) {
   return byseq(load).filter(isStopDone).sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))[0] || null;
 }
 
+// Adjustable actual time (Oct 22): the driver may set when the stop really happened. Default now; up to 10 minutes
+// ahead (clock drift) and back 30 days. → { at: ISO } | { error }
+export const STOP_TIME_MAX_FUTURE_MS = 10 * 60 * 1000;
+export const STOP_TIME_MAX_PAST_MS = 30 * 24 * 3600 * 1000;
+export function checkStopTime(at, now) {
+  const t = Date.parse(at), n = Date.parse(now);
+  if (!at || !isFinite(t)) return { error: 'Enter a valid date and time.' };
+  if (t > n + STOP_TIME_MAX_FUTURE_MS) return { error: 'That time is in the future.' };
+  if (t < n - STOP_TIME_MAX_PAST_MS) return { error: 'That time is more than 30 days ago.' };
+  return { at: new Date(t).toISOString() };
+}
+// <input type="datetime-local"> value (device local time) ⇄ ISO.
+const pad = (n) => String(n).padStart(2, '0');
+export function toLocalInput(iso) {
+  const d = new Date(iso); if (!isFinite(d)) return '';
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+export function fromLocalInput(v) { const d = new Date(v); return v && isFinite(d) ? d.toISOString() : null; }
+
 const START_STATUSES = ['booked', 'dispatched'];
 const DELIVER_FROM = ['booked', 'dispatched', 'in_transit'];
 // action: 'done' | 'skip' | 'undo' → { stopPatch, status } | { error, status: http }
-export function planStopAction(load, stopId, action, { now = new Date().toISOString(), userId = null } = {}) {
+// 'set_time' { at } changes only the actual time of a completed stop (status untouched). 'done' / 'skip' take an
+// optional { at } (default now).
+export function planStopAction(load, stopId, action, { now = new Date().toISOString(), userId = null, at = null } = {}) {
   const st = byseq(load);
   const stop = st.find((s) => s.id === stopId);
   if (!stop) return { error: 'Stop not found.', code: 404 };
+  if (action === 'set_time') {
+    if (!isStopDone(stop)) return { error: 'Mark the stop first, then adjust its time.', code: 409 };
+    const t = checkStopTime(at, now); if (t.error) return { error: t.error, code: 422 };
+    return { stopPatch: { completed_at: t.at, completion: stop.completion, completed_by: stop.completed_by ?? userId }, status: null, fromStatuses: [] };
+  }
   if (action === 'undo') {
     if (!isStopDone(stop)) return { noop: true }; // already open (e.g. a second tap): success, no write
     // Undo of the first pickup while nothing else is marked: back to dispatched, so the card shows the pickup again
@@ -70,6 +96,8 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   }
   if (action !== 'done' && action !== 'skip') return { error: 'Bad request.', code: 400 };
   if (isStopDone(stop)) return { noop: true }; // already marked (stale view / second tap): success, no write
+  let when = now;
+  if (at != null && at !== '') { const t = checkStopTime(at, now); if (t.error) return { error: t.error, code: 422 }; when = t.at; }
   const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
   let status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
   // Marking the final open stop done (with at least one delivery stop delivered) delivers the load. This fires the
@@ -77,6 +105,6 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   const othersOpen = st.some((s) => s.id !== stop.id && !isStopDone(s));
   const anyDelivered = st.some((s) => s.stop_type === 'delivery' && (s.id === stop.id ? action === 'done' : s.completion === 'done'));
   if (!othersOpen && anyDelivered && DELIVER_FROM.includes(load.status)) status = 'delivered';
-  return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: status === 'delivered' ? DELIVER_FROM : START_STATUSES };
+  return { stopPatch: { completed_at: when, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: status === 'delivered' ? DELIVER_FROM : START_STATUSES };
 }
 export { START_STATUSES, DELIVER_FROM };
