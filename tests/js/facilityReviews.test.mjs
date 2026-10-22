@@ -124,3 +124,30 @@ test('UI wiring: prompt after picked up / delivered, dismissible; facility info 
   const p = read('../../app/facilities/[id]/page.js');
   assert.match(p, /facility-report/); assert.ok(!/author|company_id/.test(p));
 });
+
+import { reviewState, canLinkStop, isReviewableStop } from '../../app/lib/facilityReviews.js';
+test('reviewState: unlinked completed stops still get a link path or an empty state', () => {
+  assert.equal(reviewState({ stop_type: 'delivery', completion: 'done', facility_id: 'f' }), 'review');
+  assert.equal(reviewState({ stop_type: 'delivery', completion: 'done', facility_id: null, company_name: 'TEST Receiver', city: 'Denver' }), 'link');
+  assert.equal(reviewState({ stop_type: 'pickup', completion: 'done', company_name: 'TEST Shipper', zip: '80202' }), 'link');
+  assert.equal(reviewState({ stop_type: 'pickup', completion: 'done', company_name: '', city: 'Denver' }), 'missing');
+  assert.equal(reviewState({ stop_type: 'pickup', completion: 'done', company_name: 'TEST' }), 'missing');
+  assert.equal(reviewState({ stop_type: 'pickup', completion: 'skipped', company_name: 'TEST', city: 'X' }), null);
+  assert.equal(reviewState({ stop_type: 'pickup', completion: null }), null);
+  assert.ok(!canLinkStop({ stop_type: 'pickup', completion: 'done', facility_id: 'f', company_name: 'A', city: 'B' }));
+  assert.ok(isReviewableStop({ stop_type: 'delivery', completion: 'done' }));
+});
+
+test('review: unlinked done stop (rate con, no street) links on save via facility_link_stop; no name → clear empty state', async () => {
+  const c = ctx('driver', DRIVER, { stops: [stop(S1, 1, 'pickup', { completion: 'done', completed_at: '2026-10-20T18:00:00Z', facility_id: null, city: 'Dallas' }), stop(S2, 2, 'delivery', { completion: 'done', facility_id: null, company_name: '' })] });
+  const base = c.svc.rpc; const calls = [];
+  c.svc.rpc = async (fn, a) => { if (fn === 'facility_link_stop') { calls.push(a.p_stop); const s = c.svc.db.stops.find((x) => x.id === a.p_stop); s.facility_id = F1; return { data: F1, error: null }; } return base(fn, a); };
+  let r = await call(REVIEW, 'GET', c, { id: L1, stopId: S1 }); assert.equal(r.j.canReview, true); assert.equal(r.j.state, 'link');
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S1 }, { stars: 3 }); assert.equal(r.status, 200);
+  assert.deepEqual(calls, [S1]); assert.equal(c.svc.db.facility_reviews[0].facility_id, F1);
+  r = await call(REVIEW, 'GET', c, { id: L1, stopId: S2 }); assert.equal(r.j.canReview, false); assert.equal(r.j.state, 'missing'); assert.match(r.j.message, /facility name/);
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S2 }, { stars: 3 }); assert.equal(r.status, 409);
+  const a = read('../../app/components/StopActions.js'); assert.match(a, /!reviewStop && isReviewableStop\(last\)/, 'link shows on reload without a facility');
+  const m = readFileSync(new URL('../../supabase/migrations/20261022210000_facility_link_stop.sql', import.meta.url), 'utf8');
+  assert.match(m, /security definer/); assert.match(m, /revoke all on function public\.facility_link_stop\(uuid\) from authenticated/);
+});

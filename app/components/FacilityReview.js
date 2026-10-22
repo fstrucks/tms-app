@@ -49,13 +49,22 @@ export function FacilityReviewPrompt({ loadId, stop, onClose }) {
     let live = true;
     api(`/api/loads/${loadId}/stops/${stop.id}/review`).then((j) => {
       if (!live) return;
-      if (j.error || !j.canReview) return setSt({ hidden: true });
+      if (j.setupNeeded) return setSt({ note: 'Facility reviews need a database update that hasn’t been applied yet.' });
+      if (j.state === 'missing') return setSt({ note: j.message || 'This stop can’t be reviewed yet.' });
+      if (j.error) return setSt({ note: j.error });
+      if (!j.canReview) return setSt({ hidden: true });
       if (j.review) setForm({ stars: j.review.stars, better_note: j.review.better_note || '', need_to_know: j.review.need_to_know || '' });
       setSt({ ready: true, existing: !!j.review });
     }).catch(() => live && setSt({ hidden: true }));
     return () => { live = false; };
   }, [loadId, stop.id]);
   if (st.loading || st.hidden) return null;
+  if (st.note) return (
+    <div role="status" data-testid="facility-review-empty" style={{ marginTop: 8, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+      {st.note}{' '}
+      <button type="button" onClick={onClose} style={{ ...btn, minHeight: 32, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px' }}>Close</button>
+    </div>
+  );
   const place = stop.company_name || (stop.stop_type === 'pickup' ? 'the shipper' : 'the receiver');
   async function save() {
     if (!form.stars) return setErr('Pick 1 to 4 stars.');

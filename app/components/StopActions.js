@@ -4,6 +4,7 @@
 // stops.completed_at migration, for viewers who can't act, and on loads without stops. Server enforces roles.
 import { useRef, useState } from 'react';
 import { FacilityInfo, FacilityReviewPrompt, useLoadFacilities } from './FacilityReview';
+import { isReviewableStop } from '../lib/facilityReviews';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { sortedStops } from '../lib/loadTabs';
 import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone, DELIVER_FROM, toLocalInput, fromLocalInput } from '../lib/stopProgress';
@@ -132,7 +133,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
         </details>
       )}
       {reviewStop && <FacilityReviewPrompt key={reviewStop.id} loadId={load.id} stop={reviewStop} onClose={() => setReviewStop(null)} />}
-      {!reviewStop && last?.completion === 'done' && facilities[last.id] && (
+      {!reviewStop && isReviewableStop(last) && (
         <button type="button" data-testid="facility-review-open" onClick={() => setReviewStop(last)}
           style={{ ...btn, marginTop: 4, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px', fontWeight: 400, fontSize: '0.9rem' }}>Review this facility</button>
       )}

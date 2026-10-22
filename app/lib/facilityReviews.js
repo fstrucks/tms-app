@@ -44,7 +44,18 @@ export function cleanReview(body = {}) {
 }
 
 // Stops that can be reviewed: picked up / delivered (not skipped), linked to a facility.
-export const canReviewStop = (s) => !!s && ['pickup', 'delivery'].includes(s.stop_type) && s.completion === 'done' && !!s.facility_id;
+export const isReviewableStop = (s) => !!s && ['pickup', 'delivery'].includes(s.stop_type) && s.completion === 'done';
+export const canReviewStop = (s) => isReviewableStop(s) && !!s.facility_id;
+// A done stop with no facility yet can be linked on demand when it has a name plus a city or ZIP
+// (mirror of public.facility_link_stop, migration 20261022210000).
+export const canLinkStop = (s) => isReviewableStop(s) && !s.facility_id && !!facilityNorm(s.company_name) && !!(facilityNorm(s.city) || String(s.zip || '').replace(/\D/g, ''));
+// What the review prompt should show for a stop: 'review' | 'link' (linked when the review is saved) | 'missing' (empty state) | null (not yet).
+export function reviewState(s) {
+  if (!isReviewableStop(s)) return null;
+  if (s.facility_id) return 'review';
+  return canLinkStop(s) ? 'link' : 'missing';
+}
+export const NO_FACILITY_MSG = 'This stop needs a facility name and a city or ZIP before it can be reviewed. Add them on the stop, then try again.';
 export const fmtStars = (avg) => (avg == null ? '' : `${Number(avg).toFixed(1)}★`);
 export const starsText = (n) => '★'.repeat(n) + '☆'.repeat(Math.max(0, STARS_MAX - n));
 // Recent non-empty Need-to-know tips (newest first) from public reviews.
