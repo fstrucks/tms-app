@@ -1,4 +1,4 @@
-// POST { action: 'done' | 'skip' | 'undo' | 'deliver' | 'set_time', at? } → { ok, stop, status }
+// POST { action: 'done' | 'skip' | 'undo' | 'deliver' | 'arrive' | 'undo_arrive' | 'set_time', at?, field? } → { ok, stop, status }
 // at (ISO): the actual time for done / skip (default now) or the corrected time for set_time.
 // Marks one stop picked up / delivered / done, skipped, or un-marks it. Allowed: owner / management / dispatcher on any
 // company load, or the load's assigned driver. The role is resolved for the LOAD's company (packet_role(load owner)),
@@ -9,7 +9,7 @@
 // in_transit → dispatched. Before migration 20261020000400: 409 { setupNeeded } (the UI hides the buttons).
 import { loadDocsCtx, json, UUID } from '../../../../../lib/loadDocsServer';
 import { isMissing } from '../../../../../lib/truckServer';
-import { canCompleteStops, planStopAction, supportsStopCompletion } from '../../../../../lib/stopProgress';
+import { canCompleteStops, planStopAction, supportsStopCompletion, supportsArrival, patchApplied } from '../../../../../lib/stopProgress';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,9 @@ export async function POST(req, { params, deps } = {}) {
   if (!role && load.assigned_driver_user_id === c.user.id) role = 'driver';
   if (!role || !canCompleteStops(role, load, c.user.id)) return out({ error: 'Load not found.' }, 404, 'no_role');
   if (!supportsStopCompletion(load)) return out(SETUP, 409, 'no_completion_columns_in_read');
-  const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id, at: body?.at ?? null });
+  const arrivalAction = ['arrive', 'undo_arrive'].includes(body?.action) || (body?.action === 'set_time' && body?.field === 'arrived');
+  if (arrivalAction && !supportsArrival(load)) return out({ error: 'Arrival times need a database update that hasn’t been applied yet.', arrivalSetupNeeded: true }, 409, 'no_arrival_columns');
+  const plan = planStopAction(load, params.stopId, body?.action, { now: (deps?.now ? new Date(deps.now()) : new Date()).toISOString(), userId: c.user.id, at: body?.at ?? null, field: body?.field === 'arrived' ? 'arrived' : 'completed' });
   if (plan.error) return out({ error: plan.error }, plan.code, 'plan');
   if (plan.noop) return out({ ok: true, already: true, stop: clean((load.stops || []).find((s) => s.id === params.stopId)), status: load.status }, 200, 'noop');
 
@@ -48,8 +50,7 @@ export async function POST(req, { params, deps } = {}) {
     if (upd.error) return isMissing(upd.error) ? out(SETUP, 409, `update_missing_${upd.error.code || ''}`) : out({ error: 'Couldn’t save the stop.' }, 500, `update_${upd.error.code || 'err'}`);
     if (!upd.data?.length) return out(NOT_SAVED, 500, 'update_0_rows');
     const { data: fresh, error: rErr } = await svc.from('stops').select('*').eq('id', params.stopId).eq('load_id', load.id).maybeSingle();
-    const want = plan.stopPatch.completed_at;
-    if (rErr || !fresh || (want ? !fresh.completed_at || Date.parse(fresh.completed_at) !== Date.parse(want) || fresh.completion !== plan.stopPatch.completion : fresh.completed_at != null)) {
+    if (rErr || !fresh || !patchApplied(fresh, plan.stopPatch)) {
       return out(NOT_SAVED, 500, `reread_mismatch_${rErr?.code || ''}`);
     }
     stop = fresh;

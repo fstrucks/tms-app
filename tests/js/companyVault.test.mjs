@@ -133,7 +133,7 @@ test('Documents tab = load paperwork only; Change type can still move a file int
 
 test('load delete never deletes company docs, only unlinks them', async () => {
   const calls = [];
-  const sb = { from: (t) => ({
+  const sb = { from: (t) => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }),
     update: (p) => ({ eq: async (c, v) => { calls.push(['update', t, v]); return { error: null }; } }),
     delete: () => ({ eq: (c, v) => { const pr = { select: async () => { calls.push(['delete', t, v]); return { data: [{ id: v }], error: null }; } }; pr.then = (a, b) => { calls.push(['delete', t, v]); return Promise.resolve({ error: null }).then(a, b); }; return pr; } }),
   }), storage: { from: () => ({ remove: async (p) => { calls.push(['storage', p[0]]); return { error: null }; } }) } };

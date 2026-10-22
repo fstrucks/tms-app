@@ -8,6 +8,11 @@ import { isCompanyDocType } from './docTypes.js';
 // Returns { ok, error, warnings }.
 export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = false } = {}) {
   const warnings = [];
+  // Check invoices first so nothing is unlinked or deleted when the load can't be removed.
+  const { data: invs, error: iErr } = await supabase.from('invoices').select('id,status,invoice_number').eq('load_id', loadId);
+  if (iErr) return { ok: false, error: `Couldn't check invoices: ${iErr.message}` };
+  const blocking = (invs || []).filter((i) => !['draft', 'void'].includes(i.status));
+  if (blocking.length) return { ok: false, error: `This load has invoice ${blocking.map((i) => i.invoice_number).filter(Boolean).join(', ') || 'records'}. Void it first, then delete the load.` };
   for (const table of ['expenses', 'mileage_entries']) {
     const { error } = await supabase.from(table).update({ load_id: null }).eq('load_id', loadId);
     if (error) return { ok: false, error: `Couldn't unlink ${table === 'expenses' ? 'expenses' : 'mileage'}: ${error.message}` };
@@ -31,7 +36,7 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
   const { error: sErr } = await supabase.from('stops').delete().eq('load_id', loadId);
   if (sErr) return { ok: false, error: `Couldn't delete stops: ${sErr.message}` };
   const { data, error } = await supabase.from('loads').delete().eq('id', loadId).select('id');
-  if (error) return { ok: false, error: `Couldn't delete the load: ${error.message}` };
+  if (error) return { ok: false, error: /invoice_locked/.test(error.message || '') ? 'This load still has a finalized invoice. Void it first, then delete the load.' : `Couldn't delete the load: ${error.message}` };
   if (!data || data.length === 0) return { ok: false, error: "Couldn't delete the load (not found or not permitted)." };
   return { ok: true, warnings };
 }

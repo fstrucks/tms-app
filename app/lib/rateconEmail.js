@@ -68,6 +68,17 @@ export async function dedupeRateconPdfs(sb, userId, pdfs) {
   return { keep, dups, hashColumn: !error };
 }
 
+// The company an emailed rate con belongs to (company_profiles.id): the one this user owns, else the company where
+// they're on the office team (owner / management / dispatcher). Drafts then show for that company's whole office
+// team (migration 20261022150000). null when neither (the row still saves, visible to the receiver only).
+export const OFFICE_ROLES = ['owner', 'management', 'dispatcher'];
+export async function rateconCompanyFor(sb, userId) {
+  const { data: prof } = await sb.from('company_profiles').select('id').eq('owner_id', userId).limit(1).maybeSingle();
+  if (prof?.id) return prof.id;
+  const { data: mem } = await sb.from('company_members').select('profile_id, role').eq('user_id', userId).in('role', OFFICE_ROLES).limit(1).maybeSingle();
+  return mem?.profile_id || null;
+}
+
 // Handles one rate con email. Always 200 for anything Postmark shouldn't retry (unknown token, blocked sender,
 // duplicate, no PDFs). 500 only when nothing was saved, so a Postmark retry can try again.
 export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }) {
@@ -93,8 +104,7 @@ export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }
   }
   const userId = owner.user_id;
   // Tag the row with the receiving company (company_profiles.id) so Documents can scope its notices. Best effort.
-  const { data: prof } = await sb.from('company_profiles').select('id').eq('owner_id', userId).limit(1).maybeSingle();
-  const companyId = prof?.id || null;
+  const companyId = await rateconCompanyFor(sb, userId);
   const { keep: pdfs, dups, hashColumn } = await dedupeRateconPdfs(sb, userId, mail.pdfs);
   const rejected = [...mail.rejected, ...dups];
   const { data: email, error: eErr } = await sb.from('inbound_emails')

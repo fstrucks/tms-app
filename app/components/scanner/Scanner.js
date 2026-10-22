@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { VISUALLY_HIDDEN } from '../UploadMenu';
 import { SCAN_DOC_TYPES, isCompanyDocType, docTypeShort, otherDocType, uploadButtonLabel, OTHER_MAX } from '../../lib/docTypes';
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
+import { PDF_ACCEPT, pdfFileProblem, PDF_PROBLEM, pdfUploadName } from '../../lib/pdfFile';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
@@ -23,6 +24,7 @@ export const RATECON_TYPE = { id: 'ratecon', label: 'Rate Confirmation' };
 
 export default function Scanner({ initialFiles = [], loads = [], initialLoadId = '', allowRateCon = false, typeIds = null, onClose, onSave }) {
   const [pages, setPages] = useState([]);
+  const [pdf, setPdf] = useState(null); // a PDF picked directly: uploaded as-is, no image processing
   const pagesRef = useRef(pages); pagesRef.current = pages;
   const [mode, setMode] = useState('bw');
   const modeRef = useRef(mode); modeRef.current = mode;
@@ -45,9 +47,10 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [editing, setEditing] = useState(null);
   const [askDiscard, setAskDiscard] = useState(false);
   const uid = useId();
-  const ids = { camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err` };
+  const ids = { pdf: `${uid}-pdf`, camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err` };
   const cameraRef = useRef(null);
   const chooseRef = useRef(null);
+  const pdfRef = useRef(null);
   const retakeRef = useRef(null);
   const retakeIdx = useRef(null);
   const dialogRef = useRef(null);
@@ -61,7 +64,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
     dialogRef.current?.focus();
     if (initialFiles.length) addFiles(initialFiles);
-    else setMsg({ text: 'Tap "Take photo" to photograph each page, or "Choose photos" to pick saved images.' });
+    else setMsg({ text: 'Tap "Take photo" to photograph each page, "Choose photos" to pick saved images, or "Choose PDF" for a PDF file.' });
     return () => {
       document.body.style.overflow = prev;
       pagesRef.current.forEach((p) => revoke(p.thumb));
@@ -170,11 +173,31 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     setPages((ps) => removePage(ps, i));
   }
 
+  async function pickPdf(e) {
+    pending.current = null;
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    if (pagesRef.current.length) return setMsg({ err: true, text: 'Save or delete the photo pages first, then choose a PDF.' });
+    const why = await pdfFileProblem(f).catch(() => 'not_pdf');
+    if (why) return setMsg({ err: true, text: `${PDF_PROBLEM[why]} Choose a PDF up to 10 MB.` });
+    setPdf(f); setMsg({ text: `${f.name} is ready. Pick the document type, then upload. The PDF is saved as-is.` });
+  }
+
   async function save() {
-    if (!pages.length) return;
+    if (!pages.length && !pdf) return;
     const savedType = isOther ? otherDocType(otherName) : docType;
     if (!savedType) return setMsg({ err: true, text: 'Enter a document type for "Other".' });
     setMsg(null);
+    if (pdf) {
+      try {
+        setBusy(rateCon ? 'Preparing…' : 'Uploading…');
+        const file = new File([pdf], pdfUploadName(pdf.name), { type: 'application/pdf' });
+        const err = await onSave(rateCon ? { file, docType } : { file, docType: savedType, loadId: loadId || null });
+        setBusy(null);
+        if (err) setMsg({ err: true, text: err });
+      } catch (e) { console.error('[scan] pdf save', e); setBusy(null); setMsg({ err: true, text: "Couldn't upload the PDF. Please try again." }); }
+      return;
+    }
     try {
       setBusy('Building PDF…');
       const { PDFDocument } = await import('pdf-lib');
@@ -208,20 +231,20 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
   // Upload stays tappable (aria-disabled, not disabled) so a tap without a type can explain itself.
   function tryUpload() {
-    if (busy || !pages.length) return;
+    if (busy || (!pages.length && !pdf)) return;
     if (!docType) { setTypeErr(true); typeRef.current?.focus(); return; }
     if (isOther && !otherDocType(otherName)) { setMsg({ err: true, text: 'Enter a document type for "Other".' }); otherRef.current?.focus(); return; }
     save();
   }
 
   function close() {
-    if (pagesRef.current.length) return setAskDiscard(true); // inline confirm (pick 4A), no window.confirm
+    if (pagesRef.current.length || pdf) return setAskDiscard(true); // inline confirm (pick 4A), no window.confirm
     onClose();
   }
 
   const n = pages.length;
   const full = n >= MAX_PAGES;
-  const uploadOff = !n || !!busy || !docType || (isOther && !otherDocType(otherName));
+  const uploadOff = !(n || pdf) || !!busy || !docType || (isOther && !otherDocType(otherName));
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
@@ -230,7 +253,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         {askDiscard ? (
           <span role="group" aria-label="Discard this scan?" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setAskDiscard(false); } }}>
-            <span style={{ fontSize: 14, whiteSpace: 'nowrap' }}>Discard {n} page{n > 1 ? 's' : ''}?</span>
+            <span style={{ fontSize: 14, whiteSpace: 'nowrap' }}>{pdf ? 'Discard this PDF?' : `Discard ${n} page${n > 1 ? 's' : ''}?`}</span>
             <button ref={keepRef} type="button" style={btn} onClick={() => setAskDiscard(false)}>Keep</button>
             <button type="button" style={{ ...btn, border: 'none', background: 'var(--danger)', color: 'var(--on-primary)' }} onClick={onClose}>Discard</button>
           </span>
@@ -255,7 +278,13 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: '0 0 0.75rem' }}>
           Tip: hold the phone upright (portrait) so the page fills the photo, lay the page flat on a darker surface, fill most of the frame and avoid glare. Up to {MAX_PAGES} pages per scan.
         </p>
-        {n === 0 && !busy && <p style={{ color: 'var(--text-muted)' }}>No pages yet.</p>}
+        {pdf ? (
+          <div data-testid="scan-pdf" style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, padding: 10 }}>
+            <span aria-hidden="true" style={{ fontSize: 28 }}>📄</span>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.name} · {(pdf.size / 1048576).toFixed(1)} MB</span>
+            <button type="button" style={btn} disabled={!!busy} onClick={() => { setPdf(null); setMsg(null); }}>Remove</button>
+          </div>
+        ) : n === 0 && !busy && <p style={{ color: 'var(--text-muted)' }}>No pages yet.</p>}
         <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {pages.map((p, i) => (
             <li key={p.id} style={{ background: 'var(--surface)', border: '1px solid var(--divider)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -309,13 +338,15 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
             </select>
           </label>
           )}
-          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
-          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
+          <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
+          <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
+          {!n && !pdf && <label htmlFor={ids.pdf} role="button" tabIndex={0} onKeyDown={keyOpen} data-testid="scan-choose-pdf" aria-disabled={!!busy || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(!!busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📄 Choose PDF</label>}
           <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 
       {/* Own inputs, never shared with the PDF-only picker (Android chooser bug). Camera = capture; Choose = no capture. */}
+      <input ref={pdfRef} id={ids.pdf} type="file" accept={PDF_ACCEPT} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onChange={pickPdf} />
       <input ref={cameraRef} id={ids.camera} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'camera')} onChange={(e) => addFiles(takeFiles(e))} />
       <input ref={chooseRef} id={ids.choose} type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'choose')} onChange={(e) => addFiles(takeFiles(e))} />
       <input ref={retakeRef} id={ids.retake} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onClick={(e) => armInput(e.currentTarget, 'retake')}
