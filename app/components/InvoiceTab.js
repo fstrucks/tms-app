@@ -191,7 +191,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
       )}
       {msg && <p role="status" style={{ color: 'var(--success)', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err && <p role="alert" style={s.err}>{err}</p>}
-      {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next, j) => { if (next?.status === 'void') { setMsg(null); load(); if (j?.loadStatus === 'delivered' && j.loadStatusBefore !== 'delivered') cb.current.onLoadStatus?.('delivered'); } else if (next) setSt((x) => ({ ...x, invoice: next })); if (next?.status !== 'void' && j?.loadStatus && j.loadStatus !== j.loadStatusBefore) cb.current.onLoadStatus?.(j.loadStatus); }} />}
+      {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next, j) => { if (next?.status === 'void') { setMsg(null); load(); if (j?.loadStatus === 'delivered' && j.loadStatusBefore !== 'delivered') cb.current.onLoadStatus?.('delivered'); } else if (next) { setMsg(null); setSt((x) => ({ ...x, invoice: next })); } if (next?.status !== 'void' && j?.loadStatus && j.loadStatus !== j.loadStatusBefore) cb.current.onLoadStatus?.(j.loadStatus); }} />}
       {st.voidedCount > 0 && <p style={s.muted}>{st.voidedCount} voided invoice{st.voidedCount === 1 ? '' : 's'} for this load (see Invoices).</p>}
     </div>
   );

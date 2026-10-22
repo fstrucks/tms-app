@@ -127,7 +127,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
             </div>
           </div>}
           {inv.status === 'paid' && <p style={{ margin: '0.5rem 0 0' }}>Paid: {fmtMoney(inv.paid_amount)} on {inv.paid_at}{Number(inv.written_off_amount) > 0 ? ` (${fmtMoney(inv.written_off_amount)} written off${inv.written_off_at ? ` on ${inv.written_off_at}` : ''})` : ''}</p>}
-          {['ready', 'sent', 'short_paid'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
+          {['ready', 'sent', 'short_paid', 'paid'].includes(inv.status) && <div style={{ marginTop: '0.9rem' }}>
             <span style={s.muted}>Void (e.g. wrong charges). The number is kept and you can start a new draft.</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <input aria-label="Reason" style={{ ...s.input, flex: '1 1 200px', width: 'auto' }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />

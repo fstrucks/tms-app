@@ -110,8 +110,7 @@ export function statusChange(invoice, action, body = {}, today = new Date().toIS
     return { patch: { status: 'paid', written_off_amount: bal, written_off_at: today }, event: { kind: 'written_off', note: note || `Balance written off: $${bal.toFixed(2)}` }, loadStatus: 'paid' };
   }
   if (action === 'void') {
-    // Short-paid can be voided (e.g. a test invoice, or re-billing the balance); fully paid ones can't.
-    if (s === 'paid') return { error: 'Paid invoices can’t be voided.' };
+    // Any finalized invoice can be voided, including Paid ones (e.g. a payment recorded by mistake, or a test invoice).
     const reason = String(body.reason ?? '').trim().slice(0, 300);
     if (!reason) return { error: 'Say why it’s being voided (for your records).' };
     return { patch: { status: 'void', void_reason: reason }, event: { kind: 'void', note: reason } };
