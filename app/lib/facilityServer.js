@@ -21,3 +21,15 @@ export async function tipsFor(svc, facilityId) {
   const r = await publicReviews(svc, facilityId, 20);
   return r.error ? [] : recentTips(r.reviews);
 }
+
+// Facility page v2 (migration 20261022240000). Missing functions → { missing: true } so the page still renders.
+export async function waitStats(svc, facilityId) {
+  const { data, error } = await svc.rpc('facility_wait_stats', { p_facility: facilityId });
+  if (error) return isMissing(error) ? { missing: true } : { error };
+  return { rows: data || [] };
+}
+export async function publicNotes(svc, facilityId, limit = 50) {
+  const { data, error } = await svc.rpc('facility_public_notes', { p_facility: facilityId, p_limit: limit });
+  if (error) return isMissing(error) ? { missing: true } : { error };
+  return { notes: (data || []).map((n) => ({ id: n.id, body: n.body, created_at: n.created_at })) };
+}

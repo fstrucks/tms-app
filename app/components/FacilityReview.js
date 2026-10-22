@@ -7,21 +7,39 @@ import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { STARS_MAX, STAR_LABELS, NOTE_MAX, NEED_TO_KNOW_HINT, fmtStars } from '../lib/facilityReviews';
+import { ratingText } from '../lib/facilityPage';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const btn = { minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.95rem', cursor: 'pointer' };
 const area = { width: '100%', boxSizing: 'border-box', minHeight: 64, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', padding: 8 };
 
-// Load the facility info for every stop of a load once (map stopId → info).
+// Load the facility info for every stop of a load once (map stopId → info). One request per load + stamp, shared
+// by every component on the page (stop check-off, stop list, Home stop blocks).
+const inflight = new Map();
+function fetchLoadFacilities(loadId, stamp) {
+  const k = `${loadId}|${stamp ?? ''}`;
+  if (!inflight.has(k)) {
+    const p = api(`/api/loads/${loadId}/facilities`).catch(() => ({ error: true }));
+    inflight.set(k, p); p.then(() => setTimeout(() => inflight.delete(k), 30000));
+  }
+  return inflight.get(k);
+}
 export function useLoadFacilities(loadId, stamp) {
   const [map, setMap] = useState({});
   useEffect(() => {
     if (!loadId) return undefined;
     let live = true;
-    api(`/api/loads/${loadId}/facilities`).then((j) => { if (live && j && !j.error) setMap(j.facilities || {}); }).catch(() => {});
+    fetchLoadFacilities(loadId, stamp).then((j) => { if (live && j && !j.error) setMap(j.facilities || {}); }).catch(() => {});
     return () => { live = false; };
   }, [loadId, stamp]);
   return map;
+}
+
+// '3.2★ · 5 reviews' next to a stop's facility name (links to the facility page). Nothing when it has no reviews.
+export function StopRating({ info }) {
+  const t = ratingText(info);
+  if (!t) return null;
+  return <Link data-testid="stop-rating" href={`/facilities/${info.facility_id}`} style={{ color: 'var(--warning)', fontSize: '0.85rem', fontWeight: 600, marginLeft: 6, textDecoration: 'none', whiteSpace: 'nowrap' }}>{t}</Link>;
 }
 
 export function FacilityInfo({ info }) {

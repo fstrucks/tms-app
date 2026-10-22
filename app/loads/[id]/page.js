@@ -28,6 +28,7 @@ import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
+import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
 import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
@@ -54,6 +55,7 @@ export default function LoadDetailPage() {
   const [checking, setChecking] = useState(true);
   // Just created on /loads/new? Show it at once; fetchAll() still refreshes it (#86 QA).
   const [load, setLoad] = useState(() => (isLoadId(id) ? takeSeededLoad(id) : null));
+  const facilities = useLoadFacilities(load?.id, load?.stops?.length); // stop ratings ("3.2★ · 5 reviews")
   const [docs, setDocs] = useState([]);
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);
@@ -278,7 +280,7 @@ export default function LoadDetailPage() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
                         {st.completed_at && <div data-testid="stop-done" style={{ color: st.completion === 'skipped' ? 'var(--text-muted)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>{st.completion === 'skipped' ? 'Skipped' : `✓ ${stopDoneLabel(st)}`} · {new Date(st.completed_at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
-                        {st.company_name && <div>{st.company_name}</div>}
+                        {st.company_name && <div>{st.company_name}<StopRating info={facilities[st.id]} /></div>}
                         {fullAddress(st) && <div style={s.muted}>{fullAddress(st)}</div>}
                         {st.pickup_number && <div style={s.muted}>Pickup # {st.pickup_number}</div>}
                         {(st.contact_name || st.contact_phone) && (
