@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deleteLoad, loadDeletePrompt } from '../../app/lib/loadDelete.js';
 
-function fake({ fail = {}, loadRows = [{ id: 'L1' }] } = {}) {
+function fake({ fail = {}, loadRows = [{ id: 'L1' }], invoices = [] } = {}) {
   const calls = [];
   const res = (key, data) => (fail[key] ? { data: null, error: { message: key + ' boom' } } : { data, error: null });
   const sb = {
     from: (t) => ({
+      select: () => ({ eq: async () => ({ data: t === 'invoices' ? invoices : [], error: null }) }),
       update: (patch) => ({ eq: async (c, v) => { calls.push(['update', t, patch, v]); return res('update:' + t, null); } }),
       delete: () => ({ eq: (c, v) => {
         const p = { select: async () => { calls.push(['delete', t, v]); return res('delete:' + t, t === 'loads' ? loadRows : [{ id: v }]); } };
@@ -55,6 +56,7 @@ test('retry after partial doc delete: already-deleted doc counts as done', async
   const calls = [];
   const sb = {
     from: (t) => ({
+      select: () => ({ eq: async () => ({ data: [], error: null }) }),
       update: () => ({ eq: async () => ({ error: null }) }),
       delete: () => ({ eq: (c, v) => { const p = { select: async () => { calls.push([t, v]); return { data: t === 'documents' && v === 'd1' ? [] : [{ id: v }], error: null }; } }; p.then = (ok) => Promise.resolve({ error: null }).then(ok); return p; } }),
     }),
@@ -67,4 +69,23 @@ test('retry after partial doc delete: already-deleted doc counts as done', async
 test('prompt lists kept expenses and mileage', () => {
   assert.equal(loadDeletePrompt(0, false, { expenses: 3, mileage: 2 }), 'Delete this load and its stops? 3 expenses and 2 mileage entries will be kept, unlinked.');
   assert.match(loadDeletePrompt(1, false, { expenses: 1 }), /1 document and 1 expense will be kept/);
+});
+
+test('a non-void finalized invoice blocks the delete before anything is touched', async () => {
+  const { sb, calls } = fake({ invoices: [{ id: 'i1', status: 'paid', invoice_number: 'INV-1001' }] });
+  const r = await deleteLoad(sb, 'L1', { docs });
+  assert.equal(r.ok, false); assert.match(r.error, /INV-1001.*Void it first/);
+  assert.equal(calls.length, 0);
+});
+test('void and draft invoices do not block the delete', async () => {
+  const { sb, calls } = fake({ invoices: [{ id: 'i1', status: 'void', invoice_number: 'INV-1001' }, { id: 'i2', status: 'draft', invoice_number: null }] });
+  assert.equal((await deleteLoad(sb, 'L1', { docs })).ok, true);
+  assert.ok(calls.some((c) => c[0] === 'delete' && c[1] === 'loads'));
+});
+test('migration lets only a void invoice be unlinked from its load', async () => {
+  const { readFileSync } = await import('node:fs');
+  const sql = readFileSync(new URL('../../supabase/migrations/20261022200000_invoice_void_unlink_load.sql', import.meta.url), 'utf8');
+  assert.match(sql, /create or replace function public\.invoices_guard\(\)/);
+  assert.match(sql, /not \(old\.status = 'void' and new\.load_id is null\)/);
+  assert.doesNotMatch(sql, /\b(update|delete from|insert into)\s+public\./i);
 });
