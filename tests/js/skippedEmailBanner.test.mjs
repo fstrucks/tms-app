@@ -56,3 +56,10 @@ test('scope: untagged (company_id null) rows match by owner; tagged rows only th
   assert.ok(!skippedRowInScope({ owner_id: A, company_id: CB }, { ownerId: A, companyId: CA }));
   assert.ok(skippedRowInScope({ owner_id: B, company_id: CA }, { ownerId: A, companyId: CA }));
 });
+
+test('untagged row received by this user (dispatcher address) is in scope', async () => {
+  const { skippedRowInScope } = await import('../../app/lib/rateconDrafts.js');
+  const row = { company_id: null, owner_id: '22222222-2222-4222-8222-222222222222' };
+  assert.equal(skippedRowInScope(row, { ownerId: '11111111-1111-4111-8111-111111111111', companyId: null }), false);
+  assert.equal(skippedRowInScope(row, { ownerId: '11111111-1111-4111-8111-111111111111', companyId: null, userId: '22222222-2222-4222-8222-222222222222' }), true);
+});

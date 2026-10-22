@@ -1,5 +1,6 @@
 'use client';
 
+import { authedFetch } from '../lib/authedFetch';
 import { docTypeLabel } from '../lib/docTypes';
 import { useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
@@ -25,7 +26,7 @@ import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
-import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped } from '../lib/rateconDrafts';
+import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc } from '../lib/rateconDrafts';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -70,7 +71,7 @@ const s = {
   ok: { color: 'var(--success)' },
   badge: { display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', marginRight: 6 },
 };
-const DOC_COLS = 'id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
+const DOC_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
 const EMAIL_COLS = 'source, extraction_status, extraction_error';
 
 export default function DocumentsPage() {
@@ -99,7 +100,7 @@ export default function DocumentsPage() {
     const t = (await supabase?.auth.getSession())?.data?.session?.access_token; if (!t) return;
     const j = await fetch('/api/company-profile', { cache: 'no-store', headers: { Authorization: `Bearer ${t}` } }).then((x) => x.json()).catch(() => ({}));
     setCanChangeType(canChangeDocType(j.role));
-    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null, companyId: j.profile?.id || null };
+    skipScopeRef.current = { role: j.role || null, ownerId: j.profile?.owner_id || null, companyId: j.profile?.id || null, userId: user?.id || null };
     loadSkipped();
     if (j.role === 'driver') { setIsDriver(true); setUploadType((t) => (t === 'rate_confirmation' ? 'bol' : t)); }
   })(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,11 +152,9 @@ export default function DocumentsPage() {
     setCreating((m) => ({ ...m, [doc.id]: true }));
     setStatus(null);
     try {
-      const { data: loadId, error } = await supabase.rpc('create_load_from_document', {
-        p_document: doc.id,
-        // Extracted appointment times are local wall time; interpret them in this browser's timezone.
-        p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles',
-      });
+      // Extracted appointment times are local wall time; interpret them in this browser's timezone. Emailed rate cons
+      // use the company RPC (any office member; the load is the owner's; a teammate's earlier tap returns that load).
+      const { data: loadId, error } = await createLoadFromDoc(supabase, doc, Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles');
       if (error) {
         const code = Object.keys(LOAD_ERRORS).find((k) => (error.message || '').includes(k));
         console.error('create_load_from_document', error);
@@ -208,10 +207,9 @@ export default function DocumentsPage() {
     setExtracting((m) => ({ ...m, [id]: true }));
     setExtractErr((m) => ({ ...m, [id]: null }));
     try {
-      const { data } = await supabase.auth.getSession();
-      const res = await fetch('/api/extract', {
+      const res = await authedFetch(supabase.auth, '/api/extract', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data?.session?.access_token || ''}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documentId: id, force }),
       });
       const body = await res.json().catch(() => ({}));
@@ -490,7 +488,8 @@ export default function DocumentsPage() {
                       {d.source === 'email' && <span data-testid="from-email-badge" style={s.badge}>From email</span>}
                       {isNotRatecon(d) ? <span data-testid="not-ratecon-label">Not a rate con · needs manual entry</span> : docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}
                     </div>
-                    {canChangeType && (
+                    {teammateEmailDoc(d, user?.id) && <div data-testid="team-email-note" style={{ ...s.muted, fontSize: '0.8rem' }}>Emailed to a teammate’s rate con address</div>}
+                    {canChangeType && !teammateEmailDoc(d, user?.id) && (
                       <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, color: 'var(--text)', marginTop: 4 }}>
                         <span style={{ whiteSpace: 'nowrap' }}>Change type</span>
                         <select data-testid="change-type" aria-label={`Change type for ${d.original_filename || 'document'}`} value={CHANGE_TYPES.some((t) => t.id === d.doc_type) ? d.doc_type : ''} disabled={!!typeBusy[d.id]}
@@ -510,7 +509,7 @@ export default function DocumentsPage() {
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => view(d)} style={{ ...s.btn, width: 'auto', marginTop: 0, minHeight: 44, padding: '0.5rem 0.9rem' }}>View</button>
-                    <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />
+                    {!teammateEmailDoc(d, user?.id) && <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />}
                   </div>
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
