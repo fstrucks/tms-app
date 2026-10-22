@@ -74,3 +74,20 @@ export async function fetchSkipped(supabase, { role, ownerId, companyId = null, 
     .or(scope).eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
   return error ? [] : (data || []).filter((r) => skippedRowInScope(r, { ownerId, companyId: cid }));
 }
+
+// Create load (Oct 22): an emailed rate con goes through create_load_from_email_document (any office member of the
+// company; the load belongs to the company owner; a second tap returns the same load). Uploaded rate cons keep
+// create_load_from_document. Before migration 20261022150000 the email RPC is missing → use the old one.
+export const EMAIL_CREATE_RPC = 'create_load_from_email_document';
+export const createLoadRpc = (doc) => (doc?.source === 'email' ? EMAIL_CREATE_RPC : 'create_load_from_document');
+export const isMissingRpc = (error) => !!error && (error.code === 'PGRST202' || error.code === '42883');
+export async function createLoadFromDoc(supabase, doc, tz) {
+  const args = { p_document: doc.id, p_tz: tz };
+  const fn = createLoadRpc(doc);
+  let r = await supabase.rpc(fn, args);
+  if (fn === EMAIL_CREATE_RPC && isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
+  return r;
+}
+// A company email draft that landed on a teammate's address: shown (read + Create load) but delete / change type stay
+// with the receiver (documents writes are own-rows).
+export const teammateEmailDoc = (d, userId) => !!d && d.source === 'email' && !!d.user_id && !!userId && d.user_id !== userId;
