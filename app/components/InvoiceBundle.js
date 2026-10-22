@@ -7,7 +7,7 @@ import { makeApi } from '../lib/packetApi';
 import ConfirmButton from './ui/ConfirmButton';
 import { fmtMoney } from '../lib/money';
 import { fmtSize } from '../lib/companyDocs';
-import { loadStatusNote } from '../lib/invoice';
+import { loadStatusNote, localDate } from '../lib/invoice';
 
 const { call: api, token } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -52,11 +52,15 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
 
   async function act(action, body, okText) {
     setErr(null); setMsg(null); setBusy(action);
-    const j = await api(`/api/invoices/${invoiceId}`, { method: 'POST', body: JSON.stringify({ action, ...body }) });
-    setBusy(null);
+    let j;
+    try { j = await api(`/api/invoices/${invoiceId}`, { method: 'POST', body: JSON.stringify({ action, ...body }) }); }
+    catch { j = { error: 'Couldn’t save that. Please try again.' }; }
+    finally { setBusy(null); }
     if (j.error) { setErr(j.error); return false; }
     if (okText) setMsg(`${okText}${loadStatusNote(j.loadStatusBefore, j.loadStatus)}`);
-    await load(); onChanged?.(j.invoice, j);
+    // Tell the parent first: after a void it swaps this card out, and reloading a void bundle can fail.
+    onChanged?.(j.invoice, j);
+    if (j.invoice?.status !== 'void') { try { await load(); } catch { /* keep the current view */ } }
     return true;
   }
   async function get(which, name) {
@@ -111,7 +115,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <input aria-label="Amount received" inputMode="decimal" style={{ ...s.input, width: 140 }} value={paid.amount} onChange={(e) => setPaid({ ...paid, amount: e.target.value })} placeholder={Number(inv.total).toFixed(2)} />
               <input aria-label="Date received" type="date" style={{ ...s.input, width: 170 }} value={paid.date} onChange={(e) => setPaid({ ...paid, date: e.target.value })} />
-              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Mark this invoice paid? An open load is marked Paid too." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date }, 'Payment recorded.')} />
+              <ConfirmButton label="Mark paid" confirmLabel="Yes, mark paid" danger={false} prompt="Mark this invoice paid? An open load is marked Paid too." onConfirm={() => act('paid', { paid_amount: paid.amount, paid_at: paid.date || localDate() }, 'Payment recorded.')} />
             </div>
           </div>}
           {['paid', 'short_paid'].includes(inv.status) && <p style={{ margin: '0.5rem 0 0' }}>{inv.status === 'paid' ? 'Paid' : 'Short-paid'}: {fmtMoney(inv.paid_amount)} on {inv.paid_at}</p>}

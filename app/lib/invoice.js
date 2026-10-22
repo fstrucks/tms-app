@@ -228,6 +228,11 @@ export function brokerForLoad(load, brokers = []) {
   return n ? brokers.find((x) => String(x.name || '').trim().toLowerCase() === n) || null : null;
 }
 
+// Today's date (YYYY-MM-DD) in the user's local time zone, not UTC.
+export function localDate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // Due date (YYYY-MM-DD) for a YYYY-MM-DD invoice date + terms.
 export function dueDate(invoiceDate, termsDays) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(invoiceDate || ''))) return null;

@@ -239,3 +239,10 @@ test('void route: other open invoice or other statuses → load unchanged', asyn
   assert.equal((await ACT.POST(req('POST', { action: 'void', reason: 'x' }), { params: { id: I1 }, deps: p.deps })).status, 422);
   assert.equal(p.svc.db.loads[0].status, 'invoiced', 'fully paid can’t be voided (existing rule)');
 });
+
+test('localDate uses the local calendar day, not UTC', async () => {
+  const { localDate } = await import('../../app/lib/invoice.js');
+  const d = new Date(2026, 9, 21, 19, 35); // 7:35 PM local, Oct 21
+  assert.equal(localDate(d), '2026-10-21');
+  assert.equal(localDate(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
+});

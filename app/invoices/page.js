@@ -6,11 +6,11 @@ import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { fmtMoney } from '../lib/money';
-import { statusLabel } from '../lib/invoice';
+import { statusLabel, localDate } from '../lib/invoice';
 import { LIST_TABS, inTab, balanceDue } from '../lib/invoiceBundle';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDate();
 
 export default function InvoicesPage() {
   const [tab, setTab] = useState('all');
