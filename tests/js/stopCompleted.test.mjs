@@ -147,7 +147,7 @@ test('prod fix: an update that changes 0 rows, or a re-read that disagrees, is a
 test('UI: one confirm at a time; Yes calls the API; failures show an error', () => {
   const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
   assert.match(comp, /pending \? \(/); // confirm replaces both buttons
-  assert.match(comp, /data-testid="stop-confirm-yes"[^>]*onClick=\{\(\) => act\(target, pending\)\}/);
+  assert.match(comp, /data-testid="stop-confirm-yes"[^>]*onClick=\{\(\) => act\(target, pending[,)]/);
   assert.match(comp, /if \(!r\.ok\) \{ setErr\(r\.error\); return false; \}/);
   assert.match(comp, /catch \{ return \{ ok: false, error: 'Couldn’t reach the server/);
   const map = readFileSync(new URL('../../app/components/LoadMapPanel.js', import.meta.url), 'utf8');
@@ -190,10 +190,10 @@ test('Undo after the final delivery; busy/second tap ignored; action labels + co
   assert.match(comp, /\{last && \(\s*<button type="button" data-testid="stop-undo" disabled=\{busy \|\| !!pending\}/);
   assert.match(comp, /All stops done\./);
   // second tap ignored: ref guard + cooldown, checked in act() and on the opening buttons
-  assert.match(comp, /async function act\(stop, action\) \{\s*if \(!tapOk\(\)\) return false;\s*busyRef\.current = true;/);
-  assert.match(comp, /onClick=\{\(\) => \{ if \(!tapOk\(\)\) return; setErr\(null\); setPending\('done'\); \}\}/);
+  assert.match(comp, /async function act\(stop, action(, extra)?\) \{\s*if \(!tapOk\(\)\) return false;\s*busyRef\.current = true;/);
+  assert.match(comp, /onClick=\{\(\) => \{ if \(!tapOk\(\)\) return; setErr\(null\); (setWhen\(toLocalInput\(new Date\(\)\.toISOString\(\)\)\); )?setPending\('done'\); \}\}/);
   assert.match(comp, /TAP_COOLDOWN_MS = 800/);
-  assert.match(comp, /disabled=\{busy\} style=\{pri\} onClick=\{\(\) => act\(target, pending\)\}/);
+  assert.match(comp, /disabled=\{busy\} style=\{pri\} onClick=\{\(\) => act\(target, pending[,)]/);
   // confirm text: "Yes, mark as picked up" / "Yes, mark as delivered"
   const yes = (l) => `Yes, ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
   assert.equal(yes(stopActionLabel({ stop_type: 'pickup' })), 'Yes, mark as picked up');

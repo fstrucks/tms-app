@@ -30,6 +30,10 @@ export async function buildBundlePdf(invoiceBytes, files, download) {
   for (const p of await out.copyPages(await PDFDocument.load(invoiceBytes), [0])) out.addPage(p);
   const skipped = [];
   for (const f of files) {
+    if (f.pdfBytes) { // a sheet built on the fly (Stop times)
+      try { const src = await PDFDocument.load(f.pdfBytes); for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p); } catch { skipped.push(f.name); }
+      continue;
+    }
     if (!f.doc || !f.supported) { skipped.push(f.name); continue; }
     try { const b = await download(f.doc.file_path); if (!b) throw new Error('missing'); await addDoc(out, f.doc, b); } catch { skipped.push(f.name); }
   }

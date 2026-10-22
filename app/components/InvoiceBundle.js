@@ -8,6 +8,7 @@ import ConfirmButton from './ui/ConfirmButton';
 import { fmtMoney } from '../lib/money';
 import { fmtSize } from '../lib/companyDocs';
 import { loadStatusNote, localDate } from '../lib/invoice';
+import { withStopTimes } from '../lib/invoiceBundle';
 
 const { call: api, token } = makeApi(() => getSupabase()?.auth);
 const s = {
@@ -19,9 +20,10 @@ const s = {
   err: { color: 'var(--danger)', fontSize: 14, margin: '0.5rem 0 0' },
 };
 
-async function download(invoiceId, which, name) {
+const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } };
+async function download(invoiceId, which, name, { stopTimes = false } = {}) {
   const t = await token();
-  const r = await fetch(`/api/invoices/${invoiceId}/bundle?download=${encodeURIComponent(which)}`, { headers: { Authorization: `Bearer ${t}` }, cache: 'no-store' }).catch(() => null);
+  const r = await fetch(`/api/invoices/${invoiceId}/bundle?download=${encodeURIComponent(which)}${stopTimes ? '&stopTimes=1' : ''}&tz=${encodeURIComponent(browserTz())}`, { headers: { Authorization: `Bearer ${t}` }, cache: 'no-store' }).catch(() => null);
   if (!r?.ok) return 'Couldn’t download that file. Please try again.';
   const url = URL.createObjectURL(await r.blob());
   const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -37,6 +39,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [stopTimes, setStopTimes] = useState(false); // attach the Stop times sheet (off by default)
 
   const load = useCallback(async () => {
     const j = await api(`/api/invoices/${invoiceId}/bundle`);
@@ -48,7 +51,8 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
   if (st.error) return <div style={s.card}><p role="alert" style={s.err}>{st.error}</p></div>;
   const inv = st.invoice;
   const merged = st.format !== 'separate';
-  const names = st.files.filter((f) => f.supported !== false).map((f) => f.name);
+  const files = withStopTimes(st.files, inv, stopTimes);
+  const names = files.filter((f) => f.supported !== false).map((f) => f.name);
 
   async function act(action, body, okText) {
     setErr(null); setMsg(null); setBusy(action);
@@ -65,7 +69,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
   }
   async function get(which, name) {
     setErr(null); setBusy(which);
-    const e = await download(invoiceId, which, name);
+    const e = await download(invoiceId, which, name, { stopTimes });
     setBusy(null);
     if (e) return setErr(e);
     act('log', { kind: 'download', files: which === 'merged' ? names : [name] });
@@ -84,13 +88,17 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
           {st.checks.map((c, i) => <li key={i} style={{ color: c.level === 'bad' ? 'var(--danger)' : 'var(--warning)', fontSize: 14 }}>{c.text}</li>)}
         </ul>}
         <ol style={{ margin: '0.5rem 0', paddingLeft: '1.2rem' }} data-testid="bundle-files">
-          {st.files.map((f) => (
+          {files.map((f) => (
             <li key={f.name} style={{ fontSize: 14, padding: '2px 0', opacity: f.supported === false ? 0.5 : 1 }}>
-              {merged || f.supported === false ? f.name : <button type="button" style={{ ...s.btn, minHeight: 36 }} onClick={() => get(f.docId || 'invoice', f.name)} disabled={!!busy}>⬇ {f.name}</button>}
+              {merged || f.supported === false ? f.name : <button type="button" style={{ ...s.btn, minHeight: 36 }} onClick={() => get(f.docId || (f.kind === 'stop_times' ? 'stop_times' : 'invoice'), f.name)} disabled={!!busy}>⬇ {f.name}</button>}
               {f.size ? <span style={s.muted}> · {fmtSize(f.size)}</span> : null}{f.supported === false ? <span style={s.muted}> (left out: not a PDF or photo)</span> : null}
             </li>
           ))}
         </ol>
+        {inv.load_id && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, minHeight: 36 }}>
+          <input type="checkbox" data-testid="bundle-stop-times" checked={stopTimes} onChange={(e) => setStopTimes(e.target.checked)} style={{ width: 20, height: 20 }} />
+          Include the Stop times sheet (actual pickup / delivery times, for detention)
+        </label>}
         {!st.size.ok && <p style={{ color: 'var(--warning)', fontSize: 14 }}>{st.size.text}</p>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" style={merged ? s.primary : s.btn} disabled={!!busy} onClick={() => get('merged', st.files[0].name.replace(/_Invoice\.pdf$/, '_Packet.pdf'))}>{busy === 'merged' ? 'Building…' : '⬇ Download packet (one PDF)'}</button>

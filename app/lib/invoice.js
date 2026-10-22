@@ -241,7 +241,7 @@ export function dueDate(invoiceDate, termsDays) {
 }
 
 // File names (Avery's reference §3): {LOAD}_{Doc}.pdf, e.g. TEST-1001_Invoice.pdf. Safe characters only.
-export const DOC_FILE_LABELS = { invoice: 'Invoice', rate_confirmation: 'RateCon', bol: 'BOL', pod: 'POD', lumper_receipt: 'Lumper', scale_ticket: 'Scale', noa: 'NOA', packet: 'Packet', other: 'Other' };
+export const DOC_FILE_LABELS = { invoice: 'Invoice', rate_confirmation: 'RateCon', bol: 'BOL', pod: 'POD', lumper_receipt: 'Lumper', scale_ticket: 'Scale', noa: 'NOA', stop_times: 'StopTimes', packet: 'Packet', other: 'Other' };
 export const fileSafe = (v) => String(v || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 export function invoiceFileName(inv, kind = 'invoice', n = 0) {
   const base = fileSafe(inv?.load_ref?.load_number) || fileSafe(inv?.invoice_number) || 'Invoice';

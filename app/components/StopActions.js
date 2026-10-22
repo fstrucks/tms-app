@@ -5,13 +5,13 @@
 import { useRef, useState } from 'react';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { sortedStops } from '../lib/loadTabs';
-import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone, DELIVER_FROM } from '../lib/stopProgress';
+import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone, DELIVER_FROM, toLocalInput, fromLocalInput } from '../lib/stopProgress';
 
-async function post(supabase, loadId, stopId, action) {
+async function post(supabase, loadId, stopId, action, extra = {}) {
   try {
     const { data: s } = await supabase.auth.getSession();
     const res = await fetch(`/api/loads/${loadId}/stops/${stopId}`, { method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.session?.access_token || ''}` }, body: JSON.stringify({ action }) });
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.session?.access_token || ''}` }, body: JSON.stringify({ action, ...extra }) });
     const j = await res.json().catch(() => ({}));
     if (res.ok && j.ok && j.stop?.id) return { ok: true, ...j };
     return { ok: false, status: res.status, ...j, error: j.error || 'That didn’t save. Please try again.' };
@@ -31,6 +31,8 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(null); // one confirm at a time: 'done' | 'skip' | null
+  const [when, setWhen] = useState(''); // actual time for the confirm (datetime-local, device time), defaults to now
+  const [edit, setEdit] = useState({}); // stopId → datetime-local value being edited
   const busyRef = useRef(false); // a second tap while a save runs is ignored (state updates lag a fast double tap)
   const coolUntil = useRef(0);   // after a save the next stop's button lands under the finger: ignore taps briefly
   const tapOk = () => !busyRef.current && Date.now() >= coolUntil.current;
@@ -43,11 +45,11 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const isLast = target && open.length === 1;
   const n = target ? st.indexOf(target) + 1 : 0;
 
-  async function act(stop, action) {
+  async function act(stop, action, extra) {
     if (!tapOk()) return false;
     busyRef.current = true;
     setErr(null); setBusy(true);
-    const r = await post(supabase, load.id, stop.id, action);
+    const r = await post(supabase, load.id, stop.id, action, extra);
     busyRef.current = false; coolUntil.current = Date.now() + TAP_COOLDOWN_MS;
     setBusy(false); setPending(null);
     if (r.setupNeeded) { setErr('Stop check-off isn’t available on the server yet. Nothing was saved.'); return false; } // was a silent hide (prod Oct 20)
@@ -71,13 +73,19 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
           {pending ? (
             <div role="group" data-testid="stop-confirm" aria-label={question} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <span style={{ flexBasis: '100%', fontWeight: 600, color: 'var(--text)' }}>{question}</span>
-              <button type="button" data-testid="stop-confirm-yes" disabled={busy} style={pri} onClick={() => act(target, pending)}>
+              {pending === 'done' && (
+                <label style={{ flexBasis: '100%', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{stopDoneLabel(target)} at{' '}
+                  <input type="datetime-local" data-testid="stop-time" aria-label={`${stopDoneLabel(target)} date and time`} value={when} onChange={(e) => setWhen(e.target.value)}
+                    style={{ minHeight: 40, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
+                </label>
+              )}
+              <button type="button" data-testid="stop-confirm-yes" disabled={busy} style={pri} onClick={() => act(target, pending, pending === 'done' && when ? { at: fromLocalInput(when) } : undefined)}>
                 {busy ? 'Saving…' : pending === 'skip' ? 'Yes, skip' : `Yes, ${label.charAt(0).toLowerCase()}${label.slice(1)}`}</button>
               <button type="button" data-testid="stop-confirm-cancel" disabled={busy} style={sec} onClick={() => setPending(null)}>Cancel</button>
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button type="button" data-testid="stop-mark" disabled={busy} style={pri} onClick={() => { if (!tapOk()) return; setErr(null); setPending('done'); }}>{label}</button>
+              <button type="button" data-testid="stop-mark" disabled={busy} style={pri} onClick={() => { if (!tapOk()) return; setErr(null); setWhen(toLocalInput(new Date().toISOString())); setPending('done'); }}>{label}</button>
               {!isLast && <button type="button" data-testid="stop-skip" disabled={busy} style={sec} onClick={() => { if (!tapOk()) return; setErr(null); setPending('skip'); }}>Skip to next stop</button>}
             </div>
           )}
@@ -98,6 +106,25 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
           style={{ ...btn, marginTop: 8, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px' }}>
           Undo {last.completion === 'skipped' ? 'skip' : `“${stopDoneLabel(last)}”`} (stop {st.indexOf(last) + 1})
         </button>
+      )}
+      {/* Adjust the actual time of a stop already marked (e.g. tapped late). Skipped stops have no time to fix. */}
+      {st.some((x) => x.completion === 'done') && (
+        <details data-testid="stop-times-edit" style={{ marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer', minHeight: 32, color: 'var(--primary)', fontSize: '0.9rem' }}>Adjust stop times</summary>
+          {st.filter((x) => x.completion === 'done').map((x) => {
+            const v = edit[x.id] ?? toLocalInput(x.completed_at);
+            return (
+              <div key={x.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <span style={{ fontSize: '0.85rem', minWidth: 140 }}>Stop {st.indexOf(x) + 1} · {stopDoneLabel(x)}</span>
+                <input type="datetime-local" aria-label={`Stop ${st.indexOf(x) + 1} ${stopDoneLabel(x)} time`} value={v} disabled={busy}
+                  onChange={(e) => setEdit((m) => ({ ...m, [x.id]: e.target.value }))}
+                  style={{ minHeight: 40, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
+                <button type="button" data-testid="stop-time-save" style={sec} disabled={busy || v === toLocalInput(x.completed_at)}
+                  onClick={async () => { if (await act(x, 'set_time', { at: fromLocalInput(v) })) setEdit((m) => { const n = { ...m }; delete n[x.id]; return n; }); }}>Save time</button>
+              </div>
+            );
+          })}
+        </details>
       )}
       {err && <p role="alert" data-testid="stop-error" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
     </div>

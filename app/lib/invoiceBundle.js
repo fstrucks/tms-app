@@ -26,6 +26,16 @@ export function bundleFiles(invoice, docs = []) {
   return files;
 }
 
+// Optional "Stop times" sheet (Oct 22): off by default; when ticked it goes after the load documents, before the
+// company NOA. → the file list with the sheet inserted.
+export const STOP_TIMES_KIND = 'stop_times';
+export function withStopTimes(files, invoice, on) {
+  if (!on || !invoice?.load_id) return files;
+  const sheet = { kind: STOP_TIMES_KIND, docId: null, name: invoiceFileName(invoice, STOP_TIMES_KIND), label: 'Stop times', supported: true };
+  const i = files.findIndex((f) => f.kind === 'noa');
+  return i === -1 ? [...files, sheet] : [...files.slice(0, i), sheet, ...files.slice(i)];
+}
+
 // Other invoices on the same load that were actually sent: not this one, not void (Taylor QA retest note a).
 export function otherSentNumbers(rows = [], currentId) {
   return (rows || []).filter((i) => i.id !== currentId && i.status !== 'void' && i.invoice_number && i.sent_at).map((i) => i.invoice_number);
