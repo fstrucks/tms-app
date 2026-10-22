@@ -43,13 +43,13 @@ test('Upload uses aria-disabled (not disabled) and looks disabled until a type i
   assert.match(b, /aria-disabled=\{uploadOff \|\| undefined\}/);
   assert.doesNotMatch(b, /\sdisabled=/);
   assert.match(b, /opacity: uploadOff \? 0\.5 : 1/);
-  assert.match(sc, /const uploadOff = !n \|\| !!busy \|\| !docType \|\| \(isOther && !otherDocType\(otherName\)\);/);
+  assert.match(sc, /const uploadOff = !\(n \|\| pdf\) \|\| !!busy \|\| !docType \|\| \(isOther && !otherDocType\(otherName\)\);/);
   assert.match(b, /onClick=\{tryUpload\}>\{uploadButtonLabel\(docType\)\}/);
 });
 
 test('tap Upload without a type: no upload, red selector + message, focus', () => {
   const fn = sc.slice(sc.indexOf('function tryUpload'), sc.indexOf('function close'));
-  assert.match(fn, /if \(busy \|\| !pages\.length\) return;/);
+  assert.match(fn, /if \(busy \|\| \(!pages\.length && !pdf\)\) return;/);
   assert.match(fn, /if \(!docType\) \{ setTypeErr\(true\); typeRef\.current\?\.focus\(\); return; \}/);
   assert.ok(fn.indexOf('!docType') < fn.indexOf('save()'), 'checks before save');
   assert.match(footer, /\{typeErr && <p id=\{ids\.typeErr\} role="alert"[^>]*>Pick a document type first<\/p>\}/);

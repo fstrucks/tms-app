@@ -19,6 +19,14 @@ export async function uploadScan(supabase, userId, { file, docType, loadId }, { 
     console.error('[scan] insert', dbErr);
     return 'Saving record failed: ' + dbErr.message;
   }
+  // Server check (real PDF, within 10 MB). A failed check removes the file; nothing is linked.
+  if (row?.id) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetchImpl(`/api/documents/${row.id}/check-pdf`, { method: 'POST', cache: 'no-store', headers: { Authorization: `Bearer ${data?.session?.access_token || ''}` } });
+      if (res.status === 422) return (await res.json().catch(() => ({}))).error || 'That file isn’t a PDF.';
+    } catch { /* network blip: the file is saved; the bucket and the client check already passed */ }
+  }
   if (loadId && row?.id) {
     let msg = null;
     try {
