@@ -63,18 +63,48 @@ export function toLocalInput(iso) {
 }
 export function fromLocalInput(v) { const d = new Date(v); return v && isFinite(d) ? d.toISOString() : null; }
 
+// "Arrived" step (migration 20261022170000): stops.arrived_at / arrived_by. Optional; never changes the load status.
+export const supportsArrival = (load) => { const st = load?.stops || []; return st.length > 0 && st.every((s) => has(s, 'arrived_at')); };
+export const isArrived = (s) => !!s?.arrived_at;
+export const arriveLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Arrived at shipper' : stop?.stop_type === 'delivery' ? 'Arrived at receiver' : 'Arrived');
+// Minutes on site: arrived → picked up / delivered. null when either is missing or the stop was skipped.
+export function minutesOnSite(stop) {
+  if (!stop?.arrived_at || !stop?.completed_at || stop.completion === 'skipped') return null;
+  const m = Math.round((Date.parse(stop.completed_at) - Date.parse(stop.arrived_at)) / 60000);
+  return isFinite(m) && m >= 0 ? m : null;
+}
+export const fmtDuration = (m) => (m == null ? null : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`);
+
 const START_STATUSES = ['booked', 'dispatched'];
 const DELIVER_FROM = ['booked', 'dispatched', 'in_transit'];
 // action: 'done' | 'skip' | 'undo' → { stopPatch, status } | { error, status: http }
 // 'set_time' { at } changes only the actual time of a completed stop (status untouched). 'done' / 'skip' take an
 // optional { at } (default now).
-export function planStopAction(load, stopId, action, { now = new Date().toISOString(), userId = null, at = null } = {}) {
+export function planStopAction(load, stopId, action, { now = new Date().toISOString(), userId = null, at = null, field = 'completed' } = {}) {
   const st = byseq(load);
   const stop = st.find((s) => s.id === stopId);
   if (!stop) return { error: 'Stop not found.', code: 404 };
+  if (action === 'arrive') {
+    if (isStopDone(stop) || isArrived(stop)) return { noop: true };
+    let when = now;
+    if (at != null && at !== '') { const t = checkStopTime(at, now); if (t.error) return { error: t.error, code: 422 }; when = t.at; }
+    return { stopPatch: { arrived_at: when, arrived_by: userId }, status: null, fromStatuses: [] };
+  }
+  if (action === 'undo_arrive') {
+    if (!isArrived(stop)) return { noop: true };
+    if (isStopDone(stop)) return { error: 'Undo the stop first.', code: 409 };
+    return { stopPatch: { arrived_at: null, arrived_by: null }, status: null, fromStatuses: [] };
+  }
   if (action === 'set_time') {
-    if (!isStopDone(stop)) return { error: 'Mark the stop first, then adjust its time.', code: 409 };
+    // field: 'completed' (default) | 'arrived'. Arrived can't be after the completion time, and vice versa.
     const t = checkStopTime(at, now); if (t.error) return { error: t.error, code: 422 };
+    if (field === 'arrived') {
+      if (!isArrived(stop)) return { error: 'Mark arrived first, then adjust its time.', code: 409 };
+      if (stop.completed_at && stop.completion === 'done' && Date.parse(t.at) > Date.parse(stop.completed_at)) return { error: 'Arrival can’t be after the stop was completed.', code: 422 };
+      return { stopPatch: { arrived_at: t.at, arrived_by: stop.arrived_by ?? userId }, status: null, fromStatuses: [] };
+    }
+    if (!isStopDone(stop)) return { error: 'Mark the stop first, then adjust its time.', code: 409 };
+    if (stop.arrived_at && Date.parse(t.at) < Date.parse(stop.arrived_at)) return { error: 'That’s before the arrival time.', code: 422 };
     return { stopPatch: { completed_at: t.at, completion: stop.completion, completed_by: stop.completed_by ?? userId }, status: null, fromStatuses: [] };
   }
   if (action === 'undo') {
@@ -98,6 +128,7 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   if (isStopDone(stop)) return { noop: true }; // already marked (stale view / second tap): success, no write
   let when = now;
   if (at != null && at !== '') { const t = checkStopTime(at, now); if (t.error) return { error: t.error, code: 422 }; when = t.at; }
+  if (action === 'done' && stop.arrived_at && Date.parse(when) < Date.parse(stop.arrived_at)) return { error: 'That’s before the arrival time.', code: 422 };
   const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
   let status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
   // Marking the final open stop done (with at least one delivery stop delivered) delivers the load. This fires the
@@ -106,5 +137,9 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   const anyDelivered = st.some((s) => s.stop_type === 'delivery' && (s.id === stop.id ? action === 'done' : s.completion === 'done'));
   if (!othersOpen && anyDelivered && DELIVER_FROM.includes(load.status)) status = 'delivered';
   return { stopPatch: { completed_at: when, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: status === 'delivered' ? DELIVER_FROM : START_STATUSES };
+}
+// Every patched field reads back as written (timestamps compared as instants).
+export function patchApplied(row, patch) {
+  return Object.entries(patch).every(([k, v]) => (v == null ? row[k] == null : k.endsWith('_at') ? Date.parse(row[k]) === Date.parse(v) : row[k] === v));
 }
 export { START_STATUSES, DELIVER_FROM };
