@@ -16,3 +16,8 @@ export async function loadForStopTimes(x, loadId) {
   return { load, company: company || null };
 }
 
+
+// stop_delays rows for the sheet; [] before the migration or on any read error (the sheet still prints).
+export async function delaysForLoad(svc, loadId) {
+  try { const { data, error } = await svc.from('stop_delays').select('id,stop_id,reason,note,started_at,ended_at').eq('load_id', loadId); return error ? [] : data || []; } catch { return []; }
+}

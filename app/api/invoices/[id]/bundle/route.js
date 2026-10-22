@@ -9,6 +9,7 @@ import { withStopTimes, STOP_TIMES_KIND, bundleFiles, bundleChecks, sizeCheck, e
 import { buildBundlePdf, docToPdf } from '../../../../lib/invoiceBundlePdf';
 import { invoicePdf } from '../../../../lib/invoicePdf';
 import { stopTimesPdf } from '../../../../lib/stopTimesPdf';
+import { delaysForLoad } from '../../../../lib/stopTimesServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function GET(req, { params, deps } = {}) {
   const sheet = async () => {
     if (!invoice.load_id) return null;
     const { data: load } = await x.svc.from('loads').select('id,broker_load_number,broker_name, stops(*)').eq('id', invoice.load_id).eq('user_id', x.c.ownerId).maybeSingle();
-    return load ? stopTimesPdf(load, profile, { tz: sp.get('tz') }) : null;
+    return load ? stopTimesPdf(load, profile, { tz: sp.get('tz'), delays: await delaysForLoad(x.svc, load.id) }) : null;
   };
   if (dl === STOP_TIMES_KIND) {
     const bytes = await sheet(); if (!bytes) return json({ error: 'This invoice has no load.' }, 404);
