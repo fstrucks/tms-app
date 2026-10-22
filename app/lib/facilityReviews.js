@@ -47,9 +47,9 @@ export function cleanReview(body = {}) {
 export const isReviewableStop = (s) => !!s && ['pickup', 'delivery'].includes(s.stop_type) && s.completion === 'done';
 export const canReviewStop = (s) => isReviewableStop(s) && !!s.facility_id;
 // A done stop with no facility yet can be linked on demand when it has a name plus a city or ZIP
-// (mirror of public.facility_link_stop, migration 20261022210000).
-export const canLinkStop = (s) => isReviewableStop(s) && !s.facility_id && !!facilityNorm(s.company_name) && !!(facilityNorm(s.city) || String(s.zip || '').replace(/\D/g, ''));
-// What the review prompt should show for a stop: 'review' | 'link' (linked when the review is saved) | 'missing' (empty state) | null (not yet).
+// (mirror of public.facility_link_stop / facility_resolve, migration 20261022230000). The name is company_name, or
+// address_line1 when company_name is empty and address_line1 has no digits (e.g. 'Acme Dock').
+export const canLinkStop = (s) => isReviewableStop(s) && !s.facility_id && facilityLooseKey(s) != null;
 export function reviewState(s) {
   if (!isReviewableStop(s)) return null;
   if (s.facility_id) return 'review';
@@ -74,4 +74,17 @@ export function facilityKey(s) {
   const n = facilityNorm(s?.company_name), l = facilityNorm(s?.address_line1), c = facilityNorm(s?.city), z = String(s?.zip || '').replace(/\D/g, '').slice(0, 5);
   if (!n || !l || (!c && !s?.zip)) return null;
   return [n, l, c, facilityNorm(s?.state), z].join('|');
+}
+
+// JS mirror of public.facility_stop_name (migration 20261022230000).
+export function facilityStopName(s) {
+  if (facilityNorm(s?.company_name)) return String(s.company_name).trim();
+  const l = String(s?.address_line1 || '');
+  return facilityNorm(l) && !/[0-9]/.test(l) ? l.trim() : null;
+}
+// JS mirror of public.facility_loose_key: name|''|city|state|zip5, null without a name or without both city and ZIP.
+export function facilityLooseKey(s) {
+  const name = facilityStopName(s), c = facilityNorm(s?.city), z = String(s?.zip || '').replace(/\D/g, '');
+  if (!name || (!c && !z)) return null;
+  return [facilityNorm(name), '', c, facilityNorm(s?.state), z.slice(0, 5)].join('|');
 }
