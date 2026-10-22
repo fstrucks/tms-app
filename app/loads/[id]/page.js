@@ -246,6 +246,10 @@ export default function LoadDetailPage() {
                       {weightErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: 14, margin: 0, flexBasis: '100%' }}>{weightErr}</p>}
                     </form>
                   )}
+                  {hasStatus && !owner && ['management', 'dispatcher'].includes(load.viewer_role) && (
+                    <p style={{ ...s.muted, marginTop: '0.75rem' }} data-testid="load-status-dispatch-link">
+                      Status: {String(load.status || '—').replaceAll('_', ' ')} · <Link href={`/dispatch/${load.id}`}>Change status in Dispatch →</Link></p>
+                  )}
                   {hasStatus && owner && (
                     <label style={{ display: 'block', marginTop: '0.75rem' }}>
                       <span style={s.muted}>Status </span>

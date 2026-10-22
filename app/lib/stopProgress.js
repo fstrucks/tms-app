@@ -45,6 +45,7 @@ export function lastCompletedStop(load) {
 }
 
 const START_STATUSES = ['booked', 'dispatched'];
+const DELIVER_FROM = ['booked', 'dispatched', 'in_transit'];
 // action: 'done' | 'skip' | 'undo' → { stopPatch, status } | { error, status: http }
 export function planStopAction(load, stopId, action, { now = new Date().toISOString(), userId = null } = {}) {
   const st = byseq(load);
@@ -59,10 +60,23 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
     const status = firstPickup?.id === stop.id && !othersDone && load.status === 'in_transit' ? 'dispatched' : null;
     return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status, fromStatuses: ['in_transit'] };
   }
+  if (action === 'deliver') {
+    // Explicit "Mark load delivered" once every stop is checked off (also the fix path for loads whose last stop was
+    // marked before the final-stop rule below existed).
+    if (!allStopsDone(load)) return { error: 'Check off every stop first.', code: 409 };
+    if (load.status === 'delivered') return { noop: true };
+    if (!DELIVER_FROM.includes(load.status)) return { error: 'This load can’t be marked delivered from its current status.', code: 409 };
+    return { stopPatch: null, status: 'delivered', fromStatuses: DELIVER_FROM };
+  }
   if (action !== 'done' && action !== 'skip') return { error: 'Bad request.', code: 400 };
   if (isStopDone(stop)) return { noop: true }; // already marked (stale view / second tap): success, no write
   const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
-  const status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
-  return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: START_STATUSES };
+  let status = action === 'done' && firstPickup?.id === stop.id && START_STATUSES.includes(load.status) ? 'in_transit' : null;
+  // Marking the final open stop done (with at least one delivery stop delivered) delivers the load. This fires the
+  // auto-draft invoice trigger, same as picking Delivered by hand.
+  const othersOpen = st.some((s) => s.id !== stop.id && !isStopDone(s));
+  const anyDelivered = st.some((s) => s.stop_type === 'delivery' && (s.id === stop.id ? action === 'done' : s.completion === 'done'));
+  if (!othersOpen && anyDelivered && DELIVER_FROM.includes(load.status)) status = 'delivered';
+  return { stopPatch: { completed_at: now, completion: action === 'skip' ? 'skipped' : 'done', completed_by: userId }, status, fromStatuses: status === 'delivered' ? DELIVER_FROM : START_STATUSES };
 }
-export { START_STATUSES };
+export { START_STATUSES, DELIVER_FROM };

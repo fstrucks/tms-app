@@ -41,13 +41,17 @@ export async function POST(req, { params, deps } = {}) {
   if (plan.error) return out({ error: plan.error }, plan.code, 'plan');
   if (plan.noop) return out({ ok: true, already: true, stop: clean((load.stops || []).find((s) => s.id === params.stopId)), status: load.status }, 200, 'noop');
 
-  const upd = await svc.from('stops').update(plan.stopPatch).eq('id', params.stopId).eq('load_id', load.id).select('id');
-  if (upd.error) return isMissing(upd.error) ? out(SETUP, 409, `update_missing_${upd.error.code || ''}`) : out({ error: 'Couldn’t save the stop.' }, 500, `update_${upd.error.code || 'err'}`);
-  if (!upd.data?.length) return out(NOT_SAVED, 500, 'update_0_rows');
-  const { data: stop, error: rErr } = await svc.from('stops').select('*').eq('id', params.stopId).eq('load_id', load.id).maybeSingle();
-  const want = plan.stopPatch.completed_at;
-  if (rErr || !stop || (want ? !stop.completed_at || stop.completion !== plan.stopPatch.completion : stop.completed_at != null)) {
-    return out(NOT_SAVED, 500, `reread_mismatch_${rErr?.code || ''}`);
+  let stop = clean((load.stops || []).find((x) => x.id === params.stopId));
+  if (plan.stopPatch) { // 'deliver' changes only the load status
+    const upd = await svc.from('stops').update(plan.stopPatch).eq('id', params.stopId).eq('load_id', load.id).select('id');
+    if (upd.error) return isMissing(upd.error) ? out(SETUP, 409, `update_missing_${upd.error.code || ''}`) : out({ error: 'Couldn’t save the stop.' }, 500, `update_${upd.error.code || 'err'}`);
+    if (!upd.data?.length) return out(NOT_SAVED, 500, 'update_0_rows');
+    const { data: fresh, error: rErr } = await svc.from('stops').select('*').eq('id', params.stopId).eq('load_id', load.id).maybeSingle();
+    const want = plan.stopPatch.completed_at;
+    if (rErr || !fresh || (want ? !fresh.completed_at || fresh.completion !== plan.stopPatch.completion : fresh.completed_at != null)) {
+      return out(NOT_SAVED, 500, `reread_mismatch_${rErr?.code || ''}`);
+    }
+    stop = fresh;
   }
   let status = load.status;
   if (plan.status) {
@@ -56,5 +60,6 @@ export async function POST(req, { params, deps } = {}) {
     if (uErr) console.error('[stops] status', uErr.code);
     else if (s2?.status) status = s2.status;
   }
+  if (body.action === 'deliver' && status !== 'delivered') return out({ error: 'Couldn’t mark the load delivered. Please try again.' }, 500, 'deliver_not_updated');
   return out({ ok: true, stop: clean(stop), status }, 200, `saved_${body.action}`);
 }

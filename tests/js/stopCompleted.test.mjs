@@ -212,3 +212,45 @@ test('server: a repeated save of the same stop is a no-op, never marks the next 
   const d = c.svc.db?.stops?.find((x) => x.id === S2);
   if (d) assert.equal(d.completed_at, null, 'delivery untouched');
 });
+
+// Bug (Oct 21): last stop marked delivered left the load In transit, with no way to set the status.
+test('final stop delivered → load Delivered (plan); skip-only finish does not deliver', () => {
+  const two = (a, b, status = 'in_transit') => ({ status, stops: [stop(S1, 1, 'pickup', a), stop(S2, 2, 'delivery', b)] });
+  const done = { completed_at: '2026-10-20T19:00:00Z', completion: 'done' };
+  assert.equal(planStopAction(two(done, {}), S2, 'done', { now: 'T' }).status, 'delivered');
+  assert.deepEqual(planStopAction(two(done, {}), S2, 'done', { now: 'T' }).fromStatuses, ['booked', 'dispatched', 'in_transit']);
+  assert.equal(planStopAction(two(done, {}), S2, 'skip', { now: 'T' }).status, null, 'skipped delivery ≠ delivered');
+  assert.equal(planStopAction(two(done, {}, 'delivered'), S2, 'done', { now: 'T' }).status, null);
+  assert.equal(planStopAction(two(done, {}, 'cancelled'), S2, 'done', { now: 'T' }).status, null);
+  // three stops: middle delivery done, last open → not yet
+  const three = { status: 'in_transit', stops: [stop(S1, 1, 'pickup', done), stop(S2, 2, 'delivery'), stop(S3, 3, 'delivery')] };
+  assert.equal(planStopAction(three, S2, 'done', { now: 'T' }).status, null);
+  // explicit deliver
+  assert.equal(planStopAction(two(done, done), S2, 'deliver').status, 'delivered');
+  assert.equal(planStopAction(two(done, done), S2, 'deliver').stopPatch, null);
+  assert.equal(planStopAction(two(done, {}), S2, 'deliver').code, 409);
+  assert.equal(planStopAction(two(done, done, 'delivered'), S2, 'deliver').noop, true);
+});
+
+test('route: driver checks off pickup then delivery → load delivered; explicit deliver fixes an In transit load with all stops done', async () => {
+  const c = ctx('driver', DRIVER);
+  assert.equal((await call(c, S1, 'done')).j.status, 'in_transit');
+  const r = await call(c, S2, 'done');
+  assert.equal(r.status, 200); assert.equal(r.j.status, 'delivered');
+  assert.equal(c.svc.db.loads.find((l) => l.id === L1).status, 'delivered');
+  // A load stuck like the bug report: every stop done, status still in_transit.
+  const d = ctx('dispatcher', DISP);
+  d.svc.db.loads.find((l) => l.id === L1).status = 'in_transit';
+  for (const s of d.svc.db.stops.filter((x) => x.load_id === L1)) Object.assign(s, { completed_at: '2026-10-20T19:00:00Z', completion: 'done' });
+  const x = await call(d, S2, 'deliver');
+  assert.equal(x.status, 200); assert.equal(x.j.status, 'delivered');
+  assert.equal(d.svc.db.loads.find((l) => l.id === L1).status, 'delivered');
+  assert.equal((await call(d, S2, 'deliver')).j.already, true);
+});
+
+test('UI: "Mark load delivered" after all stops done; team staff get a Dispatch link to change status', () => {
+  const comp = readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../../app/loads/[id]/page.js', import.meta.url), 'utf8');
+  assert.match(comp, /Mark load delivered/); assert.match(comp, /act\(last, 'deliver'\)/);
+  assert.match(page, /Change status in Dispatch/);
+});
