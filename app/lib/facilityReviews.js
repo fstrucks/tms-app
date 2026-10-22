@@ -50,6 +50,7 @@ export const canReviewStop = (s) => isReviewableStop(s) && !!s.facility_id;
 // (mirror of public.facility_link_stop / facility_resolve, migration 20261022230000). The name is company_name, or
 // address_line1 when company_name is empty and address_line1 has no digits (e.g. 'Acme Dock').
 export const canLinkStop = (s) => isReviewableStop(s) && !s.facility_id && facilityLooseKey(s) != null;
+// What the review prompt should show for a stop: 'review' | 'link' (linked when the review is saved) | 'missing' (empty state) | null (not yet).
 export function reviewState(s) {
   if (!isReviewableStop(s)) return null;
   if (s.facility_id) return 'review';

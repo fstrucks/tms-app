@@ -60,17 +60,38 @@ export const canSeeSkipped = (role) => SKIPPED_ROLES.includes(role);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Scope: a row tagged with a company (company_id = company_profiles.id) belongs only to that company; an older,
 // untagged row (company_id null) belongs to the company whose owner received it (owner_id).
-export function skippedRowInScope(row, { ownerId, companyId } = {}) {
+// Untagged rows (pre-#127 webhook, company_id null) belong to whoever received them: the company owner OR this user
+// (e.g. a dispatcher's own ratecon address). RLS still decides what the caller can read.
+export function skippedRowInScope(row, { ownerId, companyId, userId = null } = {}) {
   if (!row) return false;
   if (row.company_id) return !!companyId && row.company_id === companyId;
-  return !!ownerId && row.owner_id === ownerId;
+  return (!!ownerId && row.owner_id === ownerId) || (!!userId && row.owner_id === userId);
 }
-export async function fetchSkipped(supabase, { role, ownerId, companyId = null, now = Date.now() } = {}) {
+export async function fetchSkipped(supabase, { role, ownerId, companyId = null, userId = null, now = Date.now() } = {}) {
   if (!canSeeSkipped(role) || !UUID_RE.test(ownerId || '')) return [];
   const cid = UUID_RE.test(companyId || '') ? companyId : null;
   const since = new Date(now - 7 * 864e5).toISOString();
-  const scope = cid ? `and(company_id.is.null,owner_id.eq.${ownerId}),company_id.eq.${cid}` : `and(company_id.is.null,owner_id.eq.${ownerId})`;
+  const uid = UUID_RE.test(userId || '') && userId !== ownerId ? userId : null;
+  const untagged = `and(company_id.is.null,owner_id.eq.${ownerId})` + (uid ? `,and(company_id.is.null,owner_id.eq.${uid})` : '');
+  const scope = cid ? `${untagged},company_id.eq.${cid}` : untagged;
   const { data, error } = await supabase.from('inbound_emails').select('id, owner_id, company_id, subject, received_at, rejected_attachments')
     .or(scope).eq('kind', 'ratecon').gte('received_at', since).order('received_at', { ascending: false }).limit(10);
-  return error ? [] : (data || []).filter((r) => skippedRowInScope(r, { ownerId, companyId: cid }));
+  return error ? [] : (data || []).filter((r) => skippedRowInScope(r, { ownerId, companyId: cid, userId: uid }));
 }
+
+// Create load (Oct 22): an emailed rate con goes through create_load_from_email_document (any office member of the
+// company; the load belongs to the company owner; a second tap returns the same load). Uploaded rate cons keep
+// create_load_from_document. Before migration 20261022150000 the email RPC is missing → use the old one.
+export const EMAIL_CREATE_RPC = 'create_load_from_email_document';
+export const createLoadRpc = (doc) => (doc?.source === 'email' ? EMAIL_CREATE_RPC : 'create_load_from_document');
+export const isMissingRpc = (error) => !!error && (error.code === 'PGRST202' || error.code === '42883');
+export async function createLoadFromDoc(supabase, doc, tz) {
+  const args = { p_document: doc.id, p_tz: tz };
+  const fn = createLoadRpc(doc);
+  let r = await supabase.rpc(fn, args);
+  if (fn === EMAIL_CREATE_RPC && isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
+  return r;
+}
+// A company email draft that landed on a teammate's address: shown (read + Create load) but delete / change type stay
+// with the receiver (documents writes are own-rows).
+export const teammateEmailDoc = (d, userId) => !!d && d.source === 'email' && !!d.user_id && !!userId && d.user_id !== userId;
