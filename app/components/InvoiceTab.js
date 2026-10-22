@@ -96,7 +96,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
     const j = await api(`/api/invoices/${inv.id}`, { method: 'POST', body: JSON.stringify({ action: 'void', reason: voidReason }) });
     setBusy(false);
     if (j.error) { setErr(j.error); return false; }
-    setVoidReason(''); await load(); setMsg('Draft voided.');
+    setVoidReason(''); await load(); setMsg(`Draft voided.${loadStatusNote(j.loadStatusBefore, j.loadStatus)}`); if (j.loadStatus === 'delivered' && j.loadStatusBefore !== 'delivered') cb.current.onLoadStatus?.('delivered');
     return true;
   }
   async function deleteDraft() {
@@ -191,7 +191,7 @@ export default function InvoiceTab({ loadId, onLoadStatus, onHidden, children })
       )}
       {msg && <p role="status" style={{ color: 'var(--success)', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err && <p role="alert" style={s.err}>{err}</p>}
-      {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next) => { if (next?.status === 'void') load(); else if (next) setSt((x) => ({ ...x, invoice: next })); if (next?.status === 'paid' || next?.status === 'short_paid') cb.current.onLoadStatus?.('paid'); }} />}
+      {inv && !draft && <InvoiceBundle invoiceId={inv.id} onChanged={(next, j) => { if (next?.status === 'void') { load(); if (j?.loadStatus === 'delivered' && j.loadStatusBefore !== 'delivered') cb.current.onLoadStatus?.('delivered'); } else if (next) setSt((x) => ({ ...x, invoice: next })); if (next?.status === 'paid' || next?.status === 'short_paid') cb.current.onLoadStatus?.('paid'); }} />}
       {st.voidedCount > 0 && <p style={s.muted}>{st.voidedCount} voided invoice{st.voidedCount === 1 ? '' : 's'} for this load (see Invoices).</p>}
     </div>
   );

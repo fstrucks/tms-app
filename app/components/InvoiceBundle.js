@@ -56,7 +56,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
     setBusy(null);
     if (j.error) { setErr(j.error); return false; }
     if (okText) setMsg(`${okText}${loadStatusNote(j.loadStatusBefore, j.loadStatus)}`);
-    await load(); onChanged?.(j.invoice);
+    await load(); onChanged?.(j.invoice, j);
     return true;
   }
   async function get(which, name) {
@@ -119,7 +119,7 @@ export default function InvoiceBundle({ invoiceId, onChanged }) {
             <span style={s.muted}>Void (e.g. wrong charges). The number is kept and you can start a new draft.</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <input aria-label="Reason" style={{ ...s.input, flex: '1 1 200px', width: 'auto' }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
-              <ConfirmButton label="Void invoice" confirmLabel="Yes, void" prompt="Void this invoice? This can’t be undone." onConfirm={() => act('void', { reason }, 'Invoice voided. You can start a new draft.')} />
+              <ConfirmButton label="Void invoice" confirmLabel="Yes, void" prompt="Void this invoice? This can’t be undone." onConfirm={() => act('void', { reason }, 'Invoice voided.')} />
             </div>
           </div>}
         </div>

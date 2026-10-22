@@ -256,5 +256,12 @@ export function loadStatusAfter(step, current) {
 const LOAD_LABEL = { invoiced: 'Invoiced', paid: 'Paid' };
 // Message tail that only claims what the database confirmed.
 export function loadStatusNote(before, after) {
+  if (after === 'delivered' && before && before !== 'delivered') return ' The load is back to Delivered.';
   return after && after !== before && LOAD_LABEL[after] ? ` The load is now ${LOAD_LABEL[after]}.` : '';
+}
+// After a void: an Invoiced / Paid load with no other non-void invoice goes back to Delivered. Other statuses are left
+// alone. → 'delivered' or null for "no change".
+export function loadStatusAfterVoid(current, otherInvoices = []) {
+  if (current !== 'invoiced' && current !== 'paid') return null;
+  return otherInvoices.some((i) => i.status !== 'void') ? null : 'delivered';
 }
