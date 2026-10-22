@@ -69,3 +69,18 @@ test('migration: create_load_from_email_document → owner’s load, row lock, s
   assert.match(fn, /grant execute on function public\.create_load_from_email_document\(uuid, text\) to authenticated/);
   assert.ok(fn.indexOf('return v_doc.load_id') < fn.indexOf('insert into public.loads'));
 });
+
+test('follow-up migration: fallback through company_members for a member’s address with no company_id', () => {
+  const f = read('../../supabase/migrations/20261022180000_email_doc_company_member_fallback.sql');
+  assert.match(f, /create or replace function public\.email_doc_company\(p_inbound uuid, p_user uuid\)/);
+  assert.match(f, /from public\.company_members m where m\.user_id = p_user/);
+  assert.ok(f.indexOf('company_profiles p where p.owner_id = p_user') < f.indexOf('company_members m'), 'owner first, then membership');
+  assert.ok(!/create policy|drop policy|update public\.|delete from|insert into/i.test(f), 'function change only');
+});
+
+test('client lists never filter by user_id = me (RLS decides; teammates’ email drafts show)', () => {
+  const page = read('../../app/documents/page.js');
+  const q = page.slice(page.indexOf('const q = (cols) =>'), page.indexOf('let { data, error } = await q('));
+  assert.ok(!/user_id/.test(q));
+  assert.ok(!/user_id/.test(read('../../app/components/EmailDraftsBanner.js')));
+});
