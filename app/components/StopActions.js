@@ -3,6 +3,7 @@
 // for the next stop, "Skip to next stop", and Undo for the last one marked. Confirm-on-tap. Hidden before the
 // stops.completed_at migration, for viewers who can't act, and on loads without stops. Server enforces roles.
 import { useRef, useState } from 'react';
+import { FacilityInfo, FacilityReviewPrompt, useLoadFacilities } from './FacilityReview';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { sortedStops } from '../lib/loadTabs';
 import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone, DELIVER_FROM, toLocalInput, fromLocalInput } from '../lib/stopProgress';
@@ -33,6 +34,8 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const [pending, setPending] = useState(null); // one confirm at a time: 'done' | 'skip' | null
   const [when, setWhen] = useState(''); // actual time for the confirm (datetime-local, device time), defaults to now
   const [edit, setEdit] = useState({}); // stopId → datetime-local value being edited
+  const [reviewStop, setReviewStop] = useState(null); // stop to review after picked up / delivered (optional prompt)
+  const facilities = useLoadFacilities(load?.id, load?.stops?.length);
   const busyRef = useRef(false); // a second tap while a save runs is ignored (state updates lag a fast double tap)
   const coolUntil = useRef(0);   // after a save the next stop's button lands under the finger: ignore taps briefly
   const tapOk = () => !busyRef.current && Date.now() >= coolUntil.current;
@@ -55,6 +58,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
     if (r.setupNeeded) { setErr('Stop check-off isn’t available on the server yet. Nothing was saved.'); return false; } // was a silent hide (prod Oct 20)
     if (!r.ok) { setErr(r.error); return false; }
     onChange?.(applyStopResult(load, r)); // the re-read server row (also for "already done": treated as success)
+    if (action === 'done' && !r.already && ['pickup', 'delivery'].includes(stop.stop_type)) setReviewStop(r.stop || stop); else if (action === 'undo') setReviewStop(null);
     try { onRefresh?.(); } catch (e) { console.error('[stops] refresh', e); } // then re-read the whole load
     return true;
   }
@@ -70,6 +74,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 6 }}>
             Stop {n} of {st.length} · {STOP_LABEL(target)}{target.company_name ? ` · ${target.company_name}` : ''}
           </div>
+          <FacilityInfo info={facilities[target.id]} />
           {pending ? (
             <div role="group" data-testid="stop-confirm" aria-label={question} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <span style={{ flexBasis: '100%', fontWeight: 600, color: 'var(--text)' }}>{question}</span>
@@ -125,6 +130,11 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
             );
           })}
         </details>
+      )}
+      {reviewStop && <FacilityReviewPrompt key={reviewStop.id} loadId={load.id} stop={reviewStop} onClose={() => setReviewStop(null)} />}
+      {!reviewStop && last?.completion === 'done' && facilities[last.id] && (
+        <button type="button" data-testid="facility-review-open" onClick={() => setReviewStop(last)}
+          style={{ ...btn, marginTop: 4, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px', fontWeight: 400, fontSize: '0.9rem' }}>Review this facility</button>
       )}
       {err && <p role="alert" data-testid="stop-error" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
     </div>
