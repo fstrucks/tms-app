@@ -1,6 +1,8 @@
 // POST { action } on a finalized invoice (owner / management). Nothing is emailed from here.
 //   mark_sent { sent_to, files?, note? } → status Sent (manual; v1 has no email sending)
-//   paid { paid_amount?, paid_at? }      → Paid, or Short-paid when less than the total; an open load moves to Paid
+//   paid { paid_amount?, paid_at? }      → Paid (load → Paid), or Short-paid when less than the total (load stays open
+//                                         as Invoiced). On a short-paid invoice it adds to the amount received.
+//   write_off { note? }                → short-paid only: balance written off, invoice Paid, load → Paid
 //   void { reason }                     → Void; an Invoiced / Paid load with no other non-void invoice goes back to Delivered
 //                                         (the auto-draft trigger skips loads with a void invoice: 20261021190000)
 //   log { kind: 'download' | 'print', files? } → history only
@@ -34,7 +36,7 @@ export async function POST(req, { params, deps } = {}) {
   if (ch.loadStatus && inv.load_id) {
     const { data: l } = await x.svc.from('loads').select('id,status').eq('id', inv.load_id).eq('user_id', x.c.ownerId).maybeSingle();
     loadStatusBefore = l?.status ?? null;
-    loadStatus = l ? await applyLoadStatus(x.svc, x.c.ownerId, l, 'paid') : null;
+    loadStatus = l ? await applyLoadStatus(x.svc, x.c.ownerId, l, ch.loadStatus) : null;
   }
   if (saved.status === 'void' && inv.status !== 'void' && inv.load_id) {
     const { data: l } = await x.svc.from('loads').select('id,status').eq('id', inv.load_id).eq('user_id', x.c.ownerId).maybeSingle();

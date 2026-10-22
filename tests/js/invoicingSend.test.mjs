@@ -70,7 +70,7 @@ test('status changes: sent, paid, short-paid, void rules', () => {
   assert.equal(statusChange(inv0, 'paid', { paid_amount: '2,500' }).patch.status, 'short_paid');
   assert.ok(statusChange(inv0, 'void', {}).error);
   assert.equal(statusChange(inv0, 'void', { reason: 'wrong rate' }).patch.status, 'void');
-  assert.ok(statusChange({ ...inv0, status: 'paid' }, 'void', { reason: 'x' }).error);
+  assert.equal(statusChange({ ...inv0, status: 'paid' }, 'void', { reason: 'x' }).patch.status, 'void');
   assert.ok(statusChange({ ...inv0, status: 'void' }, 'paid', {}).error);
 });
 
@@ -180,11 +180,11 @@ test('Invoices menu entry: no jump while the role loads; drivers never get a lin
   assert.equal(rememberedInvoiceMenu('u3', st), null);
 });
 
-test('void: drafts and short-paid invoices can be voided; fully paid cannot', () => {
+test('void: drafts, short-paid and paid invoices can be voided', () => {
   assert.equal(statusChange({ ...inv0, status: 'draft', invoice_number: null }, 'void', { reason: 'test data' }).patch.status, 'void');
   assert.ok(statusChange({ ...inv0, status: 'draft' }, 'mark_sent', { sent_to: 'x' }).error);
   assert.equal(statusChange({ ...inv0, status: 'short_paid' }, 'void', { reason: 'test data' }).patch.status, 'void');
-  assert.ok(statusChange({ ...inv0, status: 'paid' }, 'void', { reason: 'x' }).error);
+  assert.equal(statusChange({ ...inv0, status: 'paid' }, 'void', { reason: 'x' }).patch.status, 'void');
 });
 
 test('routes: void a short-paid invoice; delete a draft; voided load is not auto-drafted again', async () => {
@@ -235,9 +235,9 @@ test('void route: other open invoice or other statuses → load unchanged', asyn
     await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: k.deps });
     assert.equal(k.svc.db.loads[0].status, s, s);
   }
-  const p = ctx('owner', OWNER, { invoices: [{ ...inv0, status: 'paid' }] });
-  assert.equal((await ACT.POST(req('POST', { action: 'void', reason: 'x' }), { params: { id: I1 }, deps: p.deps })).status, 422);
-  assert.equal(p.svc.db.loads[0].status, 'invoiced', 'fully paid can’t be voided (existing rule)');
+  const p = ctx('owner', OWNER, { invoices: [{ ...inv0, status: 'paid' }] }); p.svc.db.loads[0].status = 'paid';
+  assert.equal((await ACT.POST(req('POST', { action: 'void', reason: 'x' }), { params: { id: I1 }, deps: p.deps })).status, 200);
+  assert.equal(p.svc.db.loads[0].status, 'delivered', 'a Paid invoice can be voided; its Paid load goes back to Delivered');
 });
 
 test('localDate uses the local calendar day, not UTC', async () => {

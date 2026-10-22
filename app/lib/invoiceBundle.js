@@ -99,15 +99,28 @@ export function statusChange(invoice, action, body = {}, today = new Date().toIS
     return { patch: { status: ['paid', 'short_paid'].includes(s) ? s : 'sent', sent_at: new Date().toISOString(), sent_to: to }, event: { kind: 'marked_sent', sent_to: to, note, files: Array.isArray(body.files) ? body.files.map(String).slice(0, 20) : [] } };
   }
   if (action === 'paid') {
-    const amt = body.paid_amount === '' || body.paid_amount == null ? Number(invoice.total) : Number(String(body.paid_amount).replace(/[$,\s]/g, ''));
+    // Marc (Oct 22): a short payment keeps the load open (Invoiced, invoice Short-paid) until the balance is settled.
+    // A later payment on a short-paid invoice adds to what was received; blank = the rest of the balance.
+    if (s === 'paid') return { error: 'This invoice is already paid.' };
+    const prior = s === 'short_paid' ? Math.round((Number(invoice.paid_amount) || 0) * 100) : 0;
+    const totalC = Math.round(Number(invoice.total) * 100);
+    const blank = body.paid_amount === '' || body.paid_amount == null;
+    const amt = blank ? (totalC - prior) / 100 : Number(String(body.paid_amount).replace(/[$,\s]/g, ''));
     if (!isFinite(amt) || amt < 0 || amt > 1e7) return { error: 'Enter the amount received, like 2,400.00.' };
+    if (s === 'short_paid' && Math.round(amt * 100) <= 0) return { error: 'Enter the amount received, like 2,400.00.' };
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.paid_at || '')) ? body.paid_at : today;
-    const short = Math.round(amt * 100) < Math.round(Number(invoice.total) * 100);
-    return { patch: { status: short ? 'short_paid' : 'paid', paid_amount: Math.round(amt * 100) / 100, paid_at: date }, event: { kind: short ? 'short_paid' : 'paid', note }, loadStatus: 'paid' };
+    const sumC = prior + Math.round(amt * 100);
+    const short = sumC < totalC;
+    return { patch: { status: short ? 'short_paid' : 'paid', paid_amount: sumC / 100, paid_at: date }, event: { kind: short ? 'short_paid' : 'paid', note }, loadStatus: short ? 'finalize' : 'paid' };
+  }
+  if (action === 'write_off') {
+    // Settles a short-paid invoice: the unpaid balance is written off, the invoice is Paid and the load moves to Paid.
+    if (s !== 'short_paid') return { error: 'Only a short-paid balance can be written off.' };
+    const bal = Math.max(0, Math.round(Number(invoice.total) * 100) - Math.round((Number(invoice.paid_amount) || 0) * 100)) / 100;
+    return { patch: { status: 'paid', written_off_amount: bal, written_off_at: today }, event: { kind: 'written_off', note: note || `Balance written off: $${bal.toFixed(2)}` }, loadStatus: 'paid' };
   }
   if (action === 'void') {
-    // Short-paid can be voided (e.g. a test invoice, or re-billing the balance); fully paid ones can't.
-    if (s === 'paid') return { error: 'Paid invoices can’t be voided.' };
+    // Any finalized invoice can be voided, including Paid ones (e.g. a payment recorded by mistake, or a test invoice).
     const reason = String(body.reason ?? '').trim().slice(0, 300);
     if (!reason) return { error: 'Say why it’s being voided (for your records).' };
     return { patch: { status: 'void', void_reason: reason }, event: { kind: 'void', note: reason } };
