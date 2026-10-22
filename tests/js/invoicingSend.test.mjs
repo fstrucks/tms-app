@@ -10,6 +10,7 @@ import { buildBundlePdf, docToPdf } from '../../app/lib/invoiceBundlePdf.js';
 import * as BUNDLE from '../../app/api/invoices/[id]/bundle/route.js';
 import * as ACT from '../../app/api/invoices/[id]/route.js';
 import * as LIST from '../../app/api/invoices/route.js';
+import { loadStatusAfterVoid, loadStatusNote } from '../../app/lib/invoice.js';
 import { invoiceMenuState, rememberInvoiceMenu, rememberedInvoiceMenu } from '../../app/lib/invoiceMenu.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -200,4 +201,48 @@ test('routes: void a short-paid invoice; delete a draft; voided load is not auto
   const f = ctx('owner', OWNER);
   assert.equal((await INV.DELETE(req('DELETE'), { params: { id: L1 }, deps: f.deps })).status, 409, 'finalized → use Void');
   assert.equal((await INV.DELETE(req('DELETE'), { params: { id: L1 }, deps: ctx('dispatcher', DISP).deps })).status, 403);
+});
+
+test('void → load back to Delivered: rule', () => {
+  assert.equal(loadStatusAfterVoid('invoiced', []), 'delivered');
+  assert.equal(loadStatusAfterVoid('paid', [{ status: 'void' }]), 'delivered');
+  assert.equal(loadStatusAfterVoid('invoiced', [{ status: 'draft' }]), null);
+  for (const s of ['booked', 'dispatched', 'in_transit', 'delivered', 'cancelled']) assert.equal(loadStatusAfterVoid(s, []), null, s);
+  assert.equal(loadStatusNote('invoiced', 'delivered'), ' The load is back to Delivered.');
+  assert.equal(loadStatusNote('delivered', 'delivered'), '');
+});
+
+test('void route: Invoiced / Paid load goes back to Delivered and is read back', async () => {
+  for (const [st, ld] of [['ready', 'invoiced'], ['sent', 'invoiced'], ['short_paid', 'paid']]) {
+    const c = ctx('management', MGMT, { invoices: [{ ...inv0, status: st }] });
+    c.svc.db.loads[0].status = ld;
+    const j = await (await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: c.deps })).json();
+    assert.equal(c.svc.db.loads[0].status, 'delivered', st);
+    assert.equal(j.loadStatusBefore, ld); assert.equal(j.loadStatus, 'delivered');
+    assert.equal(`Invoice voided.${loadStatusNote(j.loadStatusBefore, j.loadStatus)}`, 'Invoice voided. The load is back to Delivered.');
+  }
+  const d = ctx('owner', OWNER, { invoices: [{ ...inv0, status: 'draft', invoice_number: null }] });
+  await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: d.deps });
+  assert.equal(d.svc.db.loads[0].status, 'delivered', 'draft void on an Invoiced load');
+});
+
+test('void route: other open invoice or other statuses → load unchanged', async () => {
+  const c = ctx('owner', OWNER, { invoices: [{ ...inv0 }, { ...inv0, id: '00000000-0000-4000-8000-0000000000c2', invoice_number: 'INV-1002', status: 'sent' }] });
+  const j = await (await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: c.deps })).json();
+  assert.equal(c.svc.db.loads[0].status, 'invoiced'); assert.equal(loadStatusNote(j.loadStatusBefore, j.loadStatus), '');
+  for (const s of ['booked', 'in_transit', 'delivered', 'cancelled']) {
+    const k = ctx('owner', OWNER); k.svc.db.loads[0].status = s;
+    await ACT.POST(req('POST', { action: 'void', reason: 'test data' }), { params: { id: I1 }, deps: k.deps });
+    assert.equal(k.svc.db.loads[0].status, s, s);
+  }
+  const p = ctx('owner', OWNER, { invoices: [{ ...inv0, status: 'paid' }] });
+  assert.equal((await ACT.POST(req('POST', { action: 'void', reason: 'x' }), { params: { id: I1 }, deps: p.deps })).status, 422);
+  assert.equal(p.svc.db.loads[0].status, 'invoiced', 'fully paid can’t be voided (existing rule)');
+});
+
+test('localDate uses the local calendar day, not UTC', async () => {
+  const { localDate } = await import('../../app/lib/invoice.js');
+  const d = new Date(2026, 9, 21, 19, 35); // 7:35 PM local, Oct 21
+  assert.equal(localDate(d), '2026-10-21');
+  assert.equal(localDate(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
 });

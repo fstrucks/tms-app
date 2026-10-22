@@ -159,3 +159,19 @@ await as(M, `delete from public.invoices where id='${DD}'`);
 ok((await db.query(`select id from public.invoices where id='${DD}'`)).rows.length === 0, 'management deletes a draft');
 ok((await err(P, `update public.invoices set status='void' where id='${DV}'`)) === null && (await db.query(`select status from public.invoices where id='${DV}'`)).rows[0].status === 'void', 'dispatcher update is a no-op (RLS)');
 console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft)');
+
+// ---- 20261021190000: auto-draft skips loads with a void invoice ----
+await db.exec(readFileSync(R + '20261021190000_invoice_autodraft_skip_voided.sql', 'utf8'));
+await db.exec(readFileSync(R + '20261021190000_invoice_autodraft_skip_voided.sql', 'utf8')); // idempotent
+ok((await db.query(`select prosecdef, proconfig from pg_proc where proname='loads_autodraft_invoice'`)).rows.every((r) => r.prosecdef && String(r.proconfig).includes('search_path=public')), 'still SECURITY DEFINER with search_path=public');
+await db.exec(`reset role; update public.loads set status='invoiced' where id='${L7}'`);
+const n7 = async () => (await db.query(`select count(*)::int n from public.invoices where load_id='${L7}'`)).rows[0].n;
+const before7 = await n7();
+await as(O, `update public.loads set status='delivered' where id='${L7}'`);
+ok((await n7()) === before7 && (await db.query(`select status from public.loads where id='${L7}'`)).rows[0].status === 'delivered', 'void-only load back to delivered → no new draft, status saved');
+const L8 = '33333333-3333-3333-3333-333333333338';
+await db.exec(`reset role; insert into public.loads (id, user_id, status, broker_load_number, rate) values ('${L8}','${O}','in_transit','TEST-2006',900)`);
+await as(O, `update public.loads set status='delivered' where id='${L8}'`);
+const a8 = (await db.query(`select status, auto_drafted, total from public.invoices where load_id='${L8}'`)).rows;
+ok(a8.length === 1 && a8[0].status === 'draft' && a8[0].auto_drafted && Number(a8[0].total) === 900, 'first delivery still auto-drafts');
+console.log(process.exitCode ? 'FAILED' : 'all ok (autodraft skip voided)');

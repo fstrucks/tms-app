@@ -1,11 +1,12 @@
 // POST { action } on a finalized invoice (owner / management). Nothing is emailed from here.
 //   mark_sent { sent_to, files?, note? } → status Sent (manual; v1 has no email sending)
 //   paid { paid_amount?, paid_at? }      → Paid, or Short-paid when less than the total; an open load moves to Paid
-//   void { reason }                     → Void (the load can then get a new draft)
+//   void { reason }                     → Void; an Invoiced / Paid load with no other non-void invoice goes back to Delivered
+//                                         (the auto-draft trigger skips loads with a void invoice: 20261021190000)
 //   log { kind: 'download' | 'print', files? } → history only
 import { billingCtx, json, readBody, UUID, isMissing, SETUP, applyLoadStatus } from '../../../lib/invoiceServer';
 import { statusChange } from '../../../lib/invoiceBundle';
-import { dbErrorText } from '../../../lib/invoice';
+import { dbErrorText, loadStatusAfterVoid } from '../../../lib/invoice';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,20 @@ export async function POST(req, { params, deps } = {}) {
     const { data: l } = await x.svc.from('loads').select('id,status').eq('id', inv.load_id).eq('user_id', x.c.ownerId).maybeSingle();
     loadStatusBefore = l?.status ?? null;
     loadStatus = l ? await applyLoadStatus(x.svc, x.c.ownerId, l, 'paid') : null;
+  }
+  if (saved.status === 'void' && inv.status !== 'void' && inv.load_id) {
+    const { data: l } = await x.svc.from('loads').select('id,status').eq('id', inv.load_id).eq('user_id', x.c.ownerId).maybeSingle();
+    if (l) {
+      loadStatusBefore = l.status;
+      const { data: rows } = await x.svc.from('invoices').select('id,status').eq('owner_id', x.c.ownerId).eq('load_id', inv.load_id);
+      const next = loadStatusAfterVoid(l.status, (rows || []).filter((r) => r.id !== inv.id));
+      if (next) {
+        const { error: lErr } = await x.svc.from('loads').update({ status: next }).eq('id', l.id).eq('user_id', x.c.ownerId).eq('status', l.status);
+        if (lErr) console.error('[invoices] void load status', lErr.code);
+      }
+      const { data: back } = await x.svc.from('loads').select('status').eq('id', l.id).eq('user_id', x.c.ownerId).maybeSingle();
+      loadStatus = back?.status ?? l.status;
+    }
   }
   return json({ ok: true, invoice: saved, loadStatusBefore, loadStatus });
 }
