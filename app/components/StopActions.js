@@ -5,7 +5,7 @@
 import { useRef, useState } from 'react';
 import { nextStopIndex, STOP_LABEL } from '../lib/homeCurrentLoad';
 import { sortedStops } from '../lib/loadTabs';
-import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone } from '../lib/stopProgress';
+import { supportsStopCompletion, canCompleteStops, stopActionLabel, stopDoneLabel, lastCompletedStop, allStopsDone, isStopDone, DELIVER_FROM } from '../lib/stopProgress';
 
 async function post(supabase, loadId, stopId, action) {
   try {
@@ -82,7 +82,16 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
             </div>
           )}
         </>
-      ) : <div style={{ fontSize: '0.9rem', color: 'var(--success)', fontWeight: 600 }}>All stops done.</div>}
+      ) : (
+        <>
+          <div style={{ fontSize: '0.9rem', color: 'var(--success)', fontWeight: 600 }}>All stops done.</div>
+          {/* Last stop checked off but the load isn't Delivered yet (e.g. marked before this rule existed). */}
+          {DELIVER_FROM.includes(load.status) && last && (
+            <button type="button" data-testid="stop-deliver-load" disabled={busy} style={{ ...pri, marginTop: 8 }} onClick={() => act(last, 'deliver')}>
+              {busy ? 'Saving…' : 'Mark load delivered'}</button>
+          )}
+        </>
+      )}
       {/* Undo stays for the last completed stop, including after the final delivery ("All stops done"). */}
       {last && (
         <button type="button" data-testid="stop-undo" disabled={busy || !!pending} onClick={() => act(last, 'undo')}
