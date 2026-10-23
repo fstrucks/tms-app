@@ -95,7 +95,7 @@ test('clearing Planned on an open page asks the map card to re-check; a fill re-
   assert.match(mileage, /if \(v == null && m\) onPlannedCleared\?\.\(\);/);
   const page = read('app/loads/[id]/page.js');
   assert.match(page, /onPlannedCleared=\{\(\) => setRouteCheck\(\(n\) => n \+ 1\)\}/);
-  assert.match(page, /recheck=\{routeCheck\}/);
+  assert.match(page, /recheck=\{routeCheck( \+ settleVer)?\}/);
   const card = read('app/components/LoadRouteCard.js');
   assert.match(card, /\[loadId, stopsKey, recheck\]\)/);
   assert.match(card, /const filledNow = j\.plannedFilled \|\| first\.plannedFilled;/);
