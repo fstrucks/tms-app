@@ -12,6 +12,19 @@ const TYPE_SET = new Set(SERVICE_TYPES.map(([k]) => k));
 export const typeLabel = (item) => (item?.service_type === 'other' && item.service_label ? item.service_label : (SERVICE_TYPES.find(([k]) => k === item?.service_type)?.[1] || 'Service'));
 export const BASELINE_LABEL = 'Starting point (entered by owner)';
 export const MAX_RECEIPTS = 10;
+// Must match the documents bucket's allowed_mime_types (20261010000300).
+export const RECEIPT_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const EXT_TYPE = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+// → content type the bucket accepts, or null. Phones sometimes send HEIC with an empty type.
+export function receiptType(file) {
+  const t = String(file?.type || '').toLowerCase();
+  if (RECEIPT_TYPES.includes(t)) return t;
+  if (t) return null;
+  return EXT_TYPE[String(file?.name || '').split('.').pop().toLowerCase()] || null;
+}
+// Storage path: the uploader's own folder (storage + documents policies require it), unique per file.
+export const receiptPath = (userId, name, rand = Math.random().toString(36).slice(2, 8)) =>
+  `${userId}/${Date.now()}-${rand}-${String(name || 'receipt').replace(/[^\w.-]+/g, '_').slice(-80)}`;
 export const canLogService = (role) => ['owner', 'management', 'driver'].includes(role);
 export const isOffice = (role) => role === 'owner' || role === 'management';
 // Mirrors maint_can_change in SQL (RLS is the real check): office always; a driver his own entry within 24 h.
@@ -56,6 +69,10 @@ export function visitInput(v = {}, { role = 'owner', today = new Date().toISOStr
   if (!items.length) return { error: 'Check at least one service.' };
   if (items.length > 30) return { error: 'Too many services on one visit.' };
   const itemSum = items.reduce((a, x) => a + (x.cost || 0), 0);
+  if (total != null) {
+    if (items.some((x) => (x.cost || 0) > total)) return { error: 'An item costs more than the whole visit. Check the total cost.' };
+    if (itemSum > total + 0.01) return { error: 'The item costs add up to more than the total cost.' };
+  }
   const totalCost = total ?? Math.round(itemSum * 100) / 100; // blank total → sum of item costs
   const addToExpenses = !baseline && v.addToExpenses !== false;
   const loadId = addToExpenses && UUID.test(v.loadId || '') ? v.loadId : null;

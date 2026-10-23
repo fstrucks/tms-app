@@ -13,6 +13,8 @@ const NOT_READY = { available: false, visits: [], loads: [] };
 const denied = (e) => !!e && (e.code === '42501' || /row-level security|not_allowed|permission denied/i.test(e.message || ''));
 const errMsg = (e, fallback) => {
   if (/odometer_jump/.test(e?.message || '')) return json({ error: 'That’s more than 50,000 miles above the current odometer. Ask the owner to enter it.' }, 422);
+  if (/items_over_total/.test(e?.message || '')) return json({ error: 'The item costs add up to more than the total cost.' }, 422);
+  if (/item_over_total/.test(e?.message || '')) return json({ error: 'An item costs more than the whole visit. Check the total cost.' }, 422);
   if (/load_not_allowed/.test(e?.message || '')) return json({ error: 'That load isn’t one you can pick.' }, 422);
   if (denied(e)) return json({ error: 'You can’t change this entry.' }, 403);
   if (isMissing(e)) return json({ ...NOT_READY, error: 'Maintenance needs a database update first.' }, 503);
@@ -48,10 +50,16 @@ export async function GET(req, { deps } = {}) {
     if (lc.error && isMissing(lc.error)) return json(NOT_READY);
     loads = lc.data || [];
   }
+  // A driver may log only while he drives this truck (same rule as RLS: maint_drives_truck).
+  let drives = c.role !== 'driver';
+  if (c.role === 'driver') {
+    const d = await c.uc.rpc('maint_drives_truck', { p_truck: truckId });
+    drives = d.data === true;
+  }
   const tr = await c.db.from('trucks').select('id,odometer,odometer_updated_at').eq('id', truckId).eq('user_id', c.ownerId).maybeSingle();
   return json({
-    available: true, visits: h.visits.map((v) => ({ ...v, canChange: canChangeVisit(c.role, c.user.id, v) })), loads,
-    role: c.role, canLog: canLogService(c.role), canSetOdometer: isOffice(c.role),
+    available: true, visits: h.visits.map((v) => ({ ...v, canChange: drives && canChangeVisit(c.role, c.user.id, v) })), loads: drives ? loads : [],
+    role: c.role, canLog: canLogService(c.role) && drives, canSetOdometer: isOffice(c.role),
     odometer: tr.data?.odometer ?? null, odometerUpdatedAt: tr.data?.odometer_updated_at ?? null,
   });
 }
@@ -63,7 +71,9 @@ export async function POST(req, { deps } = {}) {
 
   if (b.action === 'set_odometer') {
     if (!isOffice(c.role)) return json({ error: 'Only the owner or management can change the odometer.' }, 403);
-    const n = Number(String(b.odometer ?? '').replace(/[,\s]/g, ''));
+    const raw = String(b.odometer ?? '').replace(/[,\s]/g, '');
+    if (!raw) return json({ error: 'Enter the miles (blank doesn’t change the odometer).' }, 422);
+    const n = Number(raw);
     if (!UUID.test(b.truckId || '') || !Number.isInteger(n) || n < 0 || n > 9999999) return json({ error: 'Miles must be a whole number.' }, 422);
     const r = await c.uc.rpc('set_truck_odometer', { p_truck: b.truckId, p_odometer: n });
     if (r.error) return errMsg(r.error, 'Could not save the odometer.');
@@ -95,7 +105,10 @@ export async function POST(req, { deps } = {}) {
   if (b.action === 'create') {
     if (!UUID.test(b.truckId || '')) return json({ error: 'Truck not found.' }, 404);
     const r = await c.uc.from('service_records').insert({ ...v.visit, truck_id: b.truckId, owner_id: c.ownerId }).select('id').single();
-    if (r.error) return errMsg(r.error, 'Could not save the service.');
+    if (r.error) {
+      if (denied(r.error) && c.role === 'driver') return json({ error: 'You can log service only for the truck you’re driving now.' }, 403);
+      return errMsg(r.error, 'Could not save the service.');
+    }
     const it = await c.uc.from('service_record_items').insert(v.items.map((x) => ({ ...x, service_record_id: r.data.id })));
     if (it.error) { await c.uc.from('service_records').delete().eq('id', r.data.id); return errMsg(it.error, 'Could not save the services.'); }
     return json({ ok: true, id: r.data.id });
@@ -103,11 +116,15 @@ export async function POST(req, { deps } = {}) {
 
   if (!UUID.test(b.id || '')) return json({ error: 'Entry not found.' }, 404);
   const { entry_source, ...patch } = v.visit; // entry_source is fixed once saved
-  const r = await c.uc.from('service_records').update(patch).eq('id', b.id).select('id');
-  if (r.error) return errMsg(r.error, 'Could not save the service.');
-  if (!r.data?.length) return json({ error: 'You can’t change this entry.' }, 403);
+  // Items are replaced first so the database's item-cost check (0200) compares the new total with the new items.
+  const old = await c.uc.from('service_record_items').select('service_type,service_label,cost,notes').eq('service_record_id', b.id);
+  if (old.error) return errMsg(old.error, 'Could not save the services.');
   const del = await c.uc.from('service_record_items').delete().eq('service_record_id', b.id);
   if (del.error) return errMsg(del.error, 'Could not save the services.');
+  const restore = async () => { if (old.data?.length) await c.uc.from('service_record_items').insert(old.data.map((x) => ({ ...x, service_record_id: b.id }))); };
+  const r = await c.uc.from('service_records').update(patch).eq('id', b.id).select('id');
+  if (r.error) { await restore(); return errMsg(r.error, 'Could not save the service.'); }
+  if (!r.data?.length) { await restore(); return json({ error: 'You can’t change this entry.' }, 403); }
   const it = await c.uc.from('service_record_items').insert(v.items.map((x) => ({ ...x, service_record_id: b.id })));
   if (it.error) return errMsg(it.error, 'Could not save the services.');
   return json({ ok: true, id: b.id });

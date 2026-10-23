@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { SERVICE_TYPES, visitInput, shapeHistory, canChangeVisit, typeLabel, BASELINE_LABEL } from '../../app/lib/maintenance.js';
+import { SERVICE_TYPES, RECEIPT_TYPES, receiptType, receiptPath, visitInput, shapeHistory, canChangeVisit, typeLabel, BASELINE_LABEL } from '../../app/lib/maintenance.js';
 import * as MAINT from '../../app/api/truck/maintenance/route.js';
 
 const SQL = readFileSync(new URL('../../supabase/migrations/20261023000100_maintenance_log.sql', import.meta.url), 'utf8');
@@ -56,7 +56,7 @@ test('history: newest first, items grouped, baseline flagged; driver 24 h edit w
   assert.equal(canChangeVisit('management', DRV, { created_by: OWNER, created_at: '2020-01-01' }, now), true);
 });
 
-function ctx(role, userId, { missing = false } = {}) {
+function ctx(role, userId, { missing = false, drives = true } = {}) {
   const tables = { company_profiles: [{ id: 'p1', owner_id: OWNER }], trucks: [{ id: T1, user_id: OWNER, odometer: 1000, odometer_updated_at: '2026-10-20T00:00:00Z' }],
     service_records: [], service_record_items: [], documents: [] };
   const uc = fakeSupabase({ tables, user: { id: userId }, role, missing: missing ? ['service_records'] : [] });
@@ -65,6 +65,7 @@ function ctx(role, userId, { missing = false } = {}) {
     calls.push([fn, a]);
     if (fn === 'packet_role') return { data: a?.p_owner === OWNER ? role : null, error: null };
     if (fn === 'maint_load_choices') return { data: [{ id: L1, status: 'in_transit', truck_id: T1 }], error: null };
+    if (fn === 'maint_drives_truck') return { data: drives, error: null };
     if (fn === 'set_truck_odometer') return { data: '2026-10-23T15:00:00Z', error: null };
     return { data: null, error: null };
   };
@@ -113,4 +114,54 @@ test('migration: idempotent shape, grants to authenticated only, definer helpers
   assert.match(SQL, /add_to_expenses boolean not null default true/);
   assert.match(SQL, /entry_source text not null default 'logged' check \(entry_source in \('logged', 'baseline'\)\)/);
   assert.match(SQL, /load_id uuid references public\.loads\(id\) on delete set null/);
+});
+
+// ---- QA fixes (migration 20261023000200) ----
+const FIX = readFileSync(new URL('../../supabase/migrations/20261023000200_maintenance_log_fix.sql', import.meta.url), 'utf8');
+
+test('item costs can’t exceed the visit total (app side)', () => {
+  const v = (total, costs) => visitInput({ serviceDate: '2026-10-20', totalCost: total, items: costs.map((c, i) => ({ serviceType: SERVICE_TYPES[i][0], cost: c })) }, { today });
+  assert.match(v('100', ['150']).error, /more than the whole visit/);
+  assert.match(v('100', ['60', '50']).error, /add up to more than the total/);
+  assert.ok(!v('100', ['60', '40']).error);
+  assert.ok(!v('', ['60', '50']).error, 'blank total = item sum');
+  assert.equal(v('', ['60', '50']).visit.total_cost, 110);
+});
+
+test('blank miles saves no odometer; blank manual odometer is refused, never 0', async () => {
+  const r = visitInput({ serviceDate: '2026-10-20', odometer: '', items: [{ serviceType: 'tires' }] }, { today });
+  assert.equal(r.visit.odometer, null);
+  const o = ctx('owner', OWNER);
+  const b = await call(o, 'POST', { action: 'set_odometer', truckId: T1, odometer: '' });
+  assert.equal(b.status, 422); assert.match(b.j.error, /Enter the miles/);
+  assert.ok(!o.calls.some(([fn]) => fn === 'set_truck_odometer'));
+});
+
+test('driver without access: no Log service, no picker, no edit buttons', async () => {
+  const d = ctx('driver', DRV, { drives: false });
+  const g = await call(d, 'GET', null, `?truckId=${T1}`);
+  assert.equal(g.j.canLog, false); assert.deepEqual(g.j.loads, []);
+  const ok = await call(ctx('driver', DRV), 'GET', null, `?truckId=${T1}`);
+  assert.equal(ok.j.canLog, true); assert.equal(ok.j.loads.length, 1);
+});
+
+test('receipts: types match the bucket, path is the uploader’s folder and unique', () => {
+  assert.deepEqual(RECEIPT_TYPES, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+  assert.equal(receiptType({ type: 'image/jpeg', name: 'a.jpg' }), 'image/jpeg');
+  assert.equal(receiptType({ type: '', name: 'IMG_1.HEIC' }), 'image/heic');
+  assert.equal(receiptType({ type: 'image/gif', name: 'a.gif' }), null);
+  const a = receiptPath(DRV, 'my receipt.jpg'), b = receiptPath(DRV, 'my receipt.jpg');
+  assert.ok(a.startsWith(`${DRV}/`)); assert.notEqual(a, b); assert.match(a, /my_receipt\.jpg$/);
+  const ui = readFileSync(new URL('../../app/truck/MaintenanceSection.js', import.meta.url), 'utf8');
+  assert.match(ui, /user_id: user\.id, doc_type: 'maintenance_receipt'/); assert.doesNotMatch(ui, /load_id: /);
+});
+
+test('fix migration: ASCII, receipt column grant, picker + driver rule, cost triggers', () => {
+  assert.ok(!/[^\x00-\x7F]/.test(FIX));
+  assert.match(FIX, /grant insert \(service_record_id\) on public\.documents to authenticated/);
+  assert.match(FIX, /concat_ws\(' - '/);
+  assert.match(FIX, /maint_load_ok_for\(new\.truck_id, new\.load_id\)/);
+  assert.match(FIX, /l\.truck_id is null\s+and l\.assigned_driver_user_id = auth\.uid\(\)/);
+  for (const t of ['service_record_items_cost_check', 'service_records_cost_check']) assert.match(FIX, new RegExp(`drop trigger if exists ${t}`));
+  assert.equal((FIX.match(/security definer set search_path = public/g) || []).length, (FIX.match(/security definer/g) || []).length);
 });

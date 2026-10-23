@@ -2,11 +2,11 @@
 // Maintenance on the Truck tab: log a shop visit (checklist of services), history, edit / delete, odometer.
 // Data: /api/truck/maintenance (RLS decides access). Hidden when the database update isn't applied yet.
 import { useEffect, useRef, useState } from 'react';
-import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, typeLabel, fmtMiles, fmtMoney } from '../lib/maintenance';
+import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney } from '../lib/maintenance';
 import { laToday } from '../lib/sendCap';
 
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
-const loadLabel = (l) => `Load #${l.broker_load_number || l.id.slice(0, 8)}${l.broker_name ? ` · ${l.broker_name}` : ''}${l.status ? ` · ${l.status.replace('_', ' ')}` : ''}`;
+const loadLabel = (l) => `Load #${l.broker_load_number || l.id.slice(0, 8)}${l.broker_name ? ` - ${l.broker_name}` : ''}${l.status ? ` - ${l.status.replace('_', ' ')}` : ''}`;
 
 function blank(odometer) {
   return { serviceDate: laToday(), odometer: odometer ?? '', vendor: '', totalCost: '', notes: '', addToExpenses: true, loadId: '', entrySource: 'logged', checked: {}, costs: {}, otherLabel: '' };
@@ -43,28 +43,37 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
   const set = (k) => (e) => { const val = e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e; setForm((o) => ({ ...o, f: { ...o.f, [k]: val } })); };
   const f = form?.f;
 
+  // Files go to the uploader's own folder ({auth uid}/...); the documents row has user_id = auth uid and no load_id.
   async function uploadReceipts(recordId) {
     let failed = 0;
     for (const file of files.slice(0, MAX_RECEIPTS)) {
-      const path = `${user.id}/${Date.now()}-${file.name.replace(/[^\w.-]+/g, '_')}`;
-      const up = await supabase.storage.from('documents').upload(path, file, { contentType: file.type || 'application/octet-stream' });
-      if (up.error) { failed++; continue; }
+      const path = receiptPath(user.id, file.name);
+      const up = await supabase.storage.from('documents').upload(path, file, { contentType: receiptType(file) });
+      if (up.error) { failed++; console.error('[maintenance] receipt upload', up.error.message); continue; }
       const ins = await supabase.from('documents').insert({ user_id: user.id, doc_type: 'maintenance_receipt', file_path: path, original_filename: file.name, truck_id: truck.id, service_record_id: recordId });
-      if (ins.error) { failed++; await supabase.storage.from('documents').remove([path]); }
+      if (ins.error) { failed++; console.error('[maintenance] receipt row', ins.error.message); await supabase.storage.from('documents').remove([path]); }
     }
     return failed;
+  }
+  function pickFiles(e) {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ''; // same file can be picked again
+    const okFiles = picked.filter((x) => receiptType(x));
+    if (okFiles.length < picked.length) setMsg({ type: 'error', text: 'Receipts must be a photo (JPG, PNG, WEBP, HEIC) or a PDF.' });
+    setFiles((o) => [...o, ...okFiles].slice(0, MAX_RECEIPTS));
   }
 
   async function save(e) {
     e.preventDefault();
     if (!SERVICE_TYPES.some(([k]) => f.checked[k])) return setMsg({ type: 'error', text: 'Check at least one service.' });
+    if (form.mode === 'edit' && files.length + (form.receiptCount || 0) > MAX_RECEIPTS) return setMsg({ type: 'error', text: `Up to ${MAX_RECEIPTS} receipts per visit.` });
     setBusy(true); setMsg(null);
     const body = form.mode === 'add' ? { action: 'create', truckId: truck.id, values: toValues(f) } : { action: 'update', id: form.id, values: toValues(f) };
     const j = await api('/api/truck/maintenance', { method: 'POST', body: JSON.stringify(body) });
-    if (j.error) { setBusy(false); return setMsg({ type: 'error', text: j.error }); }
+    if (j.error) { setBusy(false); return setMsg({ type: 'error', text: files.length ? `${j.error} Receipts weren’t uploaded yet.` : j.error }); }
     const failed = files.length ? await uploadReceipts(j.id) : 0;
     setBusy(false); setForm(null); setFiles([]);
-    setMsg(failed ? { type: 'error', text: `Saved, but ${failed} receipt${failed > 1 ? 's' : ''} didn’t upload.` } : { type: 'ok', text: 'Service saved.' });
+    setMsg(failed ? { type: 'error', text: `Saved, but ${failed} receipt${failed > 1 ? 's' : ''} didn’t upload. Edit the visit to add ${failed > 1 ? 'them' : 'it'} again.` } : { type: 'ok', text: 'Service saved.' });
     refresh();
   }
   async function remove(v) {
@@ -76,7 +85,9 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
     refresh();
   }
   async function saveOdo(e) {
-    e.preventDefault(); setBusy(true);
+    e.preventDefault();
+    if (!String(odo ?? '').trim()) return setMsg({ type: 'error', text: 'Enter the miles, or press Cancel to keep the odometer as it is.' });
+    setBusy(true);
     const j = await api('/api/truck/maintenance', { method: 'POST', body: JSON.stringify({ action: 'set_odometer', truckId: truck.id, odometer: odo }) });
     setBusy(false);
     if (j.error) return setMsg({ type: 'error', text: j.error });
@@ -131,7 +142,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
           </fieldset>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div><label style={s.label} htmlFor="svc-date">Date</label><input id="svc-date" type="date" style={s.input} value={f.serviceDate} max={laToday()} onChange={set('serviceDate')} required /></div>
-            <div><label style={s.label} htmlFor="svc-miles">Miles</label><input id="svc-miles" inputMode="numeric" style={s.input} value={f.odometer} onChange={set('odometer')} /></div>
+            <div><label style={s.label} htmlFor="svc-miles">Miles</label><input id="svc-miles" inputMode="numeric" placeholder="Blank = not recorded" style={s.input} value={f.odometer} onChange={set('odometer')} /></div>
           </div>
           <label style={s.label} htmlFor="svc-vendor">Shop / vendor</label>
           <input id="svc-vendor" style={s.input} value={f.vendor} onChange={set('vendor')} maxLength={120} />
@@ -147,10 +158,11 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
             <label style={s.label} htmlFor="svc-load">Add to a load</label>
             <select id="svc-load" data-testid="svc-load" style={s.input} value={f.addToExpenses ? f.loadId : ''} disabled={!f.addToExpenses} onChange={set('loadId')}>
               <option value="">None</option>
+              {form.mode === 'edit' && f.loadId && !m.loads.some((l) => l.id === f.loadId) && <option value={f.loadId}>Current load (kept)</option>}
               {m.loads.map((l) => <option key={l.id} value={l.id}>{loadLabel(l)}</option>)}
             </select>
-            <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" capture="environment" style={{ display: 'none' }} data-testid="svc-receipt-file"
-              onChange={(e) => { setFiles((o) => [...o, ...Array.from(e.target.files || [])].slice(0, MAX_RECEIPTS)); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" multiple accept={`${RECEIPT_TYPES.join(',')},.heic,.heif`} style={{ display: 'none' }} data-testid="svc-receipt-file"
+              onChange={pickFiles} />
             <button type="button" style={s.btn2} onClick={() => fileRef.current?.click()}>📷 Add receipt{files.length ? ` (${files.length})` : ''}</button>
             <p style={{ ...s.muted, fontSize: 12, margin: '4px 0 0' }}>Receipts are saved to Documents. Up to {MAX_RECEIPTS}.</p>
           </>)}
@@ -158,7 +170,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
           <button type="button" style={s.btn2} onClick={() => { setForm(null); setFiles([]); }}>Cancel</button>
         </form>
       ) : m.canLog && (<>
-        <button type="button" data-testid="log-service" style={s.btn} onClick={() => { setMsg(null); setForm({ mode: 'add', f: blank(m.odometer) }); }}>Log service</button>
+        <button type="button" data-testid="log-service" style={s.btn} onClick={() => { setMsg(null); setFiles([]); setForm({ mode: 'add', f: blank(m.odometer) }); }}>Log service</button>
         {m.role === 'owner' && <button type="button" data-testid="add-baseline" style={{ ...s.btn2, minHeight: 44 }} onClick={() => { setMsg(null); setForm({ mode: 'add', f: { ...blank(m.odometer), entrySource: 'baseline', addToExpenses: false } }); }}>Enter a starting point</button>}
       </>)}
 
@@ -177,7 +189,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
             </div>
             {v.canChange && !form && (
               <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                <button type="button" style={s.small} onClick={() => { setMsg(null); setForm({ mode: 'edit', id: v.id, f: fromVisit(v) }); }}>Edit</button>
+                <button type="button" style={s.small} onClick={() => { setMsg(null); setFiles([]); setForm({ mode: 'edit', id: v.id, receiptCount: v.receipts.length, f: fromVisit(v) }); }}>Edit</button>
                 <button type="button" style={{ ...s.small, borderColor: 'var(--danger-border)', color: 'var(--danger)' }} disabled={busy} onClick={() => remove(v)}>Delete</button>
               </div>
             )}
