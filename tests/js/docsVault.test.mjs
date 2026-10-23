@@ -331,6 +331,9 @@ test('docs tab source: limited inbox, vault tiles, maintenance flag, indexes onl
   assert.match(page, /data-testid="vault-note"/);
   const uploadFn = page.slice(page.indexOf('async function uploadRateCon'), page.indexOf('async function openScanner'));
   assert.ok(uploadFn.indexOf('await loadDocs()') < uploadFn.indexOf('setVaultTick'));
+  const removeFn = page.slice(page.indexOf('async function removeDoc'), page.indexOf('async function loadDocs'));
+  assert.ok(removeFn.indexOf('if (!r.ok)') < removeFn.indexOf('setVaultTick'));
+  assert.match(page, /onDeleted=\{\(id\) => \{ setDocs\(\(list\) => list\.filter\(\(x\) => x\.id !== id\)\); setVaultTick\(\(n\) => n \+ 1\); \}\}/);
   assert.match(read('../../app/components/VaultTiles.js'), /\[supabase, refreshKey\]/);
   assert.match(page, /tap: \{ display: 'inline-flex', alignItems: 'center', minHeight: 44 \}/);
   assert.match(page, /href="\/documents\/checklist" style=\{s\.tap\}>Setup checklist/);

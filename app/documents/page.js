@@ -253,6 +253,7 @@ export default function DocumentsPage() {
     const r = await deleteDocument(supabase, doc, BUCKET);
     if (!r.ok) { setDeleteErr((m) => ({ ...m, [doc.id]: r.error })); return false; }
     setDocs((list) => list.filter((x) => x.id !== doc.id));
+    setVaultTick((n) => n + 1);
     if (r.fileError) setStatus({ type: 'error', text: r.fileError });
     return true;
   }
@@ -489,7 +490,7 @@ export default function DocumentsPage() {
             {view_ === 'team' ? (
               <>
                 <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Recent load paperwork from your team, last 7 days, on the loads you can open.</p>
-                <TeamDocsList supabase={supabase} inbox onDeleted={(id) => setDocs((list) => list.filter((x) => x.id !== id))} />
+                <TeamDocsList supabase={supabase} inbox onDeleted={(id) => { setDocs((list) => list.filter((x) => x.id !== id)); setVaultTick((n) => n + 1); }} />
               </>
             ) : (<>
             {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
