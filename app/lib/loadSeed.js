@@ -9,3 +9,13 @@ export function takeSeededLoad(id) {
   seeds.delete(k);
   return l || null;
 }
+
+// Right after Create load (QA Oct 22): the first reads can race the new rows (the map / Scale tickets cards said
+// "Load not found." and stop ratings were missing until a reload). The load page re-reads once, a moment later,
+// when the load is new (created < 2 min ago) or wasn't found on the first try.
+export const SETTLE_RETRY_MS = 1500;
+export const FRESH_LOAD_MS = 2 * 60 * 1000;
+export function isFreshLoad(load, now = Date.now()) {
+  const t = Date.parse(load?.created_at || '');
+  return Number.isFinite(t) && now - t >= -60000 && now - t < FRESH_LOAD_MS;
+}

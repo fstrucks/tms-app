@@ -25,7 +25,7 @@ import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/vis
 import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
-import { takeSeededLoad } from '../../lib/loadSeed';
+import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
@@ -55,7 +55,9 @@ export default function LoadDetailPage() {
   const [checking, setChecking] = useState(true);
   // Just created on /loads/new? Show it at once; fetchAll() still refreshes it (#86 QA).
   const [load, setLoad] = useState(() => (isLoadId(id) ? takeSeededLoad(id) : null));
-  const facilities = useLoadFacilities(load?.id, load?.stops?.length); // stop ratings ("3.2★ · 5 reviews")
+  const [settleVer, setSettleVer] = useState(0); // bumped by the one re-read right after Create load
+  const settleTried = useRef(false);
+  const facilities = useLoadFacilities(load?.id, `${load?.stops?.length ?? ''}:${settleVer}`); // stop ratings ("3.2★ · 5 reviews")
   const [docs, setDocs] = useState([]);
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);
@@ -86,7 +88,14 @@ export default function LoadDetailPage() {
       fetchLoadDocs(supabase, id),
     ]);
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
-    if (!l) return setError({ retry: false, text: 'Load not found.' });
+    if (!l) {
+      if (!settleTried.current) { settleTried.current = true; return setTimeout(() => fetchRef.current(), SETTLE_RETRY_MS); }
+      return setError({ retry: false, text: 'Load not found.' });
+    }
+    if (!settleTried.current && isFreshLoad(l)) {
+      settleTried.current = true;
+      setTimeout(() => { setSettleVer((v) => v + 1); fetchRef.current(); }, SETTLE_RETRY_MS);
+    }
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
     setLoad((cur) => mergeFetchedLoad(cur, l, ver !== statusVer.current));
     const [{ count: ec }, { count: mc }] = await Promise.all([
@@ -209,7 +218,7 @@ export default function LoadDetailPage() {
                 )}
                 <div hidden={tab === 'invoice' && showInvoice}>
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
-                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck}
+                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck + settleVer}
                   onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} onRouteFilled={refreshAll} />
 
                 <div style={s.card}>
@@ -298,7 +307,7 @@ export default function LoadDetailPage() {
                   ))}
                 </div>
 
-                <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
+                <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} refreshKey={settleVer} cardStyle={s.card} />
                 <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onPlannedCleared={() => setRouteCheck((n) => n + 1)} onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
