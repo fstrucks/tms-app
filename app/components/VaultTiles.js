@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { authedFetch } from '../lib/authedFetch';
+import { companyAttentionCount, companyAttentionLabel } from '../lib/companyDocs';
 import { MAINTENANCE_VAULT_ENABLED, fetchMaintenanceCount, maintenanceVaultHref } from '../lib/maintenanceVault';
 
 const tile = {
@@ -20,6 +21,7 @@ function Count({ n, capped }) {
 
 export default function VaultTiles({ supabase, refreshKey = 0 }) {
   const [counts, setCounts] = useState(null);
+  const [attention, setAttention] = useState(0);
   const [maint, setMaint] = useState(null);
   useEffect(() => {
     let stop = false;
@@ -28,6 +30,9 @@ export default function VaultTiles({ supabase, refreshKey = 0 }) {
         const res = await authedFetch(supabase.auth, '/api/documents/vault-counts', { cache: 'no-store' });
         const body = await res.json().catch(() => ({}));
         if (!stop && res.ok) setCounts(body);
+        const docs = await authedFetch(supabase.auth, '/api/company/documents', { cache: 'no-store' });
+        const vault = await docs.json().catch(() => ({}));
+        if (!stop && docs.ok) setAttention(companyAttentionCount(vault.vault));
       } catch { /* tiles still open */ }
       // Hidden until Alex's maintenance vault ships. Do not call the RPC while the flag is off.
       if (MAINTENANCE_VAULT_ENABLED) {
@@ -57,6 +62,7 @@ export default function VaultTiles({ supabase, refreshKey = 0 }) {
           <span aria-hidden="true" style={{ fontSize: 26, lineHeight: 1 }}>{it.icon}</span>
           <Count n={it.n} capped={it.capped} />
           <span style={labelStyle}>{it.label}</span>
+          {it.testid === 'vault-tile-company' && attention > 0 && <span data-testid="company-attention" style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)', lineHeight: 1.2 }}>{companyAttentionLabel(attention)}</span>}
         </Link>
       ))}
     </div>
