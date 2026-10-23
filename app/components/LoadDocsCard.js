@@ -16,8 +16,10 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
   const [err, setErr] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false); // re-fetch in flight (e.g. after a delete): "Loading…", not "No linked documents"
   async function refresh() {
-    const { data, error } = await fetchLoadDocs(supabase, loadId);
+    setBusy(true);
+    const { data, error } = await fetchLoadDocs(supabase, loadId).finally(() => setBusy(false));
     if (error) { setErr("Couldn't load this load's documents."); return; }
     setErr(null); setDocs(data || []);
   }
@@ -30,7 +32,7 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
       </div>
       {msg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err ? <p role="alert" style={{ color: 'var(--danger)', fontSize: 14 }}>{err}</p>
-        : docs === null ? <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading documents…</p>
+        : docs === null || (busy && docs.length === 0) ? <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading documents…</p>
         : docs.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No linked documents.</p>
         : docs.map((d) => (
           <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid var(--divider)' }}>

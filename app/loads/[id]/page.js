@@ -60,6 +60,7 @@ export default function LoadDetailPage() {
   const settleTried = useRef(false);
   const facilities = useLoadFacilities(load?.id, `${load?.stops?.length ?? ''}:${settleVer}`); // stop ratings ("3.2★ · 5 reviews")
   const [docs, setDocs] = useState([]);
+  const [docsBusy, setDocsBusy] = useState(true); // first fetch / a re-fetch in flight: "Loading…", not "No linked documents"
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);
   const [error, setError] = useState(null);
@@ -84,10 +85,11 @@ export default function LoadDetailPage() {
     // Not a load id (e.g. an old link or a typo): say so instead of querying loads.id = '<text>' and waiting forever.
     if (!isLoadId(id)) return setError({ retry: false, text: 'Load not found.' });
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
+    setDocsBusy(true);
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       fetchVisibleLoad(supabase, id), // PR #110: members read loads only through visible_loads()
       fetchLoadDocs(supabase, id),
-    ]);
+    ]).finally(() => setDocsBusy(false));
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
     if (!l) {
       if (!settleTried.current) { settleTried.current = true; return setTimeout(() => fetchRef.current(), SETTLE_RETRY_MS); }
@@ -320,7 +322,7 @@ export default function LoadDetailPage() {
                     <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan document</button>
                   </div>
                   {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
-                  {docs.length === 0 ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
+                  {docs.length === 0 && docsBusy ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docs.length === 0 ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
                     <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={s.row}>
                       <LoadDocThumb doc={d} onOpen={() => view(d)} />
                       <div style={{ minWidth: 0, flex: 1 }}>
