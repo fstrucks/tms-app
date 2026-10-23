@@ -113,8 +113,13 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
     // (an in_transit load with no marks counts the pickup as done).
     const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
     const othersDone = st.some((s) => s.id !== stop.id && isStopDone(s));
-    const status = firstPickup?.id === stop.id && !othersDone && load.status === 'in_transit' ? 'dispatched' : null;
-    return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status, fromStatuses: ['in_transit'] };
+    const onlyFirstPickup = firstPickup?.id === stop.id && !othersDone;
+    const stopPatch = { completed_at: null, completion: null, completed_by: null };
+    // Undo on a Delivered load (QA Oct 22): the load is no longer delivered → back to In transit (or Dispatched when
+    // that leaves nothing marked). Invoiced / paid loads keep their status.
+    if (load.status === 'delivered') return { stopPatch, status: onlyFirstPickup ? 'dispatched' : 'in_transit', fromStatuses: ['delivered'] };
+    const status = onlyFirstPickup && load.status === 'in_transit' ? 'dispatched' : null;
+    return { stopPatch, status, fromStatuses: ['in_transit'] };
   }
   if (action === 'deliver') {
     // Explicit "Mark load delivered" once every stop is checked off (also the fix path for loads whose last stop was
