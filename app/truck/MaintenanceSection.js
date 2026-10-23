@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney, DRIVER_NO_ACCESS } from '../lib/maintenance';
 import { laToday } from '../lib/sendCap';
+import { orderBySchedule, STATUS_LABEL } from '../lib/pmSchedule';
 
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
 const loadLabel = (l) => `Load #${l.broker_load_number || l.id.slice(0, 8)}${l.broker_name ? ` - ${l.broker_name}` : ''}${l.status ? ` - ${l.status.replace('_', ' ')}` : ''}`;
@@ -24,7 +25,7 @@ const toValues = (f) => ({
   items: SERVICE_TYPES.filter(([k]) => f.checked[k]).map(([k]) => ({ serviceType: k, cost: f.costs[k] || '', label: k === 'other' ? f.otherLabel : undefined })),
 });
 
-export default function MaintenanceSection({ truck, api, supabase, user, s }) {
+export default function MaintenanceSection({ truck, api, supabase, user, s, onChanged, reloadKey = 0 }) {
   const [m, setM] = useState(null);
   const [form, setForm] = useState(null); // { mode: 'add' | 'edit', id?, f }
   const [files, setFiles] = useState([]);
@@ -32,12 +33,19 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const fileRef = useRef(null);
+  const seq = useRef(0);
 
+  // Only the newest response is applied (a slow earlier GET can't overwrite fresh history), and the URL is unique
+  // so no cache layer can hand back the list from before a save or delete.
   async function refresh() {
-    const j = await api(`/api/truck/maintenance?truckId=${truck.id}`);
+    const n = ++seq.current;
+    const j = await api(`/api/truck/maintenance?truckId=${truck.id}&_=${Date.now()}`);
+    if (n !== seq.current) return;
     setM(j.error && j.available !== false ? { available: true, error: j.error, visits: [], loads: [] } : j);
   }
+  async function changed() { await refresh(); onChanged?.(); }
   useEffect(() => { setForm(null); setM(null); refresh(); }, [truck.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (reloadKey) refresh(); }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!m || m.available === false) return null; // not set up yet (or still loading): no section
   const set = (k) => (e) => { const val = e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e; setForm((o) => ({ ...o, f: { ...o.f, [k]: val } })); };
@@ -74,15 +82,16 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
     const failed = files.length ? await uploadReceipts(j.id) : 0;
     setBusy(false); setForm(null); setFiles([]);
     setMsg(failed ? { type: 'error', text: `Saved, but ${failed} receipt${failed > 1 ? 's' : ''} didn’t upload. Edit the visit to add ${failed > 1 ? 'them' : 'it'} again.` } : { type: 'ok', text: 'Service saved.' });
-    refresh();
+    await changed();
   }
   async function remove(v) {
     if (!window.confirm(v.expense_id ? 'Delete this service visit? Its expense is removed too.' : 'Delete this service visit?')) return;
     setBusy(true);
     const j = await api('/api/truck/maintenance', { method: 'POST', body: JSON.stringify({ action: 'delete', id: v.id }) });
     setBusy(false);
+    if (!j.error) { seq.current++; setM((o) => (o ? { ...o, visits: (o.visits || []).filter((x) => x.id !== v.id) } : o)); }
     setMsg(j.error ? { type: 'error', text: j.error } : { type: 'ok', text: 'Visit deleted.' });
-    refresh();
+    await changed();
   }
   async function saveOdo(e) {
     e.preventDefault();
@@ -91,7 +100,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
     const j = await api('/api/truck/maintenance', { method: 'POST', body: JSON.stringify({ action: 'set_odometer', truckId: truck.id, odometer: odo }) });
     setBusy(false);
     if (j.error) return setMsg({ type: 'error', text: j.error });
-    setOdo(null); refresh();
+    setOdo(null); await changed();
   }
 
   const baseline = f?.entrySource === 'baseline';
@@ -123,12 +132,13 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
           {baseline && <p style={s.muted}>{BASELINE_LABEL}: the last time each service was done before you started logging. No expense is created.</p>}
           <fieldset style={{ border: 'none', padding: 0, margin: '8px 0 0' }}>
             <legend style={s.label}>What was done?</legend>
-            {SERVICE_TYPES.map(([k, label]) => (
+            {orderBySchedule(SERVICE_TYPES, m.schedule).map(({ key: k, label, status, isDue }) => (
               <div key={k} style={{ borderTop: '1px solid var(--divider)', padding: '4px 0' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, fontSize: 16 }}>
                   <input type="checkbox" data-testid={`svc-${k}`} style={{ width: 22, height: 22 }} checked={!!f.checked[k]}
                     onChange={(e) => setForm((o) => ({ ...o, f: { ...o.f, checked: { ...o.f.checked, [k]: e.target.checked } } }))} />
                   {label}
+                  {isDue && <span data-testid={`svc-due-${k}`} style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: status === 'overdue' ? 'var(--danger)' : 'var(--warning)', background: status === 'overdue' ? 'var(--danger-bg, transparent)' : 'var(--warning-bg)' }}>{STATUS_LABEL[status]}</span>}
                 </label>
                 {f.checked[k] && (
                   <div style={{ display: 'flex', gap: 8, paddingLeft: 32, paddingBottom: 6 }}>

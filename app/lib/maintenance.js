@@ -1,9 +1,9 @@
 // Truck maintenance log (migration 20261023000100). Pure helpers shared by the route, the page and tests.
 // One visit (service_records) = date, miles, vendor, total cost, receipts, optional load; its items are the services done.
 
-// Order = checklist order. Must match service_record_items_type_check in the migration.
+// Order = checklist order. Must match service_record_items_type_check (latest: 20261023000300).
 export const SERVICE_TYPES = [
-  ['oil_filter', 'Oil & filter'], ['fuel_filters', 'Fuel filters'], ['air_filter', 'Air filter'], ['coolant', 'Coolant'],
+  ['oil_filter', 'Oil & filter'], ['fuel_filters', 'Fuel filters'], ['air_filter', 'Air filter'], ['coolant', 'Coolant'], ['coolant_filter', 'Coolant filter'],
   ['def_filter', 'DEF filter'], ['valve_adjustment', 'Valve adjustment'], ['transmission', 'Transmission service'],
   ['differential', 'Differential service'], ['tires', 'Tires'], ['brakes', 'Brakes'], ['grease', 'Grease / chassis lube'],
   ['dot_annual', 'DOT annual inspection'], ['other', 'Other'],

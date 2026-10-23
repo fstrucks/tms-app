@@ -8,6 +8,7 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fieldValuesFromRows, expiryBadge, weightChecks, AXLE_LIMITS_LB } from '../lib/truckFields';
 import { laToday } from '../lib/sendCap';
 import MaintenanceSection from './MaintenanceSection';
+import PmSchedules from './PmSchedules';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box' },
@@ -83,6 +84,8 @@ export default function TruckPage() {
   const [form, setForm] = useState({});
   const [ticket, setTicket] = useState(null); // { mode: 'add' | 'confirm', id?, init, documentId? }
   const fileRef = useRef(null);
+  const [setupFor, setSetupFor] = useState(null); // new truck id → open maintenance setup right away
+  const [pmKey, setPmKey] = useState(0), [maintKey, setMaintKey] = useState(0);
 
   async function api(path, opts = {}) {
     const t = (await supabase.auth.getSession())?.data?.session?.access_token;
@@ -131,7 +134,8 @@ export default function TruckPage() {
     const body = edit === 'truck' ? { action: 'save_truck', id: truck?.id, values: form }
       : edit === 'trailer' ? { action: 'save_trailer', id: trailer?.id, truckId: truck.id, values: form }
       : { action: 'save_driver', id: driver?.id, truckId: truck.id, values: form };
-    if (await post('/api/truck', body, 'Saved.')) setEdit(null);
+    const j = await post('/api/truck', body, 'Saved.');
+    if (j) { setEdit(null); if (edit === 'truck' && !truck?.id && j.truck?.id) setSetupFor(j.truck.id); }
   }
   const f = (k) => (x) => setForm((o) => ({ ...o, [k]: x }));
 
@@ -270,7 +274,8 @@ export default function TruckPage() {
             </section>
           )}
 
-          {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} />}
+          {truck && <PmSchedules truck={truck} api={api} s={s} autoSetup={setupFor === truck.id && !ro} reloadKey={pmKey} onChanged={() => setMaintKey((n) => n + 1)} />}
+          {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} reloadKey={maintKey} onChanged={() => setPmKey((n) => n + 1)} />}
 
           {truck && (
             <section style={s.card} aria-label="Driver" data-testid="driver-card">
