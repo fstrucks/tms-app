@@ -167,3 +167,17 @@ test('maintenance GET includes schedule status for the checklist order', async (
   const j = await r.json();
   assert.deepEqual(j.schedule, [{ service_type: 'oil_filter', status: 'overdue' }]);
 });
+
+test('pm_suggest: unknown or null duty → severe, else every duty pooled; known duty keeps its fallback order', () => {
+  const fn = SQL.slice(SQL.indexOf('function public.pm_suggest'), SQL.indexOf('function public.pm_setup_schedules'));
+  assert.match(fn, /coalesce\(p_duty, 'unknown'\) = 'unknown'/);
+  assert.match(fn, /when p\.duty_cycle = 'severe' then 1 else 2/);
+  assert.match(fn, /array\[p_duty, 'severe', 'short_haul', 'long_haul', 'all'\]/);
+  assert.match(fn, /b\.interval_miles nulls last/);
+});
+
+test('setup: management sees "Owner can confirm last service." beside checked items, owner gets date fields', () => {
+  const src = readFileSync(new URL('../../app/truck/TruckSetup.js', import.meta.url), 'utf8');
+  assert.match(src, /x\.done && !canBaseline && <p data-testid=\{`setup-owner-note-\$\{x\.serviceType\}`\} style=\{\{ \.\.\.s\.muted[^>]*>Owner can confirm last service\.<\/p>/);
+  assert.match(src, /x\.done && canBaseline && \(/);
+});

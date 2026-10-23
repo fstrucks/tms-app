@@ -374,8 +374,8 @@ end $$;
 
 -- One template per service type. Engine rows: template model = engine_model, or engine_model is
 -- 'template model (...)'. No engine rows -> GENERIC rows. Duty: the truck's duty, then severe, short_haul,
--- long_haul, all ('unknown' starts at severe). Within that duty: rows matching mpg (all rows if mpg is
--- unknown or nothing matches), then the shortest mileage, then the shortest days. Rows with
+-- long_haul, all. Unknown duty: severe rows, else every duty pooled (shortest wins). Within that duty: rows
+-- matching mpg (unknown mpg: every fuel-rule row, so the shortest wins), then the shortest mileage, then the shortest days. Rows with
 -- follows_service take that service's picked interval.
 create or replace function public.pm_suggest(p_make text, p_model text, p_duty text, p_mpg numeric)
 returns table (service_type text, template_id uuid, interval_miles integer, interval_days integer, is_generic boolean)
@@ -390,7 +390,9 @@ language sql stable security definer set search_path = public as $$
     union all
     select t.* from public.maintenance_interval_templates t where t.is_generic and not exists (select 1 from eng)
   ), duty_rank as (
-    select p.*, array_position(array[coalesce(nullif(p_duty, 'unknown'), 'severe'), 'severe', 'short_haul', 'long_haul', 'all'], p.duty_cycle) dr
+    select p.*, case when coalesce(p_duty, 'unknown') = 'unknown'
+                     then case when p.duty_cycle = 'severe' then 1 else 2 end
+                     else array_position(array[p_duty, 'severe', 'short_haul', 'long_haul', 'all'], p.duty_cycle) end dr
       from pool p
   ), best_duty as (
     select d.*, min(d.dr) over (partition by d.service_type) mdr,

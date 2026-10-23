@@ -84,6 +84,18 @@ ok(dd.oil_filter && !dd.oil_filter.is_generic, 'DD15 picks maker rows');
 ok(ddLow.oil_filter.interval_miles <= dd.oil_filter.interval_miles, `mpg unknown -> most conservative oil interval (${ddLow.oil_filter.interval_miles} <= ${dd.oil_filter.interval_miles})`);
 const sev = await sug('Detroit', 'DD15', 'severe', null), unk = await sug('Detroit', 'DD15', 'unknown', null);
 ok(unk.oil_filter.template_id === sev.oil_filter.template_id, 'duty unknown -> severe rows');
+// Synthetic engine with no severe rows: unknown duty pools every duty and the shortest wins.
+await sys(`insert into public.maintenance_interval_templates (seed_key, maker, model, duty_cycle, seed_service_type, service_type, interval_miles, fuel_rule) values
+  ('t|sh', 'Testco', 'T1', 'short_haul', 'oil', 'oil_filter', 40000, null),
+  ('t|lh-hi', 'Testco', 'T1', 'long_haul', 'oil', 'oil_filter', 25000, '>7.0 mpg'),
+  ('t|lh-lo', 'Testco', 'T1', 'long_haul', 'oil', 'oil_filter', 20000, '<=5.0 mpg')`);
+const tu = await sug('Testco', 'T1', 'unknown', null), tn = await sug('Testco', 'T1', null, null);
+ok(tu.oil_filter.interval_miles === 20000, `duty + mpg unknown, no severe rows -> shortest across duties (${tu.oil_filter.interval_miles})`);
+ok(tn.oil_filter.interval_miles === 20000, 'null duty behaves like unknown');
+ok((await sug('Testco', 'T1', 'unknown', 7.5)).oil_filter.interval_miles === 25000, 'duty unknown, mpg known -> matching fuel row');
+ok((await sug('Testco', 'T1', 'short_haul', null)).oil_filter.interval_miles === 40000, 'known duty keeps its own rows');
+ok((await sug('Testco', 'T1', 'long_haul', null)).oil_filter.interval_miles === 20000, 'mpg unknown -> shortest fuel-rule interval');
+await sys(`delete from public.maintenance_interval_templates where maker = 'Testco'`);
 const mp8 = await sug('Mack', 'MP8 (MY2017-2020, 42L pan)', 'long_haul', null);
 ok(mp8.valve_adjustment && mp8.oil_filter, 'MP8 variant also gets the base MP8 valve row');
 const x12 = await sug('Cummins', 'X12 (2020)', 'short_haul', null);

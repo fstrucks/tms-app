@@ -97,6 +97,7 @@ export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone
                 <input type="checkbox" data-testid={`setup-done-${x.serviceType}`} style={{ width: 22, height: 22 }} checked={x.done} onChange={(e) => upd(x.serviceType, { done: e.target.checked })} />
                 <span><strong>{x.label}</strong><br /><span style={{ ...s.muted, fontSize: 13 }}>{intervalText({ interval_miles: x.intervalMiles, interval_days: x.intervalDays })} · {x.sourceText}</span></span>
               </label>
+              {x.done && !canBaseline && <p data-testid={`setup-owner-note-${x.serviceType}`} style={{ ...s.muted, fontSize: 13, margin: '0 0 0 32px' }}>Owner can confirm last service.</p>}
               {x.done && canBaseline && (
                 <div style={{ paddingLeft: 32, display: 'grid', gap: 6 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
