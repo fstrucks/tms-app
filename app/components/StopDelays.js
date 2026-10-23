@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { sortedStops } from '../lib/loadTabs';
 import { toLocalInput, fromLocalInput, fmtDuration } from '../lib/stopProgress';
-import { DELAY_REASONS, delayReasonLabel, delaysForStop, delayMinutes } from '../lib/stopDelays';
+import { DELAY_REASONS, delayReasonLabel, delaysForStop, delayMinutes, clipDelayNote, delayNoteHint, NOTE_MAX } from '../lib/stopDelays';
 
 async function call(supabase, loadId, method, body) {
   try {
@@ -23,6 +23,7 @@ export default function StopDelays({ supabase, load }) {
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [noteCut, setNoteCut] = useState(false);
   const refresh = useCallback(async () => {
     if (!supabase || !load?.id) return;
     const j = await call(supabase, load.id, 'GET');
@@ -70,7 +71,8 @@ export default function StopDelays({ supabase, load }) {
                 <option value="" disabled>Reason…</option>
                 {DELAY_REASONS.map(([id, l]) => <option key={id} value={id}>{l}</option>)}
               </select>
-              <input aria-label={form.reason === 'other' ? 'Note (required)' : 'Note (optional)'} placeholder={form.reason === 'other' ? 'What happened? (required)' : 'Note (optional)'} value={form.note} maxLength={300} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ ...input, flex: '1 1 180px' }} />
+              <input aria-label={form.reason === 'other' ? 'Note (required)' : 'Note (optional)'} placeholder={form.reason === 'other' ? 'What happened? (required)' : 'Note (optional)'} value={form.note} maxLength={NOTE_MAX + 1} onChange={(e) => { const c = clipDelayNote(e.target.value); setNoteCut(c.cut); setForm({ ...form, note: c.note }); }} style={{ ...input, flex: '1 1 180px' }} />
+              {delayNoteHint(form.note.length, noteCut) && <span data-testid="stop-delay-note-count" aria-live="polite" style={{ fontSize: '0.8rem', color: noteCut ? 'var(--danger)' : 'var(--text-muted)' }}>{delayNoteHint(form.note.length, noteCut)}</span>}
               <label style={{ fontSize: '0.85rem' }}>Start <input type="datetime-local" aria-label="Delay start" value={form.started_at} onChange={(e) => setForm({ ...form, started_at: e.target.value })} style={input} /></label>
               <label style={{ fontSize: '0.85rem' }}>End <input type="datetime-local" aria-label="Delay end (optional)" value={form.ended_at} onChange={(e) => setForm({ ...form, ended_at: e.target.value })} style={input} /></label>
               {!form.ended_at && <button type="button" style={link} onClick={() => setForm({ ...form, ended_at: toLocalInput(new Date().toISOString()) })}>End now</button>}

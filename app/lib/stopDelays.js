@@ -33,3 +33,13 @@ export function delayMinutes(d) {
 }
 export const delaysForStop = (delays, stopId) => (delays || []).filter((d) => d.stop_id === stopId).sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)));
 export const isMissingTable = (e) => !!e && (e.code === '42P01' || e.code === 'PGRST205' || /stop_delays/.test(e.message || '') && /does not exist|schema cache/.test(e.message || ''));
+
+// Delay note input (QA Oct 22): text past NOTE_MAX is cut; say so instead of dropping it silently (e.g. a paste).
+export function clipDelayNote(v) {
+  const s = String(v ?? '');
+  return { note: s.slice(0, NOTE_MAX), cut: s.length > NOTE_MAX };
+}
+export function delayNoteHint(len, cut) {
+  if (cut) return `${NOTE_MAX}/${NOTE_MAX}. Extra text was cut.`;
+  return len >= NOTE_MAX - 50 ? `${len}/${NOTE_MAX}` : null;
+}
