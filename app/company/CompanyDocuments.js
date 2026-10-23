@@ -8,7 +8,7 @@ import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import UploadMenu from '../components/UploadMenu';
 import ConfirmButton from '../components/ui/ConfirmButton';
-import { checkVaultUpload, deleteCurrentPrompt, VAULT_TYPES, INSURANCE_CHANGED_EVENT, VAULT_CHANGED_EVENT } from '../lib/companyDocs';
+import { checkVaultUpload, companyAttentionCount, companyAttentionLabel, deleteCurrentPrompt, VAULT_TYPES, INSURANCE_CHANGED_EVENT, VAULT_CHANGED_EVENT } from '../lib/companyDocs';
 
 const Scanner = dynamic(() => import('../components/scanner/Scanner'), { ssr: false, loading: () => null });
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -86,11 +86,15 @@ export default function CompanyDocuments() {
   if (st.error) return <section style={s.card} id="company-documents"><h2 style={{ margin: 0, fontSize: '1.1rem' }}>Company documents</h2><p role="alert" style={s.err}>{st.error}</p><button type="button" style={s.btn} onClick={reload}>Retry</button></section>;
   const rows = st.vault || [];
   const onFile = rows.filter((r) => r.onFile).length;
+  const attention = companyAttentionCount(rows);
   return (
     <section style={s.card} id="company-documents" aria-label="Company documents" data-testid="company-documents">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Company documents</h2>
-        <span style={s.muted}>{onFile} of {rows.length} on file</span>
+        <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <span style={s.muted}>{onFile} of {rows.length} on file</span>
+          {attention > 0 && <span data-testid="company-attention" style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: 'var(--warning-bg)', color: 'var(--warning)', fontWeight: 700, fontSize: 12 }}>{companyAttentionLabel(attention)}</span>}
+        </span>
       </div>
       <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>Brokers ask for these with every packet. The newest upload of each is the one that's used.{st.canManage ? '' : ' Ask the owner or management to add or replace them.'}</p>
       {rows.map((r) => {

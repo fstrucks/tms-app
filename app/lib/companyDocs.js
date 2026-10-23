@@ -139,6 +139,14 @@ export function vaultStatus(group, { policies = [], profile = null, today } = {}
 
 const fileInfo = (d) => (d ? { id: d.id, original_filename: d.original_filename || null, created_at: d.created_at, load_id: d.load_id ?? null } : null);
 
+// On-file rows whose existing vault status is not "On file" (Check notes, expired, expiring soon). Missing rows stay out.
+export function companyAttentionCount(rows) {
+  return (rows || []).filter((r) => r?.onFile && r.status?.level && r.status.level !== 'ok').length;
+}
+export function companyAttentionLabel(n) {
+  return n === 1 ? '1 needs attention' : `${n} need attention`;
+}
+
 // Shapes the vault for one caller. THIS is the pick 2C read rule: restricted rows go out as status only.
 export function vaultForRole(groups, role, ctx = {}) {
   return groups.map((g) => {

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import { groupVault, vaultForRole, vaultStatus, coiExpiry, canOpenVaultFile, canManageVault, checkVaultUpload, checkSendSize, encodedSize,
-  sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS, VAULT_RESTRICTED_TYPES, canSeeEarlierVersions } from '../../app/lib/companyDocs.js';
+  companyAttentionCount, companyAttentionLabel, sendAttachmentOptions, deleteCurrentPrompt, vaultPath, isVaultPathFor, MAX_VAULT_FILE_BYTES, VAULT_TYPE_IDS, VAULT_RESTRICTED_TYPES, canSeeEarlierVersions } from '../../app/lib/companyDocs.js';
 import { isDocumentsTabDoc, UPLOAD_TYPES, CHANGE_TYPES, DOCUMENTS_SCAN_TYPE_IDS, isCompanyDocType } from '../../app/lib/docTypes.js';
 import { asPdf } from '../../app/lib/vaultSend.js';
 import { deleteLoad } from '../../app/lib/loadDelete.js';
@@ -88,6 +88,25 @@ test('3A + statuses: COI expiry from confirmed auto/cargo; expired red, ≤30 da
   assert.equal(vaultStatus(g[1 - 1], { today: TODAY }).hint, null);
   assert.match(vaultStatus({ type: 'w9', current: doc(1, 'w9', '2025-09-01T00:00:00Z') }, { today: TODAY }).hint, /over a year old/);
   assert.equal(vaultStatus(g.find((x) => x.type === 'mc_authority'), { today: TODAY }).expiryText, 'No expiry');
+});
+
+test('a flagged COI stays on file and counts as needing attention', () => {
+  const low = [
+    { owner_id: OWNER, coverage: 'auto_liability', limit_amount: 1000000, expiry_date: '2027-03-01', confirmed: true },
+    { owner_id: OWNER, coverage: 'cargo', limit_amount: 50000, expiry_date: '2027-02-01', confirmed: true },
+  ];
+  const rows = vaultForRole(groupVault(DOCS()), 'driver', { policies: low, today: TODAY });
+  const coi = rows.find((r) => r.type === 'coi');
+  assert.equal(coi.onFile, true);
+  assert.equal(coi.status.level, 'bad');
+  assert.equal(coi.status.text, 'Check notes');
+  assert.equal(rows.filter((r) => r.onFile).length, 4);
+  assert.equal(companyAttentionCount(rows), 1);
+  assert.equal(companyAttentionLabel(1), '1 needs attention');
+  assert.equal(companyAttentionLabel(2), '2 need attention');
+  assert.equal(companyAttentionCount(vaultForRole(groupVault(DOCS()), 'owner', { policies: POLICIES, today: TODAY })), 0);
+  assert.match(read('app/company/CompanyDocuments.js'), /data-testid="company-attention"/);
+  assert.match(read('app/components/VaultTiles.js'), /companyAttentionCount\(vault\.vault\)/);
 });
 
 test('Size (Taylor): Postmark counts encoded size; files capped at 7.5 MB raw ≈ 10 MB encoded', () => {

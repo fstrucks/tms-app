@@ -11,13 +11,13 @@ import ConfirmButton from './ui/ConfirmButton';
 const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 const btn = { minHeight: 44, padding: '0.5rem 0.9rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' };
 
-export default function TeamDocsList({ supabase, onDeleted }) {
+export default function TeamDocsList({ supabase, onDeleted, inbox = false }) {
   const [state, setState] = useState('loading');
   const [docs, setDocs] = useState([]);
   const [err, setErr] = useState({});
   async function load() {
     setState('loading');
-    const r = await fetchTeamDocs(supabase);
+    const r = await fetchTeamDocs(supabase, { inbox });
     if (r.error) { console.error('[documents] team', r.error.status || ''); return setState('error'); }
     setDocs(r.data); setState('ready');
   }
@@ -38,7 +38,7 @@ export default function TeamDocsList({ supabase, onDeleted }) {
 
   if (state === 'error') return <LoadError message="Couldn't load team documents." onRetry={load} />;
   if (state === 'loading') return <Loading label="Loading team documents…" />;
-  if (!docs.length) return <p style={muted} data-testid="team-docs-empty">No team documents yet. BOLs, PODs and scale tickets linked to a load show here.</p>;
+  if (!docs.length) return <p style={muted} data-testid="team-docs-empty">{inbox ? 'No team documents from the last 7 days.' : 'No team documents yet. BOLs, PODs and scale tickets linked to a load show here.'}</p>;
   return (
     <div data-testid="team-docs">
       {docs.map((d) => (
