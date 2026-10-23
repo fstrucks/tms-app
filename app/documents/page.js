@@ -28,6 +28,8 @@ import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
 import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
+import { INBOX_RECENT_CAP, INBOX_RECENT_DAYS, INBOX_WAITING_CAP, fetchWaitingRateCons, mergeInboxDocs, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
+import VaultTiles from '../components/VaultTiles';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -197,6 +199,8 @@ export default function DocumentsPage() {
 
   const [status, setStatus] = useState(null);
   const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
+  const [inboxOpen, setInboxOpen] = useState(true);
+  const [waitingMore, setWaitingMore] = useState(false);
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const docsReqRef = useRef(0);
@@ -255,9 +259,12 @@ export default function DocumentsPage() {
     const req = ++docsReqRef.current;
     if (!docsReadyRef.current) setListState('loading');
     if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
+    const sinceIso = new Date(Date.now() - INBOX_RECENT_DAYS * 864e5).toISOString();
     const q = (cols) => supabase.from('documents').select(cols)
       .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
-      .order('created_at', { ascending: false });
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(INBOX_RECENT_CAP + INBOX_WAITING_CAP);
     // Email-in columns (20261019000200); before that migration, fall back to the old column list.
     let { data, error } = await q(`${DOC_COLS}, ${EMAIL_COLS}`);
     if (error?.code === '42703') ({ data, error } = await q(DOC_COLS));
@@ -268,6 +275,10 @@ export default function DocumentsPage() {
       if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
       return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
     }
+    const waiting = await fetchWaitingRateCons(supabase);
+    if (req !== docsReqRef.current) return;
+    setWaitingMore(waiting.length >= INBOX_WAITING_CAP);
+    data = mergeInboxDocs((data || []).filter(isDocumentsTabDoc), waiting.filter(isDocumentsTabDoc));
     setRefreshErr(null);
     setDocs((data || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
     setListState('ready');
@@ -278,6 +289,7 @@ export default function DocumentsPage() {
   const [skippedRows, setSkipped] = useState([]);
   const [dismissed, setDismissed] = useState([]);
   useEffect(() => { setDismissed(readDismissed(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
+  useEffect(() => { setInboxOpen(readInboxOpen(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
   const skipped = visibleSkipped(skippedRows, dismissed);
   const dismissSkipped = (ids) => setDismissed(addDismissed(typeof window !== 'undefined' ? window.localStorage : null, ids));
   async function loadSkipped() {
@@ -455,8 +467,14 @@ export default function DocumentsPage() {
           {!isDriver && <RateconEmailCard supabase={supabase} userId={user.id} />}
 
           <div style={s.card}>
-            <h2 style={{ fontSize: '1.1rem', marginTop: 0 }}>Uploaded documents</h2>
-            <div role="tablist" aria-label="Whose documents" data-testid="docs-view-toggle" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--surface-2)', marginBottom: '0.75rem' }}>
+            <button type="button" data-testid="docs-inbox-toggle" aria-expanded={inboxOpen} aria-controls="docs-inbox" onClick={() => { const next = !inboxOpen; setInboxOpen(next); writeInboxOpen(typeof window !== 'undefined' ? window.localStorage : null, next); }}
+              style={{ display: 'flex', width: '100%', minHeight: 44, alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'none', border: 'none', padding: 0, color: 'var(--text)', cursor: 'pointer', textAlign: 'left' }}>
+              <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Needs attention</h2>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{inboxOpen ? 'Hide' : 'Show'}</span>
+            </button>
+            {!inboxOpen && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{docs.filter(isEmailDraft).length ? `${docs.filter(isEmailDraft).length} waiting for review` : 'Recent uploads from the last 7 days'}</p>}
+            {inboxOpen && <div id="docs-inbox">
+            <div role="tablist" aria-label="Whose documents" data-testid="docs-view-toggle" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--surface-2)', margin: '0.75rem 0' }}>
               {[['mine', 'Mine'], ['team', 'Team']].map(([id, label]) => (
                 <button key={id} type="button" role="tab" aria-selected={view_ === id} data-testid={`docs-view-${id}`} onClick={() => setView(id)}
                   style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', fontSize: 15, fontWeight: 600, cursor: 'pointer',
@@ -466,11 +484,12 @@ export default function DocumentsPage() {
             </div>
             {view_ === 'team' ? (
               <>
-                <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork from your whole team, on the loads you can open.</p>
-                <TeamDocsList supabase={supabase} onDeleted={(id) => setDocs((list) => list.filter((x) => x.id !== id))} />
+                <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Recent load paperwork from your team, last 7 days, on the loads you can open.</p>
+                <TeamDocsList supabase={supabase} inbox onDeleted={(id) => setDocs((list) => list.filter((x) => x.id !== id))} />
               </>
             ) : (<>
             {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
+            {waitingMore && <p data-testid="waiting-more" style={s.muted}>More rate cons are waiting in Load documents.</p>}
             {!isDriver && skipped.map((m) => (
               <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', paddingTop: 10 }}>{skippedLine(m)}</span>
@@ -478,11 +497,10 @@ export default function DocumentsPage() {
                   style={{ flex: 'none', minWidth: 44, minHeight: 44, border: 'none', background: 'none', color: 'var(--warning)', fontSize: 20, lineHeight: 1, cursor: 'pointer' }}>×</button>
               </div>
             ))}
-            <p data-testid="vault-note" style={{ ...s.muted, marginTop: '-0.25rem' }}>Load paperwork only. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
-              : docs.length === 0 ? <p style={s.muted}>No documents yet.</p> : docs.map((d) => (
+              : docs.length === 0 ? <p style={s.muted}>Nothing from the last 7 days. Older paperwork is in Load documents.</p> : docs.map((d) => (
               <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
@@ -550,7 +568,10 @@ export default function DocumentsPage() {
               </div>
             ))}
             </>)}
+            </div>}
           </div>
+          <p data-testid="vault-note" style={{ ...s.muted, marginTop: 0 }}>Load paperwork lives in the vaults below. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
+          <VaultTiles supabase={supabase} />
         </>
       )}
       {scanFiles && <Scanner allowRateCon={!isDriver} typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} initialLoadId={scanLoadId} onClose={() => setScanFiles(null)} onSave={saveScan} />}

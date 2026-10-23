@@ -12,9 +12,9 @@ export async function fetchLoadDocs(supabase, loadId, { fetchImpl = (...a) => fe
 }
 
 // Documents tab "Team" view (/api/documents/team). → { data, error }
-export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a) } = {}) {
+export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a), inbox = false } = {}) {
   try {
-    const res = await authedFetch(supabase.auth, '/api/documents/team', { cache: 'no-store' }, { fetchImpl });
+    const res = await authedFetch(supabase.auth, inbox ? '/api/documents/team?inbox=1' : '/api/documents/team', { cache: 'no-store' }, { fetchImpl });
     const j = await res.json().catch(() => ({}));
     if (res.ok) return { data: j.documents || [], error: null };
     return { data: null, error: { status: res.status, message: j.error || null } };

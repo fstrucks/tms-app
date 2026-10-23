@@ -8,6 +8,7 @@
 import { loadDocsCtx, json, DOC_COLS, docInCompany } from '../../../lib/loadDocsServer';
 import { canViewLoadDocs, visibleDocsFor, isImagePath, loadPickLabel } from '../../../lib/loadDocs';
 import { docTypeLabel, isDocumentsTabDoc } from '../../../lib/docTypes';
+import { selectInboxTeamDocs } from '../../../lib/docsInboxQuery';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,9 +31,33 @@ async function uploaderNames(svc, ids, me) {
   return out;
 }
 
+async function inboxResponse(c, svc) {
+  const got = await selectInboxTeamDocs(svc, { ownerId: c.ownerId, role: c.role, userId: c.user.id });
+  if (got.error) return json({ error: 'Couldn’t load team documents.' }, 500);
+  const visible = got.documents || [];
+  const me = c.user.id;
+  const names = await uploaderNames(svc, [...new Set(visible.map((d) => d.user_id))], me);
+  let urlOf = new Map();
+  try {
+    const urls = visible.length ? (await svc.storage.from('documents').createSignedUrls(visible.map((d) => d.file_path), 600)).data || [] : [];
+    urlOf = new Map(urls.map((u) => [u.path, u.signedUrl]));
+  } catch { /* signed link is optional */ }
+  return json({
+    role: c.role,
+    documents: visible.map((d) => {
+      const own = d.user_id === me;
+      const load = got.loadsById.get(d.load_id);
+      return { id: d.id, doc_type: d.doc_type, label: docTypeLabel(d.doc_type), original_filename: d.original_filename, created_at: d.created_at,
+        own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: load ? loadPickLabel(load) : 'Load', uploader: names.get(d.user_id) || 'Teammate',
+        url: urlOf.get(d.file_path) || null, isImage: isImagePath(d.file_path) };
+    }),
+  });
+}
+
 export async function GET(req, { deps } = {}) {
   const x = await loadDocsCtx(req, deps); if (x.res) return x.res;
   const { c, svc } = x;
+  if (new URL(req.url).searchParams.get('inbox') === '1') return inboxResponse(c, svc);
   const me = c.user.id;
   let lq = svc.from('loads').select(LOAD_COLS).eq('user_id', c.ownerId).order('created_at', { ascending: false }).limit(MAX_LOADS);
   if (!(c.role === 'owner' || c.role === 'management' || c.role === 'dispatcher')) lq = lq.eq('assigned_driver_user_id', me);
