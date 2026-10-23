@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { engineInput, checklistInput, orderBySchedule, intervalInput, decodeVin, sourceText, intervalText, dueText, VPIC_URL } from '../../app/lib/pmSchedule.js';
+import { engineInput, checklistInput, orderBySchedule, intervalInput, decodeVin, sourceText, intervalText, dueText, VPIC_URL, patchRow, defaultToday } from '../../app/lib/pmSchedule.js';
 import { SERVICE_TYPES } from '../../app/lib/maintenance.js';
 import * as SCHED from '../../app/api/truck/schedules/route.js';
 import * as MAINT from '../../app/api/truck/maintenance/route.js';
@@ -95,6 +95,8 @@ function ctx(role, userId, { missing = false, setupAt = null } = {}) {
     calls.push([fn, a]);
     if (missing && fn.startsWith('pm_')) return { data: null, error: { code: '42883', message: 'function public.pm_x does not exist' } };
     if (fn === 'packet_role') return { data: a?.p_owner === OWNER ? role : null, error: null };
+    if (fn === 'pm_today') return { data: '2026-10-22', error: null };
+    if (fn === 'pm_save_baseline') return role === 'owner' ? { data: a.p_groups.length, error: null } : { data: null, error: { code: '42501', message: 'not_allowed' } };
     if (fn === 'pm_engine_choices') return { data: ENGINES, error: null };
     if (fn === 'pm_suggest') return { data: [{ service_type: 'oil_filter', template_id: TP, interval_miles: 50000, interval_days: 365, is_generic: false }], error: null };
     if (fn === 'pm_setup_schedules') return role === 'owner' || role === 'management' ? { data: 8, error: null } : { data: null, error: { code: '42501', message: 'not_allowed' } };
@@ -125,18 +127,19 @@ test('schedules POST: drivers and dispatch cannot change; preview shows source',
   assert.equal(p.status, 200); assert.equal(p.j.items[0].sourceText, 'Suggested from TEST Guide, as of 01/15/2026');
 });
 
-test('setup: owner saves engine, odometer, one baseline visit (no expense), schedules with start states', async () => {
+test('setup: owner saves engine, odometer, baseline via pm_save_baseline, schedules with start states', async () => {
   const c = ctx('owner', OWNER);
   const r = await call(c, 'POST', { action: 'setup', truckId: T1, values: { engine: 'Detroit|DD15', dutyCycle: 'long_haul', odometer: '412,000', items: [
     { serviceType: 'oil_filter', done: true, date: '2026-10-01', miles: '411000' }, { serviceType: 'coolant', done: true, dateUnknown: true }, { serviceType: 'grease', done: false }] } });
   assert.equal(r.status, 200, JSON.stringify(r.j)); assert.equal(r.j.visits, 1); assert.equal(r.j.schedules, 8);
+  const bl = c.calls.filter(([f]) => f === 'pm_save_baseline');
+  assert.equal(bl.length, 1); assert.deepEqual(bl[0][1], { p_truck: T1, p_groups: [{ service_date: '2026-10-01', odometer: 411000, items: ['oil_filter'] }] });
+  assert.ok(c.calls.findIndex(([f]) => f === 'pm_save_baseline') < c.calls.findIndex(([f]) => f === 'pm_setup_schedules'), 'baseline saved before schedules');
   const odo = c.calls.find(([f]) => f === 'set_truck_odometer'); assert.equal(odo[1].p_odometer, 412000);
   const setup = c.calls.find(([f]) => f === 'pm_setup_schedules'); assert.deepEqual(setup[1].p_start, { coolant: 'unknown', grease: 'due' });
   const tr = await c.uc.from('trucks').select('*').eq('id', T1).maybeSingle();
   assert.equal(tr.data.engine_model, 'DD15'); assert.ok(tr.data.maint_setup_at);
-  const recs = (await c.uc.from('service_records').select('*')).data;
-  assert.equal(recs.length, 1); assert.equal(recs[0].entry_source, 'baseline'); assert.equal(recs[0].add_to_expenses, false); assert.equal(recs[0].total_cost, 0);
-  assert.deepEqual((await c.uc.from('service_record_items').select('*')).data.map((x) => x.service_type), ['oil_filter']);
+  assert.equal((await c.uc.from('service_records').select('*')).data.length, 0, 'no direct inserts: the database function saves baseline visits');
 });
 
 test('setup: management gets schedules but no baseline visit', async () => {
@@ -144,6 +147,7 @@ test('setup: management gets schedules but no baseline visit', async () => {
   const r = await call(c, 'POST', { action: 'setup', truckId: T1, values: { engine: 'not_sure', items: [{ serviceType: 'oil_filter', done: true, date: '2026-10-01' }] } });
   assert.equal(r.status, 200); assert.equal(r.j.visits, 0);
   assert.equal((await c.uc.from('service_records').select('*')).data.length, 0);
+  assert.ok(!c.calls.some(([f]) => f === 'pm_save_baseline'));
   assert.deepEqual(c.calls.find(([f]) => f === 'pm_setup_schedules')[1].p_start, { oil_filter: 'unknown' });
 });
 
@@ -180,4 +184,69 @@ test('setup: management sees "Owner can confirm last service." beside checked it
   const src = readFileSync(new URL('../../app/truck/TruckSetup.js', import.meta.url), 'utf8');
   assert.match(src, /x\.done && !canBaseline && <p data-testid=\{`setup-owner-note-\$\{x\.serviceType\}`\} style=\{\{ \.\.\.s\.muted[^>]*>Owner can confirm last service\.<\/p>/);
   assert.match(src, /x\.done && canBaseline && \(/);
+});
+
+const FIX = readFileSync(new URL('../../supabase/migrations/20261023000400_maintenance_schedules_fix.sql', import.meta.url), 'utf8');
+
+test('0400: ASCII, guard on 0300, no anon grants, definer functions pin search_path, 0300 untouched', () => {
+  assert.ok(/^[\x00-\x7f]*$/.test(FIX));
+  assert.match(FIX.slice(0, FIX.indexOf('create or replace')), /to_regclass\('public\.pm_schedules'\) is null[\s\S]*raise exception/);
+  assert.doesNotMatch(FIX, /grant [^;]* to anon/i);
+  for (const fn of FIX.matchAll(/create or replace function (public\.\w+)[\s\S]*?security definer([^\n]*)/g)) assert.match(fn[2], /set search_path = public/, fn[1]);
+  assert.match(FIX, /drop function if exists public\.pm_la_today\(\)/);
+  assert.match(FIX, /'America\/Chicago'/);
+  assert.match(FIX, /ml::bigint \* 10 <= d\.interval_miles or d\.dl <= 14/);
+  assert.doesNotMatch(SQL, /pm_today|pm_save_baseline/);
+});
+
+test('company day: server asks pm_today, never sends an LA date', async () => {
+  const c = ctx('owner', OWNER);
+  const r = await call(c, 'GET', null, `?truckId=${T1}`);
+  assert.equal(r.j.today, '2026-10-22');
+  const st = c.calls.find(([f]) => f === 'pm_status_for'); assert.deepEqual(st[1], { p_truck: T1 });
+  const due = ctx('owner', OWNER); await call(due, 'GET', null, '?due=1');
+  assert.deepEqual(due.calls.find(([f]) => f === 'pm_due_list')[1], {});
+  const m = ctx('owner', OWNER); await MAINT.GET(rq('maintenance', 'GET', null, `?truckId=${T1}`), { deps: m.deps });
+  assert.deepEqual(m.calls.find(([f]) => f === 'pm_status_for')[1], { p_truck: T1 });
+  assert.equal(defaultToday(new Date('2026-10-24T04:30:00Z')), '2026-10-23'); // 11:30 PM in Chicago
+  assert.equal(defaultToday(new Date('2026-10-24T05:30:00Z')), '2026-10-24');
+});
+
+test('setup with a future date by company day is refused before any write', async () => {
+  const c = ctx('owner', OWNER);
+  const r = await call(c, 'POST', { action: 'setup', truckId: T1, values: { engine: 'not_sure', items: [{ serviceType: 'oil_filter', done: true, date: '2026-10-23' }] } });
+  assert.equal(r.status, 422); assert.match(r.j.error, /future/);
+  assert.ok(!c.calls.some(([f]) => f === 'pm_save_baseline' || f === 'pm_setup_schedules'));
+});
+
+test('setup rows: toggling "not sure" on one row leaves every other row as it was', () => {
+  const rows = [
+    { serviceType: 'oil_filter', done: true, date: '2026-10-01', dateUnknown: false, miles: '400000', milesUnknown: false },
+    { serviceType: 'valve_adjustment', done: true, date: '2026-10-01', dateUnknown: false, miles: '400000', milesUnknown: false },
+    { serviceType: 'coolant', done: true, date: '2026-09-01', dateUnknown: false, miles: '390000', milesUnknown: false },
+  ];
+  const snap = JSON.stringify(rows);
+  let r = patchRow(rows, 'valve_adjustment', { dateUnknown: true });
+  r = patchRow(r, 'valve_adjustment', { milesUnknown: true });
+  assert.equal(JSON.stringify(rows), snap, 'input not mutated');
+  assert.equal(r[0], rows[0]); assert.equal(r[2], rows[2]);
+  assert.deepEqual(r[1], { ...rows[1], dateUnknown: true, milesUnknown: true });
+  r = patchRow(r, 'valve_adjustment', { dateUnknown: false });
+  assert.equal(r[1].miles, '400000'); assert.equal(r[1].date, '2026-10-01');
+});
+
+test('schedule card keeps a separate draft per row (opening Valve does not drop the Oil draft)', () => {
+  const src = readFileSync(new URL('../../app/truck/PmSchedules.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /setEdit\(\{ \.\.\.edit/);
+  assert.match(src, /setEdits\(\(o\) =>/);
+  assert.match(src, /edits\[r\.schedule_id\]/);
+});
+
+test('truck page: newest load wins, no cache, refetch after setup; driver banner names the right roles', () => {
+  const src = readFileSync(new URL('../../app/truck/page.js', import.meta.url), 'utf8');
+  assert.match(src, /n !== loadSeq\.current/);
+  assert.match(src, /_=\$\{Date\.now\(\)\}/);
+  assert.match(src, /onSetupDone=\{\(\) => \{ setSetupFor\(null\); load\(truck\.id\); \}\}/);
+  assert.match(src, /Only the owner or management can change the maintenance schedule\./);
+  assert.doesNotMatch(src, /Ask the owner or dispatcher/);
 });

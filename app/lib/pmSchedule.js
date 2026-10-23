@@ -138,3 +138,13 @@ export const badgeStyle = (status) => {
   const tone = status === 'overdue' ? ['var(--danger)', 'var(--danger-bg, transparent)'] : ['due', 'due_soon'].includes(status) ? ['var(--warning)', 'var(--warning-bg)'] : status === 'ok' ? ['var(--success)', 'transparent'] : ['var(--text-muted)', 'transparent'];
   return { fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${tone[0]}`, color: tone[0], background: tone[1], whiteSpace: 'nowrap' };
 };
+
+// Default company day when the database cannot tell us (no stored company time zone): America/Chicago.
+export function defaultToday(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+// One setup row changes; every other row object is returned untouched (same reference).
+export function patchRow(rows, key, patch) {
+  return rows.map((x) => (x.serviceType === key ? { ...x, ...patch } : x));
+}

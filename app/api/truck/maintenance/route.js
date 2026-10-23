@@ -6,7 +6,6 @@
 import { truckCtx, json, isMissing, UUID } from '../../../lib/truckServer';
 import { visitInput, shapeHistory, canLogService, isOffice, canChangeVisit, DRIVER_NO_ACCESS } from '../../../lib/maintenance';
 
-import { laToday } from '../../../lib/sendCap';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,7 +61,7 @@ export async function GET(req, { deps } = {}) {
   // Schedule status orders the Log service checklist (migration 20261023000300). Before that migration: no schedule.
   let schedule = [];
   try {
-    const st = await c.uc.rpc('pm_status_for', { p_truck: truckId, p_today: laToday() });
+    const st = await c.uc.rpc('pm_status_for', { p_truck: truckId });
     if (!st?.error) schedule = (st?.data || []).map((x) => ({ service_type: x.service_type, status: x.status }));
   } catch { schedule = []; }
   return json({ schedule,

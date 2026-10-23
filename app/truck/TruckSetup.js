@@ -3,10 +3,9 @@
 // Done items with a date become one "before using the app" record (owner only, no expense). The rest start as due
 // or unknown. Schedules come from the engine maker's suggested intervals, or general estimates when the engine is unknown.
 import { useState } from 'react';
-import { DUTY_CYCLES, NOT_SURE, engineKey, engineLabel, intervalText } from '../lib/pmSchedule';
-import { laToday } from '../lib/sendCap';
+import { DUTY_CYCLES, NOT_SURE, engineKey, engineLabel, intervalText, defaultToday, patchRow } from '../lib/pmSchedule';
 
-export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone, onCancel }) {
+export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone, onCancel, today: todayProp }) {
   const [step, setStep] = useState(1);
   const [v, setV] = useState({
     engine: truck.engine_model ? `${truck.engine_make}|${truck.engine_model}` : '', engineYear: truck.engine_year ?? '',
@@ -17,7 +16,7 @@ export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const set = (k) => (e) => setV((o) => ({ ...o, [k]: e.target.value }));
-  const today = laToday();
+  const today = todayProp || defaultToday();
   const post = (body) => api('/api/truck/schedules', { method: 'POST', body: JSON.stringify({ truckId: truck.id, ...body }) });
 
   async function lookUpVin() {
@@ -40,7 +39,8 @@ export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone
     setItems(j.items.map((x) => ({ ...x, done: false, date: today, dateUnknown: false, miles: String(v.odometer ?? ''), milesUnknown: !String(v.odometer ?? '') })));
     setStep(2);
   }
-  const upd = (k, patch) => setItems((xs) => xs.map((x) => (x.serviceType === k ? { ...x, ...patch } : x)));
+  // Functional update of one row only; other rows keep their own values.
+  const upd = (k, patch) => setItems((xs) => patchRow(xs, k, patch));
   async function save() {
     setBusy(true); setMsg(null);
     const j = await post({ action: 'setup', values: { ...v, items: items.map(({ serviceType, done, date, dateUnknown, miles, milesUnknown }) => ({ serviceType, done, date, dateUnknown, miles, milesUnknown })) } });

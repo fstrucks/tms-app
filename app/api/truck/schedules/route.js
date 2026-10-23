@@ -5,8 +5,7 @@
 // Truck engine fields follow the Truck tab rule (c.db filtered by owner). Baseline visits: owner only, never an expense.
 import { truckCtx, ownedTruck, json, isMissing, SETUP, UUID } from '../../../lib/truckServer';
 import { isOffice, typeLabel } from '../../../lib/maintenance';
-import { laToday } from '../../../lib/sendCap';
-import { engineInput, checklistInput, intervalInput, decodeVin, sourceText, VPIC_URL } from '../../../lib/pmSchedule';
+import { engineInput, checklistInput, intervalInput, decodeVin, sourceText, defaultToday, VPIC_URL } from '../../../lib/pmSchedule';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,21 +33,31 @@ async function preview(c, patch) {
   }) };
 }
 
+// The company's day (pm_today: stored company time zone, else America/Chicago).
+async function companyToday(c, truckId) {
+  try {
+    const r = await c.uc.rpc('pm_today', truckId ? { p_truck: truckId } : {});
+    if (!r?.error && typeof r?.data === 'string') return r.data.slice(0, 10);
+  } catch { /* fall through */ }
+  return defaultToday();
+}
+
 export async function GET(req, { deps } = {}) {
   const c = await truckCtx(req, deps); if (c.res) return c.res;
   const q = new URL(req.url).searchParams;
-  const today = laToday();
   if (q.get('due')) {
-    const r = await c.uc.rpc('pm_due_list', { p_today: today });
+    const today = await companyToday(c, null);
+    const r = await c.uc.rpc('pm_due_list', {});
     if (r.error) return isMissing(r.error) ? json({ available: false, due: [] }) : json({ error: 'Could not load maintenance due.' }, 500);
     return json({ available: true, today, due: (r.data || []).map((x) => ({ ...x, label: typeLabel({ service_type: x.service_type }) })) });
   }
   const truckId = q.get('truckId');
   if (!UUID.test(truckId || '') || !(await ownedTruck(c.db, c.ownerId, truckId))) return json({ error: 'Truck not found.' }, 404);
-  const [tr, st, en] = await Promise.all([
+  const [tr, st, en, today] = await Promise.all([
     c.db.from('trucks').select(TRUCK_COLS).eq('id', truckId).eq('user_id', c.ownerId).maybeSingle(),
-    c.uc.rpc('pm_status_for', { p_truck: truckId, p_today: today }),
+    c.uc.rpc('pm_status_for', { p_truck: truckId }),
     engines(c),
+    companyToday(c, truckId),
   ]);
   const err = tr.error || st.error || en.error;
   if (err) return isMissing(err) ? json({ available: false }) : json({ error: 'Could not load the maintenance schedule.' }, 500);
@@ -99,7 +108,7 @@ export async function POST(req, { deps, fetchImpl = fetch } = {}) {
   }
 
   if (b.action === 'setup') {
-    const today = laToday();
+    const today = await companyToday(c, truck.id);
     const raw = String(b.values?.odometer ?? '').replace(/[,\s]/g, '');
     const odo = raw === '' ? null : Number(raw);
     if (odo != null && (!Number.isInteger(odo) || odo < 0 || odo > 9999999)) return json({ error: 'Odometer must be a whole number.' }, 422);
@@ -113,14 +122,12 @@ export async function POST(req, { deps, fetchImpl = fetch } = {}) {
       const o = await c.uc.rpc('set_truck_odometer', { p_truck: truck.id, p_odometer: odo });
       if (o.error) return fail(o.error, 'Could not save the odometer.');
     }
-    // Baseline visits first, so the new schedules start from them.
+    // Baseline visits first, so the new schedules start from them. A rerun replaces the earlier entry per service.
     let visits = 0;
-    for (const g of cl.baseline) {
-      const r = await c.uc.from('service_records').insert({ truck_id: truck.id, owner_id: c.ownerId, service_date: g.service_date, odometer: g.odometer, entry_source: 'baseline', add_to_expenses: false, total_cost: 0, notes: 'Recorded during truck setup' }).select('id').single();
+    if (cl.baseline.length) {
+      const r = await c.uc.rpc('pm_save_baseline', { p_truck: truck.id, p_groups: cl.baseline });
       if (r.error) return fail(r.error, 'Could not save the past services.');
-      const it = await c.uc.from('service_record_items').insert(g.items.map((t) => ({ service_record_id: r.data.id, service_type: t })));
-      if (it.error) { await c.uc.from('service_records').delete().eq('id', r.data.id); return fail(it.error, 'Could not save the past services.'); }
-      visits++;
+      visits = r.data ?? cl.baseline.length;
     }
     const s = await c.uc.rpc('pm_setup_schedules', { p_truck: truck.id, p_start: cl.start });
     if (s.error) return fail(s.error, 'Could not create the schedules.');
