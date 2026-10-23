@@ -1,10 +1,10 @@
+import { authedFetch } from './authedFetch';
 // Load page: this load's documents from /api/loads/:id/documents (includes team members' uploads and Truck-tab
 // scale tickets, with signed URLs). If the endpoint isn't available (older server, no service key) it falls back
 // to the old direct query, which only returns your own uploads. → { data, error } like a Supabase query.
 export async function fetchLoadDocs(supabase, loadId, { fetchImpl = (...a) => fetch(...a) } = {}) {
   try {
-    const { data: s } = await supabase.auth.getSession();
-    const res = await fetchImpl(`/api/loads/${loadId}/documents`, { cache: 'no-store', headers: { Authorization: `Bearer ${s?.session?.access_token || ''}` } });
+    const res = await authedFetch(supabase.auth, `/api/loads/${loadId}/documents`, { cache: 'no-store' }, { fetchImpl });
     if (res.ok) { const j = await res.json(); return { data: j.documents || [], error: null }; }
     if (res.status !== 503 && res.status !== 404) return { data: null, error: { status: res.status } };
   } catch { /* fall back */ }
@@ -14,8 +14,7 @@ export async function fetchLoadDocs(supabase, loadId, { fetchImpl = (...a) => fe
 // Documents tab "Team" view (/api/documents/team). → { data, error }
 export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a) } = {}) {
   try {
-    const { data: s } = await supabase.auth.getSession();
-    const res = await fetchImpl('/api/documents/team', { cache: 'no-store', headers: { Authorization: `Bearer ${s?.session?.access_token || ''}` } });
+    const res = await authedFetch(supabase.auth, '/api/documents/team', { cache: 'no-store' }, { fetchImpl });
     const j = await res.json().catch(() => ({}));
     if (res.ok) return { data: j.documents || [], error: null };
     return { data: null, error: { status: res.status, message: j.error || null } };
