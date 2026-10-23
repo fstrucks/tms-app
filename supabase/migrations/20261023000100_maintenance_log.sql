@@ -24,11 +24,20 @@ end $$;
 alter table public.trucks add column if not exists odometer integer;
 alter table public.trucks add column if not exists odometer_updated_at timestamptz;
 do $$ begin
+  -- design §1.1 ("id default: set gen_random_uuid() only if missing"), kept as specified there.
   if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'trucks' and column_name = 'id' and column_default is null) then
     alter table public.trucks alter column id set default gen_random_uuid();
   end if;
   if not exists (select 1 from pg_constraint where conrelid = 'public.trucks'::regclass and conname = 'trucks_odometer_nonneg') then
     alter table public.trucks add constraint trucks_odometer_nonneg check (odometer is null or odometer >= 0) not valid;
+  end if;
+  -- Validate now; if prod already has negative readings, leave it NOT VALID (new writes are still checked) and say so.
+  if exists (select 1 from pg_constraint where conrelid = 'public.trucks'::regclass and conname = 'trucks_odometer_nonneg' and not convalidated) then
+    if exists (select 1 from public.trucks where odometer < 0) then
+      raise notice 'maintenance_log: trucks has negative odometer rows; trucks_odometer_nonneg left NOT VALID until they are fixed';
+    else
+      alter table public.trucks validate constraint trucks_odometer_nonneg;
+    end if;
   end if;
   if not exists (select 1 from pg_class where oid = 'public.trucks'::regclass and relrowsecurity) then
     raise notice 'maintenance_log: RLS is OFF on public.trucks (not changed here; report to Sam)';
@@ -97,12 +106,14 @@ returns text language sql stable security definer set search_path = public as $$
            where cp.owner_id = p_owner and m.user_id = auth.uid()
            order by case m.role when 'management' then 1 when 'dispatcher' then 2 when 'driver' then 3 else 4 end limit 1) end;
 $$;
--- Does the caller drive this truck (driver record linked to his login, or a load on this truck assigned to him)?
+-- Does the caller drive this truck? An active driver record linking his login to it, or an open load
+-- (booked / dispatched / in_transit) on this truck assigned to him. Old delivered loads don't count.
 create or replace function public.maint_drives_truck(p_truck uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select auth.uid() is not null and (
     exists (select 1 from public.drivers d where d.truck_id = p_truck and d.auth_user_id = auth.uid() and d.active)
-    or exists (select 1 from public.loads l where l.truck_id = p_truck and l.assigned_driver_user_id = auth.uid()));
+    or exists (select 1 from public.loads l where l.truck_id = p_truck and l.assigned_driver_user_id = auth.uid()
+                and l.status in ('booked', 'dispatched', 'in_transit')));
 $$;
 create or replace function public.maint_can_see(p_owner uuid, p_truck uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -124,7 +135,7 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 create or replace function public.maint_truck_owner(p_truck uuid)
 returns uuid language sql stable security definer set search_path = public as $$
-  select user_id from public.trucks where id = p_truck;
+  select t.user_id from public.trucks t where t.id = p_truck and public.maint_role(t.user_id) is not null; -- null unless the caller is in that company
 $$;
 create or replace function public.maint_record_visible(p_record uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -132,7 +143,8 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 create or replace function public.maint_record_changeable(p_record uuid)
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.service_records r where r.id = p_record and public.maint_can_change(r.owner_id, r.truck_id, r.created_by, r.created_at));
+  select exists (select 1 from public.service_records r where r.id = p_record and public.maint_can_change(r.owner_id, r.truck_id, r.created_by, r.created_at)
+    and (r.entry_source = 'logged' or public.maint_role(r.owner_id) = 'owner')); -- baseline visits: owner only
 $$;
 
 -- Loads for the "Add to a load" picker: the caller's company only (a driver: only loads assigned to him).
@@ -151,6 +163,13 @@ language sql stable security definer set search_path = public as $$
    limit 40;
 $$;
 
+-- Sanity cap: a reading more than 50,000 mi above the truck's current odometer is rejected unless the caller is the owner.
+create or replace function public.maint_odometer_jump(p_truck uuid, p_odometer integer)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select p_odometer > t.odometer + 50000 and public.maint_role(t.user_id) is distinct from 'owner'
+                     from public.trucks t where t.id = p_truck), false);
+$$;
+
 -- Manual odometer edit (owner / management). Can lower it (typo fix); stamps odometer_updated_at.
 create or replace function public.set_truck_odometer(p_truck uuid, p_odometer integer)
 returns timestamptz language plpgsql security definer set search_path = public as $$
@@ -161,6 +180,7 @@ begin
     raise exception 'not_allowed' using errcode = '42501';
   end if;
   if p_odometer is null or p_odometer < 0 or p_odometer > 9999999 then raise exception 'bad_odometer' using errcode = '22023'; end if;
+  if public.maint_odometer_jump(p_truck, p_odometer) then raise exception 'odometer_jump' using errcode = '22023'; end if;
   update public.trucks set odometer = p_odometer, odometer_updated_at = v_now where id = p_truck;
   return v_now;
 end $$;
@@ -181,7 +201,19 @@ begin
     new.expense_id := null;
   else
     if new.truck_id is distinct from old.truck_id and old.owner_id <> v_owner then raise exception 'other_company_truck' using errcode = '42501'; end if;
-    new.created_by := old.created_by; new.created_at := old.created_at; new.expense_id := old.expense_id;
+    new.created_by := old.created_by; new.created_at := old.created_at;
+    -- Keep the link only while that expense still exists. When it was deleted (from Expenses), the FK's
+    -- ON DELETE SET NULL arrives here as an UPDATE: drop the link and stop syncing so it isn't re-created.
+    if old.expense_id is not null and exists (select 1 from public.expenses e where e.id = old.expense_id) then
+      new.expense_id := old.expense_id;
+    else
+      if old.expense_id is not null then new.add_to_expenses := false; end if;
+      new.expense_id := null;
+    end if;
+  end if;
+  if new.odometer is not null and (tg_op = 'INSERT' or new.odometer is distinct from old.odometer)
+     and public.maint_odometer_jump(new.truck_id, new.odometer) then
+    raise exception 'odometer_jump' using errcode = '22023';
   end if;
   new.updated_at := now();
   if new.load_id is not null and (tg_op = 'INSERT' or new.load_id is distinct from old.load_id) and not public.maint_load_ok(v_owner, new.load_id) then
@@ -233,7 +265,21 @@ drop trigger if exists service_records_after_delete on public.service_records;
 create trigger service_records_after_delete after update or delete on public.service_records
   for each row execute function public.service_records_after_delete();
 
--- documents.service_record_id: caller must be allowed to change that visit; max 10 per visit; type is set.
+-- BEFORE delete: remove the visit's receipt rows. Must run BEFORE: the FK's ON DELETE SET NULL on
+-- documents.service_record_id (an AFTER action) would otherwise unlink them first. Storage files are not removed
+-- here (Supabase wants the Storage API for that); the app removes them, see app/api/truck/maintenance.
+create or replace function public.service_records_before_delete()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.documents where service_record_id = old.id and doc_type = 'maintenance_receipt';
+  return old;
+end $$;
+drop trigger if exists service_records_before_delete on public.service_records;
+create trigger service_records_before_delete before delete on public.service_records
+  for each row execute function public.service_records_before_delete();
+
+-- documents.service_record_id: caller must be allowed to change that visit; only untyped or maintenance_receipt
+-- documents may be linked (an existing BOL or rate con is never relabelled); max 10 per visit, under a lock.
 create or replace function public.documents_service_record_check()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -241,6 +287,10 @@ begin
     if auth.uid() is not null and not public.maint_record_changeable(new.service_record_id) then
       raise exception 'service_record_not_allowed' using errcode = '42501';
     end if;
+    if new.doc_type is not null and new.doc_type <> 'maintenance_receipt' then
+      raise exception 'not_a_receipt' using errcode = '23514';
+    end if;
+    perform pg_advisory_xact_lock(hashtextextended('maint_receipts:' || new.service_record_id::text, 0)); -- no race past 10
     if (select count(*) from public.documents d where d.service_record_id = new.service_record_id and d.id <> new.id) >= 10 then
       raise exception 'too_many_receipts' using errcode = '23514';
     end if;
@@ -313,12 +363,12 @@ do $$ declare f text; begin
     execute 'grant insert (id, service_record_id, service_type, service_label, cost, notes), update (service_type, service_label, cost, notes) on public.service_record_items to authenticated';
   end if;
   foreach f in array array['maint_role(uuid)', 'maint_drives_truck(uuid)', 'maint_can_see(uuid,uuid)', 'maint_can_change(uuid,uuid,uuid,timestamptz)',
-      'maint_load_ok(uuid,uuid)', 'maint_record_visible(uuid)', 'maint_truck_owner(uuid)', 'maint_record_changeable(uuid)', 'maint_load_choices(uuid)', 'set_truck_odometer(uuid,integer)'] loop
+      'maint_load_ok(uuid,uuid)', 'maint_record_visible(uuid)', 'maint_truck_owner(uuid)', 'maint_record_changeable(uuid)', 'maint_odometer_jump(uuid,integer)', 'maint_load_choices(uuid)', 'set_truck_odometer(uuid,integer)'] loop
     execute format('revoke all on function public.%s from public', f);
     if exists (select 1 from pg_roles where rolname = 'anon') then execute format('revoke all on function public.%s from anon', f); end if;
     if exists (select 1 from pg_roles where rolname = 'authenticated') then execute format('grant execute on function public.%s to authenticated', f); end if;
   end loop;
-  foreach f in array array['service_records_before()', 'service_records_bump_odometer()', 'service_records_after_delete()', 'documents_service_record_check()'] loop
+  foreach f in array array['service_records_before()', 'service_records_bump_odometer()', 'service_records_after_delete()', 'service_records_before_delete()', 'documents_service_record_check()'] loop
     execute format('revoke all on function public.%s from public', f);
   end loop;
 end $$;

@@ -133,9 +133,9 @@ ok(choicesO[0] === L1 && choicesO.includes(L2) && !choicesO.includes(L9), 'owner
 ok((await as(P, `select id from public.maint_load_choices($1)`, [T1])).rows.length === 0, 'dispatcher picker: empty (read only)');
 
 // Receipts.
-const doc = (await as(D, `insert into public.documents (user_id, doc_type, file_path, service_record_id) values ($1, 'receipt', 'd/r.jpg', $2) returning id, doc_type`, [D, R1]));
+const doc = (await as(D, `insert into public.documents (user_id, doc_type, file_path, service_record_id) values ($1, null, 'd/r.jpg', $2) returning id, doc_type`, [D, R1]));
 ok(/service_record_not_allowed/.test(doc.err || ''), 'driver cannot attach to the owner’s visit');
-const own = await as(O, `insert into public.documents (user_id, doc_type, file_path, service_record_id) values ($1, 'receipt', 'o/r.jpg', $2) returning doc_type`, [O, R1]);
+const own = await as(O, `insert into public.documents (user_id, doc_type, file_path, service_record_id) values ($1, null, 'o/r.jpg', $2) returning doc_type`, [O, R1]);
 ok(own.rows?.[0]?.doc_type === 'maintenance_receipt', 'receipt gets doc_type maintenance_receipt');
 ok((await as(P, `select count(*)::int n from public.documents where service_record_id = $1`, [R1])).rows[0].n === 1, 'dispatcher sees the receipt');
 for (let i = 0; i < 9; i++) await as(O, `insert into public.documents (user_id, file_path, service_record_id) values ($1, $2, $3)`, [O, `o/${i}.jpg`, R1]);
@@ -145,6 +145,69 @@ ok(/too_many_receipts/.test((await as(O, `insert into public.documents (user_id,
 ok((await as(M, `select public.set_truck_odometer($1, 99000) t`, [T1])).rows?.[0]?.t, 'management sets odometer (can lower)');
 ok((await sys(`select odometer, odometer_updated_at from public.trucks where id = $1`, [T1]))[0].odometer === 99000, 'odometer saved');
 ok((await as(D, `select public.set_truck_odometer($1, 1) t`, [T1])).err, 'driver cannot set odometer');
+
+// ---- Review fixes (Sam, #137) ----
+const D3 = id(8), T3 = id(203), L3 = id(303);
+await db.exec(`insert into auth.users (id) values ('${D3}'); insert into public.company_members (profile_id, user_id, role) values ('${C1}','${D3}','driver');
+insert into public.trucks values ('${T3}','${O}','103',200000);
+insert into public.loads (id, user_id, truck_id, assigned_driver_user_id, status) values ('${L3}','${O}','${T3}','${D3}','delivered');`);
+ok((await sys(`select convalidated from pg_constraint where conname = 'trucks_odometer_nonneg'`))[0].convalidated === true, 'setup: trucks_odometer_nonneg validated (no negative rows)');
+
+// 1. Expense deleted elsewhere → FK set-null is kept; the visit stops syncing; later edits don't re-create it.
+{
+  const v = (await add(O, T3, 120)).rows[0];
+  await sys(`delete from public.expenses where id = $1`, [v.expense_id]);
+  let row = (await sys(`select expense_id, add_to_expenses from public.service_records where id = $1`, [v.id]))[0];
+  ok(row.expense_id === null && row.add_to_expenses === false, '1: deleting the expense clears expense_id and add_to_expenses');
+  const e = await as(O, `update public.service_records set notes = 'edited', total_cost = 130 where id = $1 returning expense_id`, [v.id]);
+  ok(!e.err && e.rows[0].expense_id === null, '1: editing the visit afterwards works, no dangling id');
+  ok((await sys(`select count(*)::int n from public.expenses where amount = 130`))[0].n === 0, '1: no expense re-created by the edit');
+}
+// 2. Deleting a visit deletes its receipt rows (and only receipts).
+{
+  const v = (await add(O, T3, 0)).rows[0];
+  await as(O, `insert into public.documents (user_id, file_path, service_record_id) values ($1, 'o/a.jpg', $2), ($1, 'o/b.jpg', $2)`, [O, v.id]);
+  ok((await sys(`select count(*)::int n from public.documents where service_record_id = $1`, [v.id]))[0].n === 2, '2: two receipts linked');
+  await as(O, `delete from public.service_records where id = $1`, [v.id]);
+  ok((await sys(`select count(*)::int n from public.documents where file_path in ('o/a.jpg','o/b.jpg')`))[0].n === 0, '2: receipts deleted with the visit');
+}
+// 3. Existing typed document can't be linked / relabelled.
+{
+  const v = (await add(O, T3, 0)).rows[0];
+  const bol = (await as(O, `insert into public.documents (user_id, doc_type, file_path) values ($1, 'bol', 'o/bol.pdf') returning id`, [O])).rows[0].id;
+  const r = await as(O, `update public.documents set service_record_id = $2 where id = $1`, [bol, v.id]);
+  ok(/not_a_receipt/.test(r.err || ''), '3: linking a BOL is rejected');
+  const d = (await sys(`select doc_type, service_record_id from public.documents where id = $1`, [bol]))[0];
+  ok(d.doc_type === 'bol' && d.service_record_id === null, '3: BOL keeps its type, stays unlinked');
+  ok((await as(O, `insert into public.documents (user_id, doc_type, file_path, service_record_id) values ($1, 'maintenance_receipt', 'o/m.jpg', $2) returning id`, [O, v.id])).rows?.length === 1, '3: maintenance_receipt links fine');
+}
+// 4. A delivered load no longer makes you the truck's driver.
+ok((await as(D3, `select count(*)::int n from public.service_records`)).rows[0].n === 0, '4: driver with only a delivered load on T3 sees nothing');
+ok((await add(D3, T3, 5)).err, '4: …and cannot add for T3');
+await sys(`update public.loads set status = 'dispatched' where id = $1`, [L3]);
+ok((await as(D3, `select count(*)::int n from public.service_records`)).rows[0].n > 0, '4: dispatched load on T3 → he sees T3');
+await sys(`update public.loads set status = 'delivered' where id = $1`, [L3]);
+// 5. Receipt cap takes a per-visit advisory lock before counting.
+ok(/pg_advisory_xact_lock\(hashtextextended\('maint_receipts:'[\s\S]*count\(\*\)/.test((await sys(`select prosrc from pg_proc where proname = 'documents_service_record_check'`))[0].prosrc), '5: lock taken before the count');
+// 6. maint_truck_owner only answers inside your company.
+ok((await as(M, `select public.maint_truck_owner($1) o`, [T1])).rows[0].o === O, '6: member gets the owner');
+ok((await as(X, `select public.maint_truck_owner($1) o`, [T1])).rows[0].o === null, '6: stranger gets null');
+ok((await as(O2, `select public.maint_truck_owner($1) o`, [T1])).rows[0].o === null, '6: other company owner gets null');
+// 7. Odometer jump > 50,000 above current: owner only.
+{
+  const cur = (await sys(`select odometer from public.trucks where id = $1`, [T3]))[0].odometer;
+  ok(/odometer_jump/.test((await add(M, T3, 0, { odo: cur + 50001 })).err || ''), '7: management visit +50,001 rejected');
+  ok(/odometer_jump/.test((await as(M, `select public.set_truck_odometer($1, $2)`, [T3, cur + 60000])).err || ''), '7: management manual +60,000 rejected');
+  ok(!(await add(M, T3, 0, { odo: cur + 50000 })).err, '7: management +50,000 allowed');
+  ok(!(await add(O, T3, 0, { odo: cur + 200000 })).err, '7: owner may enter a big jump');
+}
+// 8. Baseline visit items: owner only.
+{
+  const b = (await add(O, T3, 0, { src: 'baseline' })).rows[0].id;
+  ok((await as(M, `insert into public.service_record_items (service_record_id, service_type) values ($1, 'tires')`, [b])).err, '8: management cannot add items to a baseline');
+  ok((await as(O, `insert into public.service_record_items (service_record_id, service_type) values ($1, 'tires') returning id`, [b])).rows?.length === 1, '8: owner can');
+  ok((await as(M, `delete from public.service_record_items where service_record_id = $1 returning id`, [b])).rows?.length === 0, '8: management cannot delete baseline items');
+}
 
 // Grants.
 const g = (await sys(`select has_table_privilege('anon','public.service_records','select') a, has_function_privilege('anon','public.maint_load_choices(uuid)','execute') f, has_function_privilege('authenticated','public.maint_load_choices(uuid)','execute') u`))[0];

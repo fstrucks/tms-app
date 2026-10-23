@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 const NOT_READY = { available: false, visits: [], loads: [] };
 const denied = (e) => !!e && (e.code === '42501' || /row-level security|not_allowed|permission denied/i.test(e.message || ''));
 const errMsg = (e, fallback) => {
+  if (/odometer_jump/.test(e?.message || '')) return json({ error: 'That’s more than 50,000 miles above the current odometer. Ask the owner to enter it.' }, 422);
   if (/load_not_allowed/.test(e?.message || '')) return json({ error: 'That load isn’t one you can pick.' }, 422);
   if (denied(e)) return json({ error: 'You can’t change this entry.' }, 403);
   if (isMissing(e)) return json({ ...NOT_READY, error: 'Maintenance needs a database update first.' }, 503);
@@ -71,9 +72,19 @@ export async function POST(req, { deps } = {}) {
 
   if (b.action === 'delete') {
     if (!UUID.test(b.id || '')) return json({ error: 'Entry not found.' }, 404);
+    // Receipt rows are deleted by the database (BEFORE delete trigger); the files are removed here, best effort,
+    // with the caller's token (Storage policies decide which ones he may remove).
+    const docs = await c.uc.from('documents').select('file_path').eq('service_record_id', b.id).eq('doc_type', 'maintenance_receipt');
     const r = await c.uc.from('service_records').delete().eq('id', b.id).select('id');
     if (r.error) return errMsg(r.error, 'Could not delete the entry.');
     if (!r.data?.length) return json({ error: 'You can’t delete this entry.' }, 403);
+    const paths = (docs.data || []).map((d) => d.file_path).filter(Boolean);
+    let filesLeft = 0;
+    if (paths.length && c.uc.storage) {
+      let rm; try { rm = await c.uc.storage.from('documents').remove(paths); } catch (e) { rm = { error: e }; }
+      filesLeft = rm?.error ? paths.length : Math.max(0, paths.length - (rm?.data?.length ?? paths.length));
+    }
+    if (filesLeft) console.error('[maintenance] receipt files left in storage', b.id, filesLeft);
     return json({ ok: true });
   }
 
