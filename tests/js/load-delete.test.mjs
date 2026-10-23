@@ -89,3 +89,13 @@ test('migration lets only a void invoice be unlinked from its load', async () =>
   assert.match(sql, /not \(old\.status = 'void' and new\.load_id is null\)/);
   assert.doesNotMatch(sql, /\b(update|delete from|insert into)\s+public\./i);
 });
+
+test('delete confirm matches the Also delete box (company docs are unlinked, not deleted)', async () => {
+  const { loadDeleteDocsLabel } = await import('../../app/lib/loadDelete.js');
+  assert.equal(loadDeleteDocsLabel(3, 1, 1), 'Also delete your 2 linked documents; 1 team document and 1 company document will be unlinked, not deleted');
+  assert.equal(loadDeletePrompt(3, true, {}, 1, 1), 'Delete this load, its stops and your 2 documents? 1 team document and 1 company document will be kept, unlinked.');
+  assert.equal(loadDeleteDocsLabel(2, 0, 0), 'Also delete 2 linked documents');
+  assert.equal(loadDeletePrompt(2, true), 'Delete this load, its stops and 2 documents?');
+  assert.equal(loadDeleteDocsLabel(1, 0, 1), null);
+  assert.equal(loadDeletePrompt(1, false, {}, 0, 1), 'Delete this load and its stops? 1 document will be kept, unlinked.');
+});

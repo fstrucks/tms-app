@@ -254,3 +254,35 @@ test('UI: "Mark load delivered" after all stops done; team staff get a Dispatch 
   assert.match(comp, /Mark load delivered/); assert.match(comp, /act\(last, 'deliver'\)/);
   assert.match(page, /Change status in Dispatch/);
 });
+
+// QA Oct 22 (FAIL 3): Delivered 2-stop load offered "Undo Picked up (stop 1)".
+test('lastCompletedStop: latest instant, ties and bad values → highest sequence', () => {
+  const mk = (a, b) => ({ stops: [{ id: S1, sequence: 1, completed_at: a }, { id: S2, sequence: 2, completed_at: b }] });
+  assert.equal(lastCompletedStop(mk('2026-10-20T19:00:00Z', '2026-10-20T19:00:00Z')).id, S2, 'tie');
+  assert.equal(lastCompletedStop(mk('2026-10-20T19:00:00.5+00:00', '2026-10-20T19:00:01Z')).id, S2, 'mixed formats');
+  assert.equal(lastCompletedStop(mk('2026-10-20 14:00:00-05', '2026-10-20T18:59:00Z')).id, S1, 'offsets compared as instants');
+  assert.equal(lastCompletedStop(mk('2026-10-20T19:00:00Z', 'garbage')).id, S1);
+  assert.equal(lastCompletedStop(mk('garbage', 'garbage')).id, S2);
+  assert.equal(planStopAction({ status: 'delivered', ...mk('2026-10-20T19:00:00Z', '2026-10-20T19:00:00Z') }, S1, 'undo').code, 409);
+});
+
+test('route: undo the delivery on a Delivered load → In transit, pickup stays done, auto draft removed (finalized kept)', async () => {
+  const c = ctx('owner', OWNER);
+  await call(c, S1, 'done'); await call(c, S2, 'done'); // same NOW → equal completed_at
+  assert.equal(c.svc.db.loads.find((l) => l.id === L1).status, 'delivered');
+  c.svc.db.invoices = [
+    { id: 'i1', load_id: L1, owner_id: OWNER, status: 'draft', auto_drafted: true, invoice_number: null, finalized_at: null },
+    { id: 'i2', load_id: L1, owner_id: OWNER, status: 'void', auto_drafted: true, invoice_number: 'INV-1', finalized_at: 'x' },
+    { id: 'i3', load_id: XL, owner_id: OTHER, status: 'draft', auto_drafted: true, invoice_number: null, finalized_at: null }];
+  assert.equal((await call(c, S1, 'undo')).status, 409, 'pickup is not the latest');
+  const r = await call(c, S2, 'undo');
+  assert.equal(r.status, 200); assert.equal(r.j.status, 'in_transit'); assert.equal(r.j.invoiceDraftDeleted, true);
+  assert.ok(c.svc.db.stops.find((x) => x.id === S1).completed_at, 'pickup still done');
+  assert.deepEqual(c.svc.db.invoices.map((i) => i.id), ['i2', 'i3']);
+  // a finalized invoice on an Invoiced load: undo keeps the status and the invoice
+  const d = ctx('owner', OWNER); await call(d, S1, 'done'); await call(d, S2, 'done');
+  d.svc.db.loads.find((l) => l.id === L1).status = 'invoiced';
+  d.svc.db.invoices = [{ id: 'f', load_id: L1, owner_id: OWNER, status: 'sent', auto_drafted: true, invoice_number: 'INV-2', finalized_at: 'x' }];
+  await call(d, S2, 'undo');
+  assert.equal(d.svc.db.invoices.length, 1);
+});

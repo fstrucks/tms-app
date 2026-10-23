@@ -18,14 +18,15 @@ import LoadDriverSettings from '../../components/LoadDriverSettings';
 import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
-import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
+import { deleteLoad, loadDeletePrompt, loadDeleteDocsLabel } from '../../lib/loadDelete';
+import { isCompanyDocType } from '../../lib/docTypes';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
-import { fetchLoadDocs } from '../../lib/loadDocsClient';
+import { fetchLoadDocs, docsPanelState } from '../../lib/loadDocsClient';
 import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
-import { takeSeededLoad } from '../../lib/loadSeed';
+import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
@@ -55,8 +56,11 @@ export default function LoadDetailPage() {
   const [checking, setChecking] = useState(true);
   // Just created on /loads/new? Show it at once; fetchAll() still refreshes it (#86 QA).
   const [load, setLoad] = useState(() => (isLoadId(id) ? takeSeededLoad(id) : null));
-  const facilities = useLoadFacilities(load?.id, load?.stops?.length); // stop ratings ("3.2★ · 5 reviews")
-  const [docs, setDocs] = useState([]);
+  const [settleVer, setSettleVer] = useState(0); // bumped by the one re-read right after Create load
+  const settleTried = useRef(false);
+  const facilities = useLoadFacilities(load?.id, `${load?.stops?.length ?? ''}:${settleVer}`); // stop ratings ("3.2★ · 5 reviews")
+  const [docs, setDocs] = useState(null); // null = not fetched yet → "Loading documents…" (QA Oct 22: cold page flashed "No linked documents")
+  const [docsBusy, setDocsBusy] = useState(true); // first fetch / a re-fetch in flight: "Loading…", not "No linked documents"
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);
   const [error, setError] = useState(null);
@@ -81,12 +85,23 @@ export default function LoadDetailPage() {
     // Not a load id (e.g. an old link or a typo): say so instead of querying loads.id = '<text>' and waiting forever.
     if (!isLoadId(id)) return setError({ retry: false, text: 'Load not found.' });
     if (!(await hasSession(supabase))) return setError({ retry: true, text: "Your session has expired or is still loading. Tap Retry, or sign in again." });
+    setDocsBusy(true);
     const [{ data: l, error: le }, { data: d, error: de }] = await Promise.all([
       fetchVisibleLoad(supabase, id), // PR #110: members read loads only through visible_loads()
       fetchLoadDocs(supabase, id),
-    ]);
+    ]).finally(() => setDocsBusy(false));
+    // Docs land with the load (before, setDocs ran after the expenses / mileage counts, so the panel rendered the
+    // empty list in between).
+    if (!de) setDocs(d || []);
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
-    if (!l) return setError({ retry: false, text: 'Load not found.' });
+    if (!l) {
+      if (!settleTried.current) { settleTried.current = true; return setTimeout(() => fetchRef.current(), SETTLE_RETRY_MS); }
+      return setError({ retry: false, text: 'Load not found.' });
+    }
+    if (!settleTried.current && isFreshLoad(l)) {
+      settleTried.current = true;
+      setTimeout(() => { setSettleVer((v) => v + 1); fetchRef.current(); }, SETTLE_RETRY_MS);
+    }
     l.stops = [...(l.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
     setLoad((cur) => mergeFetchedLoad(cur, l, ver !== statusVer.current));
     const [{ count: ec }, { count: mc }] = await Promise.all([
@@ -97,17 +112,17 @@ export default function LoadDetailPage() {
     list?.patchLoad(id, { total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, weight: l.weight });
     setDataVer((v) => v + 1);
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
-    else setDocs(d || []);
   }
 
   useEffect(() => {
+    setDocs(null); // another load (client-side navigation): not this load's list until its fetch resolves
     if (!supabase) return setChecking(false);
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => fetchAll(), 0);
-      if (event === 'SIGNED_OUT') { setLoad(null); setDocs([]); }
+      if (event === 'SIGNED_OUT') { setLoad(null); setDocs(null); }
     });
     return () => sub.subscription.unsubscribe();
   }, [id]);
@@ -161,14 +176,17 @@ export default function LoadDetailPage() {
 
   // Only the owner deletes loads, and only his own uploads can be deleted with it; team members' uploads are unlinked.
   // Deletable with the load: your own uploads linked to it (Truck-tab scale ticket photos stay with their ticket).
-  const ownDocs = docs.filter((d) => d.own !== false && d.source !== 'scale_ticket');
-  const teamDocs = docs.filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const ownDocs = (docs || []).filter((d) => d.own !== false && d.source !== 'scale_ticket');
+  const teamDocs = (docs || []).filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const companyDocs = ownDocs.filter((d) => isCompanyDocType(d.doc_type)).length; // unlinked, never deleted (deleteLoad)
+  const docsLabel = loadDeleteDocsLabel(ownDocs.length, teamDocs, companyDocs);
   const owner = isLoadOwnerView(load);
   async function removeLoad() {
     setDelError(null);
     const r = await deleteLoad(supabase, id, { docs: ownDocs, deleteDocs: alsoDocs });
     if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
-    list?.reload(); // the shared list (layout) outlives this page; drop the deleted load
+    // The shared list (layout) outlives this page: drop the deleted load now (tab counts), then re-fetch.
+    if (list?.dropLoad) list.dropLoad(id); else list?.reload();
     if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
     router.replace('/loads');
   }
@@ -209,7 +227,7 @@ export default function LoadDetailPage() {
                 )}
                 <div hidden={tab === 'invoice' && showInvoice}>
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
-                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck}
+                <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck + settleVer}
                   onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} onRouteFilled={refreshAll} />
 
                 <div style={s.card}>
@@ -298,7 +316,7 @@ export default function LoadDetailPage() {
                   ))}
                 </div>
 
-                <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} cardStyle={s.card} />
+                <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} refreshKey={settleVer} cardStyle={s.card} />
                 <LoadMileage load={load} userId={user.id} refreshKey={dataVer} onPlannedCleared={() => setRouteCheck((n) => n + 1)} onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} />
                 <LoadExpenses loadId={id} rate={load.rate} />
                 <div style={s.card}>
@@ -307,7 +325,7 @@ export default function LoadDetailPage() {
                     <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan document</button>
                   </div>
                   {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
-                  {docs.length === 0 ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
+                  {docsPanelState(docs, docsBusy) === 'loading' ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docsPanelState(docs, docsBusy) === 'empty' ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
                     <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={s.row}>
                       <LoadDocThumb doc={d} onOpen={() => view(d)} />
                       <div style={{ minWidth: 0, flex: 1 }}>
@@ -321,14 +339,14 @@ export default function LoadDetailPage() {
                 {owner && <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
                   <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
-                  {ownDocs.length > 0 && (
+                  {docsLabel && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
                       <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
-                      <span>Also delete {teamDocs ? 'your ' : ''}{ownDocs.length} linked document{ownDocs.length === 1 ? '' : 's'}{teamDocs ? `; ${teamDocs} team document${teamDocs === 1 ? '' : 's'} will be unlinked, not deleted` : ''}</span>
+                      <span>{docsLabel}</span>
                     </label>
                   )}
-                  {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked, teamDocs)} onConfirm={removeLoad} />
+                  {alsoDocs && docsLabel && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>}
                 </div>

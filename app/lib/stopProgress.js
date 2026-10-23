@@ -39,9 +39,13 @@ export function canCompleteStops(role, load, userId) {
   return !!userId && load.assigned_driver_user_id === userId;
 }
 
-// The most recently completed stop (for Undo).
+// The most recently completed stop (for Undo): latest completed_at as an INSTANT, ties / unparseable → the highest
+// sequence. QA Oct 22: the old string compare kept sequence order on a tie (pickup and delivery saved in the same
+// request time) and misordered mixed formats ('…Z' vs '…+00:00', fractional seconds), so Undo offered stop 1 on a
+// Delivered load.
+const doneAt = (s) => { const t = Date.parse(s?.completed_at); return isFinite(t) ? t : -Infinity; };
 export function lastCompletedStop(load) {
-  return byseq(load).filter(isStopDone).sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))[0] || null;
+  return byseq(load).filter(isStopDone).sort((a, b) => (doneAt(b) - doneAt(a)) || ((b.sequence ?? 0) - (a.sequence ?? 0)))[0] || null;
 }
 
 // Adjustable actual time (Oct 22): the driver may set when the stop really happened. Default now; up to 10 minutes
@@ -109,12 +113,19 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
   }
   if (action === 'undo') {
     if (!isStopDone(stop)) return { noop: true }; // already open (e.g. a second tap): success, no write
+    // Only the most recent stop can be undone (a stale screen could otherwise reopen the pickup under a delivered stop).
+    if (lastCompletedStop(load)?.id !== stop.id) return { error: 'Undo the most recent stop first.', code: 409 };
     // Undo of the first pickup while nothing else is marked: back to dispatched, so the card shows the pickup again
     // (an in_transit load with no marks counts the pickup as done).
     const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
     const othersDone = st.some((s) => s.id !== stop.id && isStopDone(s));
-    const status = firstPickup?.id === stop.id && !othersDone && load.status === 'in_transit' ? 'dispatched' : null;
-    return { stopPatch: { completed_at: null, completion: null, completed_by: null }, status, fromStatuses: ['in_transit'] };
+    const onlyFirstPickup = firstPickup?.id === stop.id && !othersDone;
+    const stopPatch = { completed_at: null, completion: null, completed_by: null };
+    // Undo on a Delivered load (QA Oct 22): the load is no longer delivered → back to In transit (or Dispatched when
+    // that leaves nothing marked). Invoiced / paid loads keep their status.
+    if (load.status === 'delivered') return { stopPatch, status: onlyFirstPickup ? 'dispatched' : 'in_transit', fromStatuses: ['delivered'] };
+    const status = onlyFirstPickup && load.status === 'in_transit' ? 'dispatched' : null;
+    return { stopPatch, status, fromStatuses: ['in_transit'] };
   }
   if (action === 'deliver') {
     // Explicit "Mark load delivered" once every stop is checked off (also the fix path for loads whose last stop was

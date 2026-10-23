@@ -9,13 +9,13 @@ import LoadDocThumb from './LoadDocThumb';
 const lb = (n) => (n == null ? '—' : `${Number(n).toLocaleString('en-US')} lb`);
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
 
-export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardStyle }) {
+export default function LoadScaleTickets({ supabase, loadId, loadWeight, cardStyle, refreshKey = 0 }) {
   const [st, setSt] = useState({ state: 'loading' });
   useEffect(() => {
     let live = true;
     loadScaleTickets(supabase, loadId).then((r) => { if (live) setSt(r); });
     return () => { live = false; };
-  }, [loadId, loadWeight]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadId, loadWeight, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (st.state === 'loading' || st.setupNeeded) return null;
   return (

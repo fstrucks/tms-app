@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import { rateconCompanyFor } from '../../app/lib/rateconEmail.js';
-import { createLoadRpc, createLoadFromDoc, teammateEmailDoc, EMAIL_CREATE_RPC } from '../../app/lib/rateconDrafts.js';
+import { createLoadRpc, createLoadFromDoc, teammateEmailDoc, EMAIL_CREATE_RPC, UPLOAD_CREATE_RPC } from '../../app/lib/rateconDrafts.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const OWNER = '00000000-0000-4000-8000-0000000000a1', DISP = '00000000-0000-4000-8000-0000000000a5', DRIVER = '00000000-0000-4000-8000-0000000000a2', LONER = '00000000-0000-4000-8000-0000000000a9';
@@ -20,11 +20,11 @@ test('inbound: company = the one the receiver owns, else where they are on the o
   assert.equal(await rateconCompanyFor(sb, LONER), null);
 });
 
-test('Create load: email docs use the company RPC (falls back before the migration); uploads keep the old one', async () => {
+test('Create load: email docs use the company RPC (falls back before the migration); uploads use the company-upload RPC (same fallback)', async () => {
   assert.equal(createLoadRpc({ source: 'email' }), EMAIL_CREATE_RPC);
-  assert.equal(createLoadRpc({ source: 'upload' }), 'create_load_from_document');
+  assert.equal(createLoadRpc({ source: 'upload' }), UPLOAD_CREATE_RPC);
   const calls = [];
-  const sb = (missing) => ({ rpc: async (fn, a) => { calls.push([fn, a]); return fn === EMAIL_CREATE_RPC && missing ? { data: null, error: { code: 'PGRST202' } } : { data: 'L1', error: null }; } });
+  const sb = (missing) => ({ rpc: async (fn, a) => { calls.push([fn, a]); return fn !== 'create_load_from_document' && missing ? { data: null, error: { code: 'PGRST202' } } : { data: 'L1', error: null }; } });
   assert.deepEqual(await createLoadFromDoc(sb(false), { id: 'd1', source: 'email' }, 'America/Chicago'), { data: 'L1', error: null });
   assert.deepEqual(calls.pop(), [EMAIL_CREATE_RPC, { p_document: 'd1', p_tz: 'America/Chicago' }]);
   calls.length = 0;
@@ -32,7 +32,10 @@ test('Create load: email docs use the company RPC (falls back before the migrati
   assert.deepEqual(calls.map((c) => c[0]), [EMAIL_CREATE_RPC, 'create_load_from_document']);
   calls.length = 0;
   await createLoadFromDoc(sb(false), { id: 'd2', source: 'upload' }, 'X');
-  assert.deepEqual(calls.map((c) => c[0]), ['create_load_from_document']);
+  assert.deepEqual(calls.map((c) => c[0]), [UPLOAD_CREATE_RPC]);
+  calls.length = 0;
+  await createLoadFromDoc(sb(true), { id: 'd2', source: 'upload' }, 'X');
+  assert.deepEqual(calls.map((c) => c[0]), [UPLOAD_CREATE_RPC, 'create_load_from_document']);
 });
 
 test('teammate drafts: read + Create load, but delete / change type stay with the receiver', () => {
@@ -83,4 +86,20 @@ test('client lists never filter by user_id = me (RLS decides; teammates’ email
   const q = page.slice(page.indexOf('const q = (cols) =>'), page.indexOf('let { data, error } = await q('));
   assert.ok(!/user_id/.test(q));
   assert.ok(!/user_id/.test(read('../../app/components/EmailDraftsBanner.js')));
+});
+
+test('Create load from an upload passes the active company (office roles only); never to the other RPCs', async () => {
+  const { uploadProfileFor } = await import('../../app/lib/rateconDrafts.js');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'dispatcher' }), 'C1');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'owner' }), 'C1');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'driver' }), null);
+  assert.equal(uploadProfileFor(null), null);
+  const calls = [];
+  const sb = (missing) => ({ rpc: async (fn, a) => { calls.push([fn, a]); return fn !== 'create_load_from_document' && missing ? { data: null, error: { code: 'PGRST202' } } : { data: 'L1', error: null }; } });
+  await createLoadFromDoc(sb(false), { id: 'd', source: 'upload' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), [UPLOAD_CREATE_RPC, { p_document: 'd', p_tz: 'X', p_profile: 'C1' }]);
+  await createLoadFromDoc(sb(true), { id: 'd', source: 'upload' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), ['create_load_from_document', { p_document: 'd', p_tz: 'X' }]);
+  await createLoadFromDoc(sb(false), { id: 'd', source: 'email' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), [EMAIL_CREATE_RPC, { p_document: 'd', p_tz: 'X' }]);
 });

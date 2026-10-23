@@ -83,13 +83,19 @@ export async function fetchSkipped(supabase, { role, ownerId, companyId = null, 
 // company; the load belongs to the company owner; a second tap returns the same load). Uploaded rate cons keep
 // create_load_from_document. Before migration 20261022150000 the email RPC is missing → use the old one.
 export const EMAIL_CREATE_RPC = 'create_load_from_email_document';
-export const createLoadRpc = (doc) => (doc?.source === 'email' ? EMAIL_CREATE_RPC : 'create_load_from_document');
+// Uploaded rate cons (Oct 22, 20261022250000): create_load_from_company_upload, so a dispatcher's / Management's own
+// upload becomes a load of their company (before, it was a personal load: driver picker "Me" only, "Load not found.").
+export const UPLOAD_CREATE_RPC = 'create_load_from_company_upload';
+export const createLoadRpc = (doc) => (doc?.source === 'email' ? EMAIL_CREATE_RPC : UPLOAD_CREATE_RPC);
 export const isMissingRpc = (error) => !!error && (error.code === 'PGRST202' || error.code === '42883');
-export async function createLoadFromDoc(supabase, doc, tz) {
+// profileId (SQL review): the active company, passed to the upload RPC when the caller is its owner / Management /
+// Dispatcher (the RPC rejects anything else); null → the RPC picks as before. Never sent to the other RPCs.
+export const uploadProfileFor = (active) => (active?.profile_id && SKIPPED_ROLES.includes(active.role) ? active.profile_id : null);
+export async function createLoadFromDoc(supabase, doc, tz, { profileId = null } = {}) {
   const args = { p_document: doc.id, p_tz: tz };
   const fn = createLoadRpc(doc);
-  let r = await supabase.rpc(fn, args);
-  if (fn === EMAIL_CREATE_RPC && isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
+  let r = await supabase.rpc(fn, fn === UPLOAD_CREATE_RPC && profileId ? { ...args, p_profile: profileId } : args);
+  if (isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
   return r;
 }
 // A company email draft that landed on a teammate's address: shown (read + Create load) but delete / change type stay
