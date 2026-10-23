@@ -86,7 +86,11 @@ export function LoadsProvider({ children }) {
   // Optimistic patch from the detail pane (e.g. status change) so the list stays in sync.
   const patchLoad = (id, patch) => setLoads((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
-  return <Ctx.Provider value={{ user, checking, loads, error, loaded, viewing, reload: loadLoads, patchLoad }}>{children}</Ctx.Provider>;
+  // A deleted load leaves the list (and the tab counts, e.g. "Pending 1") at once; a re-fetch follows (QA Oct 22).
+  // Bumping reqRef drops any fetch already in flight, which could still contain the deleted load.
+  const dropLoad = (id) => { reqRef.current++; setLoads((ls) => ls.filter((l) => l.id !== id)); return loadLoads(); };
+
+  return <Ctx.Provider value={{ user, checking, loads, error, loaded, viewing, reload: loadLoads, patchLoad, dropLoad }}>{children}</Ctx.Provider>;
 }
 
 export function LoadsList({ selectedId = null }) {

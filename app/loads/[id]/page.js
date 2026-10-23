@@ -180,7 +180,8 @@ export default function LoadDetailPage() {
     setDelError(null);
     const r = await deleteLoad(supabase, id, { docs: ownDocs, deleteDocs: alsoDocs });
     if (!r.ok) { console.error('[load] delete', r.error); setDelError(r.error); fetchAll(); return false; }
-    list?.reload(); // the shared list (layout) outlives this page; drop the deleted load
+    // The shared list (layout) outlives this page: drop the deleted load now (tab counts), then re-fetch.
+    if (list?.dropLoad) list.dropLoad(id); else list?.reload();
     if (r.warnings?.length) { console.warn('[load] delete', r.warnings); return router.replace(`/loads?notice=${encodeURIComponent(r.warnings.join(' '))}`); }
     router.replace('/loads');
   }
