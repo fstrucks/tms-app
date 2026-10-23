@@ -62,6 +62,16 @@ export async function POST(req, { params, deps } = {}) {
     if (uErr) console.error('[stops] status', uErr.code);
     else if (s2?.status) status = s2.status;
   }
+  // Undo on a Delivered load moved it back: remove the auto-drafted invoice that delivery created, if it is still an
+  // unnumbered, never-finalized draft. Finalized / void invoices are never touched. Same filter as DELETE
+  // /api/loads/:id/invoice (service role here, since a dispatcher or driver may undo). A failure doesn't undo the undo.
+  let invoiceDraftDeleted = false;
+  if (body.action === 'undo' && load.status === 'delivered' && status !== 'delivered') {
+    const { data: gone, error: dErr } = await svc.from('invoices').delete().eq('load_id', load.id).eq('owner_id', load.user_id)
+      .eq('status', 'draft').eq('auto_drafted', true).is('invoice_number', null).is('finalized_at', null).select('id');
+    if (dErr) console.error('[stops] draft invoice', dErr.code);
+    else invoiceDraftDeleted = !!gone?.length;
+  }
   if (body.action === 'deliver' && status !== 'delivered') return out({ error: 'Couldn’t mark the load delivered. Please try again.' }, 500, 'deliver_not_updated');
-  return out({ ok: true, stop: clean(stop), status }, 200, `saved_${body.action}`);
+  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}) }, 200, `saved_${body.action}`);
 }
