@@ -21,7 +21,7 @@ import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt, loadDeleteDocsLabel } from '../../lib/loadDelete';
 import { isCompanyDocType } from '../../lib/docTypes';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
-import { fetchLoadDocs } from '../../lib/loadDocsClient';
+import { fetchLoadDocs, docsPanelState } from '../../lib/loadDocsClient';
 import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
@@ -59,7 +59,7 @@ export default function LoadDetailPage() {
   const [settleVer, setSettleVer] = useState(0); // bumped by the one re-read right after Create load
   const settleTried = useRef(false);
   const facilities = useLoadFacilities(load?.id, `${load?.stops?.length ?? ''}:${settleVer}`); // stop ratings ("3.2★ · 5 reviews")
-  const [docs, setDocs] = useState([]);
+  const [docs, setDocs] = useState(null); // null = not fetched yet → "Loading documents…" (QA Oct 22: cold page flashed "No linked documents")
   const [docsBusy, setDocsBusy] = useState(true); // first fetch / a re-fetch in flight: "Loading…", not "No linked documents"
   const [weightEdit, setWeightEdit] = useState(null); // text while editing loads.weight, else null
   const [weightErr, setWeightErr] = useState(null);
@@ -90,6 +90,9 @@ export default function LoadDetailPage() {
       fetchVisibleLoad(supabase, id), // PR #110: members read loads only through visible_loads()
       fetchLoadDocs(supabase, id),
     ]).finally(() => setDocsBusy(false));
+    // Docs land with the load (before, setDocs ran after the expenses / mileage counts, so the panel rendered the
+    // empty list in between).
+    if (!de) setDocs(d || []);
     if (le) { console.error('[load] fetch', le); return setError({ retry: true, text: "Couldn't load this load." }); }
     if (!l) {
       if (!settleTried.current) { settleTried.current = true; return setTimeout(() => fetchRef.current(), SETTLE_RETRY_MS); }
@@ -109,17 +112,17 @@ export default function LoadDetailPage() {
     list?.patchLoad(id, { total_miles: l.total_miles, rate_per_mile: l.rate_per_mile, weight: l.weight });
     setDataVer((v) => v + 1);
     if (de) { console.error('[load] documents', de); setError({ retry: true, text: "Couldn't load this load's documents." }); }
-    else setDocs(d || []);
   }
 
   useEffect(() => {
+    setDocs(null); // another load (client-side navigation): not this load's list until its fetch resolves
     if (!supabase) return setChecking(false);
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null;
       setUser(u);
       if (event === 'INITIAL_SESSION') setChecking(false);
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) setTimeout(() => fetchAll(), 0);
-      if (event === 'SIGNED_OUT') { setLoad(null); setDocs([]); }
+      if (event === 'SIGNED_OUT') { setLoad(null); setDocs(null); }
     });
     return () => sub.subscription.unsubscribe();
   }, [id]);
@@ -173,8 +176,8 @@ export default function LoadDetailPage() {
 
   // Only the owner deletes loads, and only his own uploads can be deleted with it; team members' uploads are unlinked.
   // Deletable with the load: your own uploads linked to it (Truck-tab scale ticket photos stay with their ticket).
-  const ownDocs = docs.filter((d) => d.own !== false && d.source !== 'scale_ticket');
-  const teamDocs = docs.filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const ownDocs = (docs || []).filter((d) => d.own !== false && d.source !== 'scale_ticket');
+  const teamDocs = (docs || []).filter((d) => d.own === false && d.source !== 'scale_ticket').length;
   const companyDocs = ownDocs.filter((d) => isCompanyDocType(d.doc_type)).length; // unlinked, never deleted (deleteLoad)
   const docsLabel = loadDeleteDocsLabel(ownDocs.length, teamDocs, companyDocs);
   const owner = isLoadOwnerView(load);
@@ -322,7 +325,7 @@ export default function LoadDetailPage() {
                     <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan document</button>
                   </div>
                   {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
-                  {docs.length === 0 && docsBusy ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docs.length === 0 ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
+                  {docsPanelState(docs, docsBusy) === 'loading' ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docsPanelState(docs, docsBusy) === 'empty' ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
                     <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={s.row}>
                       <LoadDocThumb doc={d} onOpen={() => view(d)} />
                       <div style={{ minWidth: 0, flex: 1 }}>

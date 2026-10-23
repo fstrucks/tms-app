@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import LoadDocThumb from './LoadDocThumb';
-import { fetchLoadDocs } from '../lib/loadDocsClient';
+import { fetchLoadDocs, docsPanelState } from '../lib/loadDocsClient';
 import { uploadScan } from '../lib/scanUpload';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../lib/docTypes';
 
@@ -23,7 +23,7 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
     if (error) { setErr("Couldn't load this load's documents."); return; }
     setErr(null); setDocs(data || []);
   }
-  useEffect(() => { refresh(); }, [loadId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setDocs(null); setErr(null); refresh(); }, [loadId]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={cardStyle} data-testid="load-docs-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
@@ -32,8 +32,8 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
       </div>
       {msg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{msg}</p>}
       {err ? <p role="alert" style={{ color: 'var(--danger)', fontSize: 14 }}>{err}</p>
-        : docs === null || (busy && docs.length === 0) ? <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading documents…</p>
-        : docs.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No linked documents.</p>
+        : docsPanelState(docs, busy) === 'loading' ? <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading documents…</p>
+        : docsPanelState(docs, busy) === 'empty' ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No linked documents.</p>
         : docs.map((d) => (
           <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid var(--divider)' }}>
             <LoadDocThumb doc={d} onOpen={() => d.url && window.open(d.url, '_blank', 'noopener')} />

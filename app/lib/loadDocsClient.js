@@ -20,3 +20,7 @@ export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a
     return { data: null, error: { status: res.status, message: j.error || null } };
   } catch (e) { return { data: null, error: { message: String(e?.message || e) } }; }
 }
+
+// Documents panel (load page + LoadDocsCard): 'loading' until the first fetch for this load resolves (docs === null)
+// or while a re-fetch runs with nothing to show; 'empty' only after a completed fetch returned no rows.
+export const docsPanelState = (docs, busy) => (docs == null || (busy && docs.length === 0) ? 'loading' : docs.length === 0 ? 'empty' : 'list');
