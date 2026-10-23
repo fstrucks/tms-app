@@ -46,14 +46,27 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // n = the caller's own documents on this load (the only ones a load delete can delete); team = documents uploaded by
 // team members (never deleted here, only unlinked: their rows aren't the owner's, and loads.id → documents.load_id
 // is ON DELETE SET NULL). PR #110 QA (c): the prompt says which is which.
-export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}, team = 0) {
+// n = your linked documents (incl. company docs: W-9, insurance... which are unlinked, never deleted with a load),
+// team = teammates' documents, company = how many of the n are company docs. The confirm text and the "Also delete"
+// box use the same numbers (QA Oct 22: the prompt said all n were deleted).
+export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}, team = 0, company = 0) {
+  const del = deleteDocs ? Math.max(0, n - company) : 0;
   const kept = [];
   if (n && !deleteDocs) kept.push(plural(n + team, 'document', 'documents'));
-  else if (team) kept.push(plural(team, 'team document', 'team documents'));
+  else {
+    if (team) kept.push(plural(team, 'team document', 'team documents'));
+    if (n && company) kept.push(plural(company, 'company document', 'company documents'));
+  }
   if (expenses) kept.push(plural(expenses, 'expense', 'expenses'));
   if (mileage) kept.push(plural(mileage, 'mileage entry', 'mileage entries'));
-  if (!n && team && !kept.some((k) => k.includes('team'))) kept.unshift(plural(team, 'team document', 'team documents'));
   const keptText = kept.length ? ` ${kept.length > 1 ? kept.slice(0, -1).join(', ') + ' and ' + kept.at(-1) : kept[0]} will be kept, unlinked.` : '';
-  const head = n && deleteDocs ? `Delete this load, its stops and ${team ? 'your ' : ''}${plural(n, 'document', 'documents')}?` : 'Delete this load and its stops?';
+  const head = del ? `Delete this load, its stops and ${team ? 'your ' : ''}${plural(del, 'document', 'documents')}?` : 'Delete this load and its stops?';
   return head + keptText;
+}
+// Text next to the "Also delete" checkbox; null when nothing can be deleted (company docs only).
+export function loadDeleteDocsLabel(n, team = 0, company = 0) {
+  const del = Math.max(0, n - company);
+  if (!del) return null;
+  const unlinked = [team && plural(team, 'team document', 'team documents'), company && plural(company, 'company document', 'company documents')].filter(Boolean);
+  return `Also delete ${team ? 'your ' : ''}${del} linked document${del === 1 ? '' : 's'}${unlinked.length ? `; ${unlinked.join(' and ')} will be unlinked, not deleted` : ''}`;
 }

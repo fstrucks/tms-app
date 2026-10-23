@@ -18,7 +18,8 @@ import LoadDriverSettings from '../../components/LoadDriverSettings';
 import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
-import { deleteLoad, loadDeletePrompt } from '../../lib/loadDelete';
+import { deleteLoad, loadDeletePrompt, loadDeleteDocsLabel } from '../../lib/loadDelete';
+import { isCompanyDocType } from '../../lib/docTypes';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
 import { fetchLoadDocs } from '../../lib/loadDocsClient';
 import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
@@ -172,6 +173,8 @@ export default function LoadDetailPage() {
   // Deletable with the load: your own uploads linked to it (Truck-tab scale ticket photos stay with their ticket).
   const ownDocs = docs.filter((d) => d.own !== false && d.source !== 'scale_ticket');
   const teamDocs = docs.filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const companyDocs = ownDocs.filter((d) => isCompanyDocType(d.doc_type)).length; // unlinked, never deleted (deleteLoad)
+  const docsLabel = loadDeleteDocsLabel(ownDocs.length, teamDocs, companyDocs);
   const owner = isLoadOwnerView(load);
   async function removeLoad() {
     setDelError(null);
@@ -330,14 +333,14 @@ export default function LoadDetailPage() {
                 {owner && <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>
                   <p style={{ ...s.muted, marginTop: 0 }}>Stops are deleted. Expenses and mileage are kept and unlinked.</p>
-                  {ownDocs.length > 0 && (
+                  {docsLabel && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, cursor: 'pointer' }}>
                       <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} style={{ width: 22, height: 22 }} />
-                      <span>Also delete {teamDocs ? 'your ' : ''}{ownDocs.length} linked document{ownDocs.length === 1 ? '' : 's'}{teamDocs ? `; ${teamDocs} team document${teamDocs === 1 ? '' : 's'} will be unlinked, not deleted` : ''}</span>
+                      <span>{docsLabel}</span>
                     </label>
                   )}
-                  {alsoDocs && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs, linked, teamDocs)} onConfirm={removeLoad} />
+                  {alsoDocs && docsLabel && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>}
                 </div>
