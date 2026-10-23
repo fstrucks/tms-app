@@ -1,5 +1,5 @@
 'use client';
-// Truck tab (PR #69): Truck & Trailer (with scale-ticket weight history), Driver, and a link to Company.
+// Truck tab (PR #69): Truck & Trailer (with scale-ticket weight history), Maintenance, Driver, and a link to Company.
 // Data goes through /api/truck (see app/lib/truckServer.js). Drivers get a read-only view.
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -7,6 +7,7 @@ import SignInLink from '../components/SignInLink';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fieldValuesFromRows, expiryBadge, weightChecks, AXLE_LIMITS_LB } from '../lib/truckFields';
 import { laToday } from '../lib/sendCap';
+import MaintenanceSection from './MaintenanceSection';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box' },
@@ -268,6 +269,8 @@ export default function TruckPage() {
                 </>)}
             </section>
           )}
+
+          {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} />}
 
           {truck && (
             <section style={s.card} aria-label="Driver" data-testid="driver-card">
