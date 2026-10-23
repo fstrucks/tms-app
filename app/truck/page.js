@@ -8,6 +8,7 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fieldValuesFromRows, expiryBadge, weightChecks, AXLE_LIMITS_LB } from '../lib/truckFields';
 import { laToday } from '../lib/sendCap';
 import MaintenanceSection from './MaintenanceSection';
+import PmSchedules from './PmSchedules';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 680, margin: '0 auto', boxSizing: 'border-box' },
@@ -83,6 +84,8 @@ export default function TruckPage() {
   const [form, setForm] = useState({});
   const [ticket, setTicket] = useState(null); // { mode: 'add' | 'confirm', id?, init, documentId? }
   const fileRef = useRef(null);
+  const [setupFor, setSetupFor] = useState(null); // new truck id → open maintenance setup right away
+  const [pmKey, setPmKey] = useState(0), [maintKey, setMaintKey] = useState(0);
 
   async function api(path, opts = {}) {
     const t = (await supabase.auth.getSession())?.data?.session?.access_token;
@@ -92,8 +95,12 @@ export default function TruckPage() {
     const j = await res.json().catch(() => ({}));
     return res.ok ? j : { ...j, error: j.error || `Something went wrong (${res.status}).` };
   }
+  const loadSeq = useRef(0);
+  // Newest response wins; the cache-buster keeps any cache between us and the API out of it.
   async function load(truckId) {
-    const j = await api(`/api/truck${truckId ? `?truckId=${truckId}` : ''}`);
+    const n = ++loadSeq.current;
+    const j = await api(`/api/truck?${truckId ? `truckId=${truckId}&` : ''}_=${Date.now()}`);
+    if (n !== loadSeq.current) return;
     if (j.error) { setErr(j); return; }
     setErr(null); setD(j);
   }
@@ -131,7 +138,8 @@ export default function TruckPage() {
     const body = edit === 'truck' ? { action: 'save_truck', id: truck?.id, values: form }
       : edit === 'trailer' ? { action: 'save_trailer', id: trailer?.id, truckId: truck.id, values: form }
       : { action: 'save_driver', id: driver?.id, truckId: truck.id, values: form };
-    if (await post('/api/truck', body, 'Saved.')) setEdit(null);
+    const j = await post('/api/truck', body, 'Saved.');
+    if (j) { setEdit(null); if (edit === 'truck' && !truck?.id && j.truck?.id) setSetupFor(j.truck.id); }
   }
   const f = (k) => (x) => setForm((o) => ({ ...o, [k]: x }));
 
@@ -181,7 +189,7 @@ export default function TruckPage() {
         : err ? <p style={s.err}>{err.error} <button type="button" onClick={() => load()} style={s.small}>Retry</button></p>
         : !d ? <p style={s.muted}>Loading…</p>
         : (<>
-          {ro && <p data-testid="read-only-note" style={{ background: 'var(--info-bg)', color: 'var(--primary)', borderRadius: 8, padding: '8px 10px', fontSize: 14, margin: '0 0 0.75rem' }}>View only. Ask the owner or dispatcher to change truck, trailer or driver details.</p>}
+          {ro && <p data-testid="read-only-note" style={{ background: 'var(--info-bg)', color: 'var(--primary)', borderRadius: 8, padding: '8px 10px', fontSize: 14, margin: '0 0 0.75rem' }}>View only. The owner, dispatch or management can change truck, trailer or driver details. Only the owner or management can change the maintenance schedule.</p>}
           {msg && <p role={msg.type === 'error' ? 'alert' : 'status'} data-testid="truck-msg" style={{ ...(msg.type === 'error' ? s.err : { color: msg.type === 'ok' ? 'var(--success)' : 'var(--primary)', fontSize: 14 }), margin: '0 0 0.75rem' }}>{msg.text}</p>}
           {d.trucks.length > 1 && (
             <label style={{ display: 'block', fontSize: 14, color: 'var(--text)', marginBottom: 12 }}>Truck{' '}
@@ -270,7 +278,9 @@ export default function TruckPage() {
             </section>
           )}
 
-          {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} />}
+          {truck && <PmSchedules truck={truck} api={api} s={s} autoSetup={setupFor === truck.id && !ro} reloadKey={pmKey} onChanged={() => setMaintKey((n) => n + 1)}
+            onSetupDone={() => { setSetupFor(null); load(truck.id); }} />}
+          {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} reloadKey={maintKey} onChanged={() => setPmKey((n) => n + 1)} />}
 
           {truck && (
             <section style={s.card} aria-label="Driver" data-testid="driver-card">

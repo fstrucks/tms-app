@@ -6,6 +6,7 @@
 import { truckCtx, json, isMissing, UUID } from '../../../lib/truckServer';
 import { visitInput, shapeHistory, canLogService, isOffice, canChangeVisit, DRIVER_NO_ACCESS } from '../../../lib/maintenance';
 
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +58,13 @@ export async function GET(req, { deps } = {}) {
     drives = d.data === true;
   }
   const tr = await c.db.from('trucks').select('id,odometer,odometer_updated_at').eq('id', truckId).eq('user_id', c.ownerId).maybeSingle();
-  return json({
+  // Schedule status orders the Log service checklist (migration 20261023000300). Before that migration: no schedule.
+  let schedule = [];
+  try {
+    const st = await c.uc.rpc('pm_status_for', { p_truck: truckId });
+    if (!st?.error) schedule = (st?.data || []).map((x) => ({ service_type: x.service_type, status: x.status }));
+  } catch { schedule = []; }
+  return json({ schedule,
     available: true, visits: h.visits.map((v) => ({ ...v, canChange: drives && canChangeVisit(c.role, c.user.id, v) })), loads: drives ? loads : [],
     role: c.role, canLog: canLogService(c.role) && drives, canSetOdometer: isOffice(c.role), driverNoAccess: c.role === 'driver' && !drives,
     odometer: tr.data?.odometer ?? null, odometerUpdatedAt: tr.data?.odometer_updated_at ?? null,

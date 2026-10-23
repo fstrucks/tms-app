@@ -8,12 +8,13 @@ import { SERVICE_TYPES, RECEIPT_TYPES, receiptType, receiptPath, visitInput, sha
 import * as MAINT from '../../app/api/truck/maintenance/route.js';
 
 const SQL = readFileSync(new URL('../../supabase/migrations/20261023000100_maintenance_log.sql', import.meta.url), 'utf8');
+const SQL3 = readFileSync(new URL('../../supabase/migrations/20261023000300_maintenance_schedules.sql', import.meta.url), 'utf8');
 const OWNER = '00000000-0000-4000-8000-0000000000a1', DRV = '00000000-0000-4000-8000-0000000000a4';
 const T1 = '00000000-0000-4000-8000-0000000000b1', L1 = '00000000-0000-4000-8000-0000000000c1';
 const today = '2026-10-23';
 
-test('service types: same list in the app and the SQL check constraint', () => {
-  const m = SQL.match(/service_record_items_type_check check \(service_type in\s*\(([^)]*)\)/);
+test('service types: same list in the app and the latest SQL check constraint (0300 adds coolant_filter)', () => {
+  const m = SQL3.match(/service_record_items_type_check check \(service_type in\s*\(([^)]*)\)/);
   const sqlTypes = m[1].match(/'([a-z_]+)'/g).map((x) => x.slice(1, -1));
   assert.deepEqual(sqlTypes, SERVICE_TYPES.map(([k]) => k));
   assert.equal(typeLabel({ service_type: 'other', service_label: 'Wipers' }), 'Wipers');
