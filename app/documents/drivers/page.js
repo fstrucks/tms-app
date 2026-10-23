@@ -11,6 +11,7 @@ const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 640, margin: 
 const field = { width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.6rem', background: 'var(--surface)', color: 'var(--text)' };
 const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 const btn = { minHeight: 44, padding: '0 0.9rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' };
+const tap = { display: 'inline-flex', alignItems: 'center', minHeight: 44 };
 
 function mdy(day) {
   const [y, m, d] = String(day || '').split('-');
@@ -56,7 +57,7 @@ export default function DriverVaultPage() {
 
   return (
     <main style={main}>
-      <p style={{ margin: '0 0 0.35rem' }}><Link href="/documents">Documents</Link></p>
+      <p style={{ margin: '0 0 0.35rem' }}><Link href="/documents" style={tap}>Documents</Link></p>
       <h1 style={{ fontSize: '1.5rem', margin: '0 0 0.35rem' }}>Driver documents</h1>
       <p style={{ ...muted, marginTop: 0 }}>{driverRole ? 'Your CDL, medical card, MVR, and drug tests.' : 'CDL, medical card, MVR, drug test, and other driver files, grouped by driver.'}</p>
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p> : signedOut ? (

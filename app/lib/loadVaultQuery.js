@@ -2,7 +2,7 @@
 // Paging walks older rows with a cursor. It does not select the whole documents table.
 import {
   LOAD_VAULT_PAGE, LOAD_VAULT_TYPES, chunks, cmpDesc, cursorOf, escapeIlike, isOlderThan,
-  normalizeFilters, pageLoadVault, parseCursor,
+  normalizeFilters, pageLoadVault, parseCursor, reversedDateRange, DATE_RANGE_ERROR,
 } from './loadVault';
 
 export const VAULT_BATCH = 60;
@@ -107,6 +107,7 @@ function scopesFor({ driver, userId, memberIds, loadIds, text }) {
 }
 
 export async function fetchVaultPage(svc, { ownerId, role, userId, filters = {}, cursor = null, limit = LOAD_VAULT_PAGE } = {}) {
+  if (reversedDateRange(filters)) return { rows: [], nextCursor: null, dateError: DATE_RANGE_ERROR };
   const lim = Math.min(Math.max(Number(limit) || LOAD_VAULT_PAGE, 1), 50);
   const f = normalizeFilters(filters);
   const driver = role === 'driver';
@@ -127,7 +128,7 @@ export async function fetchVaultPage(svc, { ownerId, role, userId, filters = {},
     loadIds = known.map((l) => l.id);
   }
   const scopes = scopesFor({ driver, userId, memberIds: members.ids, loadIds, text });
-  let scan = parseCursor(cursor);
+  let scan = typeof cursor === 'string' ? parseCursor(cursor) : (cursor?.created_at && cursor?.id ? cursor : null);
   const collected = [];
   let guard = 0;
   let more = false;

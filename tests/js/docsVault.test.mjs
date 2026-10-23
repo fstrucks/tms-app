@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import { mergeInboxDocs, readInboxOpen, writeInboxOpen, INBOX_OPEN_KEY, INBOX_RECENT_CAP } from '../../app/lib/docsInbox.js';
 import { MAINTENANCE_VAULT_ENABLED, fetchMaintenanceCount, maintenanceVaultHref } from '../../app/lib/maintenanceVault.js';
-import { pageLoadVault, canSeeVaultDoc } from '../../app/lib/loadVault.js';
+import { pageLoadVault, canSeeVaultDoc, reversedDateRange, DATE_RANGE_ERROR } from '../../app/lib/loadVault.js';
 import { fetchVaultPage } from '../../app/lib/loadVaultQuery.js';
 import { selectInboxTeamDocs } from '../../app/lib/docsInboxQuery.js';
 import { groupDriverVault } from '../../app/lib/driverVault.js';
@@ -153,6 +153,59 @@ test('vault query pages on the server and a driver does not see another driverâ€
   assert.deepEqual(found.rows.map((r) => r.doc.id), ['pod-2']);
 });
 
+test('Load more returns the next page when there are more than 20 documents', async () => {
+  const docs = Array.from({ length: 23 }, (_, i) => ({
+    id: `bol-${String(i + 1).padStart(2, '0')}`, user_id: OWNER, doc_type: 'bol', load_id: L1,
+    file_path: `${OWNER}/b.pdf`, original_filename: `b${i}.pdf`, created_at: at(i + 1),
+  }));
+  const tables = { company_members: members(), loads: [load(L1)], documents: docs, company_profiles: [{ id: 'p1', owner_id: OWNER }] };
+  const req = (url) => new Request(url, { headers: { authorization: 'Bearer t' } });
+  const firstRes = await VAULT.GET(req('http://x/api/documents/vault'), { deps: ctx('owner', OWNER, tables) });
+  const first = await firstRes.json();
+  assert.equal(firstRes.status, 200);
+  assert.equal(first.documents.length, 20);
+  assert.equal(first.documents[0].id, 'bol-23');
+  assert.equal(first.documents[19].id, 'bol-04');
+  assert.ok(first.nextCursor);
+  const moreRes = await VAULT.GET(req(`http://x/api/documents/vault?cursor=${encodeURIComponent(first.nextCursor)}`), { deps: ctx('owner', OWNER, tables) });
+  const more = await moreRes.json();
+  assert.equal(more.documents.length, 3);
+  assert.deepEqual(more.documents.map((d) => d.id), ['bol-03', 'bol-02', 'bol-01']);
+  assert.equal(more.nextCursor, null);
+  const ids = [...first.documents, ...more.documents].map((d) => d.id);
+  assert.equal(new Set(ids).size, 23);
+  const vaultPage = read('../../app/documents/vault/page.js');
+  assert.match(vaultPage, /data-testid="load-more"/);
+  assert.match(vaultPage, /load\(filters, cursor, true\)/);
+});
+
+test('a reversed vault date range shows an error and does not query', async () => {
+  assert.equal(reversedDateRange({ from: '2026-12-01', to: '2026-01-01' }), true);
+  assert.equal(reversedDateRange({ from: '2026-01-01', to: '2026-01-01' }), false);
+  assert.equal(DATE_RANGE_ERROR, 'From date must be on or before To date');
+  const docs = [{ id: 'bol', user_id: OWNER, doc_type: 'bol', load_id: L1, file_path: `${OWNER}/b.pdf`, original_filename: 'b.pdf', created_at: at(1) }];
+  const filtered = pageLoadVault({ docs, loads: [load(L1)], role: 'owner', userId: OWNER, ownerId: OWNER, filters: { from: '2026-12-01', to: '2026-01-01' }, limit: 50 });
+  assert.equal(filtered.rows.length, 0);
+  const tables = { company_members: members(), loads: [load(L1)], documents: docs, company_profiles: [{ id: 'p1', owner_id: OWNER }] };
+  const deps = ctx('owner', OWNER, tables);
+  const skipped = await fetchVaultPage(deps.sb, { ownerId: OWNER, role: 'owner', userId: OWNER, filters: { from: '2026-12-01', to: '2026-01-01' } });
+  assert.equal(skipped.rows.length, 0);
+  assert.equal(skipped.dateError, DATE_RANGE_ERROR);
+  assert.equal(deps.sb.calls.some((c) => c.t === 'documents'), false);
+  const res = await VAULT.GET(new Request('http://x/api/documents/vault?from=2026-12-01&to=2026-01-01', { headers: { authorization: 'Bearer t' } }), { deps });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.documents, []);
+  assert.equal(body.nextCursor, null);
+  assert.equal(body.dateError, DATE_RANGE_ERROR);
+  assert.equal(deps.sb.calls.some((c) => c.t === 'documents'), false);
+  const vaultPage = read('../../app/documents/vault/page.js');
+  const searchFn = vaultPage.slice(vaultPage.indexOf('function search'), vaultPage.indexOf('useEffect(() =>'));
+  assert.ok(searchFn.indexOf('reversedDateRange') < searchFn.indexOf('load('));
+  assert.match(vaultPage, /data-testid="vault-date-error"/);
+  assert.match(vaultPage, /setDateError\(DATE_RANGE_ERROR\)/);
+});
+
 test('team inbox is the last 7 days, capped, and a driver only sees assigned loads', async () => {
   const now = Date.parse('2026-10-23T12:00:00Z');
   const recent = Array.from({ length: 12 }, (_, i) => ({
@@ -274,8 +327,19 @@ test('docs tab source: limited inbox, vault tiles, maintenance flag, indexes onl
   assert.match(page, /mergeInboxDocs/);
   assert.match(page, /<TeamDocsList [^>]*inbox/);
   assert.match(page, /readInboxOpen/);
-  assert.match(page, /<VaultTiles /);
+  assert.match(page, /<VaultTiles supabase=\{supabase\} refreshKey=\{vaultTick\} \/>/);
   assert.match(page, /data-testid="vault-note"/);
+  const uploadFn = page.slice(page.indexOf('async function uploadRateCon'), page.indexOf('async function openScanner'));
+  assert.ok(uploadFn.indexOf('await loadDocs()') < uploadFn.indexOf('setVaultTick'));
+  assert.match(read('../../app/components/VaultTiles.js'), /\[supabase, refreshKey\]/);
+  assert.match(page, /tap: \{ display: 'inline-flex', alignItems: 'center', minHeight: 44 \}/);
+  assert.match(page, /href="\/documents\/checklist" style=\{s\.tap\}>Setup checklist/);
+  assert.match(page, /href="\/company#company-documents" style=\{\{ \.\.\.s\.tap, color: 'var\(--primary\)' \}\}>Company â†’ Company documents/);
+  for (const file of ['../../app/documents/vault/page.js', '../../app/documents/drivers/page.js']) {
+    const src = read(file);
+    assert.match(src, /const tap = \{[^}]*minHeight: 44/);
+    assert.match(src, /<Link href="\/documents" style=\{tap\}>Documents<\/Link>/);
+  }
   assert.match(page, /setDocs\(\(data \|\| \[\]\)\.filter\(isDocumentsTabDoc\)\)/);
   const tiles = read('../../app/components/VaultTiles.js');
   const body = tiles.slice(tiles.indexOf('export default'));

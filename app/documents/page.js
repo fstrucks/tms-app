@@ -73,6 +73,7 @@ const s = {
   error: { color: 'var(--danger)' },
   ok: { color: 'var(--success)' },
   badge: { display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', marginRight: 6 },
+  tap: { display: 'inline-flex', alignItems: 'center', minHeight: 44 },
 };
 const DOC_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
 const EMAIL_COLS = 'source, extraction_status, extraction_error';
@@ -201,6 +202,7 @@ export default function DocumentsPage() {
   const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
   const [inboxOpen, setInboxOpen] = useState(true);
   const [waitingMore, setWaitingMore] = useState(false);
+  const [vaultTick, setVaultTick] = useState(0);
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const docsReqRef = useRef(0);
@@ -376,6 +378,7 @@ export default function DocumentsPage() {
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
     await loadDocs();
+    setVaultTick((n) => n + 1);
     if (inserted?.id && docType === 'rate_confirmation') extract(inserted.id);
     return true;
   }
@@ -409,6 +412,7 @@ export default function DocumentsPage() {
     setStatus(err?.warning ? { type: 'error', text: err.warning } : { type: 'ok', text: `Saved ${scan.file.name}${scan.loadId ? ' to the load' : ''}.` });
     if (!err && scan.loadId) notifyLoadChanged(scan.loadId);
     await loadDocs();
+    setVaultTick((n) => n + 1);
     return null;
   }
 
@@ -421,7 +425,7 @@ export default function DocumentsPage() {
   return (
     <main style={{ ...s.main, paddingBottom: 'calc(1rem + var(--fab-space))' }}>
       <h1 style={{ fontSize: '1.5rem' }}>Document Upload</h1>
-      <p style={{ margin: '0.15rem 0 0.6rem' }}><Link href="/documents/checklist">Setup checklist</Link></p>
+      <p style={{ margin: '0.15rem 0 0.6rem' }}><Link href="/documents/checklist" style={s.tap}>Setup checklist</Link></p>
 
       {supabaseConfigError ? (
         <p style={s.error}>{supabaseConfigError}</p>
@@ -570,8 +574,8 @@ export default function DocumentsPage() {
             </>)}
             </div>}
           </div>
-          <p data-testid="vault-note" style={{ ...s.muted, marginTop: 0 }}>Load paperwork lives in the vaults below. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ color: 'var(--primary)' }}>Company → Company documents</a>.</p>
-          <VaultTiles supabase={supabase} />
+          <p data-testid="vault-note" style={{ ...s.muted, marginTop: 0 }}>Load paperwork lives in the vaults below. W-9, COI, MC Authority and NOA are in <a href="/company#company-documents" style={{ ...s.tap, color: 'var(--primary)' }}>Company → Company documents</a>.</p>
+          <VaultTiles supabase={supabase} refreshKey={vaultTick} />
         </>
       )}
       {scanFiles && <Scanner allowRateCon={!isDriver} typeIds={DOCUMENTS_SCAN_TYPE_IDS} initialFiles={scanFiles} loads={scanLoads} initialLoadId={scanLoadId} onClose={() => setScanFiles(null)} onSave={saveScan} />}

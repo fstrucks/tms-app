@@ -27,12 +27,19 @@ export function chunks(list, size) {
   return out;
 }
 
+export const DATE_RANGE_ERROR = 'From date must be on or before To date';
+
+export function reversedDateRange(filters = {}) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(filters.from || '') ? filters.from : '';
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(filters.to || '') ? filters.to : '';
+  return !!(from && to && from > to);
+}
+
 export function normalizeFilters(filters = {}) {
   const load = String(filters.load || '').trim().slice(0, 80);
   const broker = String(filters.broker || '').trim().slice(0, 80);
-  let from = /^\d{4}-\d{2}-\d{2}$/.test(filters.from || '') ? filters.from : '';
-  let to = /^\d{4}-\d{2}-\d{2}$/.test(filters.to || '') ? filters.to : '';
-  if (from && to && from > to) [from, to] = [to, from];
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(filters.from || '') ? filters.from : '';
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(filters.to || '') ? filters.to : '';
   const type = String(filters.type || '');
   const allowed = new Set(['', 'all', 'other', ...LOAD_VAULT_TYPES]);
   return { load, broker, from, to, type: allowed.has(type) && type !== 'all' ? type : '' };
@@ -42,6 +49,7 @@ const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 export function matchesVaultFilters(doc, load, filters = {}) {
   const f = normalizeFilters(filters);
+  if (reversedDateRange(f)) return false;
   if (f.type === 'other') {
     if (!String(doc?.doc_type || '').startsWith('other:')) return false;
   } else if (f.type && doc?.doc_type !== f.type) return false;

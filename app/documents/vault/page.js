@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { authedFetch } from '../../lib/authedFetch';
 import { docTypeLabel } from '../../lib/docTypes';
-import { LOAD_VAULT_TYPES } from '../../lib/loadVault';
+import { DATE_RANGE_ERROR, LOAD_VAULT_TYPES, reversedDateRange } from '../../lib/loadVault';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import SignInLink from '../../components/SignInLink';
 import { Loading, LoadError } from '../../components/DataState';
@@ -14,6 +14,7 @@ const field = { width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize:
 const label = { display: 'block', fontSize: 14, fontWeight: 600, margin: '0 0 0.25rem' };
 const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 const btn = { width: '100%', minHeight: 44, padding: '0.7rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' };
+const tap = { display: 'inline-flex', alignItems: 'center', minHeight: 44 };
 const TYPES = [['', 'All types'], ...LOAD_VAULT_TYPES.map((id) => [id, docTypeLabel(id)]), ['other', 'Other']];
 
 function queryString(filters, cursor) {
@@ -32,6 +33,7 @@ export default function LoadVaultPage() {
   const [cursor, setCursor] = useState(null);
   const [state, setState] = useState('loading');
   const [signedOut, setSignedOut] = useState(false);
+  const [dateError, setDateError] = useState('');
   const reqRef = useRef(0);
 
   async function load(nextFilters, nextCursor, append) {
@@ -44,6 +46,14 @@ export default function LoadVaultPage() {
       if (res.status === 401) { setSignedOut(true); setState('ready'); return; }
       if (!res.ok) { setState('error'); return; }
       setSignedOut(false);
+      if (body.dateError) {
+        setDateError(body.dateError);
+        setDocs([]);
+        setCursor(null);
+        setState('ready');
+        return;
+      }
+      setDateError('');
       setDocs((list) => (append ? [...list, ...(body.documents || [])] : (body.documents || [])));
       setCursor(body.nextCursor || null);
       setState('ready');
@@ -56,6 +66,15 @@ export default function LoadVaultPage() {
     e?.preventDefault();
     const next = { ...draft };
     setFilters(next);
+    if (reversedDateRange(next)) {
+      reqRef.current += 1;
+      setDateError(DATE_RANGE_ERROR);
+      setDocs([]);
+      setCursor(null);
+      setState('ready');
+      return;
+    }
+    setDateError('');
     load(next, null, false);
   }
 
@@ -63,7 +82,7 @@ export default function LoadVaultPage() {
 
   return (
     <main style={main}>
-      <p style={{ margin: '0 0 0.35rem' }}><Link href="/documents">Documents</Link></p>
+      <p style={{ margin: '0 0 0.35rem' }}><Link href="/documents" style={tap}>Documents</Link></p>
       <h1 style={{ fontSize: '1.5rem', margin: '0 0 0.35rem' }}>Load documents</h1>
       <p style={{ ...muted, marginTop: 0 }}>Rate confirmations, BOLs, PODs, lumper receipts, and other load paperwork, including past loads.</p>
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p> : signedOut ? (
@@ -96,11 +115,12 @@ export default function LoadVaultPage() {
               <label htmlFor="vault-to" style={label}>To</label>
               <input id="vault-to" type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} style={field} />
             </div>
+            {dateError ? <p role="alert" data-testid="vault-date-error" style={{ color: 'var(--danger)', margin: 0 }}>{dateError}</p> : null}
             <button type="submit" style={btn}>Search</button>
           </form>
           {state === 'error' ? <LoadError message="Couldn't load these documents." onRetry={() => load(filters, null, false)} /> : null}
           {state === 'loading' ? <Loading label="Loading documents…" /> : null}
-          {state !== 'loading' && state !== 'error' && docs.length === 0 ? <p style={muted}>No documents match.</p> : null}
+          {state !== 'loading' && state !== 'error' && !dateError && docs.length === 0 ? <p style={muted}>No documents match.</p> : null}
           <div data-testid="load-vault-list">
             {docs.map((d) => (
               <div key={d.id} data-testid="load-vault-row" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>

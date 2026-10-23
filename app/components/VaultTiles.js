@@ -18,7 +18,7 @@ function Count({ n, capped }) {
   return <span style={countStyle}>{capped ? `${n}+` : n}</span>;
 }
 
-export default function VaultTiles({ supabase }) {
+export default function VaultTiles({ supabase, refreshKey = 0 }) {
   const [counts, setCounts] = useState(null);
   const [maint, setMaint] = useState(null);
   useEffect(() => {
@@ -36,7 +36,7 @@ export default function VaultTiles({ supabase }) {
       }
     })();
     return () => { stop = true; };
-  }, [supabase]);
+  }, [supabase, refreshKey]);
 
   const items = [
     { href: '/documents/vault', testid: 'vault-tile-loads', icon: '📄', label: 'Load documents', n: counts?.loadDocs, text: 'Rate cons, BOLs, PODs, and the rest of the load paperwork' },

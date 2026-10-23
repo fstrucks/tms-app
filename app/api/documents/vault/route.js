@@ -4,7 +4,7 @@ import { loadDocsCtx, json } from '../../../lib/loadDocsServer';
 import { docTypeLabel } from '../../../lib/docTypes';
 import { isImagePath, loadPickLabel } from '../../../lib/loadDocs';
 import { fetchVaultPage } from '../../../lib/loadVaultQuery';
-import { normalizeFilters, parseCursor } from '../../../lib/loadVault';
+import { DATE_RANGE_ERROR, normalizeFilters, parseCursor, reversedDateRange } from '../../../lib/loadVault';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,9 +27,9 @@ export async function GET(req, { deps } = {}) {
   if (x.res) return x.res;
   const { c, svc } = x;
   const sp = new URL(req.url).searchParams;
-  const filters = normalizeFilters({
-    load: sp.get('load'), broker: sp.get('broker'), type: sp.get('type'), from: sp.get('from'), to: sp.get('to'),
-  });
+  const raw = { load: sp.get('load'), broker: sp.get('broker'), type: sp.get('type'), from: sp.get('from'), to: sp.get('to') };
+  if (reversedDateRange(raw)) return json({ documents: [], nextCursor: null, dateError: DATE_RANGE_ERROR });
+  const filters = normalizeFilters(raw);
   const cursor = parseCursor(sp.get('cursor') || '');
   const page = await fetchVaultPage(svc, { ownerId: c.ownerId, role: c.role, userId: c.user.id, filters, cursor, limit: 20 });
   if (page.error) return json({ error: 'Couldn’t load these documents.' }, 500);
