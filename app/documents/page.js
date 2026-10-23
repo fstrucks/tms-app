@@ -26,7 +26,8 @@ import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
-import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc } from '../lib/rateconDrafts';
+import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
+import { fetchActiveCompany } from '../lib/activeCompanyClient';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -154,7 +155,9 @@ export default function DocumentsPage() {
     try {
       // Extracted appointment times are local wall time; interpret them in this browser's timezone. Emailed rate cons
       // use the company RPC (any office member; the load is the owner's; a teammate's earlier tap returns that load).
-      const { data: loadId, error } = await createLoadFromDoc(supabase, doc, Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles');
+      // Uploads: the load goes to the active company (owner / Management / Dispatcher there), checked again by the RPC.
+      const profileId = doc.source === 'email' ? null : uploadProfileFor((await fetchActiveCompany())?.active);
+      const { data: loadId, error } = await createLoadFromDoc(supabase, doc, Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles', { profileId });
       if (error) {
         const code = Object.keys(LOAD_ERRORS).find((k) => (error.message || '').includes(k));
         console.error('create_load_from_document', error);

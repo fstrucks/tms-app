@@ -8,10 +8,13 @@
 --   * the load belongs to the caller if he owns a company, else to the owner of the company where he is
 --     Management or a Dispatcher, else to himself (old behaviour). Nobody can create a load for a company they
 --     aren't Management / Dispatcher in.
--- Idempotent (create or replace). The app falls back to create_load_from_document until this is applied.
+-- p_profile (review): the active company; see the function. Also read-only document policies (bottom).
+-- Idempotent (drop/create or replace, drop policy if exists). The app falls back to create_load_from_document until this is applied.
 begin;
 
-create or replace function public.create_load_from_company_upload(p_document uuid, p_tz text default 'America/Los_Angeles')
+-- One function only: drop the earlier 2-arg draft if a test database has it, then (re)create the 3-arg version.
+drop function if exists public.create_load_from_company_upload(uuid, text);
+create or replace function public.create_load_from_company_upload(p_document uuid, p_tz text default 'America/Los_Angeles', p_profile uuid default null)
 returns uuid
 language plpgsql
 security definer
@@ -54,9 +57,18 @@ begin
   if v_doc.load_id is not null then
     raise exception 'already_linked' using errcode = 'P0001', detail = v_doc.load_id::text;
   end if;
-  -- Who owns the new load. A company owner: himself (same as create_load_from_document). Otherwise Management or
-  -- a Dispatcher of a company: that company's owner (oldest membership if more than one). Anyone else: himself.
-  if exists (select 1 from public.company_profiles cp where cp.owner_id = auth.uid()) then
+  -- Who owns the new load.
+  -- p_profile (the app's active company): the caller must be its owner, Management or a Dispatcher; the load
+  -- belongs to that company's owner. Anything else is rejected (nobody creates loads for another company).
+  if p_profile is not null then
+    select cp.owner_id into v_owner from public.company_profiles cp
+     where cp.id = p_profile and coalesce(public.company_role(cp.id) in ('owner', 'management', 'dispatcher'), false);
+    if v_owner is null then
+      raise exception 'not_company_office' using errcode = '42501';
+    end if;
+  -- No p_profile (older app): a company owner → himself; Management / a Dispatcher → that company's owner (oldest
+  -- membership); anyone else → himself (same as create_load_from_document).
+  elsif exists (select 1 from public.company_profiles cp where cp.owner_id = auth.uid()) then
     v_owner := auth.uid();
   else
     select cp.owner_id into v_owner
@@ -148,10 +160,43 @@ begin
 end;
 $$;
 
-revoke all on function public.create_load_from_company_upload(uuid, text) from public;
+revoke all on function public.create_load_from_company_upload(uuid, text, uuid) from public;
 do $$ begin
-  if exists (select 1 from pg_roles where rolname = 'anon') then execute 'revoke all on function public.create_load_from_company_upload(uuid, text) from anon'; end if;
-  if exists (select 1 from pg_roles where rolname = 'authenticated') then execute 'grant execute on function public.create_load_from_company_upload(uuid, text) to authenticated'; end if;
+  if exists (select 1 from pg_roles where rolname = 'anon') then execute 'revoke all on function public.create_load_from_company_upload(uuid, text, uuid) from anon'; end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then execute 'grant execute on function public.create_load_from_company_upload(uuid, text, uuid) to authenticated'; end if;
+end $$;
+
+
+-- Visibility (SQL review, Oct 22). The rate con keeps user_id = the uploader (e.g. the dispatcher) while the load
+-- belongs to the company owner. The load page Documents panel, Dispatch → load and the /documents Team view read
+-- through service-role routes (company + role checks in app code) and already show it. Two places read with the
+-- user's own RLS and missed it: the owner's Home "Rate con" button (documents row + Storage signed URL) and the
+-- Miles card's rate con miles (documents.ai_extracted_data). Read-only policies: documents linked to a load of a
+-- company where the viewer is owner / Management / Dispatcher. Drivers are not included (unchanged).
+create or replace function public.can_see_company_load_doc(p_load uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select p_load is not null and exists (
+    select 1 from public.loads l join public.company_profiles cp on cp.owner_id = l.user_id
+     where l.id = p_load and coalesce(public.company_role(cp.id) in ('owner', 'management', 'dispatcher'), false));
+$$;
+revoke all on function public.can_see_company_load_doc(uuid) from public;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then execute 'revoke all on function public.can_see_company_load_doc(uuid) from anon'; end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then execute 'grant execute on function public.can_see_company_load_doc(uuid) to authenticated'; end if;
+end $$;
+
+drop policy if exists documents_select_company_load on public.documents;
+create policy documents_select_company_load on public.documents for select to authenticated
+  using (load_id is not null and public.can_see_company_load_doc(load_id));
+
+do $$ begin
+  if to_regclass('storage.objects') is not null then
+    execute 'drop policy if exists documents_select_company_load on storage.objects';
+    execute $p$create policy documents_select_company_load on storage.objects for select to authenticated
+      using (bucket_id = 'documents' and exists (
+        select 1 from public.documents d where d.file_path = storage.objects.name and d.load_id is not null
+           and public.can_see_company_load_doc(d.load_id)))$p$;
+  end if;
 end $$;
 
 commit;

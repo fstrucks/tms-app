@@ -88,10 +88,13 @@ export const EMAIL_CREATE_RPC = 'create_load_from_email_document';
 export const UPLOAD_CREATE_RPC = 'create_load_from_company_upload';
 export const createLoadRpc = (doc) => (doc?.source === 'email' ? EMAIL_CREATE_RPC : UPLOAD_CREATE_RPC);
 export const isMissingRpc = (error) => !!error && (error.code === 'PGRST202' || error.code === '42883');
-export async function createLoadFromDoc(supabase, doc, tz) {
+// profileId (SQL review): the active company, passed to the upload RPC when the caller is its owner / Management /
+// Dispatcher (the RPC rejects anything else); null → the RPC picks as before. Never sent to the other RPCs.
+export const uploadProfileFor = (active) => (active?.profile_id && SKIPPED_ROLES.includes(active.role) ? active.profile_id : null);
+export async function createLoadFromDoc(supabase, doc, tz, { profileId = null } = {}) {
   const args = { p_document: doc.id, p_tz: tz };
   const fn = createLoadRpc(doc);
-  let r = await supabase.rpc(fn, args);
+  let r = await supabase.rpc(fn, fn === UPLOAD_CREATE_RPC && profileId ? { ...args, p_profile: profileId } : args);
   if (isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
   return r;
 }

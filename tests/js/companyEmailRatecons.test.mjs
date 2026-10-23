@@ -87,3 +87,19 @@ test('client lists never filter by user_id = me (RLS decides; teammates’ email
   assert.ok(!/user_id/.test(q));
   assert.ok(!/user_id/.test(read('../../app/components/EmailDraftsBanner.js')));
 });
+
+test('Create load from an upload passes the active company (office roles only); never to the other RPCs', async () => {
+  const { uploadProfileFor } = await import('../../app/lib/rateconDrafts.js');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'dispatcher' }), 'C1');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'owner' }), 'C1');
+  assert.equal(uploadProfileFor({ profile_id: 'C1', role: 'driver' }), null);
+  assert.equal(uploadProfileFor(null), null);
+  const calls = [];
+  const sb = (missing) => ({ rpc: async (fn, a) => { calls.push([fn, a]); return fn !== 'create_load_from_document' && missing ? { data: null, error: { code: 'PGRST202' } } : { data: 'L1', error: null }; } });
+  await createLoadFromDoc(sb(false), { id: 'd', source: 'upload' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), [UPLOAD_CREATE_RPC, { p_document: 'd', p_tz: 'X', p_profile: 'C1' }]);
+  await createLoadFromDoc(sb(true), { id: 'd', source: 'upload' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), ['create_load_from_document', { p_document: 'd', p_tz: 'X' }]);
+  await createLoadFromDoc(sb(false), { id: 'd', source: 'email' }, 'X', { profileId: 'C1' });
+  assert.deepEqual(calls.pop(), [EMAIL_CREATE_RPC, { p_document: 'd', p_tz: 'X' }]);
+});
