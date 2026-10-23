@@ -1,6 +1,7 @@
 'use client';
 
 import { authedFetch } from '../lib/authedFetch';
+import { deleteExpense } from '../lib/expenseDelete';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import UploadMenu from '../components/UploadMenu';
 import Link from 'next/link';
@@ -466,8 +467,9 @@ function ExpensesInner() {
 
   async function remove(x) {
     if (!window.confirm('Delete this expense?')) return;
-    const { error } = await supabase.from('expenses').delete().eq('id', x.id);
-    if (error) return failMsg('Could not delete the expense. Please try again.', error);
+    const r = await deleteExpense(supabase, x, BUCKET); // its receipt goes too when no other expense uses it
+    if (!r.ok) return failMsg('Could not delete the expense. Please try again.', r.error);
+    if (r.warning) console.warn('[expenses] receipt', r.warning);
     if (form.id === x.id) { setForm(emptyForm(presetLoad)); clearReceipt(); resetAi(); }
     await fetchAll(); // refresh problems show in the banner above the list
   }
