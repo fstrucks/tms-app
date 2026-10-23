@@ -99,3 +99,5 @@ export function shapeHistory(records = [], items = [], docs = []) {
 }
 export const fmtMiles = (n) => (n == null ? '' : `${Number(n).toLocaleString('en-US')} mi`);
 export const fmtMoney = (n) => (n == null ? '' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+
+export const DRIVER_NO_ACCESS = 'You can log service only for the truck you’re driving now.';

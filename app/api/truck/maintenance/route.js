@@ -4,7 +4,7 @@
 // GET ?truckId= → { available, visits, loads, canLog, odometer }   (available:false when the migration isn't applied)
 // POST { action: 'create' | 'update' | 'delete' | 'set_odometer', ... }
 import { truckCtx, json, isMissing, UUID } from '../../../lib/truckServer';
-import { visitInput, shapeHistory, canLogService, isOffice, canChangeVisit } from '../../../lib/maintenance';
+import { visitInput, shapeHistory, canLogService, isOffice, canChangeVisit, DRIVER_NO_ACCESS } from '../../../lib/maintenance';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,7 +59,7 @@ export async function GET(req, { deps } = {}) {
   const tr = await c.db.from('trucks').select('id,odometer,odometer_updated_at').eq('id', truckId).eq('user_id', c.ownerId).maybeSingle();
   return json({
     available: true, visits: h.visits.map((v) => ({ ...v, canChange: drives && canChangeVisit(c.role, c.user.id, v) })), loads: drives ? loads : [],
-    role: c.role, canLog: canLogService(c.role) && drives, canSetOdometer: isOffice(c.role),
+    role: c.role, canLog: canLogService(c.role) && drives, canSetOdometer: isOffice(c.role), driverNoAccess: c.role === 'driver' && !drives,
     odometer: tr.data?.odometer ?? null, odometerUpdatedAt: tr.data?.odometer_updated_at ?? null,
   });
 }
@@ -106,7 +106,7 @@ export async function POST(req, { deps } = {}) {
     if (!UUID.test(b.truckId || '')) return json({ error: 'Truck not found.' }, 404);
     const r = await c.uc.from('service_records').insert({ ...v.visit, truck_id: b.truckId, owner_id: c.ownerId }).select('id').single();
     if (r.error) {
-      if (denied(r.error) && c.role === 'driver') return json({ error: 'You can log service only for the truck you’re driving now.' }, 403);
+      if (denied(r.error) && c.role === 'driver') return json({ error: DRIVER_NO_ACCESS }, 403);
       return errMsg(r.error, 'Could not save the service.');
     }
     const it = await c.uc.from('service_record_items').insert(v.items.map((x) => ({ ...x, service_record_id: r.data.id })));

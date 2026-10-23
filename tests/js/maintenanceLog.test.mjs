@@ -165,3 +165,15 @@ test('fix migration: ASCII, receipt column grant, picker + driver rule, cost tri
   for (const t of ['service_record_items_cost_check', 'service_records_cost_check']) assert.match(FIX, new RegExp(`drop trigger if exists ${t}`));
   assert.equal((FIX.match(/security definer set search_path = public/g) || []).length, (FIX.match(/security definer/g) || []).length);
 });
+
+test('driver without access sees the muted note; others never do', async () => {
+  const g = await call(ctx('driver', DRV, { drives: false }), 'GET', null, `?truckId=${T1}`);
+  assert.equal(g.j.driverNoAccess, true); assert.equal(g.j.canLog, false);
+  assert.equal((await call(ctx('driver', DRV), 'GET', null, `?truckId=${T1}`)).j.driverNoAccess, false);
+  assert.equal((await call(ctx('owner', OWNER), 'GET', null, `?truckId=${T1}`)).j.driverNoAccess, false);
+  assert.equal((await call(ctx('dispatcher', DRV), 'GET', null, `?truckId=${T1}`)).j.driverNoAccess, false);
+  const ui = readFileSync(new URL('../../app/truck/MaintenanceSection.js', import.meta.url), 'utf8');
+  assert.match(ui, /m\.driverNoAccess && !form && <p data-testid="maint-driver-note" style=\{s\.muted\}>\{DRIVER_NO_ACCESS\}<\/p>/);
+  const { DRIVER_NO_ACCESS } = await import('../../app/lib/maintenance.js');
+  assert.equal(DRIVER_NO_ACCESS, 'You can log service only for the truck you’re driving now.');
+});

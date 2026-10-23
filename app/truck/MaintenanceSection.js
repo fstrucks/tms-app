@@ -2,7 +2,7 @@
 // Maintenance on the Truck tab: log a shop visit (checklist of services), history, edit / delete, odometer.
 // Data: /api/truck/maintenance (RLS decides access). Hidden when the database update isn't applied yet.
 import { useEffect, useRef, useState } from 'react';
-import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney } from '../lib/maintenance';
+import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney, DRIVER_NO_ACCESS } from '../lib/maintenance';
 import { laToday } from '../lib/sendCap';
 
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
@@ -174,6 +174,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s }) {
         {m.role === 'owner' && <button type="button" data-testid="add-baseline" style={{ ...s.btn2, minHeight: 44 }} onClick={() => { setMsg(null); setForm({ mode: 'add', f: { ...blank(m.odometer), entrySource: 'baseline', addToExpenses: false } }); }}>Enter a starting point</button>}
       </>)}
 
+      {m.driverNoAccess && !form && <p data-testid="maint-driver-note" style={s.muted}>{DRIVER_NO_ACCESS}</p>}
       <ul data-testid="service-history" style={{ listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
         {m.visits.length === 0 && <li style={s.muted}>No service logged yet.</li>}
         {m.visits.map((v) => (
