@@ -11,15 +11,18 @@ import ConfirmButton from './ui/ConfirmButton';
 const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 const btn = { minHeight: 44, padding: '0.5rem 0.9rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' };
 
-export default function TeamDocsList({ supabase, onDeleted, inbox = false }) {
+export default function TeamDocsList({ supabase, onDeleted, onCount, inbox = false }) {
   const [state, setState] = useState('loading');
   const [docs, setDocs] = useState([]);
+  const [more, setMore] = useState(false);
   const [err, setErr] = useState({});
   async function load() {
     setState('loading');
     const r = await fetchTeamDocs(supabase, { inbox });
     if (r.error) { console.error('[documents] team', r.error.status || ''); return setState('error'); }
-    setDocs(r.data); setState('ready');
+    const next = r.data || [];
+    setDocs(next); setMore(!!r.more); setState('ready');
+    onCount?.(next.length);
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -27,7 +30,9 @@ export default function TeamDocsList({ supabase, onDeleted, inbox = false }) {
     setErr((m) => ({ ...m, [d.id]: null }));
     const r = await deleteDocument(supabase, d, 'documents');
     if (!r.ok) { setErr((m) => ({ ...m, [d.id]: r.error })); return false; }
-    setDocs((l) => l.filter((x) => x.id !== d.id));
+    const next = docs.filter((x) => x.id !== d.id);
+    setDocs(next);
+    onCount?.(next.length);
     onDeleted?.(d.id);
     return true;
   }
@@ -38,9 +43,10 @@ export default function TeamDocsList({ supabase, onDeleted, inbox = false }) {
 
   if (state === 'error') return <LoadError message="Couldn't load team documents." onRetry={load} />;
   if (state === 'loading') return <Loading label="Loading team documents…" />;
-  if (!docs.length) return <p style={muted} data-testid="team-docs-empty">{inbox ? 'No team documents from the last 7 days.' : 'No team documents yet. BOLs, PODs and scale tickets linked to a load show here.'}</p>;
+  if (!docs.length) return <p style={muted} data-testid="team-docs-empty">{inbox ? 'Nothing from your team needs attention.' : 'No team documents yet. BOLs, PODs and scale tickets linked to a load show here.'}</p>;
   return (
     <div data-testid="team-docs">
+      {inbox && more && <p style={muted}>More documents need attention than fit here. Filed copies stay in the vaults.</p>}
       {docs.map((d) => (
         <div key={d.id} data-confirm-row data-testid="team-doc" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

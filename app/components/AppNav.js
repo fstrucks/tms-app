@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AccountMenu from './ui/AccountMenu';
 import { getSupabase } from '../lib/supabase';
 import { navTabs } from '../lib/dispatchNav';
+import { DOCS_ATTENTION_EVENT, fetchNeedsAttention } from '../lib/docsInbox';
 import { syncAuthCookie } from '../lib/authCookie';
 import { dispatcherStatus, shouldRecheck, checkUntilDefinite, rememberRole, recallRole, forgetRole } from '../lib/roleRefresh';
 
@@ -34,6 +35,9 @@ export default function AppNav() {
   // Role state follows auth changes (lib/roleRefresh): re-checked on sign-in / user switch / sign-out, retried while
   // the answer is "couldn't tell", and the last definite answer is kept meanwhile (no Loads ↔ Dispatch flicker).
   const [dispatcher, setDispatcher] = useState(false);
+  const [attention, setAttention] = useState(0);
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
   useEffect(() => {
     const sb = getSupabase();
     if (!sb) return undefined;
@@ -61,6 +65,52 @@ export default function AppNav() {
     return () => { live = false; cancel?.(); sub.subscription.unsubscribe(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
   const tabs = navTabs(TABS, { dispatcher });
+
+  // Bottom-nav count. On the Docs tab the page publishes the list on screen (Mine or Team).
+  // Everywhere else this is the signed-in person's own needs-attention count. Hidden at 0.
+  useEffect(() => {
+    const onCount = (e) => {
+      const n = e?.detail?.count;
+      if (typeof n === 'number' && n >= 0) setAttention(n);
+    };
+    window.addEventListener(DOCS_ATTENTION_EVENT, onCount);
+    return () => window.removeEventListener(DOCS_ATTENTION_EVENT, onCount);
+  }, []);
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb) return undefined;
+    let live = true;
+    let req = 0;
+    const pull = () => {
+      if (pathRef.current === '/documents') return;
+      const n = ++req;
+      fetchNeedsAttention(sb).then((r) => {
+        if (!live || n !== req || r.error || pathRef.current === '/documents') return;
+        setAttention(r.documents.length);
+      });
+    };
+    const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
+      if (!session?.user || event === 'SIGNED_OUT') { req += 1; if (live) setAttention(0); return; }
+      setTimeout(pull, 0);
+    });
+    const onVis = () => { if (document.visibilityState === 'visible') pull(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { live = false; sub.subscription.unsubscribe(); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+  useEffect(() => {
+    if (pathname === '/documents') return undefined;
+    const sb = getSupabase();
+    if (!sb) return undefined;
+    let live = true;
+    sb.auth.getSession().then(({ data }) => {
+      if (!live || !data?.session?.user || pathRef.current === '/documents') return;
+      fetchNeedsAttention(sb).then((r) => {
+        if (!live || r.error || pathRef.current === '/documents') return;
+        setAttention(r.documents.length);
+      });
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [pathname]);
 
   // Reserve space for the bottom bar only when it's rendered.
   useEffect(() => {
@@ -113,10 +163,16 @@ export default function AppNav() {
         {tabs.map((t) => {
           const active = t.match(pathname);
           return (
-            <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined} aria-label={t.short ? t.label : undefined}
+            <Link key={t.href} href={t.href} aria-current={active ? 'page' : undefined}
+              aria-label={t.href === '/documents' && attention > 0 ? `${t.label}, ${attention} need attention` : (t.short ? t.label : undefined)}
               style={{ flex: 1, minWidth: 0, height: 'var(--nav-h)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 2, textDecoration: 'none', fontSize: '0.68rem', letterSpacing: '-0.01em', color: active ? blue : 'var(--text)', fontWeight: active ? 600 : 400 }}>
-              <span aria-hidden="true" style={{ fontSize: '1.25rem', lineHeight: 1 }}>{t.icon}</span>
+              <span aria-hidden="true" style={{ position: 'relative', display: 'inline-flex', fontSize: '1.25rem', lineHeight: 1 }}>
+                {t.icon}
+                {t.href === '/documents' && attention > 0 && (
+                  <span data-testid="docs-nav-count" style={{ position: 'absolute', top: -8, right: -14, minWidth: 22, height: 22, padding: '0 5px', borderRadius: 999, background: 'var(--danger-solid)', color: 'var(--on-danger)', fontSize: 13, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{attention > 99 ? '99+' : attention}</span>
+                )}
+              </span>
               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.short || t.label}</span>
             </Link>
           );

@@ -84,7 +84,7 @@ async function ticketsFor(svc, ownerId, docs) {
   const ids = (docs || []).map((d) => d.id).filter(Boolean);
   const out = [];
   for (const part of chunks(ids, 80)) {
-    const { data, error } = await svc.from('scale_tickets').select('document_id, load_id').eq('user_id', ownerId).in('document_id', part);
+    const { data, error } = await svc.from('scale_tickets').select('document_id, load_id, truck_id, trailer_id, confirmed').eq('user_id', ownerId).in('document_id', part);
     if (error) return { tickets: [] };
     out.push(...(data || []));
   }

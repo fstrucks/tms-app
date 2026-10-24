@@ -201,7 +201,8 @@ test('wiring: route branches before packet matching; Documents badge, review, ma
   const route = read('../../app/api/inbound/postmark/route.js');
   assert.ok(route.indexOf('rateconRecipient(payload)') < route.indexOf("rpc('packet_owner_for_email'"));
   const docs = read('../../app/documents/page.js');
-  for (const x of ['From email', 'Needs manual entry', 'Enter load by hand', '<RateconEmailCard', "error?.code === '42703'", 'Check these details against the PDF']) assert.ok(docs.includes(x), x);
+  for (const x of ['From email', 'Needs manual entry', 'Enter load by hand', '<RateconEmailCard', 'Check these details against the PDF']) assert.ok(docs.includes(x), x);
+  assert.ok(read('../../app/lib/docsInbox.js').includes("error?.code === '42703'"), 'email columns fall back when the migration is not applied yet');
   const card = read('../../app/components/RateconEmailCard.js');
   for (const x of ["rpc('ratecon_address_get')", "rpc('ratecon_address_regenerate')", "rpc('ratecon_set_allowed_senders'", 'Copy address', 'New address']) assert.ok(card.includes(x), x);
   assert.ok(read('../../app/loads/page.js').includes('<EmailDraftsBanner />'));

@@ -16,7 +16,7 @@ export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a
   try {
     const res = await authedFetch(supabase.auth, inbox ? '/api/documents/team?inbox=1' : '/api/documents/team', { cache: 'no-store' }, { fetchImpl });
     const j = await res.json().catch(() => ({}));
-    if (res.ok) return { data: j.documents || [], error: null };
+    if (res.ok) return inbox ? { data: j.documents || [], more: !!j.more, error: null } : { data: j.documents || [], error: null };
     return { data: null, error: { status: res.status, message: j.error || null } };
   } catch (e) { return { data: null, error: { message: String(e?.message || e) } }; }
 }

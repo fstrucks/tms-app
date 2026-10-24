@@ -28,7 +28,7 @@ import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
 import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
-import { INBOX_RECENT_CAP, INBOX_RECENT_DAYS, INBOX_WAITING_CAP, fetchWaitingRateCons, mergeInboxDocs, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
+import { attentionLabel, fetchNeedsAttention, needsAttention, publishAttentionCount, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
 import VaultTiles from '../components/VaultTiles';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -73,11 +73,10 @@ const s = {
   error: { color: 'var(--danger)' },
   ok: { color: 'var(--success)' },
   badge: { display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', marginRight: 6 },
+  countBadge: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, height: 28, padding: '0 8px', borderRadius: 999, background: 'var(--danger-solid)', color: 'var(--on-danger)', fontWeight: 800, fontSize: 15, lineHeight: 1 },
+  showHide: { flex: '0 0 auto', minHeight: 44, minWidth: 112, padding: '0 18px', borderRadius: 10, border: '1px solid var(--primary)', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '1rem', fontWeight: 700, cursor: 'pointer' },
   tap: { display: 'inline-flex', alignItems: 'center', minHeight: 44 },
 };
-const DOC_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
-const EMAIL_COLS = 'source, extraction_status, extraction_error';
-
 export default function DocumentsPage() {
   const supabase = getSupabase();
   const [user, setUser] = useState(null);
@@ -119,11 +118,17 @@ export default function DocumentsPage() {
     // Failure: the row keeps the old type (select is controlled by d.doc_type, which we don't touch).
     if (!r.ok) return setTypeErr((m) => ({ ...m, [d.id]: { error: r.error, docType } }));
     // PR #84: a company type moves the file to Company → Company documents, so it leaves this list.
-    if (isCompanyDocType(r.docType)) {
-      setDocs((list) => list.filter((x) => x.id !== d.id));
-      return setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)} and moved to Company → Company documents.` });
+    const stayed = commitDocs((list) => list.flatMap((x) => {
+      if (x.id !== d.id) return [x];
+      const next = { ...x, doc_type: r.docType };
+      return needsAttention(next) ? [next] : [];
+    }));
+    if (isCompanyDocType(r.docType) || !stayed.some((x) => x.id === d.id)) {
+      const moved = isCompanyDocType(r.docType);
+      return setStatus({ type: 'ok', text: moved
+        ? `Saved as ${docTypeLabel(r.docType)} and moved to Company → Company documents.`
+        : `Saved as ${docTypeLabel(r.docType)}.` });
     }
-    setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, doc_type: r.docType } : x)));
     setTypeChanged((m) => ({ ...m, [d.id]: r.offerRead }));
     setStatus({ type: 'ok', text: `Saved as ${docTypeLabel(r.docType)}.${r.offerRead ? ' Tap “Read as rate con” if you want the load details read.' : ''}` });
   }
@@ -187,7 +192,7 @@ export default function DocumentsPage() {
         const m = await fillLinkedLoadMiles(supabase, { loadId, userId: null, miles: mi });
         if (m.error) console.error('[createLoad] total_miles', m.error);
       }
-      setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
+      commitDocs((list) => list.filter((d) => d.id !== doc.id));
       notifyLoadChanged(loadId);
       router.refresh();
       router.push(`/loads/${loadId}`);
@@ -202,10 +207,24 @@ export default function DocumentsPage() {
   const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
   const [inboxOpen, setInboxOpen] = useState(true);
   const [waitingMore, setWaitingMore] = useState(false);
+  const [teamCount, setTeamCount] = useState(null);
   const [vaultTick, setVaultTick] = useState(0);
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
   const docsReqRef = useRef(0);
+  const viewRef = useRef(view_);
+  const docsRef = useRef(docs);
+  viewRef.current = view_;
+  docsRef.current = docs;
+  // The header badge is docs.length (or the team list length). Publish the nav badge in the same turn.
+  function commitDocs(next, more) {
+    const list = typeof next === 'function' ? next(docsRef.current) : next;
+    docsRef.current = list;
+    setDocs(list);
+    if (typeof more === 'boolean') setWaitingMore(more);
+    if (viewRef.current === 'mine') publishAttentionCount(list.length);
+    return list;
+  }
   const [refreshErr, setRefreshErr] = useState(null);
   const docsReadyRef = useRef(false);
   docsReadyRef.current = listState === 'ready';
@@ -224,17 +243,25 @@ export default function DocumentsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Extraction failed, please try again.');
       if (body.reclassified === 'coi') {
-        setDocs((list) => list.filter((d) => d.id !== id)); // PR #84: COIs live in Company → Company documents
+        commitDocs((list) => list.filter((d) => d.id !== id)); // PR #84: COIs live in Company → Company documents
         setStatus({ type: 'ok', text: 'This looks like a certificate of insurance, so it was saved as a COI in Company → Company documents. Open Company → Insurance to read it.' });
         return;
       }
       if (body.reclassified === 'bol' || body.reclassified === 'scale_ticket') {
         // PR #110: a BOL / scale ticket uploaded as a rate con is re-typed; its "Link to load" picker opens below.
-        setDocs((list) => list.map((d) => (d.id === id ? { ...d, doc_type: body.reclassified, ai_extracted_data: body.data } : d)));
+        commitDocs((list) => list.flatMap((d) => {
+          if (d.id !== id) return [d];
+          const next = { ...d, doc_type: body.reclassified, ai_extracted_data: body.data };
+          return needsAttention(next) ? [next] : [];
+        }));
         setStatus({ type: 'ok', text: `This looks like a ${body.reclassified === 'bol' ? 'bill of lading' : 'scale ticket'}, so it was saved as one. Pick its load below.` });
         return;
       }
-      setDocs((list) => list.map((d) => (d.id === id ? { ...d, ai_extracted_data: body.data } : d)));
+      commitDocs((list) => list.flatMap((d) => {
+        if (d.id !== id) return [d];
+        const next = { ...d, ai_extracted_data: body.data };
+        return needsAttention(next) ? [next] : [];
+      }));
       // A (re-)run can fill the linked load's miles/weight on the server: refresh any open load page (QA #82, RC-03).
       const linkedLoad = body.loadId || docs.find((d) => d.id === id)?.load_id;
       if (linkedLoad) notifyLoadChanged(linkedLoad);
@@ -252,7 +279,7 @@ export default function DocumentsPage() {
     setDeleteErr((m) => ({ ...m, [doc.id]: null }));
     const r = await deleteDocument(supabase, doc, BUCKET);
     if (!r.ok) { setDeleteErr((m) => ({ ...m, [doc.id]: r.error })); return false; }
-    setDocs((list) => list.filter((x) => x.id !== doc.id));
+    commitDocs((list) => list.filter((x) => x.id !== doc.id));
     setVaultTick((n) => n + 1);
     if (r.fileError) setStatus({ type: 'error', text: r.fileError });
     return true;
@@ -262,28 +289,16 @@ export default function DocumentsPage() {
     const req = ++docsReqRef.current;
     if (!docsReadyRef.current) setListState('loading');
     if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
-    const sinceIso = new Date(Date.now() - INBOX_RECENT_DAYS * 864e5).toISOString();
-    const q = (cols) => supabase.from('documents').select(cols)
-      .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
-      .gte('created_at', sinceIso)
-      .order('created_at', { ascending: false })
-      .limit(INBOX_RECENT_CAP + INBOX_WAITING_CAP);
-    // Email-in columns (20261019000200); before that migration, fall back to the old column list.
-    let { data, error } = await q(`${DOC_COLS}, ${EMAIL_COLS}`);
-    if (error?.code === '42703') ({ data, error } = await q(DOC_COLS));
+    const got = await fetchNeedsAttention(supabase);
     if (req !== docsReqRef.current) return;
-    if (error) {
-      console.error('[documents] fetch', error);
+    if (got.error) {
+      console.error('[documents] fetch', got.error);
       // Keep an already-shown list; otherwise show the error + Retry instead of an empty state.
       if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
       return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
     }
-    const waiting = await fetchWaitingRateCons(supabase);
-    if (req !== docsReqRef.current) return;
-    setWaitingMore(waiting.length >= INBOX_WAITING_CAP);
-    data = mergeInboxDocs((data || []).filter(isDocumentsTabDoc), waiting.filter(isDocumentsTabDoc));
     setRefreshErr(null);
-    setDocs((data || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
+    commitDocs((got.documents || []).filter(isDocumentsTabDoc), !!got.more); // PR #84: W-9 / COI / MC Authority / NOA live on Company
     setListState('ready');
     loadSkipped();
   }
@@ -293,6 +308,7 @@ export default function DocumentsPage() {
   const [dismissed, setDismissed] = useState([]);
   useEffect(() => { setDismissed(readDismissed(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
   useEffect(() => { setInboxOpen(readInboxOpen(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
+  const attentionCount = view_ === 'team' ? teamCount : docs.length;
   const skipped = visibleSkipped(skippedRows, dismissed);
   const dismissSkipped = (ids) => setDismissed(addDismissed(typeof window !== 'undefined' ? window.localStorage : null, ids));
   async function loadSkipped() {
@@ -308,7 +324,7 @@ export default function DocumentsPage() {
       if (event === 'INITIAL_SESSION') setChecking(false);
       // defer: avoid Supabase auth-lock deadlock. Fetch only with a session; re-fetch when it changes.
       if ((['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED'].includes(event) || (event === 'TOKEN_REFRESHED' && !docsReadyRef.current)) && u) setTimeout(() => loadDocs(), 0);
-      if (event === 'SIGNED_OUT') { docsReqRef.current++; setDocs([]); setListState('loading'); }
+      if (event === 'SIGNED_OUT') { docsReqRef.current++; commitDocs([]); publishAttentionCount(0); setListState('loading'); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -378,6 +394,11 @@ export default function DocumentsPage() {
     }
     setStatus({ type: 'ok', text: 'Uploaded ' + file.name });
     setFile(null); setFileKey((k) => k + 1);
+    const row = {
+      id: inserted.id, user_id: user.id, doc_type: docType, file_path: path, original_filename: uploadFile.name,
+      load_id: null, truck_id: null, source: 'upload', created_at: new Date().toISOString(),
+    };
+    commitDocs((list) => [row, ...list.filter((d) => d.id !== row.id)]);
     await loadDocs();
     setVaultTick((n) => n + 1);
     if (inserted?.id && docType === 'rate_confirmation') extract(inserted.id);
@@ -472,29 +493,28 @@ export default function DocumentsPage() {
           {!isDriver && <RateconEmailCard supabase={supabase} userId={user.id} />}
 
           <div style={s.card}>
-            <button type="button" data-testid="docs-inbox-toggle" aria-expanded={inboxOpen} aria-controls="docs-inbox" onClick={() => { const next = !inboxOpen; setInboxOpen(next); writeInboxOpen(typeof window !== 'undefined' ? window.localStorage : null, next); }}
-              style={{ display: 'flex', width: '100%', minHeight: 44, alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'none', border: 'none', padding: 0, color: 'var(--text)', cursor: 'pointer', textAlign: 'left' }}>
-              <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Needs attention</h2>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{inboxOpen ? 'Hide' : 'Show'}</span>
-            </button>
-            {!inboxOpen && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{docs.filter(isEmailDraft).length ? `${docs.filter(isEmailDraft).length} waiting for review` : 'Recent uploads from the last 7 days'}</p>}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Needs attention</h2>
+                {attentionCount > 0 && <span data-testid="needs-attention-count" style={s.countBadge}>{attentionCount}</span>}
+              </div>
+              <button type="button" data-testid="docs-inbox-toggle" aria-expanded={inboxOpen} aria-controls="docs-inbox" onClick={() => { const next = !inboxOpen; setInboxOpen(next); writeInboxOpen(typeof window !== 'undefined' ? window.localStorage : null, next); }}
+                style={s.showHide}>{inboxOpen ? 'Hide' : 'Show'}</button>
+            </div>
+            {typeof attentionCount === 'number' && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{attentionLabel(attentionCount)}</p>}
             {inboxOpen && <div id="docs-inbox">
             <div role="tablist" aria-label="Whose documents" data-testid="docs-view-toggle" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--surface-2)', margin: '0.75rem 0' }}>
               {[['mine', 'Mine'], ['team', 'Team']].map(([id, label]) => (
-                <button key={id} type="button" role="tab" aria-selected={view_ === id} data-testid={`docs-view-${id}`} onClick={() => setView(id)}
+                <button key={id} type="button" role="tab" aria-selected={view_ === id} data-testid={`docs-view-${id}`} onClick={() => { viewRef.current = id; setView(id); publishAttentionCount(id === 'mine' ? docsRef.current.length : (typeof teamCount === 'number' ? teamCount : 0)); }}
                   style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', fontSize: 15, fontWeight: 600, cursor: 'pointer',
                     background: view_ === id ? 'var(--surface)' : 'transparent', color: view_ === id ? 'var(--text)' : 'var(--text-muted)',
                     outline: view_ === id ? '1px solid var(--border)' : 'none' }}>{label}</button>
               ))}
             </div>
             {view_ === 'team' ? (
-              <>
-                <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Recent load paperwork from your team, last 7 days, on the loads you can open.</p>
-                <TeamDocsList supabase={supabase} inbox onDeleted={(id) => { setDocs((list) => list.filter((x) => x.id !== id)); setVaultTick((n) => n + 1); }} />
-              </>
+              <TeamDocsList supabase={supabase} inbox onCount={(n) => { setTeamCount(n); if (viewRef.current === 'team') publishAttentionCount(n); }} onDeleted={(id) => { commitDocs((list) => list.filter((x) => x.id !== id)); setVaultTick((n) => n + 1); }} />
             ) : (<>
-            {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
-            {waitingMore && <p data-testid="waiting-more" style={s.muted}>More rate cons are waiting in Load documents.</p>}
+            {waitingMore && <p data-testid="waiting-more" style={s.muted}>More documents need attention than fit here. Filed copies stay in the vaults.</p>}
             {!isDriver && skipped.map((m) => (
               <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', paddingTop: 10 }}>{skippedLine(m)}</span>
@@ -505,7 +525,7 @@ export default function DocumentsPage() {
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
-              : docs.length === 0 ? <p style={s.muted}>Nothing from the last 7 days. Older paperwork is in Load documents.</p> : docs.map((d) => (
+              : docs.length === 0 ? <p data-testid="needs-attention-empty" style={s.muted}>Nothing needs attention.</p> : docs.map((d) => (
               <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
@@ -540,7 +560,7 @@ export default function DocumentsPage() {
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
                 {isLoadDocType(d.doc_type) ? (
-                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, load_id: loadId } : x))); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
+                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { commitDocs((list) => list.flatMap((x) => { if (x.id !== d.id) return [x]; const next = { ...x, load_id: loadId }; return needsAttention(next) ? [next] : []; })); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
                 ) : !EXTRACTABLE(d.doc_type) ? (
                   d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (
