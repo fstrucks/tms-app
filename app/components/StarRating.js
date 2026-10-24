@@ -23,10 +23,14 @@ const hit = {
 export default function StarRating({ value = 0, onChange, readOnly = false, name = 'Rating', testIdPrefix = 'star', disabled = false }) {
   const n = Number(value);
   const filled = Number.isInteger(n) && n >= 1 && n <= STARS_MAX ? n : 0;
+  if (readOnly && !filled) {
+    return <span data-testid={`${testIdPrefix}-readonly`} style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Not rated</span>;
+  }
   if (readOnly) {
     return (
-      <span role="img" aria-label={ratedStarLabel(filled)} data-testid={`${testIdPrefix}-readonly`} style={{ color: 'var(--warning)', fontSize: '1.15rem', letterSpacing: '0.12em' }}>
-        {'★'.repeat(filled)}{'☆'.repeat(STARS_MAX - filled)}
+      <span role="img" aria-label={ratedStarLabel(filled)} data-testid={`${testIdPrefix}-readonly`} style={{ fontSize: '1.15rem', letterSpacing: '0.12em' }}>
+        <span style={{ color: 'var(--star)' }}>{'★'.repeat(filled)}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{'☆'.repeat(STARS_MAX - filled)}</span>
       </span>
     );
   }
@@ -41,7 +45,7 @@ export default function StarRating({ value = 0, onChange, readOnly = false, name
           aria-label={rateStarLabel(n)}
           data-testid={`${testIdPrefix}-${n}`}
           onClick={() => { if (!disabled) onChange?.(toggleStars(filled, n)); }}
-          style={{ ...hit, color: n <= filled ? 'var(--warning)' : 'var(--text-muted)', cursor: disabled ? 'default' : 'pointer' }}
+          style={{ ...hit, color: n <= filled ? 'var(--star)' : 'var(--text-muted)', cursor: disabled ? 'default' : 'pointer' }}
         >{n <= filled ? '★' : '☆'}</button>
       ))}
       {filled > 0 && <span style={{ fontSize: '0.85rem' }}>{STAR_LABELS[filled]}</span>}

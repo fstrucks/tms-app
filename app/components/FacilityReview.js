@@ -47,7 +47,7 @@ export function FacilityInfo({ info }) {
   if (!info) return null;
   return (
     <div data-testid="facility-info" style={{ background: 'var(--surface-2, var(--surface))', borderRadius: 8, padding: '6px 10px', margin: '0 0 8px', fontSize: '0.85rem' }}>
-      <div><strong>{info.count ? `${fmtStars(info.avg)} · ${info.count} review${info.count === 1 ? '' : 's'}` : 'No reviews yet'}</strong>
+      <div><strong>{info.count ? `${fmtStars(info.avg)} · ${info.count} review${info.count === 1 ? '' : 's'}` : 'No ratings yet'}</strong>
         {' '}<Link href={`/facilities/${info.facility_id}`} style={{ color: 'var(--primary)' }}>See facility</Link></div>
       {info.tips?.length > 0 && (
         <ul data-testid="facility-tips" style={{ margin: '4px 0 0', paddingLeft: '1.1rem' }}>

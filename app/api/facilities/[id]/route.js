@@ -3,6 +3,7 @@
 // Any signed-in user (the directory is shared across companies). Reviews are anonymous; hidden ones are excluded.
 import { loadDocsCtx, json, UUID } from '../../../lib/loadDocsServer.js';
 import { summaries, publicReviews, waitStats, publicNotes, isMissing } from '../../../lib/facilityServer.js';
+import { displaySummary } from '../../../lib/facilityReviews.js';
 import { shapeWaitStats, canAddFacilityNote } from '../../../lib/facilityPage.js';
 
 export const runtime = 'nodejs';
@@ -19,6 +20,7 @@ export async function GET(req, { params, deps } = {}) {
   if (w.error) console.error('[facility] wait stats', w.error.code || '', String(w.error.message || '').slice(0, 160));
   if (n.error) console.error('[facility] notes', n.error.code || '', String(n.error.message || '').slice(0, 160));
   const sum = s.map.get(f.id) || { avg: null, count: 0 };
-  return json({ facility: f, avg: sum.avg, count: sum.count, reviews: r.reviews,
+  const shown = displaySummary(sum.avg, sum.count, r.reviews);
+  return json({ facility: f, avg: shown.avg, count: shown.count, reviews: r.reviews,
     wait: w.rows ? shapeWaitStats(w.rows) : null, notes: n.notes || null, notesSetupNeeded: !!n.missing, canAddNote: canAddFacilityNote(x.c.role) });
 }

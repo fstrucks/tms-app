@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getSupabase } from '../../lib/supabase';
 import { makeApi } from '../../lib/packetApi';
-import { fmtStars } from '../../lib/facilityReviews';
-import StarRating from '../../components/StarRating';
+import { ratingSummary } from '../../lib/facilityReviews';
+import { PublicReviewCard } from '../../components/ReviewSummary';
 import { facilityAddress, mapsUrl, fmtMinutes, FACILITY_NOTE_MAX, MIN_SAMPLES } from '../../lib/facilityPage';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -127,7 +127,7 @@ export default function FacilityPage() {
       <p style={{ ...muted, margin: 0 }} data-testid="facility-address">{facilityAddress(f) || 'No address saved'}</p>
       {mapsUrl(f) && <p style={{ margin: '2px 0 0.75rem' }}><a data-testid="facility-maps" href={mapsUrl(f)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>📍 Open in Maps</a></p>}
       <div style={card}>
-        <strong style={{ fontSize: '1.1rem' }}>{st.count ? `${fmtStars(st.avg)} average · ${st.count} review${st.count === 1 ? '' : 's'}` : 'No reviews yet'}</strong>
+        <strong style={{ fontSize: '1.1rem' }} data-testid="facility-summary">{ratingSummary(st.avg, st.count)}</strong>
         <p style={{ ...muted, margin: '4px 0 0' }}>Reviews come from drivers and dispatchers on any carrier using the app. Names and companies are never shown.</p>
       </div>
       {tips.length > 0 && <div style={card}><h2 style={{ fontSize: '1rem', margin: 0 }}>Need to know</h2>
@@ -135,16 +135,8 @@ export default function FacilityPage() {
       <WaitTimes wait={st.wait} />
       <FacilityNotes facilityId={f.id} notes={st.notes} canAdd={!!st.canAddNote} setupNeeded={!!st.notesSetupNeeded} />
       {st.reviews.length > 0 && <h2 style={{ fontSize: '1rem', margin: '1rem 0 0.5rem' }}>Reviews, newest first</h2>}
-      {st.reviews.map((r, i) => (
-        <div key={r.id} style={card} data-testid="facility-review">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StarRating value={r.stars} readOnly />
-            <span style={{ ...muted, flex: 1 }}>{i === 0 ? 'Most recent · ' : ''}{new Date(r.created_at).toLocaleDateString()}{r.updated_at && r.updated_at !== r.created_at ? ' (edited)' : ''}</span>
-            <ReportButton id={r.id} />
-          </div>
-          {r.better_note && <p style={{ margin: '6px 0 0' }}><strong>Could be better:</strong> {r.better_note}</p>}
-          {r.need_to_know && <p style={{ margin: '6px 0 0' }}><strong>Need to know:</strong> {r.need_to_know}</p>}
-        </div>
+      {st.reviews.map((r) => (
+        <PublicReviewCard key={r.id} review={r} testId="facility-review" aside={<ReportButton id={r.id} />} />
       ))}
     </main>
   );

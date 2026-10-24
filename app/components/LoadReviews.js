@@ -6,6 +6,7 @@ import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { reviewParties } from '../lib/facilityReviews';
 import StarRating from './StarRating';
+import { PublicReviewCard, RatingSummaryRow } from './ReviewSummary';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const ROLE = { pickup: 'Shipper', delivery: 'Receiver' };
@@ -90,15 +91,59 @@ function Row({ loadId, stop, preview, seed }) {
   );
 }
 
+const byNewest = (reviews) => [...(reviews || [])].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
 export default function LoadReviews({ load, preview = null }) {
   const parties = reviewParties(load?.stops);
+  const facilityKey = parties.map((s) => s.facility_id || '').join(',');
+  const [board, setBoard] = useState(() => (preview
+    ? { ready: true, rows: preview.summaries || [], reviews: byNewest(preview.list) }
+    : { ready: false, rows: [], reviews: [] }));
+
+  useEffect(() => {
+    if (preview) return undefined;
+    const ids = [...new Set(parties.map((s) => s.facility_id).filter(Boolean))];
+    if (!ids.length) {
+      setBoard({ ready: true, rows: [], reviews: [] });
+      return undefined;
+    }
+    let live = true;
+    Promise.all(ids.map((id) => api(`/api/facilities/${id}`).then((j) => ({ id, j })).catch(() => ({ id, j: { error: true } }))))
+      .then((results) => {
+        if (!live) return;
+        const rows = [];
+        const reviews = [];
+        const seen = new Set();
+        for (const { id, j } of results) {
+          if (!j || j.error || !j.facility) continue;
+          const stop = parties.find((s) => s.facility_id === id);
+          rows.push({ id, name: j.facility.name || stop?.company_name || '', avg: j.avg, count: j.count, href: `/facilities/${id}` });
+          for (const r of j.reviews || []) {
+            if (!r?.id || seen.has(r.id)) continue;
+            seen.add(r.id);
+            reviews.push(r);
+          }
+        }
+        setBoard({ ready: true, rows, reviews: byNewest(reviews) });
+      });
+    return () => { live = false; };
+  }, [load?.id, preview, facilityKey]);
+
   return (
     <div data-testid="load-reviews">
+      {board.ready && board.rows.length === 0 && <RatingSummaryRow avg={null} count={0} />}
+      {board.rows.map((row) => <RatingSummaryRow key={row.id || row.name} name={row.name} avg={row.avg} count={row.count} href={row.href} />)}
+      {!board.ready && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Loading ratings…</p>}
       <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
         Rate the shipper and the receiver. Shared with other drivers without your name or company.
       </p>
       {parties.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No shipper or receiver on this load.</p>}
       {parties.map((stop) => <Row key={stop.id} loadId={load?.id} stop={stop} preview={!!preview} seed={preview?.reviews?.[stop.id]} />)}
+      {board.reviews.length > 0 && (
+        <div id="review-list" data-testid="review-list">
+          {board.reviews.map((r) => <PublicReviewCard key={r.id} review={r} />)}
+        </div>
+      )}
     </div>
   );
 }
