@@ -72,6 +72,84 @@ export function toggleStars(current, tapped) {
   const cur = starValue(current);
   return cur === n ? 0 : n;
 }
+
+// One rating's taps. Each tap is applied to the latest optimistic value, and
+// saves run one at a time so a slower earlier save cannot overwrite a newer one.
+// A second tap that would put back the star currently being cleared is ignored:
+// a rapid double tap on the selected star stays cleared, and the saved value matches.
+export function createStarTaps({ initial = 0, save } = {}) {
+  let value = starValue(initial);
+  let saved = value;
+  let desired = value;
+  let error = null;
+  let chain = Promise.resolve();
+  let pumping = false;
+
+  function pump() {
+    if (pumping || typeof save !== 'function') return;
+    if (desired === saved) return;
+    pumping = true;
+    chain = chain.then(async () => {
+      try {
+        while (desired !== saved) {
+          const target = desired;
+          try {
+            const written = starValue(await save(target));
+            if (desired !== target) {
+              saved = written;
+              continue;
+            }
+            saved = written;
+            value = written;
+            desired = written;
+            error = null;
+          } catch (e) {
+            if (desired !== target) continue;
+            error = e?.message || 'Couldn’t save your rating.';
+            value = saved;
+            desired = saved;
+          }
+        }
+      } finally {
+        pumping = false;
+        if (desired !== saved) pump();
+      }
+    });
+  }
+
+  function done() {
+    const seen = chain;
+    return seen.then(() => (chain !== seen || desired !== saved ? done() : { value, error }));
+  }
+
+  return {
+    get value() { return value; },
+    get error() { return error; },
+    push(next) {
+      const n = starValue(next);
+      // The clear has not been saved yet. Tapping that same star again is the
+      // second half of a double tap, still aimed at the star that was selected.
+      if (n > 0 && desired === 0 && saved !== 0 && n === saved) {
+        value = 0;
+        return 0;
+      }
+      value = n;
+      desired = n;
+      error = null;
+      pump();
+      return value;
+    },
+    reset(next) {
+      if (desired !== saved) return; // a tap is already ahead of the server copy
+      const v = starValue(next);
+      value = v;
+      desired = v;
+      saved = v;
+      error = null;
+    },
+    done,
+  };
+}
 export const rateStarLabel = (n) => `Rate ${n} of ${STARS_MAX}`;
 export const ratedStarLabel = (n) => (starValue(n) ? `Rated ${starValue(n)} of ${STARS_MAX}` : 'Not rated');
 

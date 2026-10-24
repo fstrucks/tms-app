@@ -1,10 +1,10 @@
 'use client';
 // Reviews tab: one rating for the shipper (pickup) and one for the receiver (delivery).
 // Tap a star to save it. Tap the same star again to clear it. Fake preview data is for the QA page only.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
-import { reviewParties } from '../lib/facilityReviews';
+import { createStarTaps, reviewParties } from '../lib/facilityReviews';
 import StarRating from './StarRating';
 import { PublicReviewCard, RatingSummaryRow } from './ReviewSummary';
 
@@ -22,6 +22,30 @@ function Row({ loadId, stop, preview, seed }) {
     saved: (seed?.stars || 0) > 0,
     notes: { better_note: seed?.better_note || '', need_to_know: seed?.need_to_know || '' },
   } : { loading: true }));
+  const notesRef = useRef(st.notes || { better_note: '', need_to_know: '' });
+  const previewRef = useRef(!!preview);
+  const canRef = useRef(!!st.canReview);
+  const reviewRef = useRef(null);
+  notesRef.current = st.notes || notesRef.current;
+  previewRef.current = !!preview;
+  canRef.current = !!st.canReview;
+  const tapsRef = useRef(null);
+  if (!tapsRef.current) {
+    tapsRef.current = createStarTaps({
+      initial: preview ? (seed?.stars || 0) : 0,
+      save: async (n) => {
+        if (previewRef.current) return n;
+        const notes = notesRef.current || {};
+        const j = await api(`/api/loads/${loadId}/stops/${stop.id}/review`, {
+          method: 'PUT',
+          body: JSON.stringify({ stars: n || null, better_note: notes.better_note || '', need_to_know: notes.need_to_know || '' }),
+        });
+        if (j.error) throw new Error(j.error);
+        reviewRef.current = j.review || null;
+        return Number(j.review?.stars) || 0;
+      },
+    });
+  }
 
   useEffect(() => {
     if (preview) return undefined;
@@ -31,6 +55,7 @@ function Row({ loadId, stop, preview, seed }) {
       if (j.setupNeeded) return setSt({ note: 'Facility reviews need a database update that hasn’t been applied yet.' });
       if (j.error && j.canReview == null && !j.review) return setSt({ note: j.error });
       const stars = Number(j.review?.stars) || 0;
+      tapsRef.current.reset(stars);
       setSt({
         ready: true,
         canReview: !!j.canReview,
@@ -43,28 +68,26 @@ function Row({ loadId, stop, preview, seed }) {
     return () => { live = false; };
   }, [loadId, stop.id, preview]);
 
-  async function onChange(next) {
-    if (!st.canReview || st.busy) return;
-    const prev = st;
-    setSt({ ...st, stars: next, busy: true, err: null });
-    if (preview) {
-      setSt({ ...st, stars: next, saved: next > 0, busy: false });
-      return;
-    }
-    const j = await api(`/api/loads/${loadId}/stops/${stop.id}/review`, {
-      method: 'PUT',
-      body: JSON.stringify({ stars: next || null, better_note: st.notes.better_note, need_to_know: st.notes.need_to_know }),
+  function onChange(next) {
+    if (!canRef.current) return undefined;
+    const stars = tapsRef.current.push(next);
+    setSt((s) => ({ ...s, stars, busy: true, err: null }));
+    tapsRef.current.done().then((result) => {
+      if (tapsRef.current.value !== result.value) return;
+      const review = reviewRef.current;
+      setSt((s) => ({
+        ...s,
+        stars: result.value,
+        saved: result.value > 0,
+        busy: false,
+        err: result.error || null,
+        notes: review && !result.error ? {
+          better_note: review.better_note || '',
+          need_to_know: review.need_to_know || '',
+        } : (s.notes || { better_note: '', need_to_know: '' }),
+      }));
     });
-    if (j.error) return setSt({ ...prev, busy: false, err: j.error });
-    const stars = Number(j.review?.stars) || 0;
-    setSt({
-      ...prev,
-      stars,
-      saved: stars > 0,
-      busy: false,
-      err: null,
-      notes: { better_note: j.review?.better_note || '', need_to_know: j.review?.need_to_know || '' },
-    });
+    return stars;
   }
 
   return (
@@ -75,7 +98,7 @@ function Row({ loadId, stop, preview, seed }) {
       {st.note && <p role="status" style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>{st.note}</p>}
       {st.ready && st.canReview && (
         <>
-          <StarRating value={st.stars} onChange={onChange} disabled={st.busy} name={`${role} rating`} testIdPrefix={`review-star-${stop.id}`} />
+          <StarRating value={st.stars} onChange={onChange} name={`${role} rating`} testIdPrefix={`review-star-${stop.id}`} />
           <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: st.saved ? 'var(--success)' : 'var(--text-muted)' }} data-testid="review-saved-rating">
             {st.stars > 0 ? `Saved · ${st.stars} of 4` : 'Not rated. Tap a star to set one. Tap it again to clear it.'}
           </p>

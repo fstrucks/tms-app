@@ -388,6 +388,15 @@ test('tile counts are head counts for visible paperwork, not a full list', async
   assert.equal(driverCounts.loadDocs, 0);
 });
 
+test('change type and linking from Needs attention refresh the load documents tile', () => {
+  const page = read('../../app/documents/page.js');
+  const changeFn = page.slice(page.indexOf('async function changeType'), page.indexOf('useEffect(() => { const t = uploadTypeFromQuery'));
+  assert.ok(changeFn.includes('setVaultTick'), 'change type refreshes the vault tiles');
+  assert.ok(changeFn.indexOf('if (!r.ok)') < changeFn.indexOf('setVaultTick'), 'a failed change type does not refresh the count');
+  const link = page.slice(page.indexOf('<DocLoadLink'), page.indexOf('/>', page.indexOf('<DocLoadLink')) + 2);
+  assert.match(link, /setVaultTick\(\(n\) => n \+ 1\)/, 'linking a document to a load refreshes the load tile');
+});
+
 test('docs tab source: needs attention only, vault tiles, maintenance flag, indexes only', () => {
   const page = read('../../app/documents/page.js');
   const inbox = read('../../app/lib/docsInbox.js');
