@@ -40,7 +40,7 @@ export default function PmSchedules({ truck, api, s, autoSetup = false, reloadKe
       {msg && <p role={msg.type === 'error' ? 'alert' : 'status'} style={msg.type === 'error' ? s.err : { color: 'var(--success)', fontSize: 14 }}>{msg.text}</p>}
       {d.error && <p role="alert" style={s.err}>{d.error}</p>}
       {setup ? (
-        <TruckSetup truck={t} today={d.today} engines={d.engines || []} canBaseline={d.canBaseline} api={api} s={s}
+        <TruckSetup key={`${t.id}|${t.maint_setup_at}|${t.mpg}`} truck={t} today={d.today} engines={d.engines || []} canBaseline={d.canBaseline} api={api} s={s}
           onCancel={() => setSetup(false)}
           onDone={async (j) => { setSetup(false); setMsg({ type: 'ok', text: `Setup saved: ${j.schedules} service${j.schedules === 1 ? '' : 's'} on the schedule.` });
             // Card, history and truck details all refetch now; each keeps only its newest response.

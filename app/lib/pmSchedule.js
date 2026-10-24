@@ -148,3 +148,22 @@ export function defaultToday(now = new Date()) {
 export function patchRow(rows, key, patch) {
   return rows.map((x) => (x.serviceType === key ? { ...x, ...patch } : x));
 }
+
+// Setup form start values from the saved truck. numeric columns can arrive as strings ("8.0"), so mpg is shown trimmed.
+export function setupDefaults(truck = {}) {
+  const t = truck || {};
+  const num = (x) => (x == null || x === '' || !Number.isFinite(Number(x)) ? '' : String(Number(x)));
+  return {
+    engine: t.engine_model ? `${t.engine_make}|${t.engine_model}` : '', engineYear: t.engine_year ?? '',
+    dutyCycle: t.duty_cycle || '', mpg: num(t.mpg), odometer: t.odometer ?? '',
+  };
+}
+
+// Setup checklist items with this truck's custom intervals in place of the suggested ones (setup never changes a custom row).
+export function withLiveCustom(items = [], rows = []) {
+  const by = new Map((rows || []).filter((r) => r?.source === 'custom').map((r) => [r.service_type, r]));
+  return items.map((x) => {
+    const r = by.get(x.serviceType);
+    return r ? { ...x, intervalMiles: r.interval_miles, intervalDays: r.interval_days, isCustom: true, sourceText: sourceText(r) } : x;
+  });
+}
