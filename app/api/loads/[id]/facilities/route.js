@@ -16,7 +16,10 @@ export async function GET(req, { params, deps } = {}) {
   if (s.error) return isMissing(s.error) ? json({ facilities: {}, setupNeeded: true }) : json({ error: 'Couldn’t load facility reviews.' }, 500);
   const tips = new Map();
   for (const id of s.map.keys()) tips.set(id, await tipsFor(x.svc, id));
+  const own = await x.svc.from('facility_reviews').select('stop_id,stars,hidden').eq('author_id', x.c.user.id).in('stop_id', stops.map((t) => t.id));
+  const mine = new Map();
+  if (!own.error) for (const row of own.data || []) if (row.stars != null && !row.hidden) mine.set(row.stop_id, Number(row.stars));
   const out = {};
-  for (const t of stops) { const f = s.map.get(t.facility_id); if (f) out[t.id] = { facility_id: t.facility_id, ...f, tips: tips.get(t.facility_id) || [] }; }
+  for (const t of stops) { const f = s.map.get(t.facility_id); if (f) out[t.id] = { facility_id: t.facility_id, ...f, tips: tips.get(t.facility_id) || [], my_stars: mine.get(t.id) ?? null }; }
   return json({ facilities: out });
 }

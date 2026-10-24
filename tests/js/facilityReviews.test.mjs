@@ -151,3 +151,30 @@ test('review: unlinked done stop (rate con, no street) links on save via facilit
   const m = readFileSync(new URL('../../supabase/migrations/20261022210000_facility_link_stop.sql', import.meta.url), 'utf8');
   assert.match(m, /security definer/); assert.match(m, /revoke all on function public\.facility_link_stop\(uuid\) from authenticated/);
 });
+
+test('review: clearing the rating keeps the note and does not insert a row when none exists', async () => {
+  const fresh = ctx('driver', DRIVER);
+  let r = await call(REVIEW, 'PUT', fresh, { id: L1, stopId: S1 }, { stars: null });
+  assert.equal(r.status, 200); assert.equal(r.j.review, null); assert.equal(fresh.svc.db.facility_reviews.length, 0);
+  const c = ctx('driver', DRIVER);
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S1 }, { stars: 3, need_to_know: 'Gate 3' });
+  assert.equal(r.status, 200);
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S1 }, { stars: null });
+  assert.equal(r.status, 200); assert.equal(r.j.review.stars, null); assert.equal(r.j.review.need_to_know, 'Gate 3');
+  assert.equal(c.svc.db.facility_reviews.length, 1); assert.ok(!('author_id' in r.j.review));
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S2 }, { stars: null });
+  assert.equal(r.status, 409, 'not delivered yet');
+});
+
+test('stop list rating is the caller’s own stars, not another driver’s', async () => {
+  const reviews = [
+    { id: R1, facility_id: F1, stop_id: S1, author_id: DRIVER, stars: 4, hidden: false, created_at: '2026-10-21T00:00:00Z' },
+    { id: 'r2', facility_id: F1, stop_id: S2, author_id: OTHER, stars: 1, hidden: false, created_at: '2026-10-20T00:00:00Z' },
+  ];
+  const stops = [stop(S1, 1, 'pickup', { completion: 'done' }), stop(S2, 2, 'delivery', { completion: 'done' })];
+  const r = await call(LOADFAC, 'GET', ctx('driver', DRIVER, { reviews, stops }), { id: L1 });
+  assert.equal(r.j.facilities[S1].my_stars, 4);
+  assert.equal(r.j.facilities[S2].my_stars, null);
+  const text = JSON.stringify(r.j);
+  assert.ok(!text.includes(OTHER)); assert.ok(!text.includes('author_id'));
+});

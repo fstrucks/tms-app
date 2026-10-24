@@ -5,7 +5,7 @@
 // that match a facility. Notes go through the content filter (no phone, email, links or profanity).
 import { loadDocsCtx, json, UUID } from '../../../../../../lib/loadDocsServer.js';
 import { loadForStopTimes } from '../../../../../../lib/stopTimesServer.js';
-import { cleanReview, reviewState, NO_FACILITY_MSG } from '../../../../../../lib/facilityReviews.js';
+import { cleanReview, starUpdate, reviewState, NO_FACILITY_MSG } from '../../../../../../lib/facilityReviews.js';
 import { OWN_COLS, isMissing } from '../../../../../../lib/facilityServer.js';
 
 export const runtime = 'nodejs';
@@ -38,8 +38,10 @@ export async function PUT(req, { params, deps } = {}) {
   if (!state) return json({ error: 'You can review a facility after the stop is picked up or delivered.' }, 409);
   if (state === 'missing') return json({ error: NO_FACILITY_MSG, state }, 409);
   let body; try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
-  const c = cleanReview(body); if (c.error) return json({ error: c.error, field: c.field }, 422);
-  if (state === 'link') { // older stop (e.g. from a rate con) that the backfill couldn't match: create / link its facility now
+  const clearing = !!body && (body.stars === null || body.stars === 0 || body.stars === '' || body.stars === '0');
+  const c = clearing ? starUpdate(body) : cleanReview(body);
+  if (c.error) return json({ error: c.error, field: c.field }, 422);
+  if (!clearing && state === 'link') { // older stop (e.g. from a rate con) that the backfill couldn't match: create / link its facility now
     const l = await x.svc.rpc('facility_link_stop', { p_stop: x.stop.id });
     if (l.error) return isMissing(l.error) || l.error.code === 'PGRST202' ? json(SETUP, 409) : json({ error: 'Couldn’t save your review.' }, 500);
     if (!l.data) return json({ error: NO_FACILITY_MSG, state: 'missing' }, 409);
@@ -48,6 +50,15 @@ export async function PUT(req, { params, deps } = {}) {
   const cur = await mine(x);
   if (cur.error) return isMissing(cur.error) ? json(SETUP, 409) : json({ error: 'Couldn’t save your review.' }, 500);
   const now = new Date().toISOString();
+  if (clearing) {
+    if (!cur.data) return json({ review: null });
+    const cleared = await x.svc.from('facility_reviews').update({ ...c.row, updated_at: now }).eq('id', cur.data.id).eq('author_id', x.c.user.id).select(OWN_COLS).maybeSingle();
+    if (cleared.error || !cleared.data) {
+      if (cleared.error && ['23514', '23502'].includes(cleared.error.code)) return json({ error: 'Clearing a rating needs a database update that hasn’t been applied yet. Nothing was changed.' }, 409);
+      return isMissing(cleared.error) ? json(SETUP, 409) : json({ error: 'Couldn’t save your review.' }, 500);
+    }
+    return json({ review: own(cleared.data) });
+  }
   let res;
   if (cur.data) res = await x.svc.from('facility_reviews').update({ ...c.row, facility_id: x.stop.facility_id, updated_at: now }).eq('id', cur.data.id).eq('author_id', x.c.user.id).select(OWN_COLS).maybeSingle();
   else {

@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getSupabase } from '../../lib/supabase';
 import { makeApi } from '../../lib/packetApi';
-import { fmtStars, starsText } from '../../lib/facilityReviews';
+import { fmtStars } from '../../lib/facilityReviews';
+import StarRating from '../../components/StarRating';
 import { facilityAddress, mapsUrl, fmtMinutes, FACILITY_NOTE_MAX, MIN_SAMPLES } from '../../lib/facilityPage';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -137,7 +138,7 @@ export default function FacilityPage() {
       {st.reviews.map((r, i) => (
         <div key={r.id} style={card} data-testid="facility-review">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span aria-label={`${r.stars} of 4 stars`} style={{ color: 'var(--warning)', fontSize: '1.1rem' }}>{starsText(r.stars)}</span>
+            <StarRating value={r.stars} readOnly />
             <span style={{ ...muted, flex: 1 }}>{i === 0 ? 'Most recent · ' : ''}{new Date(r.created_at).toLocaleDateString()}{r.updated_at && r.updated_at !== r.created_at ? ' (edited)' : ''}</span>
             <ReportButton id={r.id} />
           </div>

@@ -43,6 +43,47 @@ export function cleanReview(body = {}) {
   return { row: { stars, better_note: better, need_to_know: need } };
 }
 
+// Reviews tab: set 1–4, or clear (null / 0 / ''). Notes are updated only when the body includes them,
+// so a star tap does not wipe a note the client didn't send.
+export function starUpdate(body = {}) {
+  const raw = body?.stars;
+  const clearing = raw === null || raw === 0 || raw === '' || raw === '0';
+  const stars = clearing ? null : Number(raw);
+  if (!clearing && (!Number.isInteger(stars) || stars < 1 || stars > STARS_MAX)) return { error: 'Pick 1 to 4 stars.', field: 'stars' };
+  const row = { stars };
+  for (const field of ['better_note', 'need_to_know']) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+    const v = clip(body[field]);
+    const p = noteProblem(v);
+    if (p) return { error: WHY[p], field, reason: p };
+    row[field] = v;
+  }
+  return { row };
+}
+
+const starValue = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= STARS_MAX ? n : 0;
+};
+// Tap a star to set it. Tap the current star again to clear (0 until it is saved as null).
+export function toggleStars(current, tapped) {
+  const n = Number(tapped);
+  if (!Number.isInteger(n) || n < 1 || n > STARS_MAX) return starValue(current);
+  const cur = starValue(current);
+  return cur === n ? 0 : n;
+}
+export const rateStarLabel = (n) => `Rate ${n} of ${STARS_MAX}`;
+export const ratedStarLabel = (n) => (starValue(n) ? `Rated ${starValue(n)} of ${STARS_MAX}` : 'Not rated');
+
+// Pickups and deliveries, in stop order: the shipper and the receiver on a load.
+export function reviewParties(stops) {
+  return (stops || [])
+    .filter((s) => s && (s.stop_type === 'pickup' || s.stop_type === 'delivery'))
+    .slice()
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || String(a.id).localeCompare(String(b.id)));
+}
+export const partyLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Shipper' : stop?.stop_type === 'delivery' ? 'Receiver' : 'Stop');
+
 // Stops that can be reviewed: picked up / delivered (not skipped), linked to a facility.
 export const isReviewableStop = (s) => !!s && ['pickup', 'delivery'].includes(s.stop_type) && s.completion === 'done';
 export const canReviewStop = (s) => isReviewableStop(s) && !!s.facility_id;
