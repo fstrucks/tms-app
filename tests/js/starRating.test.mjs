@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { toggleStars, rateStarLabel, ratedStarLabel, starUpdate, reviewParties, partyLabel, summarizeStars, starsText, ratingSummary, reviewVisitLabel, displaySummary, STARS_MAX } from '../../app/lib/facilityReviews.js';
+import { toggleStars, rateStarLabel, ratedStarLabel, starUpdate, reviewParties, partyLabel, summarizeStars, starsText, ratingSummary, reviewVisitLabel, displaySummary, createStarTaps, STARS_MAX } from '../../app/lib/facilityReviews.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -16,6 +16,54 @@ test('toggleStars: tap sets 1 to 4, tapping the current star clears it', () => {
   assert.equal(toggleStars(1, 5), 1);
   assert.equal(toggleStars(2, 0), 2);
   assert.equal(toggleStars(null, 4), 4);
+});
+
+test('rapid double tap on the selected star clears it and the saved value matches the UI', async () => {
+  // The star is already 4. Two taps arrive before that clear is saved: the first
+  // clears it, and the second must not put 4 back from a stale read or a slow save.
+  let stored = 4;
+  const pending = [];
+  const taps = createStarTaps({
+    initial: 4,
+    save: (n) => new Promise((resolve) => pending.push(() => { stored = n; resolve(n); })),
+  });
+  assert.equal(taps.push(0), 0);
+  assert.equal(taps.push(4), 0, 'tapping the star that is being cleared does not restore 4');
+  assert.equal(taps.value, 0);
+  for (let i = 0; i < 5 && (pending.length || stored !== 0); i += 1) {
+    while (pending.length) pending.shift()();
+    await Promise.resolve();
+  }
+  const done = await taps.done();
+  assert.equal(done.value, 0);
+  assert.equal(taps.value, 0);
+  assert.equal(stored, 0);
+
+  // Selecting 4, then tapping that star again while the save is still in flight, clears it.
+  let stored2 = 0;
+  let release;
+  const hold = new Promise((r) => { release = r; });
+  const again = createStarTaps({
+    initial: 0,
+    save: async (n) => {
+      if (n === 4) await hold;
+      stored2 = n;
+      return n;
+    },
+  });
+  assert.equal(again.push(4), 4);
+  await Promise.resolve(); // the save of 4 is in flight
+  assert.equal(again.push(0), 0);
+  assert.equal(again.value, 0, 'the UI shows the clear before the save of 4 finishes');
+  release();
+  const settled = await again.done();
+  assert.equal(settled.value, 0);
+  assert.equal(stored2, 0, 'the last write matches the cleared UI');
+  const tab = read('../../app/components/LoadReviews.js');
+  assert.match(tab, /createStarTaps/);
+  assert.doesNotMatch(tab, /if \(!st\.canReview \|\| st\.busy\) return/);
+  assert.doesNotMatch(tab, /disabled=\{st\.busy\}/);
+  assert.match(read('../../app/components/StarRating.js'), /typeof accepted === 'number'/);
 });
 
 test('star labels for the rating control and the read-only list', () => {

@@ -1,6 +1,7 @@
 'use client';
 // 1–4 star rating. Tap sets the rating; tap the current star again to clear it.
 // Each star is a 44×44 tap target. Read-only is for lists (stop row, facility reviews).
+import { useRef } from 'react';
 import { STARS_MAX, STAR_LABELS, toggleStars, rateStarLabel, ratedStarLabel } from '../lib/facilityReviews';
 
 const hit = {
@@ -23,6 +24,10 @@ const hit = {
 export default function StarRating({ value = 0, onChange, readOnly = false, name = 'Rating', testIdPrefix = 'star', disabled = false }) {
   const n = Number(value);
   const filled = Number.isInteger(n) && n >= 1 && n <= STARS_MAX ? n : 0;
+  // The painted value lags a second tap. Keep the latest optimistic rating here
+  // when the parent accepts it (returns a number), so the next tap toggles that.
+  const live = useRef(filled);
+  if (live.current !== filled) live.current = filled;
   if (readOnly && !filled) {
     return <span data-testid={`${testIdPrefix}-readonly`} style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Not rated</span>;
   }
@@ -44,7 +49,12 @@ export default function StarRating({ value = 0, onChange, readOnly = false, name
           aria-checked={filled === n}
           aria-label={rateStarLabel(n)}
           data-testid={`${testIdPrefix}-${n}`}
-          onClick={() => { if (!disabled) onChange?.(toggleStars(filled, n)); }}
+          onClick={() => {
+            if (disabled) return;
+            const next = toggleStars(live.current, n);
+            const accepted = onChange?.(next);
+            if (typeof accepted === 'number') live.current = accepted;
+          }}
           style={{ ...hit, color: n <= filled ? 'var(--star)' : 'var(--text-muted)', cursor: disabled ? 'default' : 'pointer' }}
         >{n <= filled ? '★' : '☆'}</button>
       ))}

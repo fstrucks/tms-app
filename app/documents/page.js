@@ -117,6 +117,7 @@ export default function DocumentsPage() {
     setTypeBusy((m) => ({ ...m, [d.id]: false }));
     // Failure: the row keeps the old type (select is controlled by d.doc_type, which we don't touch).
     if (!r.ok) return setTypeErr((m) => ({ ...m, [d.id]: { error: r.error, docType } }));
+    setVaultTick((n) => n + 1);
     // PR #84: a company type moves the file to Company → Company documents, so it leaves this list.
     const stayed = commitDocs((list) => list.flatMap((x) => {
       if (x.id !== d.id) return [x];
@@ -560,7 +561,7 @@ export default function DocumentsPage() {
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
                 {isLoadDocType(d.doc_type) ? (
-                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { commitDocs((list) => list.flatMap((x) => { if (x.id !== d.id) return [x]; const next = { ...x, load_id: loadId }; return needsAttention(next) ? [next] : []; })); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
+                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { commitDocs((list) => list.flatMap((x) => { if (x.id !== d.id) return [x]; const next = { ...x, load_id: loadId }; return needsAttention(next) ? [next] : []; })); setVaultTick((n) => n + 1); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
                 ) : !EXTRACTABLE(d.doc_type) ? (
                   d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (
