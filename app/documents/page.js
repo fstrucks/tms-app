@@ -27,6 +27,7 @@ import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
 import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
+import { linkDocumentToExistingLoad, linkExistingLoadLabel, reviewLoadMatch } from '../lib/rateconMatch';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
 import { attentionLabel, fetchNeedsAttention, needsAttention, publishAttentionCount, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
 import VaultTiles from '../components/VaultTiles';
@@ -149,6 +150,8 @@ export default function DocumentsPage() {
   const [converting, setConverting] = useState(false);
   const router = useRouter();
   const [creating, setCreating] = useState({});
+  const [linking, setLinking] = useState({});
+  const [accountLoads, setAccountLoads] = useState([]);
 
   const LOAD_ERRORS = {
     already_linked: 'This document is already linked to a load.',
@@ -201,6 +204,29 @@ export default function DocumentsPage() {
       setStatus({ type: 'error', text: err.message });
     } finally {
       setCreating((m) => ({ ...m, [doc.id]: false }));
+    }
+  }
+
+  // Needs attention: the broker load number is already on a load in this account. Link the file only.
+  async function linkExisting(doc, load) {
+    if (!doc?.id || !load?.id || linking[doc.id]) return;
+    setLinking((m) => ({ ...m, [doc.id]: true }));
+    setStatus(null);
+    try {
+      const token = (await supabase.auth.getSession())?.data?.session?.access_token || '';
+      const r = await linkDocumentToExistingLoad(fetch, { docId: doc.id, loadId: load.id, token });
+      if (!r.ok) return setStatus({ type: 'error', text: r.error });
+      commitDocs((list) => list.flatMap((x) => {
+        if (x.id !== doc.id) return [x];
+        const next = { ...x, load_id: r.loadId };
+        return needsAttention(next) ? [next] : [];
+      }));
+      setVaultTick((n) => n + 1);
+      notifyLoadChanged(r.loadId);
+      const num = String(load.broker_load_number || '').trim();
+      setStatus({ type: 'ok', text: num ? `Linked ${doc.original_filename} to load #${num}.` : `Linked ${doc.original_filename} to the load.` });
+    } finally {
+      setLinking((m) => ({ ...m, [doc.id]: false }));
     }
   }
 
@@ -300,6 +326,15 @@ export default function DocumentsPage() {
     }
     setRefreshErr(null);
     commitDocs((got.documents || []).filter(isDocumentsTabDoc), !!got.more); // PR #84: W-9 / COI / MC Authority / NOA live on Company
+    try {
+      const loadsRes = await fetchVisibleLoads(supabase, { fallbackCols: 'id, broker_load_number, broker_name, status, created_at' });
+      if (req !== docsReqRef.current) return;
+      if (loadsRes.error) console.error('[documents] loads for review', loadsRes.error);
+      else setAccountLoads(loadsRes.data || []);
+    } catch (err) {
+      console.error('[documents] loads for review', err);
+    }
+    if (req !== docsReqRef.current) return;
     setListState('ready');
     loadSkipped();
   }
@@ -571,7 +606,8 @@ export default function DocumentsPage() {
                 ) : (
                   <>
                     {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
-                    {emailDraftState(d) === 'ready' && <p data-testid="email-review" style={{ ...s.muted, margin: '0.25rem 0' }}>Draft from email. Check these details against the PDF (View), then tap Create load.</p>}
+                    {emailDraftState(d) === 'ready' && !reviewLoadMatch(d, accountLoads) && <p data-testid="email-review" style={{ ...s.muted, margin: '0.25rem 0' }}>Draft from email. Check these details against the PDF (View), then tap Create load.</p>}
+                    {emailDraftState(d) === 'ready' && reviewLoadMatch(d, accountLoads) && <p data-testid="email-review-match" style={{ ...s.muted, margin: '0.25rem 0' }}>This broker load number is already on a load in this account. Link the file to that load. The load itself stays as it is.</p>}
                     {emailDraftState(d) === 'manual' && (
                       <div data-testid="email-manual" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.25rem 0' }}>
                         <strong>Needs manual entry.</strong> {emailReadProblem(d.extraction_error)}{' '}
@@ -585,9 +621,17 @@ export default function DocumentsPage() {
                     {d.load_id ? (
                       <Link href={`/loads/${d.load_id}`} style={{ ...s.btn, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', background: 'var(--success-solid)', color: 'var(--on-success)', marginTop: '0.25rem' }}>View load</Link>
                     ) : d.ai_extracted_data ? (
-                      <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', background: 'var(--success-solid)', color: 'var(--on-success)', opacity: creating[d.id] ? 0.6 : 1 }}>
-                        {creating[d.id] ? 'Creating load…' : 'Create load'}
-                      </button>
+                      <>
+                        {reviewLoadMatch(d, accountLoads) && (
+                          <button type="button" data-testid="link-existing-load" onClick={() => linkExisting(d, reviewLoadMatch(d, accountLoads))} disabled={!!linking[d.id]}
+                            style={{ ...s.btn, marginTop: '0.25rem', minHeight: 44, background: 'var(--success-solid)', color: 'var(--on-success)', opacity: linking[d.id] ? 0.6 : 1 }}>
+                            {linking[d.id] ? 'Linking…' : linkExistingLoadLabel(reviewLoadMatch(d, accountLoads))}
+                          </button>
+                        )}
+                        <button onClick={() => createLoad(d)} disabled={!!creating[d.id]} style={{ ...s.btn, marginTop: '0.25rem', minHeight: 44, background: reviewLoadMatch(d, accountLoads) ? 'var(--primary)' : 'var(--success-solid)', color: reviewLoadMatch(d, accountLoads) ? 'var(--on-primary)' : 'var(--on-success)', opacity: creating[d.id] ? 0.6 : 1 }}>
+                          {creating[d.id] ? 'Creating load…' : 'Create load'}
+                        </button>
+                      </>
                     ) : null}
                   </>
                 )}
