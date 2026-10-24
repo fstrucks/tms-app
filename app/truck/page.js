@@ -8,6 +8,7 @@ import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { fieldValuesFromRows, expiryBadge, weightChecks, AXLE_LIMITS_LB } from '../lib/truckFields';
 import { laToday } from '../lib/sendCap';
 import MaintenanceSection from './MaintenanceSection';
+import { maintenanceVaultHref, MAINTENANCE_VAULT_ENABLED } from '../lib/maintenanceVault';
 import PmSchedules from './PmSchedules';
 
 const s = {
@@ -280,6 +281,7 @@ export default function TruckPage() {
 
           {truck && <PmSchedules truck={truck} api={api} s={s} autoSetup={setupFor === truck.id && !ro} reloadKey={pmKey} onChanged={() => setMaintKey((n) => n + 1)}
             onSetupDone={() => { setSetupFor(null); load(truck.id); }} />}
+          {truck && MAINTENANCE_VAULT_ENABLED && <p style={{ margin: '0 0 1rem' }}><a href={maintenanceVaultHref(truck.id)} data-testid="maintenance-vault-link" style={{ ...s.btn2, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', marginTop: 0 }}>🔧 Maintenance documents</a></p>}
           {truck && <MaintenanceSection truck={truck} api={api} supabase={supabase} user={user} s={s} reloadKey={maintKey} onChanged={() => setPmKey((n) => n + 1)} />}
 
           {truck && (

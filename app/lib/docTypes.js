@@ -11,6 +11,8 @@ export const SCAN_DOC_TYPES = [
   { id: 'noa', label: 'Notice of Assignment (NOA)', short: 'NOA', button: 'NOA', company: true },
   // Truck tab (PR #69): scanned from Truck → Scan scale ticket; read for weight + date.
   { id: 'scale_ticket', label: 'Scale ticket', short: 'SCALE_TICKET', button: 'Scale Ticket' },
+  // Maintenance vault (PR 3): shop invoice / work order filed per truck. Scanned only from Maintenance -> Vault.
+  { id: 'maintenance_doc', label: 'Shop invoice / work order', short: 'SHOP_INVOICE', button: 'Shop Invoice', maint: true },
   // Free-text type (Marc): stored as doc_type 'other:<name>' (no migration; doc_type is plain text).
   { id: 'other', label: 'Other', short: 'OTHER', button: null },
 ];
@@ -21,7 +23,7 @@ export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id);
 // Marc 10/15 (via Sam): load-page Scan offers BOL, POD, Lumper receipt, and Other. PR #110 (Marc 10/20): plus Scale ticket.
 export const LOAD_SCAN_TYPE_IDS = ['bol', 'pod', 'lumper_receipt', 'scale_ticket', 'other'];
 // PR #84: the Documents tab is load paperwork only. Company types live in Company → Company documents.
-export const DOCUMENTS_SCAN_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => !t.company).map((t) => t.id);
+export const DOCUMENTS_SCAN_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => !t.company && !t.maint).map((t) => t.id);
 export const isDocumentsTabDoc = (d) => !isCompanyDocType(d?.doc_type);
 
 export const OTHER_PREFIX = 'other:';

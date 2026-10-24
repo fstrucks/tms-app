@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney, DRIVER_NO_ACCESS } from '../lib/maintenance';
 import { laToday } from '../lib/sendCap';
 import { orderBySchedule, STATUS_LABEL } from '../lib/pmSchedule';
+import { invoiceToForm } from '../lib/vaultScan';
 
 const mdy = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—');
 const loadLabel = (l) => `Load #${l.broker_load_number || l.id.slice(0, 8)}${l.broker_name ? ` - ${l.broker_name}` : ''}${l.status ? ` - ${l.status.replace('_', ' ')}` : ''}`;
@@ -25,7 +26,9 @@ const toValues = (f) => ({
   items: SERVICE_TYPES.filter(([k]) => f.checked[k]).map(([k]) => ({ serviceType: k, cost: f.costs[k] || '', label: k === 'other' ? f.otherLabel : undefined })),
 });
 
-export default function MaintenanceSection({ truck, api, supabase, user, s, onChanged, reloadKey = 0 }) {
+// Maintenance vault (PR 3): prefill = { key, inv } opens the Log service form filled in from a scanned invoice.
+// Nothing is saved until the user presses Save; then onPrefillSaved(recordId) links the vault document.
+export default function MaintenanceSection({ truck, api, supabase, user, s, onChanged, reloadKey = 0, prefill = null, onPrefillSaved, onPrefillCancel }) {
   const [m, setM] = useState(null);
   const [form, setForm] = useState(null); // { mode: 'add' | 'edit', id?, f }
   const [files, setFiles] = useState([]);
@@ -47,6 +50,9 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
   useEffect(() => { setForm(null); setM(null); refresh(); }, [truck.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (reloadKey) refresh(); }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (prefill && m && !m.error) { setMsg(null); setFiles([]); setForm({ mode: 'add', fromScan: true, f: invoiceToForm(prefill.inv, blank(m.odometer)) }); }
+  }, [prefill?.key, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!m || m.available === false) return null; // not set up yet (or still loading): no section
   const set = (k) => (e) => { const val = e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e; setForm((o) => ({ ...o, f: { ...o.f, [k]: val } })); };
   const f = form?.f;
@@ -71,6 +77,8 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
     setFiles((o) => [...o, ...okFiles].slice(0, MAX_RECEIPTS));
   }
 
+  function cancelForm() { const scan = form?.fromScan; setForm(null); setFiles([]); if (scan) onPrefillCancel?.(); }
+
   async function save(e) {
     e.preventDefault();
     if (!SERVICE_TYPES.some(([k]) => f.checked[k])) return setMsg({ type: 'error', text: 'Check at least one service.' });
@@ -80,8 +88,9 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
     const j = await api('/api/truck/maintenance', { method: 'POST', body: JSON.stringify(body) });
     if (j.error) { setBusy(false); return setMsg({ type: 'error', text: files.length ? `${j.error} Receipts weren’t uploaded yet.` : j.error }); }
     const failed = files.length ? await uploadReceipts(j.id) : 0;
+    const linkErr = form.fromScan && onPrefillSaved ? await onPrefillSaved(j.id, f) : null;
     setBusy(false); setForm(null); setFiles([]);
-    setMsg(failed ? { type: 'error', text: `Saved, but ${failed} receipt${failed > 1 ? 's' : ''} didn’t upload. Edit the visit to add ${failed > 1 ? 'them' : 'it'} again.` } : { type: 'ok', text: 'Service saved.' });
+    setMsg(failed ? { type: 'error', text: `Saved, but ${failed} receipt${failed > 1 ? 's' : ''} didn’t upload. Edit the visit to add ${failed > 1 ? 'them' : 'it'} again.` } : linkErr ? { type: 'error', text: `Service saved, but ${linkErr}` } : { type: 'ok', text: 'Service saved.' });
     await changed();
   }
   async function remove(v) {
@@ -129,6 +138,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
 
       {form ? (
         <form onSubmit={save} data-testid="service-form">
+          {form.fromScan && <p data-testid="scan-prefill-note" style={{ ...s.muted, background: 'var(--warning-bg)', color: 'var(--text)', borderRadius: 8, padding: '8px 10px' }}>Filled in from the scanned document. Check every field. Nothing is saved until you press Save.</p>}
           {baseline && <p style={s.muted}>{BASELINE_LABEL}: the last time each service was done before you started logging. No expense is created.</p>}
           <fieldset style={{ border: 'none', padding: 0, margin: '8px 0 0' }}>
             <legend style={s.label}>What was done?</legend>
@@ -177,7 +187,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
             <p style={{ ...s.muted, fontSize: 12, margin: '4px 0 0' }}>Receipts are saved to Documents. Up to {MAX_RECEIPTS}.</p>
           </>)}
           <button style={s.btn} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-          <button type="button" style={s.btn2} onClick={() => { setForm(null); setFiles([]); }}>Cancel</button>
+          <button type="button" style={s.btn2} onClick={cancelForm}>Cancel</button>
         </form>
       ) : m.canLog && (<>
         <button type="button" data-testid="log-service" style={s.btn} onClick={() => { setMsg(null); setFiles([]); setForm({ mode: 'add', f: blank(m.odometer) }); }}>Log service</button>
