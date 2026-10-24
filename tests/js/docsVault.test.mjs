@@ -100,11 +100,11 @@ test('inbox open/closed is remembered, and defaults to open', () => {
   assert.equal(readInboxOpen(s), true);
 });
 
-test('maintenance tile stays off and does not call the count RPC', async () => {
-  assert.equal(MAINTENANCE_VAULT_ENABLED, false);
+test('maintenance tile is on and gated by the enabled flag', async () => {
+  assert.equal(MAINTENANCE_VAULT_ENABLED, true);
   let calls = 0;
   const supabase = { rpc: async (name) => { calls += 1; assert.equal(name, 'maintenance_vault_count'); return { data: 4, error: null }; } };
-  const hidden = await fetchMaintenanceCount(supabase);
+  const hidden = await fetchMaintenanceCount(supabase, { enabled: false });
   assert.equal(hidden.called, false);
   assert.equal(calls, 0);
   const shown = await fetchMaintenanceCount(supabase, { enabled: true });
