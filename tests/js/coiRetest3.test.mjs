@@ -52,7 +52,7 @@ test('documents page: failure keeps the old type and shows inline error + Retry'
   const src = readFileSync(new URL('../../app/documents/page.js', import.meta.url), 'utf8');
   const fn = src.slice(src.indexOf('async function changeType'), src.indexOf('useEffect(() => { const t = uploadTypeFromQuery'));
   assert.match(fn, /if \(!r\.ok\) return setTypeErr/);
-  assert.ok(fn.indexOf('setTypeErr') < fn.indexOf('setDocs'), 'docs only updated after a successful save');
+  assert.ok(fn.indexOf('setTypeErr') < fn.indexOf('commitDocs'), 'docs only updated after a successful save');
   assert.match(fn, /doc_type: r\.docType/);
   assert.match(src, /data-testid="change-type-error"/);
   assert.match(src, /data-testid="change-type-retry"[^>]*onClick=\{\(\) => changeType\(d, typeErr\[d\.id\]\.docType\)\}/);

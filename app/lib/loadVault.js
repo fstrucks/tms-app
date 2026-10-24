@@ -3,6 +3,7 @@
 // are linked to a load you can already open (rate cons follow "Show rate to driver").
 import { canViewLoadDocs, visibleDocsFor } from './loadDocs';
 import { isCompanyDocType } from './docTypes';
+import { needsAttention } from './docsInbox';
 
 export const LOAD_VAULT_PAGE = 20;
 export const LOAD_VAULT_TYPES = ['rate_confirmation', 'bol', 'pod', 'lumper_receipt', 'scale_ticket'];
@@ -120,14 +121,17 @@ export function cmpDesc(a, b) {
 export function pageLoadVault({ docs, loads, ticketLoads, role, userId, ownerId, filters = {}, cursor = null, limit = LOAD_VAULT_PAGE } = {}) {
   const loadsById = new Map((loads || []).filter((l) => l?.id).map((l) => [l.id, l]));
   const ticket = new Map();
-  for (const t of ticketLoads || []) if (t?.document_id && t.load_id && !ticket.has(t.document_id)) ticket.set(t.document_id, t.load_id);
+  for (const t of ticketLoads || []) if (t?.document_id && !ticket.has(t.document_id)) ticket.set(t.document_id, t);
   const cur = typeof cursor === 'string' ? parseCursor(cursor) : cursor;
   const seen = new Set();
   const rows = [];
   for (const doc of docs || []) {
     if (!doc?.id || seen.has(doc.id)) continue;
     seen.add(doc.id);
-    const loadId = doc.load_id || ticket.get(doc.id) || null;
+    const link = ticket.get(doc.id) || null;
+    // Same predicate as Needs attention. Unhandled files stay out of this vault.
+    if (needsAttention(doc, link)) continue;
+    const loadId = doc.load_id || link?.load_id || null;
     const raw = loadId ? loadsById.get(loadId) || null : null;
     const load = raw && ownerId && raw.user_id && raw.user_id !== ownerId ? null : raw;
     if (!canSeeVaultDoc({ role, userId, ownerId, doc, load })) continue;

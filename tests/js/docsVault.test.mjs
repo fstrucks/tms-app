@@ -136,25 +136,26 @@ test('load vault visibility: own files, team files on openable loads, no receipt
     { id: 'other-co', user_id: OTHER, doc_type: 'bol', load_id: XL, created_at: at(3) },
   ];
   const owner = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, limit: 50 });
-  assert.deepEqual(owner.rows.map((r) => r.doc.id), ['own-loose', 'team-bol', 'rc-hidden', 'rc-shown', 'pod']);
+  assert.deepEqual(owner.rows.map((r) => r.doc.id), ['team-bol', 'rc-hidden', 'rc-shown', 'pod']);
+  assert.equal(owner.rows.some((r) => r.doc.id === 'own-loose'), false);
   const driver = pageLoadVault({ docs, loads, role: 'driver', userId: DRIVER, ownerId: OWNER, limit: 50 });
-  assert.deepEqual(driver.rows.map((r) => r.doc.id), ['team-bol', 'team-loose']);
+  assert.deepEqual(driver.rows.map((r) => r.doc.id), ['team-bol']);
   assert.equal(canSeeVaultDoc({ role: 'driver', userId: DRIVER, ownerId: OWNER, doc: docs[3], load: loads[0] }), false);
   const driver2 = pageLoadVault({ docs, loads, role: 'driver', userId: DRIVER2, ownerId: OWNER, limit: 50 });
   assert.deepEqual(driver2.rows.map((r) => r.doc.id), ['rc-shown', 'pod']);
   const byLoad = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, filters: { load: 'fake-100' }, limit: 50 });
-  assert.deepEqual(byLoad.rows.map((r) => r.doc.id), ['own-loose', 'team-bol', 'rc-hidden']);
+  assert.deepEqual(byLoad.rows.map((r) => r.doc.id), ['team-bol', 'rc-hidden']);
   const byBroker = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, filters: { broker: 'beta' }, limit: 50 });
   assert.deepEqual(byBroker.rows.map((r) => r.doc.id), ['rc-shown', 'pod']);
   const byType = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, filters: { type: 'pod' }, limit: 50 });
   assert.deepEqual(byType.rows.map((r) => r.doc.id), ['pod']);
   const byDate = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, filters: { from: '2026-01-01', to: '2026-01-01' }, limit: 50 });
-  assert.equal(byDate.rows.length, 5);
+  assert.equal(byDate.rows.length, 4);
   const page = pageLoadVault({ docs: owner.rows.map((r) => r.doc), loads, role: 'owner', userId: OWNER, ownerId: OWNER, limit: 2 });
   assert.equal(page.rows.length, 2);
   assert.ok(page.nextCursor);
   const page2 = pageLoadVault({ docs: owner.rows.map((r) => r.doc), loads, role: 'owner', userId: OWNER, ownerId: OWNER, cursor: page.nextCursor, limit: 2 });
-  assert.deepEqual(page2.rows.map((r) => r.doc.id), ['rc-hidden', 'rc-shown']);
+  assert.deepEqual(page2.rows.map((r) => r.doc.id), ['rc-shown', 'pod']);
 });
 
 function members() {
@@ -341,6 +342,27 @@ test('vault routes: sign-in required, driver file route hides the other driver',
   assert.deepEqual(team.documents.map((d) => d.id), ['loose-bol']);
 });
 
+test('vault list and tile count omit docs that still need attention', async () => {
+  const draft = { id: 'draft', user_id: OWNER, source: 'email', doc_type: 'rate_confirmation', load_id: null, truck_id: null, file_path: `${OWNER}/rc.pdf`, original_filename: 'rc.pdf', created_at: at(9) };
+  const filed = { id: 'filed', user_id: OWNER, source: 'email', doc_type: 'rate_confirmation', load_id: L1, file_path: `${OWNER}/filed.pdf`, original_filename: 'filed.pdf', created_at: at(8) };
+  const dismissed = { id: 'dismissed', user_id: OWNER, source: 'email', doc_type: 'rate_confirmation', load_id: null, extraction_error: 'not_ratecon', ai_extracted_data: null, file_path: `${OWNER}/no.pdf`, original_filename: 'no.pdf', created_at: at(7) };
+  const loose = { id: 'loose', user_id: OWNER, source: 'upload', doc_type: 'bol', load_id: null, truck_id: null, file_path: `${OWNER}/bol.pdf`, original_filename: 'bol.pdf', created_at: at(6) };
+  const docs = [draft, filed, dismissed, loose];
+  const loads = [load(L1)];
+  const page = pageLoadVault({ docs, loads, role: 'owner', userId: OWNER, ownerId: OWNER, limit: 20 });
+  assert.deepEqual(page.rows.map((r) => r.doc.id), ['filed', 'dismissed']);
+  const tables = {
+    company_members: members(),
+    company_profiles: [{ id: 'p1', owner_id: OWNER }],
+    loads,
+    drivers: [],
+    documents: docs,
+    scale_tickets: [],
+  };
+  const counts = await vaultTileCounts(fakeSupabase({ tables }), { ownerId: OWNER, role: 'owner', userId: OWNER, profileId: 'p1' });
+  assert.equal(counts.loadDocs, page.rows.length);
+});
+
 test('tile counts are head counts for visible paperwork, not a full list', async () => {
   const tables = {
     company_members: members(),
@@ -358,7 +380,7 @@ test('tile counts are head counts for visible paperwork, not a full list', async
     ],
   };
   const counts = await vaultTileCounts(fakeSupabase({ tables }), { ownerId: OWNER, role: 'owner', userId: OWNER, profileId: 'p1' });
-  assert.equal(counts.loadDocs, 2);
+  assert.equal(counts.loadDocs, 1);
   assert.equal(counts.companyDocs, 2);
   assert.equal(counts.driverDocs, 1);
   const driverCounts = await vaultTileCounts(fakeSupabase({ tables }), { ownerId: OWNER, role: 'driver', userId: DRIVER2, profileId: 'p1' });
@@ -391,7 +413,7 @@ test('docs tab source: needs attention only, vault tiles, maintenance flag, inde
   assert.ok(uploadFn.indexOf('await loadDocs()') < uploadFn.indexOf('setVaultTick'));
   const removeFn = page.slice(page.indexOf('async function removeDoc'), page.indexOf('async function loadDocs'));
   assert.ok(removeFn.indexOf('if (!r.ok)') < removeFn.indexOf('setVaultTick'));
-  assert.match(page, /onDeleted=\{\(id\) => \{ setDocs\(\(list\) => list\.filter\(\(x\) => x\.id !== id\)\); setVaultTick\(\(n\) => n \+ 1\); \}\}/);
+  assert.match(page, /onDeleted=\{\(id\) => \{ commitDocs\(\(list\) => list\.filter\(\(x\) => x\.id !== id\)\); setVaultTick\(\(n\) => n \+ 1\); \}\}/);
   assert.match(read('../../app/components/VaultTiles.js'), /\[supabase, refreshKey\]/);
   assert.match(page, /tap: \{ display: 'inline-flex', alignItems: 'center', minHeight: 44 \}/);
   assert.match(page, /href="\/documents\/checklist" style=\{s\.tap\}>Setup checklist/);
@@ -401,7 +423,13 @@ test('docs tab source: needs attention only, vault tiles, maintenance flag, inde
     assert.match(src, /const tap = \{[^}]*minHeight: 44/);
     assert.match(src, /<Link href="\/documents" style=\{tap\}>Documents<\/Link>/);
   }
-  assert.match(page, /setDocs\(\(got\.documents \|\| \[\]\)\.filter\(isDocumentsTabDoc\)\)/);
+  assert.match(page, /commitDocs\(\(got\.documents \|\| \[\]\)\.filter\(isDocumentsTabDoc\)/);
+  assert.match(page, /const attentionCount = view_ === 'team' \? teamCount : docs\.length/);
+  const uploadFn2 = page.slice(page.indexOf('async function uploadRateCon'), page.indexOf('async function openScanner'));
+  assert.ok(uploadFn2.indexOf('commitDocs((list) => [row,') < uploadFn2.indexOf('await loadDocs()'));
+  const teamList = read('../../app/components/TeamDocsList.js');
+  assert.match(teamList, /onCount\?\.\(next\.length\)/);
+  assert.doesNotMatch(teamList, /useEffect\(\(\) => \{ if \(state === 'ready'\) onCount/);
   const tiles = read('../../app/components/VaultTiles.js');
   const body = tiles.slice(tiles.indexOf('export default'));
   assert.ok(body.indexOf('if (MAINTENANCE_VAULT_ENABLED)') < body.indexOf('fetchMaintenanceCount'));

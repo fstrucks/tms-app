@@ -20,16 +20,19 @@ export default function TeamDocsList({ supabase, onDeleted, onCount, inbox = fal
     setState('loading');
     const r = await fetchTeamDocs(supabase, { inbox });
     if (r.error) { console.error('[documents] team', r.error.status || ''); return setState('error'); }
-    setDocs(r.data); setMore(!!r.more); setState('ready');
+    const next = r.data || [];
+    setDocs(next); setMore(!!r.more); setState('ready');
+    onCount?.(next.length);
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (state === 'ready') onCount?.(docs.length); }, [state, docs.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function remove(d) {
     setErr((m) => ({ ...m, [d.id]: null }));
     const r = await deleteDocument(supabase, d, 'documents');
     if (!r.ok) { setErr((m) => ({ ...m, [d.id]: r.error })); return false; }
-    setDocs((l) => l.filter((x) => x.id !== d.id));
+    const next = docs.filter((x) => x.id !== d.id);
+    setDocs(next);
+    onCount?.(next.length);
     onDeleted?.(d.id);
     return true;
   }

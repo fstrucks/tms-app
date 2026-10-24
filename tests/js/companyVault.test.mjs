@@ -146,7 +146,7 @@ test('Documents tab = load paperwork only; Change type can still move a file int
   assert.ok(!DOCUMENTS_SCAN_TYPE_IDS.some(isCompanyDocType));
   assert.ok(['w9', 'coi', 'mc_authority', 'noa'].every((t) => CHANGE_TYPES.some((x) => x.id === t)));
   const page = read('app/documents/page.js');
-  assert.match(page, /setDocs\(\(got\.documents \|\| \[\]\)\.filter\(isDocumentsTabDoc\)\)/);
+  assert.match(page, /commitDocs\(\(got\.documents \|\| \[\]\)\.filter\(isDocumentsTabDoc\)/);
   assert.match(page, /data-testid="vault-note"/);
 });
 
