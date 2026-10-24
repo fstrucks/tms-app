@@ -1,12 +1,15 @@
 // Rate con email-in: ratecon+<token>@in.fstrucks.com → rate_confirmation documents (drafts for review).
 // Called by app/api/inbound/postmark/route.js after Basic auth. Never logs bodies, tokens or file contents.
-// A load is never created here: the user reviews the draft on Documents and taps "Create load".
+// A load is never created here, and an existing load is never updated. When the read broker load number
+// matches a load already in this account, the document is linked to that load (documents.load_id only)
+// so it leaves Docs → Needs attention.
 import { createHash } from 'node:crypto';
 import { emailOf, safeName } from './postmarkInbound.js';
 import { callRateConModel, pdfTextOf, pickModel } from './rateconExtract.js';
 import { classifyDocText, decideDocKind } from './docClassify.js';
 import { parseWeightLb } from './loadWeight.js';
 import { parseTripMiles } from './loadMiles.js';
+import { escapeIlike, normalizeBrokerLoadNumber, pickExistingLoad } from './rateconMatch.js';
 
 export { RATECON_DOMAIN, RATECON_LOCAL, rateconAddress } from './rateconDrafts.js';
 import { RATECON_DOMAIN, RATECON_LOCAL } from './rateconDrafts.js';
@@ -132,8 +135,56 @@ export async function handleRateconEmail({ sb, payload, mail, token, deps = {} }
   return json({ ok: true, matched: true, ratecons: created.length, rejected: rejected.length, duplicates: dups.length });
 }
 
+// User ids whose loads count as this account: the receiver, plus the owner of the company the email belongs to.
+export async function accountUserIdsForRatecon(sb, userId) {
+  const ids = new Set();
+  if (userId) ids.add(userId);
+  const companyId = await rateconCompanyFor(sb, userId);
+  if (!companyId) return [...ids];
+  const { data, error } = await sb.from('company_profiles').select('owner_id').eq('id', companyId).maybeSingle();
+  if (error) console.error('[inbound ratecon] company owner', error.code);
+  else if (data?.owner_id) ids.add(data.owner_id);
+  return [...ids];
+}
+
+const MATCH_LIMIT = 100;
+
+// One existing load in this account with the same broker load number, or null.
+// A truncated candidate list is not a match (the review screen can still offer the link).
+export async function findExistingLoadMatch(sb, userId, loadNumber) {
+  const want = normalizeBrokerLoadNumber(loadNumber);
+  if (!want || !sb?.from || !userId) return null;
+  const owners = await accountUserIdsForRatecon(sb, userId);
+  if (!owners.length) return null;
+  const { data, error } = await sb.from('loads')
+    .select('id, user_id, broker_load_number, status, created_at')
+    .in('user_id', owners)
+    .ilike('broker_load_number', `%${escapeIlike(want)}%`)
+    .limit(MATCH_LIMIT);
+  if (error) { console.error('[inbound ratecon] existing load lookup', error.code); return null; }
+  const rows = data || [];
+  if (rows.length >= MATCH_LIMIT) { console.error('[inbound ratecon] existing load lookup overflow'); return null; }
+  return pickExistingLoad(rows, want);
+}
+
+// Link the parsed document onto that load. documents.load_id only, and only while it is still empty.
+async function linkParsedRatecon(sb, userId, docId, loadNumber) {
+  try {
+    const match = await findExistingLoadMatch(sb, userId, loadNumber);
+    if (!match?.id) return null;
+    const { error } = await sb.from('documents').update({ load_id: match.id }).eq('id', docId).eq('user_id', userId).is('load_id', null);
+    if (error) { console.error('[inbound ratecon] link existing', error.code); return null; }
+    console.log('[inbound ratecon] linked existing load');
+    return match.id;
+  } catch (err) {
+    console.error('[inbound ratecon] link existing', err?.message);
+    return null;
+  }
+}
+
 // Runs the existing rate con reader on one emailed PDF. Any failure keeps the file and marks it failed, so it
 // shows on Documents as "Needs manual entry" (Run extraction retries through /api/extract).
+// A matching broker load number links this document to that load and marks it reviewed (it leaves Needs attention).
 export async function extractEmailRateCon({ sb, userId, docId, bytes, name, deps = {} }) {
   const env = deps.env || process.env;
   const mark = (patch) => sb.from('documents').update(patch).eq('id', docId).eq('user_id', userId);
@@ -155,5 +206,7 @@ export async function extractEmailRateCon({ sb, userId, docId, bytes, name, deps
     : { extraction_status: 'done', extraction_error: null, ai_extracted_data: extracted });
   await finish(error ? 'error' : 'success');
   if (error) console.error('[inbound ratecon] save', error.code);
+  // After the read is saved. No load is inserted or updated. A miss leaves the draft in Needs attention.
+  if (!error && !empty) await linkParsedRatecon(sb, userId, docId, extracted.load_number);
 }
 
