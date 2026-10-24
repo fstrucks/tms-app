@@ -30,6 +30,8 @@ import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import StopActions from '../../components/StopActions';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
+import LoadReviews from '../../components/LoadReviews';
+import StarRating from '../../components/StarRating';
 import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
@@ -76,7 +78,7 @@ export default function LoadDetailPage() {
   const [dataVer, setDataVer] = useState(0); // bumped on every re-fetch so child cards (Miles) re-read too
   // Invoicing PR 2 (layout A): Load | Invoice tabs. The Invoice tab hides itself for drivers (server 403).
   const [tab, setTab] = useState('load');
-  useEffect(() => { if (new URLSearchParams(window.location.search).get('tab') === 'invoice') setTab('invoice'); }, []); // from the Invoices list
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'invoice' || t === 'reviews') setTab(t); }, []); // invoice from the Invoices list; reviews from a shared link
   const [invoiceTab, setInvoiceTab] = useState(true);
 
   async function fetchAll() {
@@ -212,20 +214,19 @@ export default function LoadDetailPage() {
                   {hasStatus && <StatusBadge status={load.status} />}
                 </div>
 
-                {showInvoice && (
-                  <div role="tablist" aria-label="Load sections" style={{ display: 'flex', gap: 6, margin: '0.25rem 0 0.75rem' }}>
-                    {[['load', 'Load'], ['invoice', 'Invoice']].map(([k, label]) => (
-                      <button key={k} type="button" role="tab" aria-selected={tab === k} data-testid={`load-tab-${k}`} onClick={() => setTab(k)}
-                        style={{ minHeight: 40, padding: '0 16px', borderRadius: 999, border: '1px solid var(--border)', fontWeight: 600,
-                          background: tab === k ? 'var(--primary)' : 'var(--surface)', color: tab === k ? 'var(--on-primary)' : 'var(--text)' }}>{label}</button>
-                    ))}
-                  </div>
-                )}
+                <div role="tablist" aria-label="Load sections" style={{ display: 'flex', gap: 6, margin: '0.25rem 0 0.75rem', flexWrap: 'wrap' }}>
+                  {[['load', 'Load'], ['reviews', 'Reviews'], ...(showInvoice ? [['invoice', 'Invoice']] : [])].map(([k, label]) => (
+                    <button key={k} type="button" role="tab" aria-selected={tab === k} data-testid={`load-tab-${k}`} onClick={() => setTab(k)}
+                      style={{ minHeight: 44, padding: '0 16px', borderRadius: 999, border: '1px solid var(--border)', fontWeight: 600,
+                        background: tab === k ? 'var(--primary)' : 'var(--surface)', color: tab === k ? 'var(--on-primary)' : 'var(--text)' }}>{label}</button>
+                  ))}
+                </div>
+                {tab === 'reviews' && <LoadReviews load={load} />}
                 {tab === 'invoice' && showInvoice && (
                   <InvoiceTab loadId={load.id} onHidden={() => { setInvoiceTab(false); setTab('load'); }}
                     onLoadStatus={(status) => { if (status && status !== load.status) { setLoad((l) => ({ ...l, status })); list?.patchLoad(id, { status }); } }} />
                 )}
-                <div hidden={tab === 'invoice' && showInvoice}>
+                <div hidden={tab === 'reviews' || (tab === 'invoice' && showInvoice)}>
                 {/* PR B: map + truck route miles; recomputed only when the stop addresses change. */}
                 <LoadRouteCard supabase={supabase} loadId={load.id} stopsKey={load.stops.map(stopAddressText).join('|')} recheck={routeCheck + settleVer}
                   onLoadChange={(patch) => setLoad((l) => mergeLoadPatch(l, patch))} onRouteFilled={refreshAll} />
@@ -299,6 +300,11 @@ export default function LoadDetailPage() {
                         <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{st.sequence ?? i + 1}. {st.stop_type || 'stop'}</div>
                         {st.completed_at && <div data-testid="stop-done" style={{ color: st.completion === 'skipped' ? 'var(--text-muted)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>{st.completion === 'skipped' ? 'Skipped' : `✓ ${stopDoneLabel(st)}`} · {new Date(st.completed_at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>}
                         {st.company_name && <div>{st.company_name}<StopRating info={facilities[st.id]} /></div>}
+                        {facilities[st.id]?.my_stars > 0 && (
+                          <div data-testid="stop-my-rating" style={{ marginTop: 4 }}>
+                            <StarRating value={facilities[st.id].my_stars} readOnly />
+                          </div>
+                        )}
                         {fullAddress(st) && <div style={s.muted}>{fullAddress(st)}</div>}
                         {st.pickup_number && <div style={s.muted}>Pickup # {st.pickup_number}</div>}
                         {(st.contact_name || st.contact_phone) && (

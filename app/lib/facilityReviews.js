@@ -43,6 +43,47 @@ export function cleanReview(body = {}) {
   return { row: { stars, better_note: better, need_to_know: need } };
 }
 
+// Reviews tab: set 1–4, or clear (null / 0 / ''). Notes are updated only when the body includes them,
+// so a star tap does not wipe a note the client didn't send.
+export function starUpdate(body = {}) {
+  const raw = body?.stars;
+  const clearing = raw === null || raw === 0 || raw === '' || raw === '0';
+  const stars = clearing ? null : Number(raw);
+  if (!clearing && (!Number.isInteger(stars) || stars < 1 || stars > STARS_MAX)) return { error: 'Pick 1 to 4 stars.', field: 'stars' };
+  const row = { stars };
+  for (const field of ['better_note', 'need_to_know']) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+    const v = clip(body[field]);
+    const p = noteProblem(v);
+    if (p) return { error: WHY[p], field, reason: p };
+    row[field] = v;
+  }
+  return { row };
+}
+
+const starValue = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= STARS_MAX ? n : 0;
+};
+// Tap a star to set it. Tap the current star again to clear (0 until it is saved as null).
+export function toggleStars(current, tapped) {
+  const n = Number(tapped);
+  if (!Number.isInteger(n) || n < 1 || n > STARS_MAX) return starValue(current);
+  const cur = starValue(current);
+  return cur === n ? 0 : n;
+}
+export const rateStarLabel = (n) => `Rate ${n} of ${STARS_MAX}`;
+export const ratedStarLabel = (n) => (starValue(n) ? `Rated ${starValue(n)} of ${STARS_MAX}` : 'Not rated');
+
+// Pickups and deliveries, in stop order: the shipper and the receiver on a load.
+export function reviewParties(stops) {
+  return (stops || [])
+    .filter((s) => s && (s.stop_type === 'pickup' || s.stop_type === 'delivery'))
+    .slice()
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || String(a.id).localeCompare(String(b.id)));
+}
+export const partyLabel = (stop) => (stop?.stop_type === 'pickup' ? 'Shipper' : stop?.stop_type === 'delivery' ? 'Receiver' : 'Stop');
+
 // Stops that can be reviewed: picked up / delivered (not skipped), linked to a facility.
 export const isReviewableStop = (s) => !!s && ['pickup', 'delivery'].includes(s.stop_type) && s.completion === 'done';
 export const canReviewStop = (s) => isReviewableStop(s) && !!s.facility_id;
@@ -58,12 +99,63 @@ export function reviewState(s) {
 }
 export const NO_FACILITY_MSG = 'This stop needs a facility name and a city or ZIP before it can be reviewed. Add them on the stop, then try again.';
 export const fmtStars = (avg) => (avg == null ? '' : `${Number(avg).toFixed(1)}★`);
-export const starsText = (n) => '★'.repeat(n) + '☆'.repeat(Math.max(0, STARS_MAX - n));
+// "3.5 ★ (12 ratings)", or "No ratings yet". A null star is not a rating, so count is the rated count.
+export function ratingSummary(avg, count) {
+  const n = Number(count) || 0;
+  const num = Number(avg);
+  if (!n || avg == null || avg === '' || !Number.isFinite(num) || num < 1) return 'No ratings yet';
+  return `${num.toFixed(1)} ★ (${n} rating${n === 1 ? '' : 's'})`;
+}
+const REVIEW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function reviewDateLabel(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${REVIEW_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+// "Dropoff · Jul 14, 2026". Pickup and delivery only. No reviewer name.
+export function reviewVisitLabel(review) {
+  const kind = review?.stop_type === 'pickup' ? 'Pickup' : review?.stop_type === 'delivery' ? 'Dropoff' : '';
+  const date = reviewDateLabel(review?.created_at);
+  return [kind, date].filter(Boolean).join(' · ');
+}
+// When the loaded list is the whole set, recompute so a null star cannot slip in as 0.
+// A full page (length === cap) may be truncated, so the server average stands.
+export function displaySummary(avg, count, reviews, cap = 200) {
+  if (Array.isArray(reviews) && reviews.length < cap) return summarizeStars(reviews);
+  const n = Number(count) || 0;
+  const num = avg == null || avg === '' ? null : Number(avg);
+  return { avg: num == null || !Number.isFinite(num) ? null : num, count: n };
+}
+// Null, blank, and anything outside 1–4 is unrated. It is left out of the average and the count,
+// never coerced to 0. [4, null, 2] → average 3, count 2. Same rule as facility_summaries.
+export function summarizeStars(values) {
+  const rated = [];
+  for (const raw of values || []) {
+    const v = raw && typeof raw === 'object' ? raw.stars : raw;
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > STARS_MAX) continue;
+    rated.push(n);
+  }
+  if (!rated.length) return { avg: null, count: 0 };
+  return { avg: Math.round((rated.reduce((a, b) => a + b, 0) / rated.length) * 10) / 10, count: rated.length };
+}
+export const starsText = (n) => {
+  const v = Number(n);
+  if (!Number.isInteger(v) || v < 1 || v > STARS_MAX) return '';
+  return '★'.repeat(v) + '☆'.repeat(STARS_MAX - v);
+};
 // Recent non-empty Need-to-know tips (newest first) from public reviews.
 export const recentTips = (reviews, n = 3) => (reviews || []).filter((r) => r.need_to_know).slice(0, n).map((r) => ({ text: r.need_to_know, at: r.updated_at || r.created_at }));
-// Only these fields ever go to another user (the public functions return the same set).
-export const PUBLIC_REVIEW_FIELDS = ['id', 'stars', 'better_note', 'need_to_know', 'created_at', 'updated_at'];
-export const publicReview = (r) => Object.fromEntries(PUBLIC_REVIEW_FIELDS.map((k) => [k, r?.[k] ?? null]));
+// Only these fields ever go to another user. stop_type is pickup or delivery, never a name.
+export const PUBLIC_REVIEW_FIELDS = ['id', 'stars', 'better_note', 'need_to_know', 'created_at', 'updated_at', 'stop_type'];
+const VISIT_KIND = new Set(['pickup', 'delivery']);
+export function publicReview(r) {
+  const out = Object.fromEntries(PUBLIC_REVIEW_FIELDS.map((k) => [k, r?.[k] ?? null]));
+  out.stop_type = VISIT_KIND.has(r?.stop_type) ? r.stop_type : null;
+  return out;
+}
 
 // JS mirror of public.facility_key (migration 20261022190000), for docs / tests.
 export function facilityNorm(p) {

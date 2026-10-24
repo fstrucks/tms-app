@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { cleanReview, noteProblem, facilityKey, canReviewStop, recentTips, publicReview, PUBLIC_REVIEW_FIELDS } from '../../app/lib/facilityReviews.js';
+import { cleanReview, noteProblem, facilityKey, canReviewStop, recentTips, publicReview, PUBLIC_REVIEW_FIELDS, summarizeStars } from '../../app/lib/facilityReviews.js';
 import * as REVIEW from '../../app/api/loads/[id]/stops/[stopId]/review/route.js';
 import * as LOADFAC from '../../app/api/loads/[id]/facilities/route.js';
 import * as FAC from '../../app/api/facilities/[id]/route.js';
@@ -35,8 +35,11 @@ test('directory key: same facility across companies regardless of case / punctua
 });
 
 test('public shape: only stars, notes, dates (and id for Report)', () => {
-  assert.deepEqual(PUBLIC_REVIEW_FIELDS, ['id', 'stars', 'better_note', 'need_to_know', 'created_at', 'updated_at']);
-  assert.deepEqual(Object.keys(publicReview({ id: 'r', stars: 3, author_id: 'x', company_id: 'y', stop_id: 'z' })), PUBLIC_REVIEW_FIELDS);
+  assert.deepEqual(PUBLIC_REVIEW_FIELDS, ['id', 'stars', 'better_note', 'need_to_know', 'created_at', 'updated_at', 'stop_type']);
+  assert.deepEqual(Object.keys(publicReview({ id: 'r', stars: 3, author_id: 'x', company_id: 'y', stop_id: 'z', stop_type: 'pickup' })), PUBLIC_REVIEW_FIELDS);
+  assert.equal(publicReview({ id: 'r', stop_type: 'pickup' }).stop_type, 'pickup');
+  assert.equal(publicReview({ id: 'r', stop_type: 'delivery' }).stop_type, 'delivery');
+  assert.equal(publicReview({ id: 'r', stop_type: 'TEST Driver' }).stop_type, null);
   assert.deepEqual(recentTips([{ need_to_know: null }, { need_to_know: 'Gate 3', created_at: 'd' }]), [{ text: 'Gate 3', at: 'd' }]);
   assert.ok(canReviewStop({ stop_type: 'pickup', completion: 'done', facility_id: F1 }));
   assert.ok(!canReviewStop({ stop_type: 'pickup', completion: 'skipped', facility_id: F1 }));
@@ -54,8 +57,8 @@ function ctx(role, userId, { stops, reviews = [], reports = [] } = {}) {
   // The public functions: the fake returns exactly what the SQL returns (no author / company / stop / load fields).
   svc.rpc = async (fn, a) => {
     const vis = svc.db.facility_reviews.filter((r) => !r.hidden);
-    if (fn === 'facility_summaries') return { data: svc.db.facilities.filter((f) => a.p_ids.includes(f.id)).map((f) => { const rs = vis.filter((r) => r.facility_id === f.id); return { facility_id: f.id, name: f.name, city: f.city, state: f.state, avg_stars: rs.length ? rs.reduce((x, r) => x + r.stars, 0) / rs.length : null, review_count: rs.length }; }), error: null };
-    if (fn === 'facility_public_reviews') return { data: vis.filter((r) => r.facility_id === a.p_facility).map(({ id, stars, better_note, need_to_know, created_at, updated_at }) => ({ id, stars, better_note, need_to_know, created_at, updated_at })), error: null };
+    if (fn === 'facility_summaries') return { data: svc.db.facilities.filter((f) => a.p_ids.includes(f.id)).map((f) => { const rs = vis.filter((r) => r.facility_id === f.id); const s = summarizeStars(rs); return { facility_id: f.id, name: f.name, city: f.city, state: f.state, avg_stars: s.avg, review_count: s.count }; }), error: null };
+    if (fn === 'facility_public_reviews') return { data: vis.filter((r) => r.facility_id === a.p_facility).map((r) => { const stop = svc.db.stops.find((s) => s.id === r.stop_id); const stop_type = stop?.stop_type === 'pickup' || stop?.stop_type === 'delivery' ? stop.stop_type : null; return { id: r.id, stars: r.stars, better_note: r.better_note, need_to_know: r.need_to_know, created_at: r.created_at, updated_at: r.updated_at, stop_type }; }), error: null };
     return { data: null, error: null };
   };
   const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWNER }] }, user: { id: userId }, role });
@@ -89,6 +92,8 @@ test('stop card + facility page: averages, count, tips; anonymous; hidden exclud
   assert.equal(r.j.facilities[S1].count, 2); assert.equal(r.j.facilities[S1].avg, 3); assert.deepEqual(r.j.facilities[S1].tips.map((t) => t.text), ['Gate 3']);
   r = await call(FAC, 'GET', ctx('driver', OTHER, { reviews }), { id: F1 });
   assert.equal(r.status, 200); assert.equal(r.j.reviews.length, 2);
+  assert.equal(r.j.reviews.find((row) => row.id === R1).stop_type, 'pickup');
+  assert.equal(r.j.reviews.find((row) => row.id === 'r2').stop_type, null);
   const text = JSON.stringify(r.j);
   for (const leak of [OWNER, OTHER, 'p1', 'p9', S1, L1, 'Fake Broker', 'FAKE Trucking', 'HIDDEN', 'author_id', 'company_id', 'stop_id']) assert.ok(!text.includes(leak), `no ${leak}`);
 });
@@ -150,4 +155,50 @@ test('review: unlinked done stop (rate con, no street) links on save via facilit
   const a = read('../../app/components/StopActions.js'); assert.match(a, /!reviewStop && isReviewableStop\(last\)/, 'link shows on reload without a facility');
   const m = readFileSync(new URL('../../supabase/migrations/20261022210000_facility_link_stop.sql', import.meta.url), 'utf8');
   assert.match(m, /security definer/); assert.match(m, /revoke all on function public\.facility_link_stop\(uuid\) from authenticated/);
+});
+
+test('review: clearing the rating keeps the note and does not insert a row when none exists', async () => {
+  const fresh = ctx('driver', DRIVER);
+  let r = await call(REVIEW, 'PUT', fresh, { id: L1, stopId: S1 }, { stars: null });
+  assert.equal(r.status, 200); assert.equal(r.j.review, null); assert.equal(fresh.svc.db.facility_reviews.length, 0);
+  const c = ctx('driver', DRIVER);
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S1 }, { stars: 3, need_to_know: 'Gate 3' });
+  assert.equal(r.status, 200);
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S1 }, { stars: null });
+  assert.equal(r.status, 200); assert.equal(r.j.review.stars, null); assert.equal(r.j.review.need_to_know, 'Gate 3');
+  assert.equal(c.svc.db.facility_reviews.length, 1); assert.ok(!('author_id' in r.j.review));
+  r = await call(REVIEW, 'PUT', c, { id: L1, stopId: S2 }, { stars: null });
+  assert.equal(r.status, 409, 'not delivered yet');
+});
+
+test('summary: ratings [4, null, 2] average 3 with a count of 2; a hidden 1 is ignored', async () => {
+  const reviews = [
+    { id: R1, facility_id: F1, stop_id: S1, author_id: OWNER, stars: 4, hidden: false, created_at: '2026-10-21T00:00:00Z' },
+    { id: 'r-null', facility_id: F1, stop_id: 's-null', author_id: OTHER, stars: null, better_note: 'No score', hidden: false, created_at: '2026-10-21T01:00:00Z' },
+    { id: 'r2', facility_id: F1, stop_id: S2, author_id: DRIVER, stars: 2, hidden: false, created_at: '2026-10-20T00:00:00Z' },
+    { id: 'r-hid', facility_id: F1, stop_id: 's-hid', author_id: OTHER, stars: 1, hidden: true, created_at: '2026-10-22T00:00:00Z' },
+  ];
+  const r = await call(LOADFAC, 'GET', ctx('driver', DRIVER, { reviews }), { id: L1 });
+  assert.equal(r.j.facilities[S1].avg, 3);
+  assert.equal(r.j.facilities[S1].count, 2);
+  const page = await call(FAC, 'GET', ctx('driver', OTHER, { reviews }), { id: F1 });
+  assert.equal(page.j.avg, 3);
+  assert.equal(page.j.count, 2);
+  assert.equal(page.j.reviews.length, 3);
+  assert.ok(page.j.reviews.some((row) => row.stars == null && row.better_note === 'No score'));
+  assert.equal(page.j.reviews.find((row) => row.stars === 4).stop_type, 'pickup');
+  assert.equal(page.j.reviews.find((row) => row.stars === 2).stop_type, 'delivery');
+});
+
+test('stop list rating is the caller’s own stars, not another driver’s', async () => {
+  const reviews = [
+    { id: R1, facility_id: F1, stop_id: S1, author_id: DRIVER, stars: 4, hidden: false, created_at: '2026-10-21T00:00:00Z' },
+    { id: 'r2', facility_id: F1, stop_id: S2, author_id: OTHER, stars: 1, hidden: false, created_at: '2026-10-20T00:00:00Z' },
+  ];
+  const stops = [stop(S1, 1, 'pickup', { completion: 'done' }), stop(S2, 2, 'delivery', { completion: 'done' })];
+  const r = await call(LOADFAC, 'GET', ctx('driver', DRIVER, { reviews, stops }), { id: L1 });
+  assert.equal(r.j.facilities[S1].my_stars, 4);
+  assert.equal(r.j.facilities[S2].my_stars, null);
+  const text = JSON.stringify(r.j);
+  assert.ok(!text.includes(OTHER)); assert.ok(!text.includes('author_id'));
 });

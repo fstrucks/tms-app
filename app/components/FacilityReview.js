@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
-import { STARS_MAX, STAR_LABELS, NOTE_MAX, NEED_TO_KNOW_HINT, fmtStars } from '../lib/facilityReviews';
+import { NOTE_MAX, NEED_TO_KNOW_HINT, fmtStars } from '../lib/facilityReviews';
+import StarRating from './StarRating';
 import { ratingText } from '../lib/facilityPage';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -46,7 +47,7 @@ export function FacilityInfo({ info }) {
   if (!info) return null;
   return (
     <div data-testid="facility-info" style={{ background: 'var(--surface-2, var(--surface))', borderRadius: 8, padding: '6px 10px', margin: '0 0 8px', fontSize: '0.85rem' }}>
-      <div><strong>{info.count ? `${fmtStars(info.avg)} · ${info.count} review${info.count === 1 ? '' : 's'}` : 'No reviews yet'}</strong>
+      <div><strong>{info.count ? `${fmtStars(info.avg)} · ${info.count} review${info.count === 1 ? '' : 's'}` : 'No ratings yet'}</strong>
         {' '}<Link href={`/facilities/${info.facility_id}`} style={{ color: 'var(--primary)' }}>See facility</Link></div>
       {info.tips?.length > 0 && (
         <ul data-testid="facility-tips" style={{ margin: '4px 0 0', paddingLeft: '1.1rem' }}>
@@ -85,16 +86,19 @@ export function FacilityReviewPrompt({ loadId, stop, onClose }) {
   );
   const place = stop.company_name || (stop.stop_type === 'pickup' ? 'the shipper' : 'the receiver');
   async function save() {
-    if (!form.stars) return setErr('Pick 1 to 4 stars.');
+    if (!form.stars && !st.existing) return setErr('Pick 1 to 4 stars.');
     setErr(null); setBusy(true);
-    const j = await api(`/api/loads/${loadId}/stops/${stop.id}/review`, { method: 'PUT', body: JSON.stringify(form) });
+    const j = await api(`/api/loads/${loadId}/stops/${stop.id}/review`, { method: 'PUT', body: JSON.stringify({ ...form, stars: form.stars || null }) });
     setBusy(false);
     if (j.error) return setErr(j.error);
-    setSaved(true); setSt({ ready: true, existing: true });
+    const stars = Number(j.review?.stars) || 0;
+    setForm((f) => ({ ...f, stars }));
+    setSaved(true); setSt({ ready: true, existing: !!j.review });
   }
   if (saved) return (
     <div role="status" data-testid="facility-review-saved" style={{ marginTop: 8, fontSize: '0.9rem', color: 'var(--success)' }}>
-      Thanks, your review is saved. It’s posted without your name or company.{' '}
+      {form.stars > 0 && <div style={{ marginBottom: 6 }}><StarRating value={form.stars} readOnly testIdPrefix="facility-saved" /></div>}
+      {form.stars > 0 ? 'Thanks, your review is saved. It’s posted without your name or company.' : 'Rating cleared. It’s posted without your name or company.'}{' '}
       <button type="button" onClick={() => setSaved(false)} style={{ ...btn, minHeight: 32, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px' }}>Edit</button>
       <button type="button" onClick={onClose} style={{ ...btn, minHeight: 32, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px' }}>Close</button>
     </div>
@@ -106,14 +110,7 @@ export function FacilityReviewPrompt({ loadId, stop, onClose }) {
         <button type="button" aria-label="Not now" data-testid="facility-review-dismiss" onClick={onClose} style={{ ...btn, minHeight: 36, padding: '0 10px' }}>Not now</button>
       </div>
       <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Optional. Shared with other drivers without your name or company.</p>
-      <div role="radiogroup" aria-label="Stars" style={{ display: 'flex', gap: 4 }}>
-        {Array.from({ length: STARS_MAX }, (_, i) => i + 1).map((n) => (
-          <button key={n} type="button" role="radio" aria-checked={form.stars === n} aria-label={`${n} star${n > 1 ? 's' : ''}: ${STAR_LABELS[n]}`} data-testid={`facility-star-${n}`}
-            onClick={() => setForm({ ...form, stars: n })}
-            style={{ ...btn, minWidth: 44, padding: 0, fontSize: '1.3rem', color: n <= form.stars ? 'var(--warning)' : 'var(--text-muted)' }}>{n <= form.stars ? '★' : '☆'}</button>
-        ))}
-        {form.stars > 0 && <span style={{ alignSelf: 'center', fontSize: '0.85rem' }}>{STAR_LABELS[form.stars]}</span>}
-      </div>
+      <StarRating value={form.stars} name="Stars" testIdPrefix="facility-star" onChange={(n) => setForm({ ...form, stars: n })} />
       <label style={{ display: 'block', marginTop: 8, fontSize: '0.85rem' }}>What could be better (optional)
         <textarea maxLength={NOTE_MAX} value={form.better_note} onChange={(e) => setForm({ ...form, better_note: e.target.value })} style={area} /></label>
       <label style={{ display: 'block', marginTop: 8, fontSize: '0.85rem' }}>Need to know (optional)
