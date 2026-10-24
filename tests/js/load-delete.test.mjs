@@ -16,6 +16,7 @@ function fake({ fail = {}, loadRows = [{ id: 'L1' }], invoices = [] } = {}) {
       } }),
     }),
     storage: { from: () => ({ remove: async (p) => { calls.push(['storage', p]); return { error: null }; } }) },
+    rpc: async (fn, args) => { calls.push(['rpc', fn, args]); return { data: 0, error: null }; },
   };
   return { sb, calls };
 }
@@ -24,7 +25,7 @@ const docs = [{ id: 'd1', file_path: 'u/a.pdf' }];
 test('default: unlinks expenses, mileage, documents; deletes stops then load', async () => {
   const { sb, calls } = fake();
   assert.deepEqual(await deleteLoad(sb, 'L1', { docs }), { ok: true, warnings: [] });
-  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(':')), ['update:expenses', 'update:mileage_entries', 'update:documents', 'delete:stops', 'delete:loads']);
+  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(':')), ['rpc:mark_load_email_ratecons_handled', 'update:expenses', 'update:mileage_entries', 'update:documents', 'delete:stops', 'delete:loads']);
   assert.ok(calls.filter((c) => c[0] === 'update').every((c) => c[2].load_id === null));
   assert.ok(!calls.some((c) => c[0] === 'delete' && ['expenses', 'mileage_entries', 'documents'].includes(c[1])));
 });
@@ -60,6 +61,7 @@ test('retry after partial doc delete: already-deleted doc counts as done', async
       update: () => ({ eq: async () => ({ error: null }) }),
       delete: () => ({ eq: (c, v) => { const p = { select: async () => { calls.push([t, v]); return { data: t === 'documents' && v === 'd1' ? [] : [{ id: v }], error: null }; } }; p.then = (ok) => Promise.resolve({ error: null }).then(ok); return p; } }),
     }),
+    rpc: async () => ({ data: 0, error: null }),
     storage: { from: () => ({ remove: async () => ({ error: null }) }) },
   };
   const r = await deleteLoad(sb, 'L1', { docs: [{ id: 'd1', file_path: 'a' }, { id: 'd2', file_path: 'b' }], deleteDocs: true });

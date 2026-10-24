@@ -6,7 +6,8 @@ import {
 } from './loadVault';
 
 export const VAULT_BATCH = 60;
-const DOC_COLS = 'id,user_id,load_id,doc_type,file_path,original_filename,created_at,ai_extracted_data';
+const DOC_COLS = 'id,user_id,load_id,doc_type,file_path,original_filename,created_at,ai_extracted_data,source,handled_at';
+const DOC_COLS_BASE = 'id,user_id,load_id,doc_type,file_path,original_filename,created_at,ai_extracted_data';
 const LOAD_COLS = 'id,user_id,broker_load_number,broker_name,status,assigned_driver_user_id,show_rate_to_driver,created_at';
 
 const endOfDay = (day) => (day && !day.includes('T') ? `${day}T23:59:59.999Z` : day);
@@ -40,15 +41,19 @@ function bound(q, { cursor, filters, batch }) {
   return x.limit(batch);
 }
 
-async function runScoped(svc, scopes, filters, cursor, batch) {
+async function runScoped(svc, scopes, filters, cursor, batch, cols = DOC_COLS) {
   const jobs = [];
   for (const scope of scopes) {
     for (const typeOf of typeFns(filters.type)) {
-      jobs.push(bound(typeOf(scope(svc.from('documents').select(DOC_COLS))), { cursor, filters, batch }));
+      jobs.push(bound(typeOf(scope(svc.from('documents').select(cols))), { cursor, filters, batch }));
     }
   }
   const lists = await Promise.all(jobs);
-  for (const r of lists) if (r.error) return { error: r.error };
+  for (const r of lists) {
+    if (!r.error) continue;
+    if (r.error.code === '42703' && cols !== DOC_COLS_BASE) return runScoped(svc, scopes, filters, cursor, batch, DOC_COLS_BASE);
+    return { error: r.error };
+  }
   const map = new Map();
   for (const r of lists) for (const d of r.data || []) if (d?.id && isOlderThan(d, cursor)) map.set(d.id, d);
   return { docs: [...map.values()].sort(cmpDesc).slice(0, batch) };

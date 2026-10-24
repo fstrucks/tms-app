@@ -1,10 +1,15 @@
 import { deleteDocument } from './documents.js';
 import { isCompanyDocType } from './docTypes.js';
+import { MARK_LOAD_EMAIL_RATECONS_RPC } from './handledRatecons.js';
 
 // Delete a load (pick 4A). Order:
-//   1) unlink expenses and mileage (load_id = null). They are NEVER deleted, whatever the FK says.
-//   2) linked documents: unlink (default) or, if opted in, delete row + storage file.
-//   3) delete stops, 4) delete the load (0 rows = RLS/not found, reported as failure).
+//   1) stamp email rate cons on this load (handled_at) while load_id still points here.
+//      The function does not delete a file or edit the load. Other documents are not stamped.
+//      This is before any unlink, so a missing function does not change expenses or documents.
+//   2) unlink expenses and mileage (load_id = null). They are NEVER deleted, whatever the FK says.
+//   3) linked documents: unlink (default) or, if opted in, delete row + storage file.
+//   4) delete stops, 5) delete the load (0 rows = RLS/not found, reported as failure).
+// The stamp runs before the load row is deleted. Clearing load_id first would miss the rows.
 // Returns { ok, error, warnings }.
 export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = false } = {}) {
   const warnings = [];
@@ -13,6 +18,8 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
   if (iErr) return { ok: false, error: `Couldn't check invoices: ${iErr.message}` };
   const blocking = (invs || []).filter((i) => !['draft', 'void'].includes(i.status));
   if (blocking.length) return { ok: false, error: `This load has invoice ${blocking.map((i) => i.invoice_number).filter(Boolean).join(', ') || 'records'}. Void it first, then delete the load.` };
+  const marked = await supabase.rpc(MARK_LOAD_EMAIL_RATECONS_RPC, { p_load: loadId });
+  if (marked?.error) return { ok: false, error: `Couldn't update documents: ${marked.error.message}` };
   for (const table of ['expenses', 'mileage_entries']) {
     const { error } = await supabase.from(table).update({ load_id: null }).eq('load_id', loadId);
     if (error) return { ok: false, error: `Couldn't unlink ${table === 'expenses' ? 'expenses' : 'mileage'}: ${error.message}` };
