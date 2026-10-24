@@ -43,7 +43,7 @@ test('teammate drafts: read + Create load, but delete / change type stay with th
   assert.equal(teammateEmailDoc({ source: 'email', user_id: OWNER }, OWNER), false);
   assert.equal(teammateEmailDoc({ source: 'upload', user_id: DISP }, OWNER), false);
   const page = read('../../app/documents/page.js');
-  assert.match(page, /const DOC_COLS = 'id, user_id,/);
+  assert.match(read('../../app/lib/docsInbox.js'), /id, user_id,/);
   assert.match(page, /\{!teammateEmailDoc\(d, user\?\.id\) && <ConfirmButton prompt=\{deletePrompt\(d\)\}/);
   assert.match(page, /canChangeType && !teammateEmailDoc\(d, user\?\.id\) &&/);
   assert.match(page, /await createLoadFromDoc\(supabase, doc,/);
@@ -82,9 +82,10 @@ test('follow-up migration: fallback through company_members for a member’s add
 });
 
 test('client lists never filter by user_id = me (RLS decides; teammates’ email drafts show)', () => {
-  const page = read('../../app/documents/page.js');
-  const q = page.slice(page.indexOf('const q = (cols) =>'), page.indexOf('let { data, error } = await q('));
-  assert.ok(!/user_id/.test(q));
+  const inbox = read('../../app/lib/docsInbox.js');
+  const q = inbox.slice(inbox.indexOf('function attentionQuery'), inbox.indexOf('export async function fetchNeedsAttention'));
+  assert.ok(!/\.eq\(['"]user_id['"]/.test(q), 'the needs-attention query does not filter to the signed-in user');
+  assert.match(read('../../app/documents/page.js'), /fetchNeedsAttention/);
   assert.ok(!/user_id/.test(read('../../app/components/EmailDraftsBanner.js')));
 });
 

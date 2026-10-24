@@ -28,7 +28,7 @@ import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
 import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
-import { INBOX_RECENT_CAP, INBOX_RECENT_DAYS, INBOX_WAITING_CAP, fetchWaitingRateCons, mergeInboxDocs, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
+import { attentionLabel, fetchNeedsAttention, needsAttention, publishAttentionCount, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
 import VaultTiles from '../components/VaultTiles';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -73,11 +73,10 @@ const s = {
   error: { color: 'var(--danger)' },
   ok: { color: 'var(--success)' },
   badge: { display: 'inline-block', fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)', marginRight: 6 },
+  countBadge: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, height: 28, padding: '0 8px', borderRadius: 999, background: 'var(--danger-solid)', color: 'var(--on-danger)', fontWeight: 800, fontSize: 15, lineHeight: 1 },
+  showHide: { flex: '0 0 auto', minHeight: 44, minWidth: 112, padding: '0 18px', borderRadius: 10, border: '1px solid var(--primary)', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '1rem', fontWeight: 700, cursor: 'pointer' },
   tap: { display: 'inline-flex', alignItems: 'center', minHeight: 44 },
 };
-const DOC_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id';
-const EMAIL_COLS = 'source, extraction_status, extraction_error';
-
 export default function DocumentsPage() {
   const supabase = getSupabase();
   const [user, setUser] = useState(null);
@@ -187,7 +186,7 @@ export default function DocumentsPage() {
         const m = await fillLinkedLoadMiles(supabase, { loadId, userId: null, miles: mi });
         if (m.error) console.error('[createLoad] total_miles', m.error);
       }
-      setDocs((list) => list.map((d) => (d.id === doc.id ? { ...d, load_id: loadId } : d)));
+      setDocs((list) => list.filter((d) => d.id !== doc.id));
       notifyLoadChanged(loadId);
       router.refresh();
       router.push(`/loads/${loadId}`);
@@ -202,6 +201,7 @@ export default function DocumentsPage() {
   const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
   const [inboxOpen, setInboxOpen] = useState(true);
   const [waitingMore, setWaitingMore] = useState(false);
+  const [teamCount, setTeamCount] = useState(null);
   const [vaultTick, setVaultTick] = useState(0);
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
@@ -262,28 +262,17 @@ export default function DocumentsPage() {
     const req = ++docsReqRef.current;
     if (!docsReadyRef.current) setListState('loading');
     if (!(await hasSession(supabase))) { if (req === docsReqRef.current) { if (docsReadyRef.current) setRefreshErr("Your session has expired or is still loading. Tap Retry, or sign in again."); setListState((st) => (st === 'ready' ? 'ready' : 'error')); } return; }
-    const sinceIso = new Date(Date.now() - INBOX_RECENT_DAYS * 864e5).toISOString();
-    const q = (cols) => supabase.from('documents').select(cols)
-      .or('doc_type.is.null,doc_type.neq.receipt') // expense receipts live on /expenses
-      .gte('created_at', sinceIso)
-      .order('created_at', { ascending: false })
-      .limit(INBOX_RECENT_CAP + INBOX_WAITING_CAP);
-    // Email-in columns (20261019000200); before that migration, fall back to the old column list.
-    let { data, error } = await q(`${DOC_COLS}, ${EMAIL_COLS}`);
-    if (error?.code === '42703') ({ data, error } = await q(DOC_COLS));
+    const got = await fetchNeedsAttention(supabase);
     if (req !== docsReqRef.current) return;
-    if (error) {
-      console.error('[documents] fetch', error);
+    if (got.error) {
+      console.error('[documents] fetch', got.error);
       // Keep an already-shown list; otherwise show the error + Retry instead of an empty state.
       if (docsReadyRef.current) setRefreshErr("Couldn't refresh. Showing the last loaded documents.");
       return setListState((st) => (st === 'ready' ? 'ready' : 'error'));
     }
-    const waiting = await fetchWaitingRateCons(supabase);
-    if (req !== docsReqRef.current) return;
-    setWaitingMore(waiting.length >= INBOX_WAITING_CAP);
-    data = mergeInboxDocs((data || []).filter(isDocumentsTabDoc), waiting.filter(isDocumentsTabDoc));
+    setWaitingMore(!!got.more);
     setRefreshErr(null);
-    setDocs((data || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
+    setDocs((got.documents || []).filter(isDocumentsTabDoc)); // PR #84: W-9 / COI / MC Authority / NOA live on Company
     setListState('ready');
     loadSkipped();
   }
@@ -293,6 +282,15 @@ export default function DocumentsPage() {
   const [dismissed, setDismissed] = useState([]);
   useEffect(() => { setDismissed(readDismissed(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
   useEffect(() => { setInboxOpen(readInboxOpen(typeof window !== 'undefined' ? window.localStorage : null)); }, []);
+  const attentionCount = view_ === 'team' ? teamCount : docs.length;
+  useEffect(() => {
+    if (view_ === 'mine') {
+      if (listState !== 'ready') return;
+      publishAttentionCount(docs.length);
+      return;
+    }
+    if (typeof teamCount === 'number') publishAttentionCount(teamCount);
+  }, [view_, docs.length, teamCount, listState]);
   const skipped = visibleSkipped(skippedRows, dismissed);
   const dismissSkipped = (ids) => setDismissed(addDismissed(typeof window !== 'undefined' ? window.localStorage : null, ids));
   async function loadSkipped() {
@@ -472,12 +470,15 @@ export default function DocumentsPage() {
           {!isDriver && <RateconEmailCard supabase={supabase} userId={user.id} />}
 
           <div style={s.card}>
-            <button type="button" data-testid="docs-inbox-toggle" aria-expanded={inboxOpen} aria-controls="docs-inbox" onClick={() => { const next = !inboxOpen; setInboxOpen(next); writeInboxOpen(typeof window !== 'undefined' ? window.localStorage : null, next); }}
-              style={{ display: 'flex', width: '100%', minHeight: 44, alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'none', border: 'none', padding: 0, color: 'var(--text)', cursor: 'pointer', textAlign: 'left' }}>
-              <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Needs attention</h2>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{inboxOpen ? 'Hide' : 'Show'}</span>
-            </button>
-            {!inboxOpen && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{docs.filter(isEmailDraft).length ? `${docs.filter(isEmailDraft).length} waiting for review` : 'Recent uploads from the last 7 days'}</p>}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Needs attention</h2>
+                {attentionCount > 0 && <span data-testid="needs-attention-count" style={s.countBadge}>{attentionCount}</span>}
+              </div>
+              <button type="button" data-testid="docs-inbox-toggle" aria-expanded={inboxOpen} aria-controls="docs-inbox" onClick={() => { const next = !inboxOpen; setInboxOpen(next); writeInboxOpen(typeof window !== 'undefined' ? window.localStorage : null, next); }}
+                style={s.showHide}>{inboxOpen ? 'Hide' : 'Show'}</button>
+            </div>
+            {typeof attentionCount === 'number' && <p style={{ ...s.muted, margin: '0.35rem 0 0' }}>{attentionLabel(attentionCount)}</p>}
             {inboxOpen && <div id="docs-inbox">
             <div role="tablist" aria-label="Whose documents" data-testid="docs-view-toggle" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 10, background: 'var(--surface-2)', margin: '0.75rem 0' }}>
               {[['mine', 'Mine'], ['team', 'Team']].map(([id, label]) => (
@@ -488,13 +489,9 @@ export default function DocumentsPage() {
               ))}
             </div>
             {view_ === 'team' ? (
-              <>
-                <p style={{ ...s.muted, marginTop: '-0.25rem' }}>Recent load paperwork from your team, last 7 days, on the loads you can open.</p>
-                <TeamDocsList supabase={supabase} inbox onDeleted={(id) => { setDocs((list) => list.filter((x) => x.id !== id)); setVaultTick((n) => n + 1); }} />
-              </>
+              <TeamDocsList supabase={supabase} inbox onCount={setTeamCount} onDeleted={(id) => { setDocs((list) => list.filter((x) => x.id !== id)); setVaultTick((n) => n + 1); }} />
             ) : (<>
-            {docs.some(isEmailDraft) && <p data-testid="email-drafts-count" style={{ ...s.muted, marginTop: '-0.25rem' }}>{(() => { const n = docs.filter(isEmailDraft).length; return n === 1 ? '1 rate con from email is waiting for review.' : `${n} rate cons from email are waiting for review.`; })()}</p>}
-            {waitingMore && <p data-testid="waiting-more" style={s.muted}>More rate cons are waiting in Load documents.</p>}
+            {waitingMore && <p data-testid="waiting-more" style={s.muted}>More documents need attention than fit here. Filed copies stay in the vaults.</p>}
             {!isDriver && skipped.map((m) => (
               <div key={m.id} data-testid="email-skipped" data-above-fab style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.5rem 0.4rem 0.5rem 0.7rem', fontSize: '0.85rem', margin: '0.5rem 0' }}>
                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', paddingTop: 10 }}>{skippedLine(m)}</span>
@@ -505,7 +502,7 @@ export default function DocumentsPage() {
             {refreshErr && listState === 'ready' && <LoadError subtle message={refreshErr} onRetry={() => { setRefreshErr(null); loadDocs(); }} />}
             {listState === 'error' ? <LoadError message="Couldn't load your documents." onRetry={loadDocs} />
               : listState === 'loading' ? <Loading label="Loading documents…" />
-              : docs.length === 0 ? <p style={s.muted}>Nothing from the last 7 days. Older paperwork is in Load documents.</p> : docs.map((d) => (
+              : docs.length === 0 ? <p data-testid="needs-attention-empty" style={s.muted}>Nothing needs attention.</p> : docs.map((d) => (
               <div key={d.id} data-confirm-row style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ ...s.item, padding: 0, borderBottom: 'none' }}>
                   <div style={{ minWidth: 0 }}>
@@ -540,7 +537,7 @@ export default function DocumentsPage() {
                 </div>
                 {deleteErr[d.id] && <p role="alert" style={{ ...s.error, fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
                 {isLoadDocType(d.doc_type) ? (
-                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { setDocs((list) => list.map((x) => (x.id === d.id ? { ...x, load_id: loadId } : x))); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
+                  <DocLoadLink supabase={supabase} doc={d} onLinked={(loadId) => { setDocs((list) => list.flatMap((x) => { if (x.id !== d.id) return [x]; const next = { ...x, load_id: loadId }; return needsAttention(next) ? [next] : []; })); if (loadId) notifyLoadChanged(loadId); setStatus({ type: 'ok', text: loadId ? `Linked ${d.original_filename} to the load.` : `Unlinked ${d.original_filename}.` }); }} />
                 ) : !EXTRACTABLE(d.doc_type) ? (
                   d.load_id ? <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>View load</Link> : null
                 ) : extracting[d.id] ? (

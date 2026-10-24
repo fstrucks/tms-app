@@ -44,9 +44,10 @@ async function inboxResponse(c, svc) {
   } catch { /* signed link is optional */ }
   return json({
     role: c.role,
+    more: !!got.more,
     documents: visible.map((d) => {
       const own = d.user_id === me;
-      const load = got.loadsById.get(d.load_id);
+      const load = got.loadsById?.get(d.load_id);
       return { id: d.id, doc_type: d.doc_type, label: docTypeLabel(d.doc_type), original_filename: d.original_filename, created_at: d.created_at,
         own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: load ? loadPickLabel(load) : 'Load', uploader: names.get(d.user_id) || 'Teammate',
         url: urlOf.get(d.file_path) || null, isImage: isImagePath(d.file_path) };
