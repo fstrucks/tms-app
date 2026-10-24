@@ -5,7 +5,7 @@
 // Truck engine fields follow the Truck tab rule (c.db filtered by owner). Baseline visits: owner only, never an expense.
 import { truckCtx, ownedTruck, json, isMissing, SETUP, UUID } from '../../../lib/truckServer';
 import { isOffice, typeLabel } from '../../../lib/maintenance';
-import { engineInput, checklistInput, intervalInput, decodeVin, sourceText, defaultToday, VPIC_URL } from '../../../lib/pmSchedule';
+import { engineInput, checklistInput, intervalInput, decodeVin, sourceText, defaultToday, VPIC_URL, withLiveCustom } from '../../../lib/pmSchedule';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,18 +19,21 @@ async function engines(c) {
   return r.error ? { error: r.error } : { list: r.data || [] };
 }
 
-async function preview(c, patch) {
+// Checklist for setup. A service this truck already has on a custom interval shows that interval (setup keeps it).
+async function preview(c, patch, truckId) {
   const s = await c.uc.rpc('pm_suggest', { p_make: patch.engine_make, p_model: patch.engine_model, p_duty: patch.duty_cycle, p_mpg: patch.mpg });
   if (s.error) return { error: s.error };
   const ids = [...new Set((s.data || []).map((x) => x.template_id))];
   const t = ids.length ? await c.uc.from('maintenance_interval_templates').select('id,source_title,as_of_date,notes').in('id', ids) : { data: [] };
   if (t.error) return { error: t.error };
   const by = new Map(t.data.map((x) => [x.id, x]));
-  return { items: (s.data || []).map((x) => {
+  const live = truckId ? await c.uc.from('pm_schedules').select('service_type,interval_miles,interval_days,source').eq('truck_id', truckId).eq('source', 'custom') : { data: [] };
+  if (live.error) return { error: live.error };
+  return { items: withLiveCustom((s.data || []).map((x) => {
     const tp = by.get(x.template_id) || {};
     const row = { ...x, source: 'suggested', source_title: tp.source_title, as_of_date: tp.as_of_date };
     return { serviceType: x.service_type, label: typeLabel({ service_type: x.service_type }), intervalMiles: x.interval_miles, intervalDays: x.interval_days, isGeneric: x.is_generic, sourceText: sourceText(row), notes: tp.notes || null };
-  }) };
+  }), live.data) };
 }
 
 // The company's day (pm_today: stored company time zone, else America/Chicago).
@@ -103,7 +106,7 @@ export async function POST(req, { deps, fetchImpl = fetch } = {}) {
   const eng = engineInput(b.values, en.list); if (eng.error) return json(eng, 422);
 
   if (b.action === 'preview') {
-    const p = await preview(c, eng.patch);
+    const p = await preview(c, eng.patch, truck.id);
     return p.error ? fail(p.error, 'Could not load the suggested services.') : json({ ok: true, items: p.items });
   }
 

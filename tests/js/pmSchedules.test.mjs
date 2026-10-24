@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
-import { engineInput, checklistInput, orderBySchedule, intervalInput, decodeVin, sourceText, intervalText, dueText, VPIC_URL, patchRow, defaultToday } from '../../app/lib/pmSchedule.js';
+import { engineInput, checklistInput, orderBySchedule, intervalInput, decodeVin, sourceText, intervalText, dueText, VPIC_URL, patchRow, defaultToday, setupDefaults, withLiveCustom } from '../../app/lib/pmSchedule.js';
 import { SERVICE_TYPES } from '../../app/lib/maintenance.js';
 import * as SCHED from '../../app/api/truck/schedules/route.js';
 import * as MAINT from '../../app/api/truck/maintenance/route.js';
@@ -249,4 +249,31 @@ test('truck page: newest load wins, no cache, refetch after setup; driver banner
   assert.match(src, /onSetupDone=\{\(\) => \{ setSetupFor\(null\); load\(truck\.id\); \}\}/);
   assert.match(src, /Only the owner or management can change the maintenance schedule\./);
   assert.doesNotMatch(src, /Ask the owner or dispatcher/);
+});
+
+test('redo setup: form starts from the saved truck, mpg included (number or numeric string)', () => {
+  const t = { engine_make: 'Cummins', engine_model: 'X15', engine_year: 2021, duty_cycle: 'long_haul', mpg: 8, odometer: 502900 };
+  assert.deepEqual(setupDefaults(t), { engine: 'Cummins|X15', engineYear: 2021, dutyCycle: 'long_haul', mpg: '8', odometer: 502900 });
+  assert.equal(setupDefaults({ ...t, mpg: '8.0' }).mpg, '8');
+  assert.equal(setupDefaults({ ...t, mpg: '6.5' }).mpg, '6.5');
+  assert.equal(setupDefaults({ ...t, mpg: null }).mpg, '');
+  assert.deepEqual(setupDefaults(null), { engine: '', engineYear: '', dutyCycle: '', mpg: '', odometer: '' });
+  const src = readFileSync(new URL('../../app/truck/TruckSetup.js', import.meta.url), 'utf8');
+  assert.match(src, /useState\(\(\) => setupDefaults\(truck\)\)/);
+  assert.match(src, /id="setup-mpg"[^>]*value=\{v\.mpg\}/);
+});
+
+test('setup checklist shows the truck\'s custom interval, marked Custom; suggested rows unchanged', async () => {
+  const items = [{ serviceType: 'fuel_filters', intervalMiles: 60000, intervalDays: null, sourceText: 'Suggested from X' }, { serviceType: 'oil_filter', intervalMiles: 50000, intervalDays: 365, sourceText: 'Suggested from X' }];
+  const out = withLiveCustom(items, [{ service_type: 'fuel_filters', interval_miles: 3000, interval_days: null, source: 'custom' }, { service_type: 'oil_filter', interval_miles: 1, interval_days: 1, source: 'suggested' }]);
+  assert.deepEqual(out[0], { serviceType: 'fuel_filters', intervalMiles: 3000, intervalDays: null, sourceText: 'Custom interval', isCustom: true });
+  assert.deepEqual(out[1], items[1]);
+  const c = ctx('owner', OWNER);
+  await c.uc.from('pm_schedules').insert({ truck_id: T1, service_type: 'oil_filter', interval_miles: 4000, interval_days: null, source: 'custom' });
+  const p = await call(c, 'POST', { action: 'preview', truckId: T1, values: { engine: 'Detroit|DD15', dutyCycle: 'long_haul' } });
+  assert.equal(p.status, 200);
+  assert.equal(p.j.items[0].intervalMiles, 4000); assert.equal(p.j.items[0].intervalDays, null);
+  assert.equal(p.j.items[0].isCustom, true); assert.equal(p.j.items[0].sourceText, 'Custom interval');
+  const src = readFileSync(new URL('../../app/truck/TruckSetup.js', import.meta.url), 'utf8');
+  assert.match(src, /x\.isCustom && <span data-testid=\{`setup-custom-/);
 });

@@ -3,14 +3,11 @@
 // Done items with a date become one "before using the app" record (owner only, no expense). The rest start as due
 // or unknown. Schedules come from the engine maker's suggested intervals, or general estimates when the engine is unknown.
 import { useState } from 'react';
-import { DUTY_CYCLES, NOT_SURE, engineKey, engineLabel, intervalText, defaultToday, patchRow } from '../lib/pmSchedule';
+import { DUTY_CYCLES, NOT_SURE, engineKey, engineLabel, intervalText, defaultToday, patchRow, setupDefaults } from '../lib/pmSchedule';
 
 export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone, onCancel, today: todayProp }) {
   const [step, setStep] = useState(1);
-  const [v, setV] = useState({
-    engine: truck.engine_model ? `${truck.engine_make}|${truck.engine_model}` : '', engineYear: truck.engine_year ?? '',
-    dutyCycle: truck.duty_cycle || '', mpg: truck.mpg ?? '', odometer: truck.odometer ?? '',
-  });
+  const [v, setV] = useState(() => setupDefaults(truck));
   const [vin, setVin] = useState(truck.vin || '');
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -95,7 +92,7 @@ export default function TruckSetup({ truck, engines, canBaseline, api, s, onDone
             <div key={x.serviceType} style={{ borderTop: '1px solid var(--divider)', padding: '6px 0' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, fontSize: 16 }}>
                 <input type="checkbox" data-testid={`setup-done-${x.serviceType}`} style={{ width: 22, height: 22 }} checked={x.done} onChange={(e) => upd(x.serviceType, { done: e.target.checked })} />
-                <span><strong>{x.label}</strong><br /><span style={{ ...s.muted, fontSize: 13 }}>{intervalText({ interval_miles: x.intervalMiles, interval_days: x.intervalDays })} · {x.sourceText}</span></span>
+                <span><strong>{x.label}</strong>{x.isCustom && <span data-testid={`setup-custom-${x.serviceType}`} style={{ ...s.muted, fontSize: 12, fontWeight: 700, marginLeft: 6 }}>Custom</span>}<br /><span style={{ ...s.muted, fontSize: 13 }}>{intervalText({ interval_miles: x.intervalMiles, interval_days: x.intervalDays })} · {x.sourceText}</span></span>
               </label>
               {x.done && !canBaseline && <p data-testid={`setup-owner-note-${x.serviceType}`} style={{ ...s.muted, fontSize: 13, margin: '0 0 0 32px' }}>Owner can confirm last service.</p>}
               {x.done && canBaseline && (
