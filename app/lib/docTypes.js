@@ -64,7 +64,7 @@ export function docTypeShort(id) {
 // PR #84: company types (W-9, COI, MC Authority, NOA) are uploaded on Company → Company documents, not here.
 export const UPLOAD_TYPES = [
   { id: 'rate_confirmation', label: 'Rate confirmation (reads load details)', short: 'Rate confirmation' },
-  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other' && !t.company).map((t) => ({ id: t.id, label: t.label, short: t.label })),
+  ...SCAN_DOC_TYPES.filter((t) => t.id !== 'other' && !t.company && !t.maint).map((t) => ({ id: t.id, label: t.label, short: t.label })),
 ];
 // "Change type" still offers the company types, so a misfiled file (e.g. 'Other: W9') can be moved into the vault.
 export const CHANGE_TYPES = [

@@ -135,3 +135,9 @@ test('migration: Sam review items present', () => {
   assert.equal(sql.split("and t.user_id in (select auth.uid() union select cp.owner_id from public.company_members m join public.company_profiles cp on cp.id = m.profile_id where m.user_id = auth.uid())").length, 3);
   assert.match(sql, /and d\.doc_type = 'maintenance_receipt'\) >= 10/);
 });
+
+import { UPLOAD_TYPES as __UT, CHANGE_TYPES as __CT } from '../../app/lib/docTypes.js';
+test('Documents upload and change-type lists do not offer the vault type', () => {
+  assert.ok(!__UT.some((t) => t.id === 'maintenance_doc'));
+  assert.ok(!__CT.some((t) => t.id === 'maintenance_doc'));
+});
