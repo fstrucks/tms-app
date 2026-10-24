@@ -3,6 +3,8 @@
 // BOL etc. can add an entry to DOC_TYPES and reuse runExtraction().
 
 import { normalizeScaleTicket } from './truckFields.js';
+import { normalizeShopInvoice } from './vaultScan.js';
+import { SERVICE_TYPES } from './maintenance.js';
 
 export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o'];
@@ -246,6 +248,34 @@ export const DOC_TYPES = {
       doc_date: /^\d{4}-\d{2}-\d{2}$/.test(r?.doc_date || '') ? r.doc_date : null,
     }),
     maxOutputTokens: 300,
+  },
+  // Maintenance vault: shop invoice / work order -> Log service form suggestion. Never saved without the user's confirm.
+  shop_invoice: {
+    name: 'shop_invoice',
+    prompt: [
+      'You are reading a US truck repair shop invoice or work order. Return JSON only. Never guess; use null when not printed.',
+      'is_invoice: false if this is not a shop invoice, work order or service receipt.',
+      'date: the service / invoice date as YYYY-MM-DD (US month first). Never use today\'s date.',
+      'odometer: the truck mileage / odometer / "miles in" printed, as a number (not engine hours).',
+      'vendor: the shop or dealer name. total: the invoice grand total in dollars, as a number.',
+      'services: one entry per job or labor line. description: short, as printed (max 80 chars).',
+      'service_type: the best match from the list (oil_filter = oil and oil filter change / PM A; fuel_filters; air_filter; coolant; coolant_filter;',
+      'def_filter; valve_adjustment = overhead / valve lash; transmission; differential; tires; brakes; grease = chassis lube; dot_annual = annual DOT inspection), else other.',
+      'cost: the line total in dollars if printed, else null.',
+      'text: all readable text on the document, top to bottom, plain (max 4000 characters).',
+    ].join('\n'),
+    schema: {
+      type: 'object', additionalProperties: false,
+      required: ['is_invoice', 'date', 'odometer', 'vendor', 'total', 'services', 'text'],
+      properties: {
+        is_invoice: { type: 'boolean' }, date: str, odometer: { type: ['number', 'null'] }, vendor: str, total: { type: ['number', 'null'] },
+        services: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['description', 'service_type', 'cost'], properties: {
+          description: { type: 'string' }, service_type: { type: 'string', enum: SERVICE_TYPES.map(([k]) => k) }, cost: { type: ['number', 'null'] } } } },
+        text: { type: 'string' },
+      },
+    },
+    normalize: (r, opts) => normalizeShopInvoice(r, opts),
+    maxOutputTokens: 2500,
   },
 };
 

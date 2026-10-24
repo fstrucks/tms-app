@@ -31,7 +31,7 @@ async function history(c, truckId) {
     const it = await c.uc.from('service_record_items').select('*').in('service_record_id', ids);
     if (it.error) return isMissing(it.error) ? { missing: true } : { error: it.error };
     items = it.data || [];
-    const dc = await c.uc.from('documents').select('id,file_path,original_filename,service_record_id').in('service_record_id', ids);
+    const dc = await c.uc.from('documents').select('id,file_path,original_filename,service_record_id,doc_type').in('service_record_id', ids);
     docs = dc.error ? [] : dc.data || [];
   }
   const loadIds = [...new Set((rec.data || []).map((r) => r.load_id).filter(Boolean))];

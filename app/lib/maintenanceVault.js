@@ -2,7 +2,7 @@
 // TODO(Alex): set MAINTENANCE_VAULT_ENABLED to true once /maintenance/vault and
 // maintenance_vault_count() (returns an int) are shipped. Until then the Docs tile
 // stays hidden and nothing calls that RPC.
-export const MAINTENANCE_VAULT_ENABLED = false;
+export const MAINTENANCE_VAULT_ENABLED = true;
 export const MAINTENANCE_VAULT_PATH = '/maintenance/vault';
 
 // All trucks: /maintenance/vault. One truck: /maintenance/vault?truck=<id>.
