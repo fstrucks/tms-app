@@ -96,3 +96,42 @@ test('migration: Casey contract and no prod-only statements', () => {
   assert.ok(!/[^\x00-\x7F]/.test(sql));
   assert.ok(!/drop table|truncate|delete from public\.documents\s*;/i.test(sql));
 });
+
+// Route: delete removes the stored file only after the delete RPC succeeds (fake clients, TEST ids).
+import { fakeSupabase } from './fakeSupabase.mjs';
+import * as VAULT from '../../app/api/maintenance/vault/route.js';
+const OWN = '00000000-0000-4000-8000-0000000000a1', DOC = '00000000-0000-4000-8000-0000000000c1';
+function vctx(rpcResult) {
+  const uc = fakeSupabase({ tables: { company_profiles: [{ id: 'p1', owner_id: OWN }], documents: [{ id: DOC, truck_id: 'TEST-T1', file_path: `${OWN}/maint/TEST.pdf`, original_filename: 'TEST.pdf', doc_type: 'maintenance_doc' }] }, user: { id: OWN }, role: 'owner' });
+  const calls = [], removed = [];
+  uc.rpc = async (fn, a) => { calls.push(fn); if (fn === 'maint_vault_delete') return rpcResult; if (fn === 'packet_role') return { data: 'owner', error: null }; if (fn === 'maint_vault_can_manage') return { data: true, error: null }; return { data: null, error: null }; };
+  const admin = { storage: { from: (b) => ({ remove: async (p) => { removed.push([b, ...p]); return { error: null }; } }) } };
+  return { calls, removed, deps: { mkUserClient: () => uc, sb: uc, mkService: () => admin } };
+}
+const del = (c) => VAULT.POST(new Request('http://x/api/maintenance/vault', { method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: DOC }) }), { deps: c.deps });
+
+test('vault delete: storage object removed after a successful RPC, never after a failed one', async () => {
+  const okc = vctx({ data: `${OWN}/maint/TEST.pdf`, error: null });
+  const r = await del(okc);
+  assert.equal(r.status, 200);
+  assert.deepEqual(okc.removed, [['documents', `${OWN}/maint/TEST.pdf`]]);
+  const bad = vctx({ data: null, error: { code: '42501', message: 'vault_not_allowed' } });
+  const r2 = await del(bad);
+  assert.notEqual(r2.status, 200);
+  assert.deepEqual(bad.removed, []);
+});
+
+test('visit receipt count ignores a linked vault document', () => {
+  const src = readFileSync(new URL('../../app/truck/MaintenanceSection.js', import.meta.url), 'utf8');
+  assert.match(src, /receiptCount: v\.receipts\.filter\(\(r\) => r\.doc_type !== 'maintenance_doc'\)\.length/);
+  const api = readFileSync(new URL('../../app/api/truck/maintenance/route.js', import.meta.url), 'utf8');
+  assert.match(api, /select\('id,file_path,original_filename,service_record_id,doc_type'\)/);
+});
+
+test('migration: Sam review items present', () => {
+  const sql = readFileSync(new URL('../../supabase/migrations/20261024000400_maintenance_vault.sql', import.meta.url), 'utf8');
+  assert.match(sql, /create index if not exists documents_maint_file_path_idx on public\.documents \(file_path\) where doc_type = 'maintenance_doc';/);
+  assert.match(sql, /if auth\.uid\(\) is null and coalesce\(auth\.role\(\), ''\) <> 'anon' then/);
+  assert.equal(sql.split("and t.user_id in (select auth.uid() union select cp.owner_id from public.company_members m join public.company_profiles cp on cp.id = m.profile_id where m.user_id = auth.uid())").length, 3);
+  assert.match(sql, /and d\.doc_type = 'maintenance_receipt'\) >= 10/);
+});

@@ -46,6 +46,7 @@ do $$ declare c record; begin  -- extend a doc_type check only if prod has one (
     end if;
   end loop;
 end $$;
+create index if not exists documents_maint_file_path_idx on public.documents (file_path) where doc_type = 'maintenance_doc';
 create index if not exists documents_maint_vault_idx on public.documents (truck_id, created_at desc) where doc_type = 'maintenance_doc';
 
 -- 2. Helpers (security definer, read only). trucks is own-row RLS, so members need these to see the owner's trucks.
@@ -68,7 +69,7 @@ $$;
 create or replace function public.documents_maint_vault_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if auth.uid() is null then return coalesce(new, old); end if;  -- server / cascade
+  if auth.uid() is null and coalesce(auth.role(), '') <> 'anon' then return coalesce(new, old); end if;  -- server / cascade (never anon)
   if tg_op in ('UPDATE', 'DELETE') and old.doc_type = 'maintenance_doc' and not public.maint_truck_office(old.truck_id)
      and (tg_op = 'DELETE' or new.doc_type is distinct from old.doc_type or new.truck_id is distinct from old.truck_id) then
     raise exception 'vault_not_allowed' using errcode = '42501';
@@ -85,7 +86,7 @@ create trigger documents_maint_vault_guard before insert or update of doc_type, 
   for each row execute function public.documents_maint_vault_guard();
 
 -- 4. Linking to a visit: 0100's check relabelled every linked document as a receipt. A vault document keeps its type.
--- Otherwise identical to 0100 (caller must be allowed to change the visit; max 10 documents per visit, under a lock).
+-- Otherwise identical to 0100 (caller must be allowed to change the visit; max 10 receipts per visit, under a lock).
 create or replace function public.documents_service_record_check()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -96,9 +97,13 @@ begin
     if new.doc_type is not null and new.doc_type not in ('maintenance_receipt', 'maintenance_doc') then
       raise exception 'not_a_receipt' using errcode = '23514';
     end if;
-    perform pg_advisory_xact_lock(hashtextextended('maint_receipts:' || new.service_record_id::text, 0));
-    if (select count(*) from public.documents d where d.service_record_id = new.service_record_id and d.id <> new.id) >= 10 then
-      raise exception 'too_many_receipts' using errcode = '23514';
+    -- The 10-per-visit cap counts receipts only; a linked vault document neither counts nor is capped.
+    if new.doc_type is distinct from 'maintenance_doc' then
+      perform pg_advisory_xact_lock(hashtextextended('maint_receipts:' || new.service_record_id::text, 0));
+      if (select count(*) from public.documents d where d.service_record_id = new.service_record_id and d.id <> new.id
+            and d.doc_type = 'maintenance_receipt') >= 10 then
+        raise exception 'too_many_receipts' using errcode = '23514';
+      end if;
     end if;
     if new.doc_type is distinct from 'maintenance_doc' then new.doc_type := 'maintenance_receipt'; end if;
   end if;
@@ -203,6 +208,7 @@ language sql stable security definer set search_path = public as $$
     cross join w
    where auth.uid() is not null and d.doc_type = 'maintenance_doc'
      and (p_truck is null or d.truck_id = p_truck)
+     and t.user_id in (select auth.uid() union select cp.owner_id from public.company_members m join public.company_profiles cp on cp.id = m.profile_id where m.user_id = auth.uid())
      and public.maint_can_see(t.user_id, t.id)
      and (w.pats is null or lower(concat_ws(' ', d.maint_vendor, d.maint_notes, d.maint_text, d.original_filename, t.unit_number,
             to_char(d.maint_doc_date, 'YYYY-MM-DD'), to_char(d.maint_doc_date, 'MM/DD/YYYY'), to_char(d.maint_doc_date, 'FMMM/FMDD/YYYY'),
@@ -215,7 +221,9 @@ $$;
 create or replace function public.maintenance_vault_count()
 returns integer language sql stable security definer set search_path = public as $$
   select count(*)::int from public.documents d join public.trucks t on t.id = d.truck_id
-   where auth.uid() is not null and d.doc_type = 'maintenance_doc' and public.maint_can_see(t.user_id, t.id);
+   where auth.uid() is not null and d.doc_type = 'maintenance_doc'
+     and t.user_id in (select auth.uid() union select cp.owner_id from public.company_members m join public.company_profiles cp on cp.id = m.profile_id where m.user_id = auth.uid())
+     and public.maint_can_see(t.user_id, t.id);
 $$;
 
 -- 8. Grants: functions to authenticated only; maint_* columns are not client-writable (no column grants added).

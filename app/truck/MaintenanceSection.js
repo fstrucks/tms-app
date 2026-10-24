@@ -210,7 +210,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
             </div>
             {v.canChange && !form && (
               <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                <button type="button" style={s.small} onClick={() => { setMsg(null); setFiles([]); setForm({ mode: 'edit', id: v.id, receiptCount: v.receipts.length, f: fromVisit(v) }); }}>Edit</button>
+                <button type="button" style={s.small} onClick={() => { setMsg(null); setFiles([]); setForm({ mode: 'edit', id: v.id, receiptCount: v.receipts.filter((r) => r.doc_type !== 'maintenance_doc').length, f: fromVisit(v) }); }}>Edit</button>
                 <button type="button" style={{ ...s.small, borderColor: 'var(--danger-border)', color: 'var(--danger)' }} disabled={busy} onClick={() => remove(v)}>Delete</button>
               </div>
             )}

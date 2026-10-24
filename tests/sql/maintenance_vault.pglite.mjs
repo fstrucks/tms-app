@@ -11,7 +11,8 @@ create role anon; create role authenticated;
 create schema auth;
 create table auth.users (id uuid primary key, email text);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-grant usage on schema auth to authenticated, anon; grant execute on function auth.uid() to authenticated, anon;
+create function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claim.role', true), '')::text $$;
+grant usage on schema auth to authenticated, anon; grant execute on function auth.uid() to authenticated, anon; grant execute on function auth.role() to authenticated, anon;
 grant usage on schema public to authenticated, anon;
 create table public.trucks (id uuid primary key, user_id uuid not null, unit_number text, odometer integer, make text, model text, year integer, vin text);
 alter table public.trucks enable row level security;
@@ -167,6 +168,34 @@ ok((await as(P, `delete from public.documents where id = $1 returning id`, [B]))
 r = await as(O, `select public.maint_vault_delete($1) p`, [B]);
 ok(r.rows?.[0]?.p === `${M}/maint/b.jpg`, 'owner deletes a management upload and gets the path');
 ok(await count(O) === 2, 'count after delete');
+
+// Review fixes (Sam, #146).
+r = await sys(`select indexdef from pg_indexes where schemaname = 'public' and indexname = 'documents_maint_file_path_idx'`);
+ok(r.length === 1 && /\(file_path\)/.test(r[0].indexdef) && /maintenance_doc/.test(r[0].indexdef), 'partial file_path index for the storage policy');
+// Receipt cap counts receipts only; a linked vault doc is neither counted nor capped.
+const V3 = (await as(O, `insert into public.service_records (truck_id, service_date, total_cost, add_to_expenses) values ($1, '2026-10-01', 10, false) returning id`, [T1])).rows[0].id;
+const VA = (await add(O, T1, `${O}/maint/cap-a.pdf`)).rows[0].v;
+ok((await as(O, `select public.maint_vault_link($1, $2)`, [VA, V3])).rows, 'vault doc links to an empty visit');
+for (let i = 0; i < 10; i++) await as(O, `insert into public.documents (user_id, truck_id, doc_type, file_path, service_record_id) values ($1, $2, 'maintenance_receipt', $3, $4)`, [O, T1, `${O}/cap-r${i}.jpg`, V3]);
+ok((await sys(`select count(*)::int n from public.documents where service_record_id = $1 and doc_type = 'maintenance_receipt'`, [V3]))[0].n === 10, '10 receipts fit next to a linked vault doc');
+ok((await as(O, `insert into public.documents (user_id, truck_id, doc_type, file_path, service_record_id) values ($1, $2, 'maintenance_receipt', $3, $4)`, [O, T1, `${O}/cap-r10.jpg`, V3])).err?.includes('too_many_receipts'), '11th receipt still blocked');
+const VB = (await add(O, T1, `${O}/maint/cap-b.pdf`)).rows[0].v;
+ok((await as(O, `select public.maint_vault_link($1, $2)`, [VB, V3])).rows, 'vault doc links to a visit that already has 10 receipts');
+// Anon never gets the server bypass in the guard.
+await db.exec(`grant select, insert on public.documents to anon; create policy documents_anon_test on public.documents for insert to anon with check (true)`);
+await db.exec(`reset role; reset request.jwt.claim.sub; set request.jwt.claim.role = 'anon'; set role anon`);
+let anonIns = null; try { await db.query(`insert into public.documents (user_id, truck_id, doc_type, file_path) values ($1, $2, 'maintenance_doc', 'anon/x.pdf')`, [O, T1]); } catch (e) { anonIns = e.message; }
+await db.exec(`reset role; reset request.jwt.claim.role`);
+await db.exec(`drop policy documents_anon_test on public.documents; revoke select, insert on public.documents from anon`);
+ok(anonIns?.includes('vault_not_allowed'), 'anon insert of maintenance_doc blocked by the guard');
+ok((await sys(`insert into public.documents (user_id, truck_id, doc_type, file_path) values ($1, $2, 'maintenance_doc', $3) returning id`, [O, T1, `${O}/maint/server.pdf`])).length === 1, 'server (no user, not anon) still bypasses');
+// Company filter: a user with no company and no trucks sees nothing; the other company never sees TEST-T1.
+const U = id(77); await sys(`insert into auth.users (id) values ('${U}')`);
+ok(await count(U) === 0 && (await list(U)).length === 0, 'stranger sees no vault docs');
+ok((await list(X)).every((d) => d.truck_id === TX) && (await list(X, T1)).length === 0, 'other company never sees TEST-T1 docs');
+// Membership in a second company adds that company; the filter does not hide own trucks.
+await sys(`insert into public.company_members (profile_id, user_id, role) values ('${C2}','${U}','management')`);
+ok((await list(U)).every((d) => d.truck_id === TX), 'member of second company sees only that company');
 
 // Grants.
 await db.exec(`reset role; set role anon`);

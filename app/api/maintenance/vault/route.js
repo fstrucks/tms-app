@@ -44,8 +44,8 @@ function sniffMime(buf) {
   return null;
 }
 
-export async function GET(req) {
-  const c = await truckCtx(req);
+export async function GET(req, { deps } = {}) {
+  const c = await truckCtx(req, deps);
   if (c.res) return c.res;
   const u = new URL(req.url);
   const truck = u.searchParams.get('truck');
@@ -58,8 +58,8 @@ export async function GET(req) {
   return json({ available: true, role: c.role, trucks: tr.data || [], docs: ls.data || [], truck: truck && UUID.test(truck) ? truck : null, q });
 }
 
-export async function POST(req) {
-  const c = await truckCtx(req);
+export async function POST(req, { deps } = {}) {
+  const c = await truckCtx(req, deps);
   if (c.res) return c.res;
   let b;
   try { b = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
@@ -91,7 +91,7 @@ export async function POST(req) {
 
   if (a === 'scan') {
     const apiKey = process.env.OPENAI_API_KEY;
-    const admin = serviceClient();
+    const admin = (deps?.mkService || serviceClient)();
     if (!apiKey || !admin) return json({ error: 'Scanning isn’t set up. Fill in the details by hand.' }, 501);
     const dl = await c.uc.storage.from(BUCKET).download(doc.data.file_path);
     if (dl.error || !dl.data) return json({ error: 'Could not read the stored file.' }, 500);
@@ -130,7 +130,7 @@ export async function POST(req) {
     if (r.error) return sqlErr(r.error, 'Could not delete the document.');
     const path = r.data;
     if (path) { // the file may sit in another user's folder (e.g. management uploaded it), so the server removes it
-      const admin = serviceClient() || c.uc;
+      const admin = (deps?.mkService || serviceClient)() || c.uc;
       const rm = await admin.storage.from(BUCKET).remove([path]);
       if (rm.error) console.error('[maint-vault] remove file', rm.error.message);
     }
