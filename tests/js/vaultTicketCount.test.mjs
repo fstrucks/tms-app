@@ -2,6 +2,7 @@
 // Fake rows only. No live database. #144 linking, #147 handled_at, and #148 delete stay as they are.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import { pageLoadVault } from '../../app/lib/loadVault.js';
 import { vaultTileCounts } from '../../app/lib/vaultCounts.js';
@@ -79,6 +80,22 @@ async function counted(documents, tickets, role, userId) {
 }
 
 const bols = (n) => Array.from({ length: n }, (_, i) => bol(i));
+
+// The in-memory client returns every column. The vault list query does not, so a test of that
+// list has to drop truck_id and service_record_id the same way.
+const LIST_COLS = readFileSync(new URL('../../app/lib/loadVaultQuery.js', import.meta.url), 'utf8').match(/const DOC_COLS = '([^']+)'/)[1].split(',').map((c) => c.trim());
+
+function asListDoc(doc) {
+  const out = {};
+  for (const key of LIST_COLS) out[key] = doc[key];
+  return out;
+}
+
+function listedLikeTheApi(documents, tickets, role, userId) {
+  return pageLoadVault({
+    docs: documents.map(asListDoc), loads: [load(L1)], ticketLoads: tickets, role, userId, ownerId: OWNER, limit: 50,
+  });
+}
 
 test('dispatcher tile matches the list when the owner scale ticket is confirmed onto a load', async () => {
   const photo = scalePhoto('owner-ticket', OWNER);
@@ -181,4 +198,30 @@ test('ticket-only rows past 200 are still counted for the dispatcher', async () 
   assert.equal(page.rows.length, n);
   const counts = await counted(documents, tickets, 'dispatcher', DISP);
   assert.equal(counts.loadDocs, n);
+});
+
+test('Remove leaves the scale ticket photo in the database and drops it from the owner tile', async () => {
+  assert.equal(LIST_COLS.includes('truck_id'), false);
+  const photos = [scalePhoto('ticket-a', OWNER), scalePhoto('ticket-b', OWNER)];
+  const documents = [...bols(11), ...photos];
+  const linked = photos.map((p) => ticket(p.id));
+  const before = listedLikeTheApi(documents, linked, 'owner', OWNER);
+  const beforeCounts = await counted(documents, linked, 'owner', OWNER);
+  assert.equal(before.rows.length, 13);
+  assert.equal(beforeCounts.loadDocs, before.rows.length);
+
+  // Load delete nulls scale_tickets.load_id. The weight row and the photo stay.
+  const unlinked = linked.map((t) => ({ ...t, load_id: null }));
+  const afterLoad = listedLikeTheApi(documents, unlinked, 'owner', OWNER);
+  const afterLoadCounts = await counted(documents, unlinked, 'owner', OWNER);
+  assert.equal(afterLoad.rows.some((r) => r.doc.id === 'ticket-a'), true);
+  assert.equal(afterLoad.rows.some((r) => r.doc.id === 'ticket-b'), true);
+  assert.equal(afterLoadCounts.loadDocs, afterLoad.rows.length);
+
+  // Truck → Remove deletes the scale_tickets row only. documents.truck_id stays set.
+  const afterRemove = listedLikeTheApi(documents, [], 'owner', OWNER);
+  const afterRemoveCounts = await counted(documents, [], 'owner', OWNER);
+  assert.equal(afterRemove.rows.some((r) => r.doc.id === 'ticket-a' || r.doc.id === 'ticket-b'), false);
+  assert.equal(afterRemove.rows.length, 11);
+  assert.equal(afterRemoveCounts.loadDocs, 11);
 });

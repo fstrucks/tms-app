@@ -36,7 +36,15 @@ const LOOSE_COLS_MID = 'id, doc_type, file_path, load_id, truck_id, service_reco
 const LOOSE_COLS_BASE = 'id, doc_type, file_path, load_id, truck_id, source, extraction_error, ai_extracted_data, created_at';
 const LOOSE_BATCH = 200;
 
-// Own unassigned rows that still need attention are inside the head count above.
+// The vault list does not load truck_id or service_record_id. A photo filed only that way
+// leaves the list once its scale_tickets row is gone, so the tile must not keep counting it.
+function asVaultListDoc(doc) {
+  if (!doc) return doc;
+  const { truck_id, service_record_id, ...rest } = doc;
+  return rest;
+}
+
+// Own rows that still need attention are inside the head count above.
 // Subtract them with the same predicate the list uses. handled_at rows stay in the tile.
 async function countOwnAttention(svc, userId) {
   const seen = new Set();
@@ -45,7 +53,7 @@ async function countOwnAttention(svc, userId) {
   let tier = 0;
   const colsOf = [LOOSE_COLS, LOOSE_COLS_MID, LOOSE_COLS_BASE];
   for (let guard = 0; guard < 25; guard += 1) {
-    let q = svc.from('documents').select(colsOf[tier]).eq('user_id', userId).is('load_id', null).is('truck_id', null);
+    let q = svc.from('documents').select(colsOf[tier]).eq('user_id', userId).is('load_id', null);
     if (tier < 2) q = q.is('service_record_id', null);
     if (tier === 0) q = q.is('handled_at', null);
     if (before) q = q.lt('created_at', before);
@@ -66,7 +74,7 @@ async function countOwnAttention(svc, userId) {
       if (!d?.id || seen.has(d.id)) continue;
       seen.add(d.id);
       added += 1;
-      if (isLoadVaultDoc(d) && needsAttention(d, tickets.get(d.id) || null)) total += 1;
+      if (isLoadVaultDoc(d) && needsAttention(asVaultListDoc(d), tickets.get(d.id) || null)) total += 1;
     }
     if (!added || docs.length < LOOSE_BATCH) break;
     const last = docs[docs.length - 1]?.created_at;
