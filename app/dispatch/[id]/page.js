@@ -21,6 +21,7 @@ import {
   notMemberCopy,
 } from '../../lib/dispatch';
 import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../../lib/onlineRetry';
+import { dispatchLoad, showDispatchButton, formStatusOnDriverPick, formStatusOnStatusPick } from '../../lib/autoDispatch';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
@@ -112,6 +113,25 @@ export default function DispatchLoadPage() {
   const load = state.load;
   const original = useMemo(() => (load ? JSON.stringify(formToStops(stopsToForm(load.stops || []), { browserTz }).payload) : null), [load, browserTz]);
   const set = (k) => (v) => { setForm((f) => ({ ...f, [k]: v })); setMsg(null); };
+  function setDriver(nextDriver) {
+    setForm((f) => ({
+      ...f,
+      assigned_driver_user_id: nextDriver,
+      status: formStatusOnDriverPick({
+        savedStatus: load.status, savedDriver: load.assigned_driver_user_id, nextDriver, formStatus: f.status,
+      }),
+    }));
+    setMsg(null);
+  }
+  function setStatus(pickedStatus) {
+    setForm((f) => ({
+      ...f,
+      status: formStatusOnStatusPick({
+        savedStatus: load.status, savedDriver: load.assigned_driver_user_id, formDriver: f.assigned_driver_user_id, pickedStatus,
+      }),
+    }));
+    setMsg(null);
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -136,7 +156,29 @@ export default function DispatchLoadPage() {
       }
       const fresh = await fetchDispatchLoads(supabase, id);
       if (fresh.loads?.[0]) apply(fresh.loads[0]);
-      setMsg({ err: false, text: 'Saved.' });
+      setMsg({ err: false, text: load.status === 'booked' && p.patch.status === 'dispatched' ? 'Saved and dispatched.' : 'Saved.' });
+    } finally { setSaving(false); }
+  }
+
+  const canDispatchNow = !!(load && form && showDispatchButton({ status: load.status, driverId: load.assigned_driver_user_id })
+    && (form.assigned_driver_user_id || '') === (load.assigned_driver_user_id || '')
+    && form.status === load.status);
+
+  async function dispatchNow() {
+    if (saving || !canDispatchNow) return;
+    setMsg(null);
+    const p = formToPatch(form, load);
+    const st = formToStops(stops, { browserTz });
+    const stopsChanged = !st.payload || JSON.stringify(st.payload) !== original;
+    if (!p.patch || Object.keys(p.patch).length || stopsChanged) return setMsg({ err: true, text: 'Save or discard your other changes, then tap Dispatch.' });
+    setSaving(true);
+    try {
+      if (!(await hasSession(supabase))) return setMsg({ err: true, text: 'Your session has expired. Please sign in again.' });
+      const r = await dispatchLoad(supabase, { id, status: load.status, channel: 'staff', saveStaff: saveLoad });
+      if (!r.ok) { console.error('[dispatch] dispatch', r.error); return setMsg({ err: true, text: r.message || 'Couldn’t dispatch. Please try again.' }); }
+      const fresh = await fetchDispatchLoads(supabase, id);
+      if (fresh.loads?.[0]) apply(fresh.loads[0]);
+      setMsg({ err: false, text: 'Dispatched.' });
     } finally { setSaving(false); }
   }
 
@@ -176,11 +218,17 @@ export default function DispatchLoadPage() {
             <div style={s.card}>
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Load</h2>
               <div className="newload-grid">
-                <label style={s.label}>Status
-                  <select value={form.status} onChange={(e) => set('status')(e.target.value)} style={s.input}>
-                    {STATUSES.map((x) => <option key={x} value={x}>{x.replaceAll('_', ' ')}</option>)}
-                  </select>
-                </label>
+                <div>
+                  <label style={s.label}>Status
+                    <select value={form.status} onChange={(e) => setStatus(e.target.value)} style={s.input}>
+                      {STATUSES.map((x) => <option key={x} value={x}>{x.replaceAll('_', ' ')}</option>)}
+                    </select>
+                  </label>
+                  {canDispatchNow && (
+                    <button type="button" data-testid="dispatch-load-btn" disabled={saving} onClick={dispatchNow}
+                      style={{ ...s.pri, marginTop: 8, width: '100%' }}>Dispatch</button>
+                  )}
+                </div>
                 <Field label="Broker" value={form.broker_name} onChange={set('broker_name')} error={errors.broker_name} />
                 <Field label="Load #" value={form.broker_load_number} onChange={set('broker_load_number')} error={errors.broker_load_number} />
                 <Field label="Rate ($)" inputMode="decimal" required value={form.rate} onChange={set('rate')} error={errors.rate} />
@@ -206,7 +254,7 @@ export default function DispatchLoadPage() {
                 {driverOpts.loading ? (
                   <select disabled aria-busy="true" data-testid="driver-picker-loading" value="" style={{ ...s.input, color: 'var(--text-muted)' }}><option value="">Loading drivers…</option></select>
                 ) : (
-                  <select value={form.assigned_driver_user_id} onChange={(e) => set('assigned_driver_user_id')(e.target.value)} style={s.input}>
+                  <select value={form.assigned_driver_user_id} onChange={(e) => setDriver(e.target.value)} style={s.input}>
                     <option value="">Not assigned</option>
                     {driverOpts.options.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
                   </select>

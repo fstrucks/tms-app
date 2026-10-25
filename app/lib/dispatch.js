@@ -4,6 +4,7 @@
 // users can't touch the tables directly. The database checks the role on every call; the checks here only shape
 // the UI. Pure helpers + thin RPC wrappers, unit-tested in tests/js/dispatch.test.mjs.
 import { isMissingFunction } from './homeCurrentLoad';
+import { statusAfterDriverChange, statusForNewAssignedLoad } from './autoDispatch';
 // Same list as lib/loads STATUSES (that module re-exports a JSX component, so it can't load in node tests).
 export const STATUSES = ['booked', 'dispatched', 'in_transit', 'delivered', 'invoiced', 'paid', 'cancelled'];
 
@@ -98,7 +99,12 @@ export function formToPatch(form, original) {
   if (!STATUSES.includes(f.status)) errors.status = 'Pick a status.';
   for (const k of LOAD_TEXT_FIELDS) if (f[k].length > 4000) errors[k] = 'Keep this under 4,000 characters.';
   if (Object.keys(errors).length) return { errors, patch: null };
-  if (f.status !== o.status) patch.status = f.status;
+  // Assigning a driver on a booked load dispatches it. An explicit status other than booked still wins.
+  const decided = statusAfterDriverChange({
+    status: o.status, previousDriver: o.assigned_driver_user_id, nextDriver: f.assigned_driver_user_id,
+    explicitStatus: f.status !== o.status ? f.status : null,
+  });
+  if (decided && decided !== o.status) patch.status = decided;
   for (const k of LOAD_TEXT_FIELDS) if (f[k].trim() !== o[k].trim()) patch[k] = f[k].trim() || null;
   if (rate !== num(o.rate)) patch.rate = rate;
   if (miles !== num(o.total_miles)) patch.total_miles = miles;
@@ -291,7 +297,9 @@ export function formToNewLoad(form) {
 
 // → { ok, id } | { ok: false, error, setup? }
 export async function createLoad(supabase, ownerId, load, stops) {
-  const clean = Object.fromEntries(Object.entries(load || {}).filter(([k]) => NEW_LOAD_KEYS.includes(k)));
+  const nextStatus = statusForNewAssignedLoad(load || {});
+  const withDriverStatus = nextStatus && nextStatus !== (load || {}).status ? { ...(load || {}), status: nextStatus } : (load || {});
+  const clean = Object.fromEntries(Object.entries(withDriverStatus).filter(([k]) => NEW_LOAD_KEYS.includes(k)));
   const { data, error } = await supabase.rpc('dispatch_create_load', { p_owner: ownerId, p_load: clean, p_stops: stops });
   if (error) {
     if (isMissingFunction(error)) return { ok: false, setup: true, error: CREATE_SETUP_MSG, cause: error };
