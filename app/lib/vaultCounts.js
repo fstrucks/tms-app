@@ -5,7 +5,6 @@ import { LOAD_VAULT_TYPES, chunks, isLoadVaultDoc, pageLoadVault } from './loadV
 import { companyMemberIds } from './loadVaultQuery';
 import { loadDriverVault } from './driverVaultQuery';
 import { needsAttention } from './docsInbox';
-import { isHandledDoc } from './rateconDrafts';
 
 async function head(q) {
   const { count, error } = await q;
@@ -37,7 +36,15 @@ const LOOSE_COLS_MID = 'id, doc_type, file_path, load_id, truck_id, service_reco
 const LOOSE_COLS_BASE = 'id, doc_type, file_path, load_id, truck_id, source, extraction_error, ai_extracted_data, created_at';
 const LOOSE_BATCH = 200;
 
-// Own unassigned rows that still need attention are inside the head count above.
+// The vault list does not load truck_id or service_record_id. A photo filed only that way
+// leaves the list once its scale_tickets row is gone, so the tile must not keep counting it.
+function asVaultListDoc(doc) {
+  if (!doc) return doc;
+  const { truck_id, service_record_id, ...rest } = doc;
+  return rest;
+}
+
+// Own rows that still need attention are inside the head count above.
 // Subtract them with the same predicate the list uses. handled_at rows stay in the tile.
 async function countOwnAttention(svc, userId) {
   const seen = new Set();
@@ -46,7 +53,7 @@ async function countOwnAttention(svc, userId) {
   let tier = 0;
   const colsOf = [LOOSE_COLS, LOOSE_COLS_MID, LOOSE_COLS_BASE];
   for (let guard = 0; guard < 25; guard += 1) {
-    let q = svc.from('documents').select(colsOf[tier]).eq('user_id', userId).is('load_id', null).is('truck_id', null);
+    let q = svc.from('documents').select(colsOf[tier]).eq('user_id', userId).is('load_id', null);
     if (tier < 2) q = q.is('service_record_id', null);
     if (tier === 0) q = q.is('handled_at', null);
     if (before) q = q.lt('created_at', before);
@@ -67,7 +74,7 @@ async function countOwnAttention(svc, userId) {
       if (!d?.id || seen.has(d.id)) continue;
       seen.add(d.id);
       added += 1;
-      if (isLoadVaultDoc(d) && needsAttention(d, tickets.get(d.id) || null)) total += 1;
+      if (isLoadVaultDoc(d) && needsAttention(asVaultListDoc(d), tickets.get(d.id) || null)) total += 1;
     }
     if (!added || docs.length < LOOSE_BATCH) break;
     const last = docs[docs.length - 1]?.created_at;
@@ -77,33 +84,62 @@ async function countOwnAttention(svc, userId) {
   return total;
 }
 
-// A teammate's handled email rate con has load_id cleared, so the head count misses it.
-// The vault list still shows it when a scale ticket points at a load the viewer can open.
-// Own handled rows are already in the head count. This adds only the ones the list shows beyond that.
-async function countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds }) {
+const TICKET_PAGE = 200;
+const LINKED_DOC_COLS = 'id,user_id,load_id,doc_type,source,handled_at,file_path,created_at';
+const LINKED_DOC_COLS_BASE = 'id,user_id,load_id,doc_type,source,file_path,created_at';
+
+// Teammate paperwork filed only through a scale ticket: documents.load_id is still null,
+// but scale_tickets.load_id points at a company load, so the vault list shows the row.
+// Own rows are already in the head count. Page by ticket id so a set larger than 200 is not cut off.
+async function countTicketLinkedShown(svc, { ownerId, role, userId, memberIds }) {
   const others = memberIds.filter((id) => id && id !== userId);
   if (!others.length) return 0;
-  const docs = [];
-  for (const part of chunks(others, 80)) {
-    const res = await svc.from('documents')
-      .select('id,user_id,load_id,doc_type,source,handled_at,file_path,created_at')
-      .in('user_id', part)
-      .is('load_id', null)
-      .eq('source', 'email')
-      .eq('doc_type', 'rate_confirmation')
-      .not('handled_at', 'is', null)
-      .limit(200);
-    if (res.error?.code === '42703') return 0;
+  const tickets = [];
+  const seenTickets = new Set();
+  let beforeId = null;
+  for (let guard = 0; guard < 50; guard += 1) {
+    let q = svc.from('scale_tickets')
+      .select('id,document_id,load_id,truck_id,trailer_id,confirmed')
+      .eq('user_id', ownerId)
+      .not('document_id', 'is', null)
+      .not('load_id', 'is', null);
+    if (beforeId) q = q.lt('id', beforeId);
+    const res = await q.order('id', { ascending: false }).limit(TICKET_PAGE);
     if (res.error) return null;
-    docs.push(...(res.data || []).filter(isHandledDoc));
+    const rows = res.data || [];
+    if (!rows.length) break;
+    let added = 0;
+    for (const t of rows) {
+      if (!t?.document_id || seenTickets.has(t.document_id)) continue;
+      seenTickets.add(t.document_id);
+      added += 1;
+      tickets.push(t);
+    }
+    if (!added || rows.length < TICKET_PAGE) break;
+    const lastId = rows[rows.length - 1]?.id;
+    if (!lastId || lastId === beforeId) break;
+    beforeId = lastId;
+  }
+  if (!tickets.length) return 0;
+  const docs = [];
+  const seenDocs = new Set();
+  let cols = LINKED_DOC_COLS;
+  for (const users of chunks(others, 80)) {
+    for (const part of chunks(tickets.map((t) => t.document_id), 80)) {
+      let res = await svc.from('documents').select(cols).in('id', part).in('user_id', users).is('load_id', null);
+      if (res.error?.code === '42703' && cols !== LINKED_DOC_COLS_BASE) {
+        cols = LINKED_DOC_COLS_BASE;
+        res = await svc.from('documents').select(cols).in('id', part).in('user_id', users).is('load_id', null);
+      }
+      if (res.error) return null;
+      for (const d of res.data || []) {
+        if (!d?.id || seenDocs.has(d.id)) continue;
+        seenDocs.add(d.id);
+        docs.push(d);
+      }
+    }
   }
   if (!docs.length) return 0;
-  const tickets = [];
-  for (const part of chunks(docs.map((d) => d.id), 80)) {
-    const tk = await svc.from('scale_tickets').select('document_id, load_id, truck_id, trailer_id, confirmed').eq('user_id', ownerId).in('document_id', part);
-    if (tk.error) return null;
-    tickets.push(...(tk.data || []));
-  }
   const loads = [];
   for (const part of chunks([...new Set(tickets.map((t) => t.load_id).filter(Boolean))], 80)) {
     const ld = await svc.from('loads').select('id,user_id,assigned_driver_user_id,show_rate_to_driver').eq('user_id', ownerId).in('id', part);
@@ -127,7 +163,7 @@ async function countLoadDocs(svc, { ownerId, role, userId, memberIds }) {
     }
     const raw = await sumHeads(makes);
     if (raw == null) return null;
-    const extra = await countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds });
+    const extra = await countTicketLinkedShown(svc, { ownerId, role, userId, memberIds });
     return extra == null ? null : Math.max(0, raw - ownAttention + extra);
   }
   const { data, error } = await svc.from('loads').select('id,show_rate_to_driver').eq('user_id', ownerId).eq('assigned_driver_user_id', userId).limit(500);
@@ -147,7 +183,7 @@ async function countLoadDocs(svc, { ownerId, role, userId, memberIds }) {
   }
   const raw = await sumHeads(makes);
   if (raw == null) return null;
-  const extra = await countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds });
+  const extra = await countTicketLinkedShown(svc, { ownerId, role, userId, memberIds });
   return extra == null ? null : Math.max(0, raw - ownAttention + extra);
 }
 
