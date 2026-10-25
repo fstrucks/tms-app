@@ -2,6 +2,7 @@
 // 20261018000600_load_driver_rate_members.sql. Until it is applied every helper here reports available:false and
 // the forms hide the controls, so nothing is sent that the database can't store.
 import { isMissingFunction } from './homeCurrentLoad';
+import { dispatchLoad, statusAfterDriverChange } from './autoDispatch';
 
 const MISSING_COL = /assigned_driver_user_id|show_rate_to_driver|pickup_number/;
 // One message wherever the assigned-driver trigger (0600/0700) can surface: the load points at someone who isn't a
@@ -46,14 +47,23 @@ export const SAVE_ERRORS = {
   load_not_found: 'Load not found.',
 };
 
-// Owner / management / dispatcher. → { ok, row } | { ok: false, error }
-export async function saveDriverSettings(supabase, loadId, { driverId = null, showRate = false } = {}) {
+// Owner / management / dispatcher. The database checks the role (drivers get not_allowed).
+// Passing status + previousDriver also dispatches a booked load when the driver changes, through the same
+// owner status write as the Dispatch button. The RPC itself only stores the driver and the show-rate flag.
+// → { ok, row, status } | { ok: false, error, row? }
+export async function saveDriverSettings(supabase, loadId, { driverId = null, showRate = false, status = null, previousDriver = null } = {}) {
   const { data, error } = await supabase.rpc('set_load_driver_settings', { p_load: loadId, p_driver: driverId || null, p_show: !!showRate });
   if (error) {
     const code = Object.keys(SAVE_ERRORS).find((k) => (error.message || '').includes(k));
     return { ok: false, error: code ? SAVE_ERRORS[code] : "Couldn't save the driver settings. Please try again.", cause: error };
   }
-  return { ok: true, row: data };
+  const next = statusAfterDriverChange({ status, previousDriver, nextDriver: driverId || null });
+  if (status === 'booked' && next === 'dispatched') {
+    const d = await dispatchLoad(supabase, { id: loadId, status, channel: 'owner' });
+    if (!d.ok) return { ok: false, error: 'The driver was saved, but the load was not dispatched. Tap Dispatch to finish.', cause: d.error, row: data };
+    return { ok: true, row: data, status: d.status };
+  }
+  return { ok: true, row: data, status: status || null };
 }
 
 // Label for a driver choice. Emails only (company_members has no names yet).

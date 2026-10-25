@@ -1,4 +1,5 @@
 import { DRIVER_GONE_TEXT, isDriverGone } from './loadDriver.js';
+import { statusForNewAssignedLoad } from './autoDispatch.js';
 // Manual "New load" (/loads/new). Before this, /loads/new fell through to /loads/[id] with id = "new":
 // the page queried loads.id = 'new' (not a UUID) and never showed a load, so testers were stuck on "Loading load…".
 // Now /loads/new is its own static route (Next.js matches it before [id]) and [id] rejects non-UUID ids up front.
@@ -51,9 +52,10 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
   }
   if (Object.keys(errors).length) return { errors, load: null, stops: null };
 
+  const driverId = txt(f.driver_user_id);
   const load = {
     user_id: userId,
-    status: 'booked',
+    status: statusForNewAssignedLoad({ status: 'booked', assigned_driver_user_id: driverId }) || 'booked',
     broker_name: txt(f.broker_name),
     broker_load_number: txt(f.broker_load_number),
     rate,
@@ -65,7 +67,7 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
   if (miles !== null) { load.total_miles = miles; load.miles_source = 'typed'; }
   // Assigned driver + "Show rate to driver" (20261018000600): only sent when set, so a blank form still saves
   // before that migration is applied.
-  if (txt(f.driver_user_id)) load.assigned_driver_user_id = txt(f.driver_user_id);
+  if (driverId) load.assigned_driver_user_id = driverId;
   if (f.show_rate_to_driver === true) load.show_rate_to_driver = true;
   const stop = (p, kind, sequence) => ({
     stop_type: kind, sequence,
@@ -86,11 +88,13 @@ export function buildNewLoad(form, { userId, timezone = null } = {}) {
 // Inserts the load, then its two stops. If the stops fail, the half-made load is removed again.
 // Returns { ok: true, id } or { ok: false, error }.
 export async function createManualLoad(supabase, built) {
-  const { data: row, error } = await supabase.from('loads').insert(built.load).select('*').single();
+  const nextStatus = statusForNewAssignedLoad(built.load);
+  const load = nextStatus && nextStatus !== built.load?.status ? { ...built.load, status: nextStatus } : built.load;
+  const { data: row, error } = await supabase.from('loads').insert(load).select('*').single();
   if (error || !row?.id) {
     // miles_source missing (20261018000300 not applied): retry once without it rather than failing.
-    if (error && /miles_source/.test(error.message || '') && 'miles_source' in built.load) {
-      const { miles_source, ...rest } = built.load; // eslint-disable-line no-unused-vars
+    if (error && /miles_source/.test(error.message || '') && 'miles_source' in load) {
+      const { miles_source, ...rest } = load; // eslint-disable-line no-unused-vars
       return createManualLoad(supabase, { ...built, load: rest });
     }
     if (error && isDriverGone(error)) {

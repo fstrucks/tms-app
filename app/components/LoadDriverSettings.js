@@ -36,10 +36,17 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
   async function save() {
     setSaving(true); setMsg(null);
     try {
-      const r = await saveDriverSettings(supabase, load.id, { driverId: driver || null, showRate: show });
-      if (!r.ok) { console.error('[load] driver settings', r.cause); return setMsg({ err: true, text: r.error }); }
-      onSaved?.({ assigned_driver_user_id: r.row?.assigned_driver_user_id ?? null, show_rate_to_driver: r.row?.show_rate_to_driver === true });
-      setMsg({ err: false, text: 'Saved.' });
+      const r = await saveDriverSettings(supabase, load.id, {
+        driverId: driver || null, showRate: show, status: load.status, previousDriver: load.assigned_driver_user_id || null,
+      });
+      const saved = { assigned_driver_user_id: r.row?.assigned_driver_user_id ?? (driver || null), show_rate_to_driver: r.row?.show_rate_to_driver === true };
+      if (!r.ok) {
+        console.error('[load] driver settings', r.cause);
+        if (r.row) onSaved?.(saved); // driver is stored; Dispatch stays available until the status write succeeds
+        return setMsg({ err: true, text: r.error });
+      }
+      onSaved?.({ ...saved, ...(r.status ? { status: r.status } : {}) });
+      setMsg({ err: false, text: r.status === 'dispatched' && load.status === 'booked' ? 'Saved and dispatched.' : 'Saved.' });
     } finally { setSaving(false); }
   }
 

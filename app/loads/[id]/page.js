@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { uploadScan } from '../../lib/scanUpload';
 import { mergeFetchedLoad, settleStatus } from '../../lib/loadStatus';
+import { dispatchLoad, showDispatchButton, writeOwnerLoadStatus } from '../../lib/autoDispatch';
 import Link from 'next/link';
 import SignInLink from '../../components/SignInLink';
 import { useParams, useRouter } from 'next/navigation';
@@ -158,7 +159,12 @@ export default function LoadDetailPage() {
     list?.patchLoad(id, { status });
     setSaving(true);
     try {
-      const { data: saved, error } = await supabase.from('loads').update({ status }).eq('id', id).select('status').maybeSingle();
+      // Booked → dispatched goes through the shared Dispatch write. Any other status uses the same owner update.
+      const res = (status === 'dispatched' && prev === 'booked')
+        ? await dispatchLoad(supabase, { id, status: prev, channel: 'owner' })
+        : await writeOwnerLoadStatus(supabase, { id, status });
+      const error = res.ok ? null : (res.error || { message: 'not_updated' });
+      const saved = res.ok ? { status: res.status } : null;
       statusVer.current += 1;
       const settled = settleStatus({ status }, { error, saved, prev }).status;
       setLoad((l) => settleStatus(l, { error, saved, prev }));
@@ -273,14 +279,22 @@ export default function LoadDetailPage() {
                       Status: {String(load.status || '—').replaceAll('_', ' ')} · <Link href={`/dispatch/${load.id}`}>Change status in Dispatch →</Link></p>
                   )}
                   {hasStatus && owner && (
-                    <label style={{ display: 'block', marginTop: '0.75rem' }}>
-                      <span style={s.muted}>Status </span>
-                      <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
-                        style={{ fontSize: '1rem', padding: '0.4rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' }}>
-                        {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
-                        {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
-                      </select>
-                    </label>
+                    <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                      <label style={{ display: 'block' }}>
+                        <span style={s.muted}>Status </span>
+                        <select value={load.status || ''} disabled={saving} onChange={(e) => changeStatus(e.target.value)}
+                          style={{ fontSize: '1rem', minHeight: 44, padding: '0.4rem', borderRadius: 8, border: '1px solid var(--text-muted)', background: 'var(--surface)', color: 'var(--text)', colorScheme: 'inherit' }}>
+                          {!STATUSES.includes(load.status) && <option value={load.status || ''}>{load.status || '—'}</option>}
+                          {STATUSES.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
+                        </select>
+                      </label>
+                      {showDispatchButton({ status: load.status, driverId: load.assigned_driver_user_id }) && (
+                        <button type="button" data-testid="dispatch-load-btn" disabled={saving} onClick={() => changeStatus('dispatched')}
+                          style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, fontSize: 16 }}>
+                          Dispatch
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 

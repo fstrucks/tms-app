@@ -17,6 +17,7 @@ import {
   STATUSES, SETUP_MSG, fetchDispatchContext, loadToForm, blankStop, formToStops, formToNewLoad, createLoad,
   notesMayShowPay, notMemberCopy, fetchMyRoles,
 } from '../../lib/dispatch';
+import { formStatusOnDriverPick, formStatusOnStatusPick } from '../../lib/autoDispatch';
 
 const s = {
   ...STOP_STYLES,
@@ -69,6 +70,21 @@ export default function DispatchNewLoadPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k) => (v) => { setForm((f) => ({ ...f, [k]: v })); setMsg(null); };
+  function setDriver(nextDriver) {
+    setForm((f) => ({
+      ...f,
+      assigned_driver_user_id: nextDriver,
+      status: formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: null, nextDriver, formStatus: f.status }),
+    }));
+    setMsg(null);
+  }
+  function setStatus(pickedStatus) {
+    setForm((f) => ({
+      ...f,
+      status: formStatusOnStatusPick({ savedStatus: 'booked', savedDriver: null, formDriver: f.assigned_driver_user_id, pickedStatus }),
+    }));
+    setMsg(null);
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -107,7 +123,7 @@ export default function DispatchNewLoadPage() {
               <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Load</h2>
               <div className="newload-grid">
                 <label style={s.label}>Status
-                  <select value={form.status} onChange={(e) => set('status')(e.target.value)} style={s.input}>
+                  <select value={form.status} onChange={(e) => setStatus(e.target.value)} style={s.input}>
                     {STATUSES.map((x) => <option key={x} value={x}>{x.replaceAll('_', ' ')}</option>)}
                   </select>
                 </label>
@@ -136,7 +152,7 @@ export default function DispatchNewLoadPage() {
                 {driverOpts.loading ? (
                   <select disabled aria-busy="true" data-testid="driver-picker-loading" value="" style={{ ...s.input, color: 'var(--text-muted)' }}><option value="">Loading drivers…</option></select>
                 ) : (
-                  <select value={form.assigned_driver_user_id} onChange={(e) => set('assigned_driver_user_id')(e.target.value)} style={s.input}>
+                  <select value={form.assigned_driver_user_id} onChange={(e) => setDriver(e.target.value)} style={s.input}>
                     <option value="">Not assigned</option>
                     {driverOpts.options.map((c) => <option key={c.user_id} value={c.user_id}>{driverLabel(c)}</option>)}
                   </select>
