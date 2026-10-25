@@ -100,4 +100,9 @@ test('delete confirm matches the Also delete box (company docs are unlinked, not
   assert.equal(loadDeletePrompt(2, true), 'Delete this load, its stops and 2 documents?');
   assert.equal(loadDeleteDocsLabel(1, 0, 1), null);
   assert.equal(loadDeletePrompt(1, false, {}, 0, 1), 'Delete this load and its stops? 1 document will be kept, unlinked.');
+  // Truck-tab scale ticket photos are not in the delete count. Say they stay.
+  assert.equal(loadDeleteDocsLabel(1, 0, 0, 1), 'Also delete 1 linked document. Scale ticket photos stay in your Truck tab.');
+  assert.equal(loadDeletePrompt(1, true, {}, 0, 0, 1), 'Delete this load, its stops and 1 document? Scale ticket photos stay in your Truck tab.');
+  assert.equal(loadDeletePrompt(1, false, {}, 0, 0, 1), 'Delete this load and its stops? 1 document will be kept, unlinked. Scale ticket photos stay in your Truck tab.');
+  assert.equal(loadDeletePrompt(0, false, {}, 0, 0, 1), 'Delete this load and its stops? Scale ticket photos stay in your Truck tab.');
 });
