@@ -4,17 +4,19 @@ export const RATECON_LOCAL = 'ratecon';
 export const rateconAddress = (token) => (token ? `${RATECON_LOCAL}+${token}@${RATECON_DOMAIN}` : null);
 
 export const PENDING_STALE_MS = 5 * 60 * 1000;
-// null = not an email draft (uploaded, or already turned into a load).
+// null = not an email draft (uploaded, already a load, or handled_at set when that load was deleted).
 // 'reading' = reader still running; 'ready' = fields read, review then Create load; 'manual' = read failed, file kept.
+// The file stays. A handled row is not waiting for review.
+export const isHandledDoc = (d) => !!d && d.handled_at != null && d.handled_at !== '';
 export function emailDraftState(d, now = Date.now()) {
-  if (!d || d.source !== 'email' || d.load_id) return null;
+  if (!d || d.source !== 'email' || d.load_id || isHandledDoc(d)) return null;
   if (d.ai_extracted_data) return 'ready';
   if (d.extraction_status === 'pending' && now - new Date(d.created_at).getTime() < PENDING_STALE_MS) return 'reading';
   return 'manual';
 }
 // A PDF the reader decided isn't a rate con: shown as "Not a rate con · needs manual entry", not counted as waiting.
 export const isNotRatecon = (d) => !!d && d.source === 'email' && !d.load_id && !d.ai_extracted_data && d.extraction_error === 'not_ratecon';
-export const isEmailDraft = (d) => !!d && d.source === 'email' && !d.load_id && (!d.doc_type || d.doc_type === 'rate_confirmation') && !isNotRatecon(d);
+export const isEmailDraft = (d) => !!d && d.source === 'email' && !d.load_id && (!d.doc_type || d.doc_type === 'rate_confirmation') && !isNotRatecon(d) && !isHandledDoc(d);
 
 export function emailReadProblem(reason) {
   return ({

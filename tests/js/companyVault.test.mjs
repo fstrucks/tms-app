@@ -155,7 +155,7 @@ test('load delete never deletes company docs, only unlinks them', async () => {
   const sb = { from: (t) => ({ select: () => ({ eq: async () => ({ data: [], error: null }) }),
     update: (p) => ({ eq: async (c, v) => { calls.push(['update', t, v]); return { error: null }; } }),
     delete: () => ({ eq: (c, v) => { const pr = { select: async () => { calls.push(['delete', t, v]); return { data: [{ id: v }], error: null }; } }; pr.then = (a, b) => { calls.push(['delete', t, v]); return Promise.resolve({ error: null }).then(a, b); }; return pr; } }),
-  }), storage: { from: () => ({ remove: async (p) => { calls.push(['storage', p[0]]); return { error: null }; } }) } };
+  }), storage: { from: () => ({ remove: async (p) => { calls.push(['storage', p[0]]); return { error: null }; } }) }, rpc: async () => ({ data: 0, error: null }) };
   const r = await deleteLoad(sb, 'L1', { deleteDocs: true, docs: [{ id: 'd-bol', doc_type: 'bol', file_path: 'u/b.pdf' }, { id: 'd-coi', doc_type: 'coi', file_path: 'u/c.pdf' }] });
   assert.equal(r.ok, true);
   assert.ok(calls.some((c) => c[0] === 'update' && c[1] === 'documents' && c[2] === 'd-coi'));

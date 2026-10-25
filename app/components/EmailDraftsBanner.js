@@ -11,9 +11,16 @@ export default function EmailDraftsBanner() {
   useEffect(() => {
     const sb = getSupabase(); if (!sb) return;
     let live = true;
-    sb.from('documents').select('id', { count: 'exact', head: true }).eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation')
-      .or('extraction_error.is.null,extraction_error.neq.not_ratecon') // not-a-rate-con PDFs don't count
-      .then(({ count, error }) => { if (live && !error) setN(count || 0); });
+    const run = (handled) => {
+      let q = sb.from('documents').select('id', { count: 'exact', head: true }).eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation');
+      if (handled) q = q.is('handled_at', null); // a deleted load's rate con stays filed; it is not waiting
+      return q.or('extraction_error.is.null,extraction_error.neq.not_ratecon'); // not-a-rate-con PDFs don't count
+    };
+    (async () => {
+      let res = await run(true);
+      if (res.error?.code === '42703') res = await run(false);
+      if (live && !res.error) setN(res.count || 0);
+    })();
     return () => { live = false; };
   }, []);
   if (!n) return null;

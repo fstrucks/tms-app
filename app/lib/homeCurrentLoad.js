@@ -99,13 +99,19 @@ export async function markDelivered(supabase, id) {
 }
 
 // Home "N rate cons waiting for review": the same rule as the Loads banner (EmailDraftsBanner / isEmailDraft):
-// emailed rate cons not yet turned into a load, minus the "Not a rate con" ones.
+// emailed rate cons not yet turned into a load, minus the "Not a rate con" ones, minus files whose load
+// was deleted (handled_at). Before that column exists the count falls back to the older filter.
 export const rateconsWaitingText = (n) => (n > 0 ? (n === 1 ? '1 rate con waiting for review' : `${n} rate cons waiting for review`) : null);
 export async function countRateconsWaiting(supabase) {
-  const { count, error } = await supabase.from('documents').select('id', { count: 'exact', head: true })
-    .eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation')
-    .or('extraction_error.is.null,extraction_error.neq.not_ratecon');
-  return error ? 0 : (count || 0);
+  const run = (handled) => {
+    let q = supabase.from('documents').select('id', { count: 'exact', head: true })
+      .eq('source', 'email').is('load_id', null).eq('doc_type', 'rate_confirmation');
+    if (handled) q = q.is('handled_at', null);
+    return q.or('extraction_error.is.null,extraction_error.neq.not_ratecon');
+  };
+  let res = await run(true);
+  if (res.error?.code === '42703') res = await run(false);
+  return res.error ? 0 : (res.count || 0);
 }
 
 export const isMultiStop = (load) => sortedStops(load).length > 2;

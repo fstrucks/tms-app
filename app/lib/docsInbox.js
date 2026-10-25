@@ -9,15 +9,15 @@
 //
 // It stops needing attention when either of these is true:
 //   - Reviewed or confirmed. An email rate con leaves review-pending once a load is created, the type
-//     changes, or it is marked not a rate con. A scale ticket linked to the file with confirmed = true
-//     is confirmed.
+//     changes, it is marked not a rate con, or handled_at is set (its load was deleted; the file stays).
+//     A scale ticket linked to the file with confirmed = true is confirmed.
 //   - Attached. documents.load_id (load), documents.truck_id or documents.service_record_id (equipment /
 //     maintenance), a checklist file path ({owner}/checklist/{type}/{driver|truck|trailer|company}/…),
 //     a company vault path ({owner}/company/…), a company doc type (W-9, COI, MC Authority, NOA),
 //     or a scale_tickets row whose document_id points here and carries a load, truck, or trailer.
 //
-// No new column. Callers read the existing documents and scale_tickets columns. RLS is unchanged.
-import { isEmailDraft } from './rateconDrafts';
+// handled_at is the only added column. Callers still read documents and scale_tickets. RLS is unchanged.
+import { isEmailDraft, isHandledDoc } from './rateconDrafts';
 import { isCompanyDocType, isDocumentsTabDoc } from './docTypes';
 import { scopeIdOf } from './setupProgress';
 
@@ -26,7 +26,8 @@ export const INBOX_ATTENTION_FETCH = 80;
 export const INBOX_OPEN_KEY = 'ph_docs_inbox_open';
 export const DOCS_ATTENTION_EVENT = 'ph-docs-attention';
 
-const FULL_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id, truck_id, service_record_id, source, extraction_status, extraction_error';
+const FULL_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id, truck_id, service_record_id, source, extraction_status, extraction_error, handled_at';
+const MID_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id, truck_id, service_record_id, source, extraction_status, extraction_error';
 const BASE_COLS = 'id, user_id, doc_type, file_path, original_filename, created_at, ai_extracted_data, load_id, truck_id';
 
 export function readInboxOpen(storage) {
@@ -80,6 +81,7 @@ export function isReviewedOrConfirmed(doc, link = null) {
 
 export function needsAttention(doc, link = null) {
   if (!doc || doc.doc_type === 'receipt') return false;
+  if (isHandledDoc(doc)) return false;
   if (!isDocumentsTabDoc(doc)) return false;
   if (isReviewedOrConfirmed(doc, link)) return false;
   if (hasAssignment(doc, link)) return false;
@@ -104,9 +106,10 @@ export function selectNeedsAttention(docs, tickets = []) {
   return out;
 }
 
-function attentionQuery(supabase, cols, { service = false } = {}) {
+function attentionQuery(supabase, cols, { service = false, handled = false } = {}) {
   let q = supabase.from('documents').select(cols).is('load_id', null).is('truck_id', null);
   if (service) q = q.is('service_record_id', null);
+  if (handled) q = q.is('handled_at', null);
   // Checklist and company paths are already filed. The predicate checks them again.
   return q.not('file_path', 'like', '%/checklist/%').not('file_path', 'like', '%/company/%')
     .order('created_at', { ascending: false })
@@ -116,8 +119,10 @@ function attentionQuery(supabase, cols, { service = false } = {}) {
 // Own rows, plus company email drafts RLS already returns to the office. No user_id filter here.
 export async function fetchNeedsAttention(supabase) {
   if (!supabase?.from) return { documents: [], more: false, error: null };
-  let res = await attentionQuery(supabase, FULL_COLS, { service: true });
-  if (res.error?.code === '42703') res = await attentionQuery(supabase, BASE_COLS, { service: false });
+  let res = await attentionQuery(supabase, FULL_COLS, { service: true, handled: true });
+  // Missing handled_at: keep service_record_id. Missing that too: the older column list.
+  if (res.error?.code === '42703') res = await attentionQuery(supabase, MID_COLS, { service: true, handled: false });
+  if (res.error?.code === '42703') res = await attentionQuery(supabase, BASE_COLS, { service: false, handled: false });
   if (res.error) return { documents: [], more: false, error: res.error };
   const rows = res.data || [];
   const ids = rows.map((d) => d.id).filter(Boolean);

@@ -31,23 +31,26 @@ function typeHeads(svc, narrow) {
   ];
 }
 
-const LOOSE_COLS = 'id, doc_type, file_path, load_id, truck_id, service_record_id, source, extraction_error, ai_extracted_data, created_at';
+const LOOSE_COLS = 'id, doc_type, file_path, load_id, truck_id, service_record_id, source, extraction_error, ai_extracted_data, created_at, handled_at';
+const LOOSE_COLS_MID = 'id, doc_type, file_path, load_id, truck_id, service_record_id, source, extraction_error, ai_extracted_data, created_at';
 const LOOSE_COLS_BASE = 'id, doc_type, file_path, load_id, truck_id, source, extraction_error, ai_extracted_data, created_at';
 const LOOSE_BATCH = 200;
 
 // Own unassigned rows that still need attention are inside the head count above.
-// Subtract them with the same predicate the list uses. No new column.
+// Subtract them with the same predicate the list uses. handled_at rows stay in the tile.
 async function countOwnAttention(svc, userId) {
   const seen = new Set();
   let total = 0;
   let before = null;
-  let service = true;
+  let tier = 0;
+  const colsOf = [LOOSE_COLS, LOOSE_COLS_MID, LOOSE_COLS_BASE];
   for (let guard = 0; guard < 25; guard += 1) {
-    let q = svc.from('documents').select(service ? LOOSE_COLS : LOOSE_COLS_BASE).eq('user_id', userId).is('load_id', null).is('truck_id', null);
-    if (service) q = q.is('service_record_id', null);
+    let q = svc.from('documents').select(colsOf[tier]).eq('user_id', userId).is('load_id', null).is('truck_id', null);
+    if (tier < 2) q = q.is('service_record_id', null);
+    if (tier === 0) q = q.is('handled_at', null);
     if (before) q = q.lt('created_at', before);
     const res = await q.order('created_at', { ascending: false }).limit(LOOSE_BATCH);
-    if (res.error?.code === '42703' && service) { service = false; continue; }
+    if (res.error?.code === '42703' && tier < 2) { tier += 1; continue; }
     if (res.error) return null;
     const docs = res.data || [];
     if (!docs.length) break;

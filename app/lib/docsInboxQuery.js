@@ -6,20 +6,23 @@ import { INBOX_ATTENTION_CAP, INBOX_ATTENTION_FETCH, selectNeedsAttention } from
 import { chunks, cmpDesc } from './loadVault';
 import { companyMemberIds } from './loadVaultQuery';
 
-const FULL_COLS = 'id,user_id,load_id,truck_id,service_record_id,doc_type,file_path,original_filename,created_at,ai_extracted_data,source,extraction_status,extraction_error';
+const FULL_COLS = 'id,user_id,load_id,truck_id,service_record_id,doc_type,file_path,original_filename,created_at,ai_extracted_data,source,extraction_status,extraction_error,handled_at';
+const MID_COLS = 'id,user_id,load_id,truck_id,service_record_id,doc_type,file_path,original_filename,created_at,ai_extracted_data,source,extraction_status,extraction_error';
 const BASE_COLS = 'id,user_id,load_id,truck_id,doc_type,file_path,original_filename,created_at,ai_extracted_data,source';
 
 const OFFICE = new Set(['owner', 'management', 'dispatcher']);
 
 async function unassignedOf(svc, userIds) {
-  const run = (cols, service) => {
+  const run = (cols, service, handled) => {
     let q = svc.from('documents').select(cols).in('user_id', userIds).is('load_id', null).is('truck_id', null);
     if (service) q = q.is('service_record_id', null);
+    if (handled) q = q.is('handled_at', null);
     return q.not('file_path', 'like', '%/checklist/%').not('file_path', 'like', '%/company/%')
       .order('created_at', { ascending: false }).limit(INBOX_ATTENTION_FETCH);
   };
-  let res = await run(FULL_COLS, true);
-  if (res.error?.code === '42703') res = await run(BASE_COLS, false);
+  let res = await run(FULL_COLS, true, true);
+  if (res.error?.code === '42703') res = await run(MID_COLS, true, false);
+  if (res.error?.code === '42703') res = await run(BASE_COLS, false, false);
   return res;
 }
 
