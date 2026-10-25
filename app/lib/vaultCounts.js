@@ -1,10 +1,11 @@
 // Cheap counts for the Docs tiles: head counts and a bounded driver-file read.
 // No full document list. Maintenance is not counted here; that RPC stays behind its flag.
 import { VAULT_TYPE_IDS } from './companyDocs';
-import { LOAD_VAULT_TYPES, chunks, isLoadVaultDoc } from './loadVault';
+import { LOAD_VAULT_TYPES, chunks, isLoadVaultDoc, pageLoadVault } from './loadVault';
 import { companyMemberIds } from './loadVaultQuery';
 import { loadDriverVault } from './driverVaultQuery';
 import { needsAttention } from './docsInbox';
+import { isHandledDoc } from './rateconDrafts';
 
 async function head(q) {
   const { count, error } = await q;
@@ -76,6 +77,42 @@ async function countOwnAttention(svc, userId) {
   return total;
 }
 
+// A teammate's handled email rate con has load_id cleared, so the head count misses it.
+// The vault list still shows it when a scale ticket points at a load the viewer can open.
+// Own handled rows are already in the head count. This adds only the ones the list shows beyond that.
+async function countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds }) {
+  const others = memberIds.filter((id) => id && id !== userId);
+  if (!others.length) return 0;
+  const docs = [];
+  for (const part of chunks(others, 80)) {
+    const res = await svc.from('documents')
+      .select('id,user_id,load_id,doc_type,source,handled_at,file_path,created_at')
+      .in('user_id', part)
+      .is('load_id', null)
+      .eq('source', 'email')
+      .eq('doc_type', 'rate_confirmation')
+      .not('handled_at', 'is', null)
+      .limit(200);
+    if (res.error?.code === '42703') return 0;
+    if (res.error) return null;
+    docs.push(...(res.data || []).filter(isHandledDoc));
+  }
+  if (!docs.length) return 0;
+  const tickets = [];
+  for (const part of chunks(docs.map((d) => d.id), 80)) {
+    const tk = await svc.from('scale_tickets').select('document_id, load_id, truck_id, trailer_id, confirmed').eq('user_id', ownerId).in('document_id', part);
+    if (tk.error) return null;
+    tickets.push(...(tk.data || []));
+  }
+  const loads = [];
+  for (const part of chunks([...new Set(tickets.map((t) => t.load_id).filter(Boolean))], 80)) {
+    const ld = await svc.from('loads').select('id,user_id,assigned_driver_user_id,show_rate_to_driver').eq('user_id', ownerId).in('id', part);
+    if (ld.error) return null;
+    loads.push(...(ld.data || []));
+  }
+  return pageLoadVault({ docs, loads, ticketLoads: tickets, role, userId, ownerId, limit: docs.length }).rows.length;
+}
+
 async function countLoadDocs(svc, { ownerId, role, userId, memberIds }) {
   const driver = role === 'driver';
   const ownAttention = await countOwnAttention(svc, userId);
@@ -89,7 +126,9 @@ async function countLoadDocs(svc, { ownerId, role, userId, memberIds }) {
       makes.push(...typeHeads(svc, (q) => q.in('user_id', others).not('load_id', 'is', null)));
     }
     const raw = await sumHeads(makes);
-    return raw == null ? null : Math.max(0, raw - ownAttention);
+    if (raw == null) return null;
+    const extra = await countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds });
+    return extra == null ? null : Math.max(0, raw - ownAttention + extra);
   }
   const { data, error } = await svc.from('loads').select('id,show_rate_to_driver').eq('user_id', ownerId).eq('assigned_driver_user_id', userId).limit(500);
   if (error) return null;
@@ -107,7 +146,9 @@ async function countLoadDocs(svc, { ownerId, role, userId, memberIds }) {
     makes.push(() => svc.from('documents').select('id', { count: 'exact', head: true }).in('load_id', part).eq('doc_type', 'rate_confirmation').neq('user_id', userId));
   }
   const raw = await sumHeads(makes);
-  return raw == null ? null : Math.max(0, raw - ownAttention);
+  if (raw == null) return null;
+  const extra = await countHandledShownViaTicket(svc, { ownerId, role, userId, memberIds });
+  return extra == null ? null : Math.max(0, raw - ownAttention + extra);
 }
 
 async function countCompanyDocs(svc, ownerId) {
