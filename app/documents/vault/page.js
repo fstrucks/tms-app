@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { authedFetch } from '../../lib/authedFetch';
 import { docTypeLabel } from '../../lib/docTypes';
 import { DATE_RANGE_ERROR, LOAD_VAULT_TYPES, reversedDateRange } from '../../lib/loadVault';
+import { canDeleteHandledEmailRatecon, deleteHandledEmailRatecon, deletePrompt } from '../../lib/documents';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import SignInLink from '../../components/SignInLink';
 import { Loading, LoadError } from '../../components/DataState';
+import ConfirmButton from '../../components/ui/ConfirmButton';
 
 const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 640, margin: '0 auto', paddingBottom: 'calc(1rem + var(--fab-space))' };
 const field = { width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.6rem', background: 'var(--surface)', color: 'var(--text)' };
@@ -34,7 +36,20 @@ export default function LoadVaultPage() {
   const [state, setState] = useState('loading');
   const [signedOut, setSignedOut] = useState(false);
   const [dateError, setDateError] = useState('');
+  const [userId, setUserId] = useState(null);
+  const [deleteErr, setDeleteErr] = useState({});
+  const [fileNote, setFileNote] = useState('');
   const reqRef = useRef(0);
+
+  async function removeDoc(d) {
+    setDeleteErr((m) => ({ ...m, [d.id]: null }));
+    setFileNote('');
+    const r = await deleteHandledEmailRatecon(supabase, d, userId);
+    if (!r.ok) { setDeleteErr((m) => ({ ...m, [d.id]: r.error })); return false; }
+    setDocs((list) => list.filter((x) => x.id !== d.id));
+    if (r.fileError) setFileNote(r.fileError);
+    return true;
+  }
 
   async function load(nextFilters, nextCursor, append) {
     const req = ++reqRef.current;
@@ -78,7 +93,13 @@ export default function LoadVaultPage() {
     load(next, null, false);
   }
 
-  useEffect(() => { if (supabase) load(filters, null, false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!supabase) return;
+    let live = true;
+    supabase.auth.getSession().then(({ data }) => { if (live) setUserId(data?.session?.user?.id || null); }).catch(() => {});
+    load(filters, null, false);
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main style={main}>
@@ -121,16 +142,23 @@ export default function LoadVaultPage() {
           {state === 'error' ? <LoadError message="Couldn't load these documents." onRetry={() => load(filters, null, false)} /> : null}
           {state === 'loading' ? <Loading label="Loading documents…" /> : null}
           {state !== 'loading' && state !== 'error' && !dateError && docs.length === 0 ? <p style={muted}>No documents match.</p> : null}
+          {fileNote ? <p role="alert" style={{ color: 'var(--danger)' }}>{fileNote}</p> : null}
           <div data-testid="load-vault-list">
             {docs.map((d) => (
-              <div key={d.id} data-testid="load-vault-row" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
+              <div key={d.id} data-confirm-row data-testid="load-vault-row" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ overflowWrap: 'anywhere' }}>{d.original_filename || d.label}</div>
                 <div style={muted}>{d.label} · {d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}</div>
                 {(d.broker || d.load_number) && <div style={{ ...muted, overflowWrap: 'anywhere' }}>{[d.load_number ? `#${d.load_number}` : null, d.broker].filter(Boolean).join(' · ')}</div>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                   {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ ...btn, width: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none', padding: '0 0.9rem' }}>View</a>}
                   {d.load_id && <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>{d.load_label || 'Open load'}</Link>}
+                  {canDeleteHandledEmailRatecon(d, userId) && (
+                    <span data-testid="handled-ratecon-delete">
+                      <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />
+                    </span>
+                  )}
                 </div>
+                {deleteErr[d.id] && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{deleteErr[d.id]}</p>}
               </div>
             ))}
           </div>
