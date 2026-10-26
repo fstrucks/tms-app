@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SERVICE_TYPES, BASELINE_LABEL, MAX_RECEIPTS, RECEIPT_TYPES, receiptType, receiptPath, typeLabel, fmtMiles, fmtMoney, DRIVER_NO_ACCESS } from '../lib/maintenance';
 import { laToday } from '../lib/sendCap';
+import { localISODate } from '../lib/localDate';
 import { orderBySchedule, STATUS_LABEL } from '../lib/pmSchedule';
 import { invoiceToForm } from '../lib/vaultScan';
 
@@ -122,7 +123,7 @@ export default function MaintenanceSection({ truck, api, supabase, user, s, onCh
         {odo === null ? (
           <span style={{ textAlign: 'right' }}>
             <strong>{m.odometer != null ? fmtMiles(m.odometer) : '—'}</strong>
-            {m.odometerUpdatedAt && <span style={{ ...s.muted, fontSize: 12, display: 'block' }} data-testid="odometer-updated">Updated {mdy(String(m.odometerUpdatedAt).slice(0, 10))}</span>}
+            {m.odometerUpdatedAt && <span style={{ ...s.muted, fontSize: 12, display: 'block' }} data-testid="odometer-updated">Updated {mdy(localISODate(m.odometerUpdatedAt))}</span>}
             {m.canSetOdometer && <button type="button" style={{ ...s.small, marginTop: 4 }} onClick={() => setOdo(String(m.odometer ?? ''))}>Edit</button>}
           </span>
         ) : (

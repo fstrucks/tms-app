@@ -1,4 +1,5 @@
 // Facility reviews (PR 1): anonymous, platform-wide. Pure helpers (browser, server and tests).
+import { parseUtc } from './packetDate';
 // Content rules: 1–4 stars; two optional notes ("What could be better", "Need to know"), 500 characters each.
 // Notes may not contain phone numbers, email addresses, web links or profanity: the review is rejected with a
 // message saying what to remove (nothing is silently changed, so the driver knows what was posted).
@@ -185,11 +186,21 @@ export function ratingSummary(avg, count) {
   return `${num.toFixed(1)} ★ (${n} rating${n === 1 ? '' : 's'})`;
 }
 const REVIEW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-export function reviewDateLabel(iso) {
+export function reviewDateLabel(iso, timeZone) {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${REVIEW_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  const s = String(iso);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return m >= 1 && m <= 12 && d ? `${REVIEW_MONTHS[m - 1]} ${d}, ${y}` : '';
+  }
+  const t = parseUtc(s);
+  if (Number.isNaN(t.getTime())) return '';
+  const opts = { month: 'short', day: 'numeric', year: 'numeric' };
+  try {
+    return new Intl.DateTimeFormat('en-US', timeZone ? { ...opts, timeZone } : opts).format(t);
+  } catch {
+    return new Intl.DateTimeFormat('en-US', opts).format(t);
+  }
 }
 // "Dropoff · Jul 14, 2026". Pickup and delivery only. No reviewer name.
 export function reviewVisitLabel(review) {

@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { authedFetch } from '../../lib/authedFetch';
-import { docTypeLabel } from '../../lib/docTypes';
+import { docTypeLabel, LOAD_PICTURE_TYPE } from '../../lib/docTypes';
 import { DATE_RANGE_ERROR, LOAD_VAULT_TYPES, reversedDateRange } from '../../lib/loadVault';
-import { canDeleteHandledEmailRatecon, deleteHandledEmailRatecon, deletePrompt } from '../../lib/documents';
+import { formatLocalDate } from '../../lib/localDate';
+import { loadLinkLabel } from '../../lib/loadDocs';
+import { canDeleteHandledEmailRatecon, deleteDocument, deleteHandledEmailRatecon, deletePrompt } from '../../lib/documents';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import SignInLink from '../../components/SignInLink';
 import { Loading, LoadError } from '../../components/DataState';
@@ -40,6 +42,16 @@ export default function LoadVaultPage() {
   const [deleteErr, setDeleteErr] = useState({});
   const [fileNote, setFileNote] = useState('');
   const reqRef = useRef(0);
+
+  async function removePicture(d) {
+    setDeleteErr((m) => ({ ...m, [d.id]: null }));
+    setFileNote('');
+    const r = await deleteDocument(supabase, d, 'documents');
+    if (!r.ok) { setDeleteErr((m) => ({ ...m, [d.id]: r.error })); return false; }
+    setDocs((list) => list.filter((x) => x.id !== d.id));
+    if (r.fileError) setFileNote(r.fileError);
+    return true;
+  }
 
   async function removeDoc(d) {
     setDeleteErr((m) => ({ ...m, [d.id]: null }));
@@ -105,7 +117,7 @@ export default function LoadVaultPage() {
     <main style={main}>
       <p style={{ margin: '0 0 0.35rem' }}><Link href="/documents" style={tap}>Documents</Link></p>
       <h1 style={{ fontSize: '1.5rem', margin: '0 0 0.35rem' }}>Load documents</h1>
-      <p style={{ ...muted, marginTop: 0 }}>Rate confirmations, BOLs, PODs, lumper receipts, and other load paperwork, including past loads.</p>
+      <p style={{ ...muted, marginTop: 0 }}>Rate confirmations, BOLs, PODs, lumper receipts, load pictures, and other load paperwork, including past loads.</p>
       {supabaseConfigError ? <p style={{ color: 'var(--danger)' }}>{supabaseConfigError}</p> : signedOut ? (
         <div style={{ border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem' }}>
           <p style={{ color: 'var(--danger)' }}>You need to be signed in to view documents.</p>
@@ -147,14 +159,19 @@ export default function LoadVaultPage() {
             {docs.map((d) => (
               <div key={d.id} data-confirm-row data-testid="load-vault-row" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ overflowWrap: 'anywhere' }}>{d.original_filename || d.label}</div>
-                <div style={muted}>{d.label} · {d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}</div>
+                <div style={muted}>{d.label} · {d.created_at ? formatLocalDate(d.created_at) : ''}</div>
                 {(d.broker || d.load_number) && <div style={{ ...muted, overflowWrap: 'anywhere' }}>{[d.load_number ? `#${d.load_number}` : null, d.broker].filter(Boolean).join(' · ')}</div>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                   {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ ...btn, width: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none', padding: '0 0.9rem' }}>View</a>}
-                  {d.load_id && <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>{d.load_label || 'Open load'}</Link>}
+                  {d.load_id && <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>{loadLinkLabel(d)}</Link>}
                   {canDeleteHandledEmailRatecon(d, userId) && (
                     <span data-testid="handled-ratecon-delete">
                       <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />
+                    </span>
+                  )}
+                  {d.own && d.doc_type === LOAD_PICTURE_TYPE && (
+                    <span data-testid="load-picture-delete">
+                      <ConfirmButton prompt="Delete this picture? The load is kept." ariaLabel={`Delete this picture? ${d.original_filename || ''}`.trim()} onConfirm={() => removePicture(d)} />
                     </span>
                   )}
                 </div>

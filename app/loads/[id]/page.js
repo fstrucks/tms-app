@@ -20,8 +20,8 @@ import { Loading, LoadError } from '../../components/DataState';
 import { useLoads } from '../LoadsData';
 import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt, loadDeleteDocsLabel } from '../../lib/loadDelete';
-import { isCompanyDocType } from '../../lib/docTypes';
-import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../../lib/docTypes';
+import { isCompanyDocType, docTypeLabel, LOAD_SCAN_TYPE_IDS, LOAD_PICTURE_TYPE } from '../../lib/docTypes';
+import LoadPictures from '../../components/LoadPictures';
 import { fetchLoadDocs, docsPanelState } from '../../lib/loadDocsClient';
 import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
@@ -29,6 +29,7 @@ import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
+import { formatLocalDate } from '../../lib/localDate';
 import StopActions from '../../components/StopActions';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
 import LoadReviews from '../../components/LoadReviews';
@@ -187,6 +188,8 @@ export default function LoadDetailPage() {
   // Deletable with the load: your own uploads linked to it. Truck-tab scale ticket photos (source scale_ticket)
   // stay with their ticket, so they are not in the delete count.
   const ownDocs = (docs || []).filter((d) => d.own !== false && d.source !== 'scale_ticket');
+  const paperwork = (docs || []).filter((d) => d.doc_type !== LOAD_PICTURE_TYPE);
+  const pictures = (docs || []).filter((d) => d.doc_type === LOAD_PICTURE_TYPE);
   const teamDocs = (docs || []).filter((d) => d.own === false && d.source !== 'scale_ticket').length;
   const ticketPhotos = (docs || []).filter((d) => d.source === 'scale_ticket').length;
   const companyDocs = ownDocs.filter((d) => isCompanyDocType(d.doc_type)).length; // unlinked, never deleted (deleteLoad)
@@ -350,16 +353,19 @@ export default function LoadDetailPage() {
                     <button type="button" onClick={() => { setScanMsg(null); setScanning(true); }} style={{ ...s.btn, background: 'var(--surface)', color: 'var(--primary)', border: '1px solid var(--primary)' }}>🧾 Scan document</button>
                   </div>
                   {scanMsg && <p role="status" style={{ color: 'var(--success)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>{scanMsg}</p>}
-                  {docsPanelState(docs, docsBusy) === 'loading' ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docsPanelState(docs, docsBusy) === 'empty' ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : docs.map((d) => (
+                  {docsPanelState(docs, docsBusy) === 'loading' ? <p style={s.muted} data-testid="load-docs-loading">Loading documents…</p> : docsPanelState(docs, docsBusy) === 'empty' ? <p style={s.muted}>No linked documents. Scanned BOLs, PODs and scale tickets show here once linked to this load.</p> : paperwork.map((d) => (
                     <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={s.row}>
                       <LoadDocThumb doc={d} onOpen={() => view(d)} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                        <div style={s.muted}><strong data-testid="load-doc-type" style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {new Date(d.created_at).toLocaleDateString()}</div>
+                        <div style={s.muted}><strong data-testid="load-doc-type" style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {formatLocalDate(d.created_at)}</div>
                       </div>
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>
                   ))}
+                  {user && load && docsPanelState(docs, docsBusy) !== 'loading' && (
+                    <LoadPictures supabase={supabase} userId={user.id} loadId={load.id} pictures={pictures} onChange={fetchAll} />
+                  )}
                 </div>
                 {owner && <div style={{ ...s.card, borderColor: 'var(--danger-border)' }}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Delete load</h2>

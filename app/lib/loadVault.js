@@ -2,11 +2,11 @@
 // Visibility matches the app today: your own rows, plus teammates' files only when they
 // are linked to a load you can already open (rate cons follow "Show rate to driver").
 import { canViewLoadDocs, visibleDocsFor } from './loadDocs';
-import { isCompanyDocType } from './docTypes';
+import { isCompanyDocType, LOAD_PICTURE_TYPE } from './docTypes';
 import { needsAttention } from './docsInbox';
 
 export const LOAD_VAULT_PAGE = 20;
-export const LOAD_VAULT_TYPES = ['rate_confirmation', 'bol', 'pod', 'lumper_receipt', 'scale_ticket'];
+export const LOAD_VAULT_TYPES = ['rate_confirmation', 'bol', 'pod', 'lumper_receipt', 'scale_ticket', LOAD_PICTURE_TYPE];
 
 export function isLoadVaultDoc(doc) {
   if (!doc) return false;

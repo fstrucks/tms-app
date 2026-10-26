@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { receiptType, receiptPath, RECEIPT_TYPES, fmtMiles, fmtMoney } from '../../lib/maintenance';
 import { laToday } from '../../lib/sendCap';
+import { localISODate } from '../../lib/localDate';
 import { maintenanceVaultHref } from '../../lib/maintenanceVault';
 import MaintenanceSection from '../../truck/MaintenanceSection';
 
@@ -237,7 +238,7 @@ function Vault() {
               ) : (<>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                   <strong style={{ overflowWrap: 'anywhere' }}>{doc.vendor || doc.original_filename || 'Document'}</strong>
-                  <span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{mdy(doc.doc_date) || mdy(String(doc.created_at).slice(0, 10))}</span>
+                  <span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{mdy(doc.doc_date) || mdy(localISODate(doc.created_at))}</span>
                 </div>
                 <div style={{ ...s.muted, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 4 }}>
                   <span>{doc.unit_number || 'Truck'}</span>

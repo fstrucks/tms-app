@@ -4,7 +4,7 @@
 // Fresh uploads (last 2 days) ask for a suggestion right away; older ones on "Link to load".
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { SUGGEST_REASON } from '../lib/loadDocs';
+import { SUGGEST_REASON, loadPickLabel } from '../lib/loadDocs';
 
 const RECENT_MS = 2 * 864e5;
 async function tokenOf(supabase) { const { data } = await supabase.auth.getSession(); return data?.session?.access_token || ''; }
@@ -66,7 +66,7 @@ export default function DocLoadLink({ supabase, doc, onLinked }) {
             <select data-testid="doc-load-select" value={pick} onChange={(e) => setPick(e.target.value)} disabled={saving}
               style={{ flex: 1, minWidth: 0, minHeight: 44, fontSize: 15, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}>
               <option value="">No load</option>
-              {st.loads.map((l) => <option key={l.id} value={l.id}>{l.label}{sug?.loadId === l.id ? ' (suggested)' : ''}</option>)}
+              {st.loads.map((l) => <option key={l.id} value={l.id}>{(l.created_at || l.pickup_date || l.broker_load_number || l.broker_name ? loadPickLabel(l) : l.label)}{sug?.loadId === l.id ? ' (suggested)' : ''}</option>)}
             </select>
           </label>
           {sug && <p data-testid="doc-load-suggested" style={{ color: 'var(--text-muted)', fontSize: 12, margin: '2px 0 0' }}>Suggested: {SUGGEST_REASON[sug.reason]}.</p>}

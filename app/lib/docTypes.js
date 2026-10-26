@@ -17,6 +17,10 @@ export const SCAN_DOC_TYPES = [
   { id: 'other', label: 'Other', short: 'OTHER', button: null },
 ];
 
+// Load pictures (Marc, Oct 25 via Sam): photos from the phone gallery, stored on the load.
+// documents.doc_type is plain text with no check constraint (same as scale_ticket), so this key needs no SQL.
+export const LOAD_PICTURE_TYPE = 'load_picture';
+
 // Marc 10/15: company documents (not tied to a load). Picking one defaults Load to "No load".
 export const COMPANY_DOC_TYPE_IDS = SCAN_DOC_TYPES.filter((t) => t.company).map((t) => t.id);
 export function isCompanyDocType(id) { return COMPANY_DOC_TYPE_IDS.includes(id); }
@@ -52,6 +56,7 @@ export function uploadButtonLabel(typeId) {
 
 export const DOC_TYPE_LABEL = Object.fromEntries([
   ['rate_confirmation', 'Rate confirmation'],
+  [LOAD_PICTURE_TYPE, 'Load pictures'],
   ...SCAN_DOC_TYPES.map((t) => [t.id, t.label]),
 ]);
 

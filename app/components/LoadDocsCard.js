@@ -6,7 +6,9 @@ import dynamic from 'next/dynamic';
 import LoadDocThumb from './LoadDocThumb';
 import { fetchLoadDocs, docsPanelState } from '../lib/loadDocsClient';
 import { uploadScan } from '../lib/scanUpload';
-import { docTypeLabel, LOAD_SCAN_TYPE_IDS } from '../lib/docTypes';
+import { docTypeLabel, LOAD_SCAN_TYPE_IDS, LOAD_PICTURE_TYPE } from '../lib/docTypes';
+import { formatLocalDate } from '../lib/localDate';
+import LoadPictures from './LoadPictures';
 
 const Scanner = dynamic(() => import('./scanner/Scanner'), { ssr: false, loading: () => null });
 const btn = { minHeight: 44, padding: '0 12px', borderRadius: 8, border: '1px solid var(--primary)', background: 'var(--surface)', color: 'var(--primary)', fontWeight: 600 };
@@ -24,6 +26,8 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
     setErr(null); setDocs(data || []);
   }
   useEffect(() => { setDocs(null); setErr(null); refresh(); }, [loadId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paperwork = (docs || []).filter((d) => d.doc_type !== LOAD_PICTURE_TYPE);
+  const pictures = (docs || []).filter((d) => d.doc_type === LOAD_PICTURE_TYPE);
   return (
     <div style={cardStyle} data-testid="load-docs-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
@@ -34,16 +38,19 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
       {err ? <p role="alert" style={{ color: 'var(--danger)', fontSize: 14 }}>{err}</p>
         : docsPanelState(docs, busy) === 'loading' ? <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading documents…</p>
         : docsPanelState(docs, busy) === 'empty' ? <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>No linked documents.</p>
-        : docs.map((d) => (
+        : paperwork.map((d) => (
           <div key={d.id} data-testid="load-doc-row" data-doc-type={d.doc_type} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid var(--divider)' }}>
             <LoadDocThumb doc={d} onOpen={() => d.url && window.open(d.url, '_blank', 'noopener')} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}><strong style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {new Date(d.created_at).toLocaleDateString()}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}><strong style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {formatLocalDate(d.created_at)}</div>
             </div>
             {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>View</a>}
           </div>
         ))}
+      {userId && docsPanelState(docs, busy) !== 'loading' && !err && (
+        <LoadPictures supabase={supabase} userId={userId} loadId={loadId} pictures={pictures} onChange={refresh} />
+      )}
       {scanning && (
         <Scanner loads={[{ id: loadId, label: loadLabel || 'This load' }]} initialLoadId={loadId} typeIds={LOAD_SCAN_TYPE_IDS}
           onClose={() => setScanning(false)}
