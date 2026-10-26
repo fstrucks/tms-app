@@ -183,13 +183,15 @@ export default function LoadDetailPage() {
   }
 
   // Only the owner deletes loads, and only his own uploads can be deleted with it; team members' uploads are unlinked.
-  // Deletable with the load: your own uploads linked to it (Truck-tab scale ticket photos stay with their ticket).
+  // Deletable with the load: your own uploads linked to it. Truck-tab scale ticket photos (source scale_ticket)
+  // stay with their ticket, so they are not in the delete count.
   const ownDocs = (docs || []).filter((d) => d.own !== false && d.source !== 'scale_ticket');
   const paperwork = (docs || []).filter((d) => d.doc_type !== LOAD_PICTURE_TYPE);
   const pictures = (docs || []).filter((d) => d.doc_type === LOAD_PICTURE_TYPE);
   const teamDocs = (docs || []).filter((d) => d.own === false && d.source !== 'scale_ticket').length;
+  const ticketPhotos = (docs || []).filter((d) => d.source === 'scale_ticket').length;
   const companyDocs = ownDocs.filter((d) => isCompanyDocType(d.doc_type)).length; // unlinked, never deleted (deleteLoad)
-  const docsLabel = loadDeleteDocsLabel(ownDocs.length, teamDocs, companyDocs);
+  const docsLabel = loadDeleteDocsLabel(ownDocs.length, teamDocs, companyDocs, ticketPhotos);
   const owner = isLoadOwnerView(load);
   async function removeLoad() {
     setDelError(null);
@@ -371,7 +373,7 @@ export default function LoadDetailPage() {
                     </label>
                   )}
                   {alsoDocs && docsLabel && <p style={{ ...s.error, fontSize: '0.85rem', margin: '0 0 0.5rem' }}>Warning: the document files are permanently deleted and can't be recovered.</p>}
-                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs)} onConfirm={removeLoad} />
+                  <ConfirmButton label="Delete load" prompt={loadDeletePrompt(ownDocs.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs, ticketPhotos)} onConfirm={removeLoad} />
                   {delError && <p role="alert" style={{ ...s.error, margin: '0.5rem 0 0' }}>{delError}</p>}
                 </div>}
                 </div>

@@ -21,7 +21,7 @@ import {
   notMemberCopy,
 } from '../../lib/dispatch';
 import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../../lib/onlineRetry';
-import { dispatchLoad, showDispatchButton, formStatusOnDriverPick, formStatusOnStatusPick } from '../../lib/autoDispatch';
+import { dispatchLoad, showDispatchButton, formStatusOnDriverPick, formStatusOnStatusPick, savedDriverMessage } from '../../lib/autoDispatch';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 820, margin: '0 auto' },
@@ -65,8 +65,16 @@ export default function DispatchLoadPage() {
   const browserTz = useMemo(() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } }, []);
 
   function apply(load) {
+    const form = loadToForm(load);
     setState({ status: 'ready', load });
-    setForm(loadToForm(load));
+    // A dispatched load that already has no driver shows Booked, which is what Save will write.
+    setForm({
+      ...form,
+      status: formStatusOnDriverPick({
+        savedStatus: load.status, savedDriver: load.assigned_driver_user_id,
+        nextDriver: form.assigned_driver_user_id, formStatus: form.status,
+      }),
+    });
     setStops(stopsToForm(load.stops || []));
     setErrors({}); setStopErrors({});
   }
@@ -156,7 +164,11 @@ export default function DispatchLoadPage() {
       }
       const fresh = await fetchDispatchLoads(supabase, id);
       if (fresh.loads?.[0]) apply(fresh.loads[0]);
-      setMsg({ err: false, text: load.status === 'booked' && p.patch.status === 'dispatched' ? 'Saved and dispatched.' : 'Saved.' });
+      setMsg({ err: false, text: savedDriverMessage({
+        previousStatus: load.status,
+        nextStatus: p.patch.status || load.status,
+        driverChanged: Object.prototype.hasOwnProperty.call(p.patch, 'assigned_driver_user_id'),
+      }) });
     } finally { setSaving(false); }
   }
 
