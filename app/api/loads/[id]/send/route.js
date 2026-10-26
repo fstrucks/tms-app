@@ -1,20 +1,21 @@
 // Email the load export packet (Marc, Oct 25). Same people and statuses as the Export download: owner, management
 // and dispatchers of the load's company; delivered / invoiced / paid loads. Same PDF and file name as the download.
-//   GET  → { sends, configured, allowedDomains, prefill, from, replyTo, sendCap, maxBytes } (history degrades if the table is missing)
+//   GET  → { sends, configured, maxTo, prefill, from, replyTo, sendCap, maxBytes } (history degrades if the table is missing)
 //   POST { to, note, sel, idempotencyKey, confirm: true, confirmAccounting?, tz } → sends ONE email via Postmark
 //
-// Fails closed: no Postmark token, no load_packet_sends table, cap reached, a recipient outside
-// PACKET_SEND_ALLOWED_DOMAINS, or a PDF over SEND_MAX_BYTES → nothing is sent.
+// Fails closed: no Postmark token, no load_packet_sends table, cap reached, a bad recipient
+// (more than EXPORT_MAX_TO, internal/reserved domain, or the TMS sender itself), or a PDF over SEND_MAX_BYTES → nothing is sent.
 // Duplicate protection (same approach as /api/packets/[id]/send): the client makes one uuid per send attempt; it is
 // the load_packet_sends row id. The row is claimed BEFORE Postmark is called, so a double click or a retry with the
 // same id never sends twice. postmark_message_id is filled in after Postmark accepts it.
+// Any recipient domain is allowed (Marc, Oct 26); PACKET_SEND_ALLOWED_DOMAINS applies only to packet and COI sends.
 // No automatic CC (never accounting), and the From address is never marc@.
 import { randomUUID } from 'node:crypto';
 import { billingCtx, json, invoiceContext } from '../../../../lib/invoiceServer';
-import { canExportStatus, prefillRecipient, accountingRecipients, sendEmailText, SEND_MAX_BYTES, SEND_MIGRATION, NOTE_MAX } from '../../../../lib/loadExport';
+import { canExportStatus, prefillRecipient, accountingRecipients, sendEmailText, SEND_MAX_BYTES, SEND_MIGRATION, NOTE_MAX, EXPORT_MAX_TO, exportRecipientProblem } from '../../../../lib/loadExport';
 import { brokerForLoad } from '../../../../lib/invoice';
 import { loadExportDocs, readSelection, buildLoadPacket } from '../../../../lib/loadExportServer';
-import { parseEmails, allowedDomains, blockedRecipients, senderConfig, companyReplyTo, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
+import { parseEmails, senderConfig, companyReplyTo, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
 
 export const runtime = 'nodejs';
@@ -79,7 +80,7 @@ export async function GET(req, { params, deps } = {}) {
   const u = await monthlyUsage(x.svc, env);
   return json({
     sends: h.sends || [], ...(h.error ? (missingTable(h.error) ? { setupNeeded: true, migration: SEND_MIGRATION } : { historyError: true }) : {}),
-    configured: !!cfg.token && !cfg.badFrom, from: cfg.from, replyTo: cfg.replyTo, allowedDomains: allowedDomains(env), prefill: prefillRecipient(brokerCandidates(load, brokers)),
+    configured: !!cfg.token && !cfg.badFrom, from: cfg.from, replyTo: cfg.replyTo, maxTo: EXPORT_MAX_TO, prefill: prefillRecipient(brokerCandidates(load, brokers)),
     sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining }, maxBytes: SEND_MAX_BYTES,
   });
 }
@@ -97,9 +98,8 @@ export async function POST(req, { params, deps } = {}) {
 
   const to = parseEmails(b.to, { label: 'email', required: true });
   if (to.error) return json({ error: to.error.replace('broker ', '') }, 422);
-  const domains = allowedDomains(env);
-  const blocked = blockedRecipients(to.list, domains);
-  if (blocked.length) return json({ error: `Sending is limited to ${domains.join(', ')} for now. Not allowed: ${blocked.join(', ')}. Nothing was sent.`, blocked }, 403);
+  const bad = exportRecipientProblem(to.list, sender(env, null).from);
+  if (bad) return json({ error: `${bad} Nothing was sent.` }, 422);
   const acct = accountingRecipients(to.list);
   if (acct.length && b.confirmAccounting !== true) return json({ error: `${acct.join(', ')} looks like an accounting address. Load paperwork normally goes to the broker contact. Confirm to send it there anyway.`, accountingConfirm: true, accounting: acct }, 409);
   const note = String(b.note || '').trim();

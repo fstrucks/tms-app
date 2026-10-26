@@ -105,6 +105,24 @@ export function packetFileName(load, withInvoice) {
 const ACCOUNTING = /^(accounting|accounts?|ap|ar|billing|invoices?|invoicing|payables?|receivables?|remit|remittance)([._+-]|\d|$)/i;
 export const looksLikeAccounting = (email) => ACCOUNTING.test(String(email || '').trim().split('@')[0] || '');
 // The first candidate that isn't an accounting address, else ''.
+// Export email recipients (Marc, Oct 26): any domain is allowed (no PACKET_SEND_ALLOWED_DOMAINS here; packet and
+// COI sends still use it). Sanity limits instead: at most EXPORT_MAX_TO addresses, no internal or reserved
+// domains, and never the TMS sending address itself. → error text, or null when the list is OK.
+export const EXPORT_MAX_TO = 5;
+const INTERNAL_TLD = new Set(['local', 'localhost', 'internal', 'intranet', 'lan', 'home', 'corp', 'invalid', 'localdomain', 'test']);
+export function exportRecipientProblem(list = [], from = '') {
+  if (list.length > EXPORT_MAX_TO) return `Too many recipients (max ${EXPORT_MAX_TO}).`;
+  const own = String(from || '').trim().toLowerCase();
+  for (const e of list) {
+    const a = String(e || '').trim().toLowerCase(); const domain = a.split('@')[1] || '';
+    const tld = domain.split('.').pop();
+    if (!domain || INTERNAL_TLD.has(tld) || /^\d+(\.\d+)*$/.test(domain) || domain.split('.').some((p) => !p || p.startsWith('-') || p.endsWith('-')) || tld.length < 2)
+      return `“${a}” isn’t a deliverable email address.`;
+    if (own && a === own) return `“${a}” is the sending address. Enter the broker’s email.`;
+  }
+  return null;
+}
+
 export function prefillRecipient(candidates = []) {
   const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   for (const c of candidates || []) { const e = String(c || '').trim().toLowerCase(); if (EMAIL.test(e) && !looksLikeAccounting(e)) return e; }

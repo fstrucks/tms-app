@@ -3,8 +3,8 @@
 // exact list in order, then downloads one PDF or emails it. Email only goes out after the user reviews the recipient,
 // the attachment list and its size, and presses Send.
 import { useEffect, useState } from 'react';
-import { showExport, defaultSelection, previewList, selectionQuery, NOTE_MAX, looksLikeAccounting, formatBytes, downloadedName } from '../lib/loadExport';
-import { newSendKey, outsideRecipients } from '../lib/packetSendClient';
+import { showExport, defaultSelection, previewList, selectionQuery, NOTE_MAX, looksLikeAccounting, formatBytes, downloadedName, exportRecipientProblem } from '../lib/loadExport';
+import { newSendKey } from '../lib/packetSendClient';
 import { parseEmails } from '../lib/packetSend';
 
 const btn = { minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.95rem', cursor: 'pointer' };
@@ -85,7 +85,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
 
   const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } };
   const toList = parseEmails(to).list || [];
-  const outside = mail ? outsideRecipients(to, '', mail.allowedDomains ?? null) : [];
+  const toProblem = toList.length ? exportRecipientProblem(toList, mail?.from) : null;
   const acct = toList.filter(looksLikeAccounting);
 
   // Step 1: build the same PDF as the download (not saved) to show its exact size before anything is sent.
@@ -93,7 +93,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
     setSendErr(null); setSent(null); setAcctOk(false);
     const p = parseEmails(to, { required: true });
     if (p.error) { setSendErr(p.error.replace('broker ', '')); return; }
-    if (outside.length) { setSendErr(`Sending is limited to ${(mail.allowedDomains || []).join(', ')} for now. Not allowed: ${outside.join(', ')}.`); return; }
+    if (toProblem) { setSendErr(toProblem); return; }
     setBusy(true);
     try {
       const r = await fetch(`/api/loads/${load.id}/export?${selectionQuery(sel, tz())}`, { cache: 'no-store', headers: { Authorization: `Bearer ${await token()}` } });
@@ -160,7 +160,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
                 <input type="email" multiple data-testid="load-export-to" value={to} onChange={(e) => { setTo(e.target.value); setReview(null); }}
                   style={{ display: 'block', width: '100%', marginTop: 4, minHeight: 40, borderRadius: 8, border: '1px solid var(--border)', padding: '0 8px', background: 'var(--surface)', color: 'var(--text)' }} />
               </label>
-              {!!outside.length && <p role="alert" data-testid="load-export-outside" style={{ ...muted, color: 'var(--danger)' }}>Sending is limited to {(mail.allowedDomains || []).join(', ')} for now. Not allowed: {outside.join(', ')}.</p>}
+              {toProblem && <p role="alert" data-testid="load-export-to-problem" style={{ ...muted, color: 'var(--danger)' }}>{toProblem}</p>}
               {!!acct.length && <p data-testid="load-export-acct-warn" style={{ ...muted, color: 'var(--warning)' }}>{acct.join(', ')} looks like an accounting address. Paperwork normally goes to the broker contact.</p>}
               <label style={{ fontSize: '0.92rem' }}>Short note in the email (optional)
                 <textarea data-testid="load-export-email-note" maxLength={NOTE_MAX} rows={2} value={msg} onChange={(e) => { setMsg(e.target.value); setReview(null); }}
@@ -168,7 +168,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
               </label>
               {mail.sendCap && <p style={muted}>{mail.sendCap.used} of {mail.sendCap.cap} emails used this month.</p>}
               {!review ? (
-                <div><button type="button" style={btn} disabled={busy || !preview.length || !toList.length || !!outside.length} data-testid="load-export-review" onClick={startReview}>Review email…</button></div>
+                <div><button type="button" style={btn} disabled={busy || !preview.length || !toList.length || !!toProblem} data-testid="load-export-review" onClick={startReview}>Review email…</button></div>
               ) : (
                 <div data-testid="load-export-confirm" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, display: 'grid', gap: 4, fontSize: '0.9rem' }}>
                   <div><strong>To:</strong> {review.to.join(', ')}</div>
