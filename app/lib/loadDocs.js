@@ -76,7 +76,7 @@ export function loadPickLabel(l) {
   return [head, l.broker_name].filter(Boolean).join(' · ') + when;
 }
 
-const IMG = /\.(jpe?g|png|webp|gif)$/i;
+const IMG = /\.(jpe?g|png|webp|gif|heic|heif)$/i;
 export const isImagePath = (p) => IMG.test(String(p || ''));
 
 // A loads row with stops(*) → the fields suggestLoad uses (pickup/delivery dates from stop appointments,

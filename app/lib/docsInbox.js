@@ -18,7 +18,7 @@
 //
 // handled_at is the only added column. Callers still read documents and scale_tickets. RLS is unchanged.
 import { isEmailDraft, isHandledDoc } from './rateconDrafts';
-import { isCompanyDocType, isDocumentsTabDoc } from './docTypes';
+import { isCompanyDocType, isDocumentsTabDoc, LOAD_PICTURE_TYPE } from './docTypes';
 import { scopeIdOf } from './setupProgress';
 
 export const INBOX_ATTENTION_CAP = 40;
@@ -80,7 +80,8 @@ export function isReviewedOrConfirmed(doc, link = null) {
 }
 
 export function needsAttention(doc, link = null) {
-  if (!doc || doc.doc_type === 'receipt') return false;
+  // Receipts and load pictures are filed where they belong. Nobody reviews a picture.
+  if (!doc || doc.doc_type === 'receipt' || doc.doc_type === LOAD_PICTURE_TYPE) return false;
   if (isHandledDoc(doc)) return false;
   if (!isDocumentsTabDoc(doc)) return false;
   if (isReviewedOrConfirmed(doc, link)) return false;
