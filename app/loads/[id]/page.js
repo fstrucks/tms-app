@@ -36,6 +36,7 @@ import StarRating from '../../components/StarRating';
 import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
+import LoadExport from '../../components/LoadExport';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -303,6 +304,8 @@ export default function LoadDetailPage() {
                   <LoadDriverSettings supabase={supabase} load={load} cardStyle={s.card}
                     onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
                 )}
+
+                <LoadExport supabase={supabase} load={load} cardStyle={s.card} />
 
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>

@@ -24,10 +24,11 @@ export async function docToPdf(doc, download) {
   return out.save();
 }
 
-// invoiceBytes first, then each file in order. Unreadable files are skipped and listed.
-export async function buildBundlePdf(invoiceBytes, files, download) {
+// invoiceBytes first (null = no invoice page, the load export "without invoice"), then each file in order.
+// Unreadable files are skipped and listed.
+export async function buildBundlePdf(invoiceBytes, files, download, { title = 'Invoice packet' } = {}) {
   const out = await PDFDocument.create();
-  for (const p of await out.copyPages(await PDFDocument.load(invoiceBytes), [0])) out.addPage(p);
+  if (invoiceBytes) for (const p of await out.copyPages(await PDFDocument.load(invoiceBytes), [0])) out.addPage(p);
   const skipped = [];
   for (const f of files) {
     if (f.pdfBytes) { // a sheet built on the fly (Stop times)
@@ -37,6 +38,6 @@ export async function buildBundlePdf(invoiceBytes, files, download) {
     if (!f.doc || !f.supported) { skipped.push(f.name); continue; }
     try { const b = await download(f.doc.file_path); if (!b) throw new Error('missing'); await addDoc(out, f.doc, b); } catch { skipped.push(f.name); }
   }
-  out.setTitle('Invoice packet'); out.setProducer('PowerHaul TMS'); out.setCreator('PowerHaul TMS');
+  out.setTitle(title); out.setProducer('PowerHaul TMS'); out.setCreator('PowerHaul TMS');
   return { bytes: await out.save(), skipped };
 }
