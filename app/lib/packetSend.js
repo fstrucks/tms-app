@@ -1,3 +1,4 @@
+import { isReplyToEmail } from './companyFields.js';
 // Carrier packet step F: Send to broker. Pure helpers (validation, guardrail, draft, Postmark call) so the
 // route stays thin and everything is unit-testable with a mocked fetch. Nothing here sends on its own.
 import { autoCcFor, uniqueEmails } from './packetSendClient.js';
@@ -43,6 +44,12 @@ export function blockedRecipients(emails, domains) {
   return emails.filter((e) => { const k = e.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return !domains.includes(k.split('@')[1]); });
 }
 
+// Reply-To for an outgoing email: the company's own Reply-to email (company profile) when set and valid,
+// else the env/default one. Never changes From (always the TMS sender).
+export function companyReplyTo(profile, fallback = null) {
+  const v = String(profile?.reply_to_email ?? '').trim();
+  return v && isReplyToEmail(v) ? v : (fallback || null);
+}
 export function senderConfig(env = process.env) {
   return {
     from: (env.PACKET_FROM_EMAIL || 'noreply@fstrucks.com').trim(),

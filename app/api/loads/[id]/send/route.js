@@ -1,6 +1,6 @@
 // Email the load export packet (Marc, Oct 25). Same people and statuses as the Export download: owner, management
 // and dispatchers of the load's company; delivered / invoiced / paid loads. Same PDF and file name as the download.
-//   GET  → { sends, configured, allowedDomains, prefill, from, sendCap, maxBytes } (history degrades if the table is missing)
+//   GET  → { sends, configured, allowedDomains, prefill, from, replyTo, sendCap, maxBytes } (history degrades if the table is missing)
 //   POST { to, note, sel, idempotencyKey, confirm: true, confirmAccounting?, tz } → sends ONE email via Postmark
 //
 // Fails closed: no Postmark token, no load_packet_sends table, cap reached, a recipient outside
@@ -14,7 +14,7 @@ import { billingCtx, json, invoiceContext } from '../../../../lib/invoiceServer'
 import { canExportStatus, prefillRecipient, accountingRecipients, sendEmailText, SEND_MAX_BYTES, SEND_MIGRATION, NOTE_MAX } from '../../../../lib/loadExport';
 import { brokerForLoad } from '../../../../lib/invoice';
 import { loadExportDocs, readSelection, buildLoadPacket } from '../../../../lib/loadExportServer';
-import { parseEmails, allowedDomains, blockedRecipients, senderConfig, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
+import { parseEmails, allowedDomains, blockedRecipients, senderConfig, companyReplyTo, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
 
 export const runtime = 'nodejs';
@@ -31,10 +31,17 @@ const missingTable = (e) => !!e && (e.code === '42P01' || e.code === 'PGRST205' 
 const isMarc = (e) => /^marc@/i.test(String(e || '').trim());
 
 // The From address is noreply@ unless PACKET_FROM_EMAIL says otherwise; refuse marc@ outright.
-// Reply-To follows PACKET_REPLY_TO, but is dropped if it is marc@ (Marc's rule: these never go out as him).
-function sender(env) {
+// Reply-To: the company's Reply-to email (company profile) when set; else PACKET_REPLY_TO, dropped if it is marc@
+// (the env default never routes replies to Marc); else none. A company may choose any address for its own replies.
+function sender(env, profile) {
   const cfg = senderConfig(env);
-  return { ...cfg, replyTo: isMarc(cfg.replyTo) ? null : cfg.replyTo, badFrom: isMarc(cfg.from) };
+  const envReply = env.PACKET_REPLY_TO && !isMarc(env.PACKET_REPLY_TO) ? String(env.PACKET_REPLY_TO).trim() : null;
+  return { ...cfg, replyTo: companyReplyTo(profile, envReply), badFrom: isMarc(cfg.from) };
+}
+// The company's Reply-to email. select('*') so a database without the column (migration not applied) still works,
+// and any read error just means "not set": it never blocks a send.
+async function companyReplyRow(svc, ownerId) {
+  try { const { data } = await svc.from('company_profiles').select('*').eq('owner_id', ownerId).maybeSingle(); return data || null; } catch { return null; }
 }
 function brokerCandidates(load, brokers) {
   const b = brokerForLoad(load, brokers);
@@ -67,12 +74,12 @@ export async function GET(req, { params, deps } = {}) {
   const { load, brokers } = ctx;
   if (!canExportStatus(load.status)) return json(NOT_YET, 409);
   const env = deps?.env || process.env;
-  const cfg = sender(env);
+  const cfg = sender(env, await companyReplyRow(x.svc, x.c.ownerId));
   const h = await history(x, load.id);
   const u = await monthlyUsage(x.svc, env);
   return json({
     sends: h.sends || [], ...(h.error ? (missingTable(h.error) ? { setupNeeded: true, migration: SEND_MIGRATION } : { historyError: true }) : {}),
-    configured: !!cfg.token && !cfg.badFrom, from: cfg.from, allowedDomains: allowedDomains(env), prefill: prefillRecipient(brokerCandidates(load, brokers)),
+    configured: !!cfg.token && !cfg.badFrom, from: cfg.from, replyTo: cfg.replyTo, allowedDomains: allowedDomains(env), prefill: prefillRecipient(brokerCandidates(load, brokers)),
     sendCap: u.error ? null : { used: u.used, cap: u.cap, remaining: u.remaining }, maxBytes: SEND_MAX_BYTES,
   });
 }
@@ -98,7 +105,7 @@ export async function POST(req, { params, deps } = {}) {
   const note = String(b.note || '').trim();
   if (note.length > NOTE_MAX) return json({ error: `The note is too long (max ${NOTE_MAX} characters).` }, 422);
 
-  const cfg = sender(env);
+  const cfg = sender(env, await companyReplyRow(x.svc, x.c.ownerId));
   if (!cfg.token) return json(NO_TOKEN, 503);
   if (cfg.badFrom) return json({ error: 'Email sending isn’t set up correctly (sender address). Nothing was sent.', notConfigured: true }, 503);
   const key = b.idempotencyKey == null ? (deps?.uuid || randomUUID)() : String(b.idempotencyKey).toLowerCase();
