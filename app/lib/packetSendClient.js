@@ -35,7 +35,7 @@ export function primaryButtonStyle(base, disabled) {
   return disabled ? { ...base, background: 'var(--disabled-bg)', color: 'var(--disabled-text)', cursor: 'not-allowed' } : { ...base, cursor: 'pointer' };
 }
 
-// Automatic copy (PACKET_CC_EMAIL, default marc@fstrucks.com): the address to CC, or null when it's off or already
+// Automatic copy (PACKET_CC_EMAIL, off unless set): the address to CC, or null when it's off or already
 // one of the To addresses (case-insensitive; no duplicate copy to someone already receiving it).
 export function autoCcFor(autoCc, to = []) {
   const a = String(autoCc || '').trim().toLowerCase();
