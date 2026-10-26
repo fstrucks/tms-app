@@ -6,6 +6,7 @@ import { authedFetch } from '../../lib/authedFetch';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import SignInLink from '../../components/SignInLink';
 import { Loading, LoadError } from '../../components/DataState';
+import { formatLocalDate } from '../../lib/localDate';
 
 const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 640, margin: '0 auto', paddingBottom: 'calc(1rem + var(--fab-space))' };
 const field = { width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, borderRadius: 8, border: '1px solid var(--border)', padding: '0 0.6rem', background: 'var(--surface)', color: 'var(--text)' };
@@ -22,7 +23,7 @@ function FileRow({ file }) {
   return (
     <div data-testid="driver-vault-file" style={{ padding: '0.65rem 0', borderTop: '1px solid var(--divider)' }}>
       <div style={{ overflowWrap: 'anywhere' }}>{file.original_filename || file.label}</div>
-      <div style={muted}>{file.label}{file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString()}` : ''}</div>
+      <div style={muted}>{file.label}{file.created_at ? ` · ${formatLocalDate(file.created_at)}` : ''}</div>
       {file.url && <a href={file.url} target="_blank" rel="noopener noreferrer" style={{ ...btn, marginTop: 8 }}>View</a>}
     </div>
   );

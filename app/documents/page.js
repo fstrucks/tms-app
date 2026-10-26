@@ -21,6 +21,7 @@ import SignInLink from '../components/SignInLink';
 import { useRouter } from 'next/navigation';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { fmtMoney } from '../lib/money';
+import { formatLocalDate } from '../lib/localDate';
 import { uploadScan } from '../lib/scanUpload';
 import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
@@ -568,7 +569,7 @@ export default function DocumentsPage() {
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
                     <div style={s.muted}>
                       {d.source === 'email' && <span data-testid="from-email-badge" style={s.badge}>From email</span>}
-                      {isNotRatecon(d) ? <span data-testid="not-ratecon-label">Not a rate con · needs manual entry</span> : docTypeLabel(d.doc_type)} · {new Date(d.created_at).toLocaleDateString()}
+                      {isNotRatecon(d) ? <span data-testid="not-ratecon-label">Not a rate con · needs manual entry</span> : docTypeLabel(d.doc_type)} · {formatLocalDate(d.created_at)}
                     </div>
                     {teammateEmailDoc(d, user?.id) && <div data-testid="team-email-note" style={{ ...s.muted, fontSize: '0.8rem' }}>Emailed to a teammate’s rate con address</div>}
                     {canChangeType && !teammateEmailDoc(d, user?.id) && (

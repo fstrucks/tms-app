@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchTeamDocs } from '../lib/loadDocsClient';
+import { formatLocalDate } from '../lib/localDate';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import { Loading, LoadError } from './DataState';
 import ConfirmButton from './ui/ConfirmButton';
@@ -52,7 +53,7 @@ export default function TeamDocsList({ supabase, onDeleted, onCount, inbox = fal
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0, flex: '1 1 180px' }}>
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{d.original_filename || d.label}</div>
-              <div style={{ ...muted, overflowWrap: 'anywhere' }}>{d.label} · {new Date(d.created_at).toLocaleDateString()}</div>
+              <div style={{ ...muted, overflowWrap: 'anywhere' }}>{d.label} · {formatLocalDate(d.created_at)}</div>
               <div style={{ ...muted, overflowWrap: 'anywhere' }}>
                 <span data-testid="team-doc-uploader">Uploaded by {d.uploader}</span>
                 {d.load_id && <> · <Link href={`/loads/${d.load_id}`} style={{ color: 'var(--primary)' }} data-testid="team-doc-load">{d.load_label}</Link></>}

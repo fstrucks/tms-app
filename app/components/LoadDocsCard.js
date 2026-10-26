@@ -7,6 +7,7 @@ import LoadDocThumb from './LoadDocThumb';
 import { fetchLoadDocs, docsPanelState } from '../lib/loadDocsClient';
 import { uploadScan } from '../lib/scanUpload';
 import { docTypeLabel, LOAD_SCAN_TYPE_IDS, LOAD_PICTURE_TYPE } from '../lib/docTypes';
+import { formatLocalDate } from '../lib/localDate';
 import LoadPictures from './LoadPictures';
 
 const Scanner = dynamic(() => import('./scanner/Scanner'), { ssr: false, loading: () => null });
@@ -42,7 +43,7 @@ export default function LoadDocsCard({ supabase, loadId, loadLabel, userId, card
             <LoadDocThumb doc={d} onOpen={() => d.url && window.open(d.url, '_blank', 'noopener')} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}><strong style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {new Date(d.created_at).toLocaleDateString()}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}><strong style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {formatLocalDate(d.created_at)}</div>
             </div>
             {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>View</a>}
           </div>

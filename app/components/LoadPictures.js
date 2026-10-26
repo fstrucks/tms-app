@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ConfirmButton from './ui/ConfirmButton';
 import { deleteDocument } from '../lib/documents';
+import { formatLocalDate } from '../lib/localDate';
 import { runPictureBatch, uploadLoadPicture } from '../lib/loadPictures';
 
 const btn = {
@@ -11,6 +12,30 @@ const btn = {
   background: 'var(--surface)', color: 'var(--primary)', fontWeight: 600, fontSize: 16,
 };
 const tap = { minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 8, fontSize: 16, fontWeight: 600 };
+
+// Fixed 104px square. The gray stays until the file has decoded, then the photo fades in. A failed load
+// keeps the same box and a short message instead of the browser's broken-image icon.
+function PictureThumb({ pic, onOpen }) {
+  const [phase, setPhase] = useState(pic.url ? 'loading' : 'empty');
+  const [seenUrl, setSeenUrl] = useState(pic.url);
+  if (pic.url !== seenUrl) {
+    setSeenUrl(pic.url);
+    setPhase(pic.url ? 'loading' : 'empty');
+  }
+  const showImg = !!pic.url && phase !== 'error' && phase !== 'empty';
+  return (
+    <button type="button" onClick={() => onOpen(pic)} aria-label={`View ${pic.original_filename || 'picture'}`}
+      style={{ position: 'relative', display: 'block', width: '100%', height: 104, minHeight: 44, padding: 0, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', overflow: 'hidden' }}>
+      {showImg && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={pic.url} alt="" loading="lazy" onLoad={() => setPhase('ready')} onError={() => setPhase('error')}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: phase === 'ready' ? 1 : 0, transition: 'opacity 180ms ease' }} />
+      )}
+      {phase === 'error' && <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '0 6px', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textAlign: 'center' }}>Couldn&apos;t load</span>}
+      {phase === 'empty' && <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Photo</span>}
+    </button>
+  );
+}
 
 export default function LoadPictures({ supabase, userId, loadId, pictures = [], onChange }) {
   const inputRef = useRef(null);
@@ -112,13 +137,8 @@ export default function LoadPictures({ supabase, userId, loadId, pictures = [], 
           <div data-testid="load-picture-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 8 }}>
             {pictures.map((pic) => (
               <div key={pic.id} data-confirm-row data-testid="load-picture-tile" style={{ minWidth: 0 }}>
-                <button type="button" onClick={() => view(pic)} aria-label={`View ${pic.original_filename || 'picture'}`}
-                  style={{ display: 'block', width: '100%', minHeight: 44, padding: 0, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2, var(--divider))', overflow: 'hidden' }}>
-                  {pic.url
-                    // eslint-disable-next-line @next/next/no-img-element
-                    ? <img src={pic.url} alt="" style={{ width: '100%', height: 104, objectFit: 'cover', display: 'block' }} />
-                    : <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 104, fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Photo</span>}
-                </button>
+                <PictureThumb pic={pic} onOpen={view} />
+                {formatLocalDate(pic.created_at) && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>{formatLocalDate(pic.created_at)}</div>}
                 {pic.own !== false && (
                   <div style={{ marginTop: 4 }}>
                     <ConfirmButton label="Delete" prompt="Delete this picture? The load is kept." ariaLabel={`Delete this picture? ${pic.original_filename || ''}`.trim()} onConfirm={() => remove(pic)} />
