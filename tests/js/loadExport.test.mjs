@@ -125,3 +125,21 @@ test('download never emails or writes: the export route and its builder never se
   assert.ok(!/\b(bot|AI)\b/.test(read('../../app/components/LoadExport.js').replace(/\/\/.*$/gm, '')));
   assert.match(read('../../app/loads/[id]/page.js'), /<LoadExport /);
 });
+
+// Taylor's QA of #153 (5): authenticated role × status matrix on the export route (fake bearer user per role).
+test('route matrix: office roles OK when delivered/invoiced/paid; driver 403 always; booked/cancelled 409', async () => {
+  const office = [['owner', OWNER], ['management', MGMT], ['dispatcher', DISP]];
+  for (const status of ['delivered', 'invoiced', 'paid']) {
+    for (const [role, uid] of office) {
+      assert.equal((await EXPORT.GET(req(), { params: { id: L1 }, deps: ctx(role, uid, { status }).deps })).status, 200, `${role} ${status} info`);
+      const dl = await EXPORT.GET(req('?download=1&invoice=0&docs=d1'), { params: { id: L1 }, deps: ctx(role, uid, { status }).deps });
+      assert.equal(dl.status, 200, `${role} ${status} download`);
+    }
+  }
+  for (const status of ['delivered', 'invoiced', 'paid', 'booked', 'cancelled']) {
+    assert.equal((await EXPORT.GET(req('?download=1&docs=d1'), { params: { id: L1 }, deps: ctx('driver', DRIVER, { status }).deps })).status, 403, `driver ${status}`);
+  }
+  for (const status of ['booked', 'cancelled']) for (const [role, uid] of office) {
+    assert.equal((await EXPORT.GET(req('?download=1&docs=d1'), { params: { id: L1 }, deps: ctx(role, uid, { status }).deps })).status, 409, `${role} ${status}`);
+  }
+});

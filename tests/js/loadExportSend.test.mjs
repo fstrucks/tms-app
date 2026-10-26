@@ -136,3 +136,22 @@ test('static: route never calls real fetch in tests (send is injected); UI has e
   assert.doesNotMatch(ui, /\b(bot|AI)\b/);
   assert.match(sendEmailText({ load: { broker_load_number: 'T-1' }, companyName: 'FAKE', withInvoice: true }).subject, /Load T-1 paperwork and invoice/);
 });
+
+// Taylor's QA of #153 (5): authenticated role × status matrix on the send route (fake bearer user, fake sender).
+test('send matrix: office roles send when delivered/invoiced/paid; driver 403 always; booked/cancelled 409; no real mail', async () => {
+  const MGMT = '00000000-0000-4000-8000-0000000000a4';
+  const office = [['owner', OWNER], ['management', MGMT], ['dispatcher', DISP]];
+  for (const status of ['delivered', 'invoiced', 'paid']) for (const [role, uid] of office) {
+    const c = await ctx(role, uid, { status });
+    const r = await post(c, { idempotencyKey: K2 });
+    assert.equal(r.status, 200, `${role} ${status}: ${(await r.clone().json()).error || ''}`); assert.equal(c.mails.length, 1);
+  }
+  for (const status of ['delivered', 'invoiced', 'paid', 'booked', 'cancelled']) {
+    const d = await ctx('driver', DRIVER, { status });
+    assert.equal((await post(d)).status, 403, `driver ${status}`); assert.equal((await get(d)).status, 403); assert.equal(d.mails.length, 0);
+  }
+  for (const status of ['booked', 'cancelled']) for (const [role, uid] of office) {
+    const c = await ctx(role, uid, { status });
+    assert.equal((await post(c)).status, 409, `${role} ${status}`); assert.equal((await get(c)).status, 409); assert.equal(c.mails.length, 0);
+  }
+});
