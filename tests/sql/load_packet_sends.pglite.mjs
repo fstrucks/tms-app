@@ -1,4 +1,4 @@
-// Migration 20261025000100 (load_packet_sends) against an in-memory Postgres (PGlite, WASM). LOCAL ONLY: never touches Supabase.
+// Migration 20261025000200 (load_packet_sends) against an in-memory Postgres (PGlite, WASM). LOCAL ONLY: never touches Supabase.
 // Run: npm i --no-save @electric-sql/pglite && node tests/sql/load_packet_sends.pglite.mjs
 // Fake data only.
 import { PGlite } from '@electric-sql/pglite';
@@ -29,7 +29,7 @@ insert into public.company_profiles (id, owner_id, legal_name) values ('${C1}','
 insert into public.company_members values ('${C1}','${D}','driver'),('${C1}','${P}','dispatcher'),('${C1}','${M}','management');
 insert into public.loads (id, user_id, status, broker_load_number) values ('${L1}','${O}','delivered','TEST-1001'),('${LX}','${O2}','delivered','OTHER-1');
 insert into public.invoices (id, owner_id, load_id) values ('${I1}','${O}','${L1}');`);
-const MIG = readFileSync(R + '20261025000100_load_packet_sends.sql', 'utf8');
+const MIG = readFileSync(R + '20261025000200_load_packet_sends.sql', 'utf8');
 await db.exec(MIG);
 await db.exec(MIG); // idempotent
 
@@ -68,7 +68,7 @@ const idx = (await db.query(`select indexname, indexdef from pg_indexes where ta
 ok(idx.some((i) => i.indexname === 'load_packet_sends_owner_sent_idx' && /\(owner_id, sent_at\)/.test(i.indexdef)), 'index (owner_id, sent_at)');
 ok(idx.some((i) => i.indexname === 'load_packet_sends_load_idx'), 'index on load_id');
 // Dakota's post-apply check file: SELECT only, and it runs.
-const CHK = readFileSync(new URL('../../supabase/checks/20261025000100_load_packet_sends_check.sql', import.meta.url), 'utf8').split(';').map((q) => q.trim()).filter(Boolean);
+const CHK = readFileSync(new URL('../../supabase/checks/20261025000200_load_packet_sends_check.sql', import.meta.url), 'utf8').split(';').map((q) => q.trim()).filter(Boolean);
 ok(CHK.length === 6 && CHK.every((q) => /^select\b/i.test(q) && !/\b(insert|update|delete|alter|create|drop|grant|revoke|truncate)\b/i.test(q)), 'check file is SELECT only');
 const out = []; for (const q of CHK) out.push((await db.query(q)).rows);
 ok(out[0][0].table_exists && out[1][0].rls_enabled, 'check: table + RLS');
