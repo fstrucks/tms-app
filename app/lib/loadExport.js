@@ -92,7 +92,7 @@ export function packetFileName(load, withInvoice) {
   return `${base}_Packet${withInvoice ? '' : '-NoInvoice'}.pdf`;
 }
 
-// ---- Email (not wired in this PR; pending a send-log table, see PR description) ----
+// ---- Email (Send step on the Export screen; log in load_packet_sends) ----
 // Marc's rule: PODs and invoices go to the broker contact only, never to accounting / AP / billing inboxes.
 const ACCOUNTING = /^(accounting|accounts?|ap|ar|billing|invoices?|invoicing|payables?|receivables?|remit|remittance)([._+-]|\d|$)/i;
 export const looksLikeAccounting = (email) => ACCOUNTING.test(String(email || '').trim().split('@')[0] || '');
@@ -120,3 +120,19 @@ export const defaultSelection = (opts) => ({ invoice: true, docIds: (opts?.docs 
 // Selection → query string for GET ?download=1 (the note rides along; capped at NOTE_MAX).
 export const selectionQuery = (sel, tz = '') => new URLSearchParams({ download: '1', invoice: sel.invoice ? '1' : '0', docs: (sel.docIds || []).join(','),
   stopTimes: sel.stopTimes ? '1' : '0', loadNotes: sel.loadNotes ? '1' : '0', note: String(sel.note || '').slice(0, NOTE_MAX), tz }).toString();
+
+// Postmark refuses a message over 10 MB including base64 (≈ 4/3 growth), so the PDF is capped at 7.5 MB raw,
+// the same limit the packet Send uses. The PDF is built on the server, so Vercel's 4.5 MB body limit never applies.
+export const SEND_MAX_BYTES = 7_500_000;
+export const SEND_MIGRATION = '20261025000200_load_packet_sends.sql';
+export const accountingRecipients = (list = []) => (list || []).filter(looksLikeAccounting);
+export const formatBytes = (n) => (!Number.isFinite(n) ? '' : n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
+// Email text. Plain and short; the note is the user's own words.
+export function sendEmailText({ load, companyName, note = '', withInvoice }) {
+  const co = String(companyName || '').trim() || 'our company';
+  const ref = String(load?.broker_load_number || '').trim();
+  const subject = `${ref ? `Load ${ref}` : 'Load'} paperwork${withInvoice ? ' and invoice' : ''} – ${co}`.slice(0, 200);
+  const n = String(note || '').trim();
+  const body = `Hello,\n\nAttached is the paperwork${withInvoice ? ' and invoice' : ''} for ${ref ? `load ${ref}` : 'this load'}.${n ? `\n\n${n}` : ''}\n\nThank you,\n${co}`;
+  return { subject, body };
+}

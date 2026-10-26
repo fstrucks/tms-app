@@ -3,14 +3,9 @@
 //   GET              → { canExport, status, invoiceNumber, options: exportOptions(), fileNames }
 //   GET ?download=1&invoice=1|0&docs=<id,id>&stopTimes=1&loadNotes=1&note=<text>&tz=
 //                    → one PDF in packet order: invoice, rate con, other docs, scale tickets, POD, pictures, stop times, notes
-import { billingCtx, json, invoiceContext, loadLogo } from '../../../../lib/invoiceServer';
-import { docInCompany } from '../../../../lib/loadDocsServer';
-import { canExportStatus, exportOptions, planPacket, exportInvoice, packetFileName } from '../../../../lib/loadExport';
-import { buildBundlePdf } from '../../../../lib/invoiceBundlePdf';
-import { invoicePdf } from '../../../../lib/invoicePdf';
-import { stopTimesPdf } from '../../../../lib/stopTimesPdf';
-import { delaysForLoad } from '../../../../lib/stopTimesServer';
-import { notesPdf } from '../../../../lib/notesPdf';
+import { billingCtx, json, invoiceContext } from '../../../../lib/invoiceServer';
+import { canExportStatus, exportOptions, exportInvoice, packetFileName } from '../../../../lib/loadExport';
+import { loadExportDocs, readSelection, buildLoadPacket } from '../../../../lib/loadExportServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,9 +19,7 @@ export async function GET(req, { params, deps } = {}) {
   if (ctx.res) return ctx.res;
   const { load, profile } = ctx;
   if (!canExportStatus(load.status)) return json(NOT_YET, 409);
-  const { data: rows } = await x.svc.from('documents').select('id,user_id,load_id,doc_type,file_path,original_filename,created_at').eq('load_id', load.id);
-  const docs = [];
-  for (const d of rows || []) if (d.doc_type !== 'invoice' && await docInCompany(x.svc, x.c.ownerId, d)) docs.push(d);
+  const docs = await loadExportDocs(x, load);
   const inv = exportInvoice(ctx);
   const sp = new URL(req.url).searchParams;
 
@@ -36,23 +29,13 @@ export async function GET(req, { params, deps } = {}) {
       fileNames: { withInvoice: packetFileName(load, true), withoutInvoice: packetFileName(load, false) } });
   }
 
-  const sel = { invoice: sp.get('invoice') === '1', docIds: (sp.get('docs') || '').split(',').filter(Boolean),
-    stopTimes: sp.get('stopTimes') === '1', loadNotes: sp.get('loadNotes') === '1', note: sp.get('note') || '' };
-  const { items, unsupported } = planPacket({ load, docs, sel });
-  if (!items.length) return json({ error: 'Nothing is selected. Pick at least one item to export.' }, 422);
-  const download = async (path) => { const { data } = await x.svc.storage.from('documents').download(path); return data ? new Uint8Array(await data.arrayBuffer()) : null; };
-  const invBytes = sel.invoice ? await invoicePdf(inv, profile, { logo: await loadLogo(x.svc, profile?.logo_path) }) : null;
-  const list = [];
-  for (const it of items) {
-    if (it.kind === 'doc') list.push({ name: it.label, doc: it.doc, supported: true });
-    else if (it.kind === 'stopTimes') list.push({ name: 'Stop times', pdfBytes: await stopTimesPdf(load, profile, { tz: sp.get('tz'), delays: await delaysForLoad(x.svc, load.id) }).catch(() => null) });
-    else if (it.kind === 'notes') list.push({ name: 'Notes', pdfBytes: await notesPdf({ loadNumber: load.broker_load_number, note: it.note, loadNotes: it.loadNotes }) });
-  }
-  const r = await buildBundlePdf(invBytes, list, download, { title: sel.invoice ? 'Load packet with invoice' : 'Load packet' });
-  const skipped = [...unsupported, ...r.skipped];
+  const sel = readSelection(Object.fromEntries(sp));
+  const r = await buildLoadPacket(x, ctx, docs, sel, sp.get('tz') || '');
+  if (r.error) return json({ error: r.error }, r.status);
+  const { items, skipped } = r;
   return new Response(r.bytes, { status: 200, headers: {
     'Content-Type': 'application/pdf', 'Cache-Control': 'no-store',
-    'Content-Disposition': `attachment; filename="${packetFileName(load, sel.invoice)}"`,
+    'Content-Disposition': `attachment; filename="${r.filename}"`,
     'X-Packet-Items': String(items.length), 'X-Packet-Skipped': String(skipped.length),
     'X-Packet-Skipped-Names': encodeURIComponent(skipped.join(' | ')).slice(0, 1500),
   } });

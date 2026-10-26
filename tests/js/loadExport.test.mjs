@@ -118,9 +118,10 @@ test('route: chosen items merge in order; images and PDFs; none selected → 422
   assert.equal((await EXPORT.GET(req('?download=1&invoice=0&docs=not-mine'), { params: { id: L1 }, deps: c.deps })).status, 422, 'unknown ids ignored');
 });
 
-test('no email path and no writes: the route and component never send or insert', () => {
-  const src = read('../../app/api/loads/[id]/export/route.js') + read('../../app/components/LoadExport.js');
+test('download never emails or writes: the export route and its builder never send or insert', () => {
+  const src = read('../../app/api/loads/[id]/export/route.js') + read('../../app/lib/loadExportServer.js');
   assert.ok(!/postmark|packetSend|\.insert\(|\.update\(|method:\s*'POST'/i.test(src));
+  assert.ok(!/postmark|\.insert\(/i.test(read('../../app/components/LoadExport.js')), 'the screen only calls the routes');
   assert.ok(!/\b(bot|AI)\b/.test(read('../../app/components/LoadExport.js').replace(/\/\/.*$/gm, '')));
   assert.match(read('../../app/loads/[id]/page.js'), /<LoadExport /);
 });
