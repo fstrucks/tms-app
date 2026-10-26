@@ -56,6 +56,11 @@ export default function LoadExport({ supabase, load, cardStyle }) {
     return () => { live = false; };
   }, [visible, open, mail, load?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Notes saved in the Load notes box: re-read the options so "Print the load's notes" appears/updates.
+  useEffect(() => { setInfo(null); setReview(null); }, [load?.notes]);
+  // Any checklist change invalidates a review (size / too-large are recomputed on the next Review).
+  useEffect(() => { setReview(null); setSendErr(null); }, [sel]);
+
   if (!visible) return null;
   const o = info?.options;
   const preview = previewList(o, sel || {});

@@ -22,6 +22,8 @@ import ConfirmButton from '../../components/ui/ConfirmButton';
 import { deleteLoad, loadDeletePrompt, loadDeleteDocsLabel } from '../../lib/loadDelete';
 import { isCompanyDocType, docTypeLabel, LOAD_SCAN_TYPE_IDS, LOAD_PICTURE_TYPE } from '../../lib/docTypes';
 import LoadPictures from '../../components/LoadPictures';
+import LoadNotes from '../../components/LoadNotes';
+import { canEditLoadNotes } from '../../lib/loadNotes';
 import { fetchLoadDocs, docsPanelState } from '../../lib/loadDocsClient';
 import { fetchVisibleLoad, isLoadOwnerView, mergeLoadPatch } from '../../lib/visibleLoads';
 import LoadDocThumb from '../../components/LoadDocThumb';
@@ -254,7 +256,7 @@ export default function LoadDetailPage() {
                       ['Weight', load.weight != null ? fmtNumber(load.weight, ' lb') : null],
                       ['Equipment', load.equipment_type],
                       ['Instructions', load.special_instructions],
-                      ['Notes', load.notes],
+                      ['Notes', canEditLoadNotes(load) ? null : load.notes], // editors get the Load notes box below
                       ['Created', new Date(load.created_at).toLocaleString()],
                     ].filter(([, v]) => v).map(([k, v]) => (
                       <div key={k} style={{ display: 'contents' }}>
@@ -309,6 +311,9 @@ export default function LoadDetailPage() {
                   <LoadDriverSettings supabase={supabase} load={load} cardStyle={s.card}
                     onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
                 )}
+
+                <LoadNotes supabase={supabase} load={load} cardStyle={s.card}
+                  onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
 
                 <LoadExport supabase={supabase} load={load} cardStyle={s.card} />
 
