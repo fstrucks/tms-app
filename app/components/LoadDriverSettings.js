@@ -6,6 +6,7 @@
 // migration 20261018000600 is applied.
 import { useEffect, useState } from 'react';
 import { fetchDriverChoices, saveDriverSettings, driverLabel, driverRateHelp, driverOptions } from '../lib/loadDriver';
+import { savedDriverMessage } from '../lib/autoDispatch';
 
 const st = {
   input: { display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, fontSize: 16, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', marginTop: 4, background: 'var(--surface)', color: 'var(--text)' },
@@ -35,9 +36,11 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
 
   async function save() {
     setSaving(true); setMsg(null);
+    const driverChanged = (driver || null) !== (load.assigned_driver_user_id || null);
+    const previousStatus = load.status;
     try {
       const r = await saveDriverSettings(supabase, load.id, {
-        driverId: driver || null, showRate: show, status: load.status, previousDriver: load.assigned_driver_user_id || null,
+        driverId: driver || null, showRate: show && !!driver, status: load.status, previousDriver: load.assigned_driver_user_id || null,
       });
       const saved = { assigned_driver_user_id: r.row?.assigned_driver_user_id ?? (driver || null), show_rate_to_driver: r.row?.show_rate_to_driver === true };
       if (!r.ok) {
@@ -46,7 +49,7 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
         return setMsg({ err: true, text: r.error });
       }
       onSaved?.({ ...saved, ...(r.status ? { status: r.status } : {}) });
-      setMsg({ err: false, text: r.status === 'dispatched' && load.status === 'booked' ? 'Saved and dispatched.' : 'Saved.' });
+      setMsg({ err: false, text: savedDriverMessage({ previousStatus, nextStatus: r.status, driverChanged }) });
     } finally { setSaving(false); }
   }
 
@@ -63,19 +66,19 @@ export default function LoadDriverSettings({ supabase, load, cardStyle, onSaved 
           </select>
         )}
       </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: 'pointer' }}>
-        <input type="checkbox" checked={show} onChange={(e) => { setShow(e.target.checked); setMsg(null); }} style={{ width: 22, height: 22 }} />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, cursor: driver ? 'pointer' : 'default' }}>
+        <input type="checkbox" checked={show && !!driver} disabled={!driver} onChange={(e) => { setShow(e.target.checked); setMsg(null); }} style={{ width: 22, height: 22 }} />
         <span>Show rate to driver</span>
       </label>
-      <p data-testid="driver-rate-help" style={{ ...st.muted, margin: '0 0 0.5rem' }}>{driverRateHelp(show, load.show_rate_to_driver === true)}</p>
+      <p data-testid="driver-rate-help" style={{ ...st.muted, margin: '0 0 0.5rem' }}>{driver ? driverRateHelp(show && !!driver, load.show_rate_to_driver === true) : 'Pick a driver to choose whether they see the rate.'}</p>
       {/* QA #94 dark: the disabled state was small default-size text on a fill close to the card. Now full-size text,
           the disabled tokens with a visible border (global button:disabled rule), and a plain reason next to it. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button type="button" data-testid="driver-settings-save" disabled={!dirty || saving || !loaded} onClick={save} aria-describedby={!dirty && !saving ? 'driver-settings-nochange' : undefined}
+        <button type="button" data-testid="driver-settings-save" disabled={!dirty || saving || !loaded} onClick={save} aria-describedby={!dirty && !saving && !msg ? 'driver-settings-nochange' : undefined}
           style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, borderWidth: 1, borderStyle: 'solid', borderColor: dirty ? 'var(--primary)' : 'var(--disabled-border)', background: dirty ? 'var(--primary)' : 'var(--disabled-bg)', color: dirty ? 'var(--on-primary)' : 'var(--disabled-text)', fontSize: '1rem', fontWeight: 600 }}>
           {saving ? 'Saving…' : 'Save driver settings'}
         </button>
-        {!dirty && !saving && loaded && <span id="driver-settings-nochange" style={{ ...st.muted, color: 'var(--text-muted)' }}>No changes to save</span>}
+        {!dirty && !saving && loaded && !msg && <span id="driver-settings-nochange" style={{ ...st.muted, color: 'var(--text-muted)' }}>No changes to save</span>}
       </div>
       {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>{msg.text}</p>}
     </div>

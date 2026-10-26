@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   DISPATCH_STATUS, PRE_DISPATCH_STATUS, TERMINAL_STATUSES,
   statusAfterDriverChange, statusAfterDispatch, statusForNewAssignedLoad, showDispatchButton,
-  formStatusOnDriverPick, formStatusOnStatusPick,
+  formStatusOnDriverPick, formStatusOnStatusPick, savedDriverMessage,
   dispatchLoad, writeOwnerLoadStatus,
 } from '../../app/lib/autoDispatch.js';
 import { formToPatch, formToNewLoad, loadToForm, createLoad } from '../../app/lib/dispatch.js';
@@ -35,7 +35,7 @@ test('dispatch is a booked → dispatched status write, and it does not touch a 
   assert.equal(showDispatchButton({ status: 'cancelled', driverId: D1 }), false);
 });
 
-test('assigning a driver dispatches only a booked load; reassign, unassign, and later statuses stay put', () => {
+test('assigning a driver dispatches only a booked load; unassign of dispatched goes back to booked; later statuses stay', () => {
   assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: null, nextDriver: D1 }), 'dispatched');
   assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: D1, nextDriver: D2 }), 'dispatched');
   assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: D1, nextDriver: D1 }), 'booked');
@@ -44,9 +44,17 @@ test('assigning a driver dispatches only a booked load; reassign, unassign, and 
   for (const st of TERMINAL_STATUSES) {
     assert.equal(statusAfterDriverChange({ status: st, previousDriver: null, nextDriver: D1 }), st);
   }
-  assert.equal(statusAfterDriverChange({ status: 'dispatched', previousDriver: D1, nextDriver: null }), 'dispatched');
+  // Removing the driver from a dispatched load sends it back to booked. Later statuses stay.
+  assert.equal(statusAfterDriverChange({ status: 'dispatched', previousDriver: D1, nextDriver: null }), 'booked');
+  assert.equal(statusAfterDriverChange({ status: 'dispatched', previousDriver: null, nextDriver: '' }), 'booked');
   assert.equal(statusAfterDriverChange({ status: 'in_transit', previousDriver: D1, nextDriver: '' }), 'in_transit');
+  assert.equal(statusAfterDriverChange({ status: 'delivered', previousDriver: D1, nextDriver: null }), 'delivered');
+  assert.equal(statusAfterDriverChange({ status: 'invoiced', previousDriver: D1, nextDriver: null }), 'invoiced');
+  assert.equal(statusAfterDriverChange({ status: 'paid', previousDriver: D1, nextDriver: null }), 'paid');
   assert.equal(statusAfterDriverChange({ status: 'cancelled', previousDriver: D1, nextDriver: null }), 'cancelled');
+  assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: D1, nextDriver: null }), 'booked');
+  // A status the user picked still wins, including leaving dispatched on purpose while a driver remains.
+  assert.equal(statusAfterDriverChange({ status: 'dispatched', previousDriver: D1, nextDriver: null, explicitStatus: 'in_transit' }), 'in_transit');
   // An explicit status other than booked wins, including leaving a driver on a booked load the user moved on purpose.
   assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: null, nextDriver: D1, explicitStatus: 'in_transit' }), 'in_transit');
   assert.equal(statusAfterDriverChange({ status: 'booked', previousDriver: null, nextDriver: D1, explicitStatus: 'cancelled' }), 'cancelled');
@@ -59,7 +67,10 @@ test('the dispatch status menu shows Dispatched when a driver is chosen, and sna
   assert.equal(formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: null, nextDriver: D1, formStatus: 'booked' }), 'dispatched');
   assert.equal(formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: D1, nextDriver: D2, formStatus: 'booked' }), 'dispatched');
   assert.equal(formStatusOnDriverPick({ savedStatus: 'dispatched', savedDriver: D1, nextDriver: D2, formStatus: 'dispatched' }), 'dispatched');
-  assert.equal(formStatusOnDriverPick({ savedStatus: 'dispatched', savedDriver: D1, nextDriver: '', formStatus: 'dispatched' }), 'dispatched');
+  assert.equal(formStatusOnDriverPick({ savedStatus: 'dispatched', savedDriver: D1, nextDriver: '', formStatus: 'dispatched' }), 'booked');
+  assert.equal(formStatusOnDriverPick({ savedStatus: 'in_transit', savedDriver: D1, nextDriver: '', formStatus: 'in_transit' }), 'in_transit');
+  assert.equal(formStatusOnDriverPick({ savedStatus: 'delivered', savedDriver: D1, nextDriver: '', formStatus: 'delivered' }), 'delivered');
+  assert.equal(formStatusOnDriverPick({ savedStatus: 'cancelled', savedDriver: D1, nextDriver: '', formStatus: 'cancelled' }), 'cancelled');
   assert.equal(formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: null, nextDriver: '', formStatus: 'dispatched' }), 'booked');
   assert.equal(formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: null, nextDriver: D1, formStatus: 'in_transit' }), 'in_transit');
   assert.equal(formStatusOnDriverPick({ savedStatus: 'booked', savedDriver: null, nextDriver: D1, formStatus: 'cancelled' }), 'cancelled');
@@ -136,7 +147,7 @@ test('staff Dispatch uses dispatch_update_load with only the status, and skips w
   assert.match(blocked.message, /management and dispatchers/);
 });
 
-test('dispatch edit: assigning on a booked load adds status dispatched; reassign and unassign do not', () => {
+test('dispatch edit: assigning on a booked load adds status dispatched; reassign stays; unassign of dispatched goes back to booked', () => {
   const booked = { ...base, status: 'booked', assigned_driver_user_id: null };
   const assigned = formToPatch({ ...loadToForm(booked), assigned_driver_user_id: D1 }, booked);
   assert.equal(assigned.patch.status, 'dispatched');
@@ -144,9 +155,19 @@ test('dispatch edit: assigning on a booked load adds status dispatched; reassign
   const reassigned = formToPatch({ ...loadToForm({ ...booked, status: 'dispatched', assigned_driver_user_id: D1 }), assigned_driver_user_id: D2 }, { ...booked, status: 'dispatched', assigned_driver_user_id: D1 });
   assert.equal(reassigned.patch.assigned_driver_user_id, D2);
   assert.equal(reassigned.patch.status, undefined);
-  const unassigned = formToPatch({ ...loadToForm({ ...booked, status: 'dispatched', assigned_driver_user_id: D1 }), assigned_driver_user_id: '' }, { ...booked, status: 'dispatched', assigned_driver_user_id: D1 });
+  const unassigned = formToPatch({ ...loadToForm({ ...booked, status: 'dispatched', assigned_driver_user_id: D1, show_rate_to_driver: true }), assigned_driver_user_id: '' }, { ...booked, status: 'dispatched', assigned_driver_user_id: D1, show_rate_to_driver: true });
   assert.equal(unassigned.patch.assigned_driver_user_id, null);
-  assert.equal(unassigned.patch.status, undefined);
+  assert.equal(unassigned.patch.status, 'booked');
+  assert.equal(unassigned.patch.show_rate_to_driver, false);
+  // Already no driver, still dispatched: saving the edit puts it back to booked.
+  const bare = formToPatch(loadToForm({ ...booked, status: 'dispatched' }), { ...booked, status: 'dispatched' });
+  assert.equal(bare.patch.status, 'booked');
+  assert.equal(bare.patch.assigned_driver_user_id, undefined);
+  for (const st of ['in_transit', 'delivered', 'invoiced', 'paid', 'cancelled']) {
+    const kept = formToPatch({ ...loadToForm({ ...booked, status: st, assigned_driver_user_id: D1 }), assigned_driver_user_id: '' }, { ...booked, status: st, assigned_driver_user_id: D1 });
+    assert.equal(kept.patch.status, undefined, st);
+    assert.equal(kept.patch.assigned_driver_user_id, null);
+  }
   const transit = formToPatch({ ...loadToForm({ ...booked, status: 'in_transit' }), assigned_driver_user_id: D1 }, { ...booked, status: 'in_transit' });
   assert.equal(transit.patch.status, undefined);
   const cancelled = formToPatch({ ...loadToForm(booked), assigned_driver_user_id: D1, status: 'cancelled' }, booked);
@@ -206,8 +227,15 @@ test('owner driver save dispatches a booked load and does not when the RPC rejec
   const moved = await saveDriverSettings(sb, 'L1', { driverId: D2, showRate: false, status: 'dispatched', previousDriver: D1 });
   assert.equal(moved.status, 'dispatched');
   assert.deepEqual(updates, []);
-  const cleared = await saveDriverSettings(sb, 'L1', { driverId: null, showRate: false, status: 'dispatched', previousDriver: D1 });
-  assert.equal(cleared.status, 'dispatched');
+  const cleared = await saveDriverSettings(sb, 'L1', { driverId: null, showRate: true, status: 'dispatched', previousDriver: D1 });
+  assert.equal(cleared.status, 'booked');
+  assert.equal(cleared.row.show_rate_to_driver, false);
+  assert.deepEqual(updates, [{ row: { status: 'booked' }, eqs: [['id', 'L1'], ['status', 'dispatched']] }]);
+  updates.length = 0;
+  for (const st of ['in_transit', 'delivered', 'invoiced', 'paid', 'cancelled', 'booked']) {
+    const left = await saveDriverSettings(sb, 'L1', { driverId: null, showRate: false, status: st, previousDriver: D1 });
+    assert.equal(left.status, st);
+  }
   assert.deepEqual(updates, []);
   for (const st of ['in_transit', ...TERMINAL_STATUSES]) {
     const r = await saveDriverSettings(sb, 'L1', { driverId: D1, showRate: false, status: st, previousDriver: null });
@@ -227,6 +255,17 @@ test('Home shows the map for a dispatched load and not for a booked Next load', 
   assert.equal(pickCurrentLoad([load('dispatched')]).kind, 'current');
   const card = read('app/components/HomeCurrentLoad.js');
   assert.match(card, /enabled=\{props\.pick\.kind === 'current'\}/);
+});
+
+test('save copy: back to Booked on unassign, Driver saved when a dispatched load only changes driver', () => {
+  assert.equal(savedDriverMessage({ previousStatus: 'dispatched', nextStatus: 'booked', driverChanged: true }), 'Saved. Load is back to Booked.');
+  assert.equal(savedDriverMessage({ previousStatus: 'booked', nextStatus: 'dispatched', driverChanged: true }), 'Saved and dispatched.');
+  assert.equal(savedDriverMessage({ previousStatus: 'dispatched', nextStatus: 'dispatched', driverChanged: true }), 'Driver saved.');
+  assert.equal(savedDriverMessage({ previousStatus: 'in_transit', nextStatus: 'in_transit', driverChanged: true }), 'Driver saved.');
+  assert.equal(savedDriverMessage({ previousStatus: 'dispatched', nextStatus: 'dispatched', driverChanged: false }), 'Saved.');
+  assert.match(read('app/components/LoadDriverSettings.js'), /savedDriverMessage\(/);
+  assert.match(read('app/components/LoadDriverSettings.js'), /!dirty && !saving && loaded && !msg &&/);
+  assert.match(read('app/dispatch/[id]/page.js'), /savedDriverMessage\(/);
 });
 
 test('every assign path and both Dispatch buttons call the shared helper', () => {

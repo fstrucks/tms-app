@@ -18,18 +18,33 @@ const idOf = (v) => {
   return s || null;
 };
 
-// Status after a driver change.
-// Unassign leaves the status alone (a dispatched load stays dispatched with no driver).
+// Status after a driver change (Marc, via Sam, Oct 25 2026).
 // A new or different driver on a booked load becomes dispatched.
-// Already dispatched, in transit, or terminal: status stays. An explicit non-booked status the user picked wins.
+// Removing the driver from a dispatched load sends it back to booked. A driver swap (A to B) stays dispatched.
+// in_transit, delivered, invoiced, paid, cancelled, and booked are never moved by an unassign.
+// An explicit status other than booked (in transit, cancelled, a manual Dispatch, …) still wins.
 export function statusAfterDriverChange({ status = null, previousDriver = null, nextDriver = null, explicitStatus = null } = {}) {
   const current = status || null;
   const prev = idOf(previousDriver);
   const next = idOf(nextDriver);
   if (explicitStatus && explicitStatus !== PRE_DISPATCH_STATUS) return explicitStatus;
+  if (!next && current === DISPATCH_STATUS) return PRE_DISPATCH_STATUS;
   if (!next || next === prev) return explicitStatus || current;
   if (current === PRE_DISPATCH_STATUS) return DISPATCH_STATUS;
   return explicitStatus || current;
+}
+
+export const REVERT_TO_BOOKED_TEXT = 'Saved. Load is back to Booked.';
+export const DRIVER_SAVED_TEXT = 'Driver saved.';
+export const SAVED_DISPATCHED_TEXT = 'Saved and dispatched.';
+
+// Copy after a driver or load save. Unassign of a dispatched load is named; a driver change that
+// leaves the status alone says the driver was saved (the owner card used to say nothing changed).
+export function savedDriverMessage({ previousStatus = null, nextStatus = null, driverChanged = false } = {}) {
+  if (previousStatus === DISPATCH_STATUS && nextStatus === PRE_DISPATCH_STATUS) return REVERT_TO_BOOKED_TEXT;
+  if (previousStatus === PRE_DISPATCH_STATUS && nextStatus === DISPATCH_STATUS) return SAVED_DISPATCHED_TEXT;
+  if (driverChanged) return DRIVER_SAVED_TEXT;
+  return 'Saved.';
 }
 
 // Manual Dispatch. Booked becomes dispatched. Anything else is left alone (no re-dispatch, no terminal change).
@@ -56,7 +71,7 @@ export function showDispatchButton({ status, driverId } = {}) {
 }
 
 // Dropdown while the driver select changes. A booked load shows Dispatched once the driver is new.
-// Dispatched on that booked load is the automatic label, so clearing the driver puts Booked back.
+// Clearing the driver on that automatic Dispatched, or on a load already dispatched, puts Booked back.
 // A status the user picked (in transit, cancelled, delivered, …) stays.
 export function formStatusOnDriverPick({ savedStatus = null, savedDriver = null, nextDriver = null, formStatus = null } = {}) {
   const saved = savedStatus || PRE_DISPATCH_STATUS;

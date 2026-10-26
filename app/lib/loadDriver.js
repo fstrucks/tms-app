@@ -2,7 +2,7 @@
 // 20261018000600_load_driver_rate_members.sql. Until it is applied every helper here reports available:false and
 // the forms hide the controls, so nothing is sent that the database can't store.
 import { isMissingFunction } from './homeCurrentLoad';
-import { dispatchLoad, statusAfterDriverChange } from './autoDispatch';
+import { DISPATCH_STATUS, PRE_DISPATCH_STATUS, dispatchLoad, statusAfterDriverChange, writeOwnerLoadStatus } from './autoDispatch';
 
 const MISSING_COL = /assigned_driver_user_id|show_rate_to_driver|pickup_number/;
 // One message wherever the assigned-driver trigger (0600/0700) can surface: the load points at someone who isn't a
@@ -48,20 +48,28 @@ export const SAVE_ERRORS = {
 };
 
 // Owner / management / dispatcher. The database checks the role (drivers get not_allowed).
-// Passing status + previousDriver also dispatches a booked load when the driver changes, through the same
-// owner status write as the Dispatch button. The RPC itself only stores the driver and the show-rate flag.
+// Passing status + previousDriver also dispatches a booked load when the driver changes, and sends a
+// dispatched load back to booked when the driver is removed, through the same owner status write as the
+// Dispatch button. The RPC itself only stores the driver and the show-rate flag. No driver → the flag stays off.
 // → { ok, row, status } | { ok: false, error, row? }
 export async function saveDriverSettings(supabase, loadId, { driverId = null, showRate = false, status = null, previousDriver = null } = {}) {
-  const { data, error } = await supabase.rpc('set_load_driver_settings', { p_load: loadId, p_driver: driverId || null, p_show: !!showRate });
+  const nextDriver = driverId || null;
+  const show = !!showRate && !!nextDriver;
+  const { data, error } = await supabase.rpc('set_load_driver_settings', { p_load: loadId, p_driver: nextDriver, p_show: show });
   if (error) {
     const code = Object.keys(SAVE_ERRORS).find((k) => (error.message || '').includes(k));
     return { ok: false, error: code ? SAVE_ERRORS[code] : "Couldn't save the driver settings. Please try again.", cause: error };
   }
-  const next = statusAfterDriverChange({ status, previousDriver, nextDriver: driverId || null });
-  if (status === 'booked' && next === 'dispatched') {
+  const next = statusAfterDriverChange({ status, previousDriver, nextDriver });
+  if (status === PRE_DISPATCH_STATUS && next === DISPATCH_STATUS) {
     const d = await dispatchLoad(supabase, { id: loadId, status, channel: 'owner' });
     if (!d.ok) return { ok: false, error: 'The driver was saved, but the load was not dispatched. Tap Dispatch to finish.', cause: d.error, row: data };
     return { ok: true, row: data, status: d.status };
+  }
+  if (status === DISPATCH_STATUS && next === PRE_DISPATCH_STATUS) {
+    const written = await writeOwnerLoadStatus(supabase, { id: loadId, status: next, onlyFrom: DISPATCH_STATUS });
+    if (!written.ok) return { ok: false, error: 'The driver was saved, but the load was not moved back to Booked.', cause: written.error, row: data };
+    return { ok: true, row: data, status: written.status };
   }
   return { ok: true, row: data, status: status || null };
 }

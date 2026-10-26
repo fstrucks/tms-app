@@ -192,8 +192,9 @@ test('(c) delete prompt separates your documents from team documents', () => {
   assert.equal(loadDeletePrompt(3, false, {}, 1), 'Delete this load and its stops? 4 documents will be kept, unlinked.');
   assert.equal(loadDeletePrompt(2, true, { expenses: 1 }), 'Delete this load, its stops and 2 documents? 1 expense will be kept, unlinked.');
   const load = read('../../app/loads/[id]/page.js');
-  assert.match(load, /loadDeletePrompt\(ownDocs\.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs\)/);
-  assert.match(load, /loadDeleteDocsLabel\(ownDocs\.length, teamDocs, companyDocs\)/);
+  assert.match(load, /loadDeletePrompt\(ownDocs\.length, alsoDocs && !!docsLabel, linked, teamDocs, companyDocs, ticketPhotos\)/);
+  assert.match(load, /loadDeleteDocsLabel\(ownDocs\.length, teamDocs, companyDocs, ticketPhotos\)/);
+  assert.match(load, /source === 'scale_ticket'/);
 });
 
 test('(a) Scale tickets box also returns scale-ticket documents linked to the load (not already on a ticket)', async () => {
