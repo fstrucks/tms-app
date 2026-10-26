@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSetup } from './useSetup';
 import { getSupabase } from '../../lib/supabase';
 import { checkVaultUpload } from '../../lib/companyDocs';
+import { REPLY_TO_HELP, isReplyToEmail } from '../../lib/companyFields';
 import { CATEGORIES, OPERATION_QUESTIONS, WIZARD_STEPS, GUIDANCE } from '../../lib/setupCatalog.js';
 import {
   buildChecklist, summarize, matchesFilter, filterCounts, modelFromPayload, binderLines, visibleToRole, expiryEntries, showUndo, FILTERS,
@@ -451,6 +452,7 @@ function CompanyStep({ data, busy, act, saveRef }) {
   const [form, setForm] = useState({
     legal_name: p.legal_name || '', owner_name: p.owner_name || '', mc_number: p.mc_number || '', dot_number: p.dot_number || '',
     address_line1: p.address_line1 || '', city: p.city || '', state: p.state || '', postal_code: p.postal_code || '',
+    ...('reply_to_email' in p ? { reply_to_email: p.reply_to_email || '' } : {}), // only once the column exists
   });
   const [answers, setAnswers] = useState({ ...(p.operation_answers || {}) });
   const [dates, setDates] = useState({ iftaRenewalOn: p.ifta_renewal_on || '', irpRenewalOn: p.irp_renewal_on || '', hvutFirstUseOn: p.hvut_first_use_on || '' });
@@ -459,6 +461,7 @@ function CompanyStep({ data, busy, act, saveRef }) {
   async function save() {
     setLocalErr(null);
     if (!form.legal_name.trim()) { setLocalErr('Enter the legal company name.'); return false; }
+    if (form.reply_to_email && !isReplyToEmail(form.reply_to_email)) { setLocalErr('Enter a valid reply-to email, or leave it blank.'); return false; }
     const sb = getSupabase();
     const token = (await sb?.auth.getSession())?.data?.session?.access_token;
     const res = await fetch('/api/company-profile', { method: 'PUT', headers: { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
@@ -480,6 +483,13 @@ function CompanyStep({ data, busy, act, saveRef }) {
           <input style={s.input} value={form[key] || ''} onChange={set(key)} maxLength={key === 'state' ? 2 : undefined} />
         </label>
       ))}
+      {'reply_to_email' in form && (
+        <label style={{ display: 'block', marginTop: 8 }}>
+          <span style={{ fontWeight: 600 }}>Reply-to email (optional)</span>
+          <input style={s.input} type="email" inputMode="email" placeholder="office@yourcompany.com" value={form.reply_to_email} onChange={set('reply_to_email')} aria-describedby="setup-reply-to-help" />
+          <span id="setup-reply-to-help" style={{ display: 'block', color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>{REPLY_TO_HELP}</span>
+        </label>
+      )}
       <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.3rem' }}>About your operation</h3>
       {OPERATION_QUESTIONS.map((q) => (
         <fieldset key={q.key} style={{ border: 'none', padding: 0, margin: '0.6rem 0' }}>

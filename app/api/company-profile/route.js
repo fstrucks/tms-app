@@ -31,7 +31,8 @@ async function ctx(req) {
 }
 
 // Optional columns the database has (select('*') simply leaves a missing one out). null = no profile row to tell.
-const columnsOf = (p) => ({ owner_name: p ? 'owner_name' in p : null });
+const columnsOf = (p) => ({ owner_name: p ? 'owner_name' in p : null, reply_to_email: p ? 'reply_to_email' in p : null });
+const REPLY_TO_PENDING = 'Saved, except Reply-to email: it needs a database update that hasn’t been applied yet.';
 const OWNER_NAME_PENDING = 'Saved, except Owner name: it needs a database update that hasn’t been applied yet.';
 
 export async function GET(req) {
@@ -62,6 +63,6 @@ export async function PUT(req) {
     return json({ error: saveErrorMessage(error) }, error.code === '42501' ? 403 : 500);
   }
   return json({ profile: publicProfile(data), role: c.role, canEdit: true, canSign: canSign(c.role), columns: columnsOf(data),
-    ...(dropped.includes('owner_name') && row.owner_name ? { notice: OWNER_NAME_PENDING } : {}) });
+    ...(dropped.includes('owner_name') && row.owner_name ? { notice: OWNER_NAME_PENDING } : dropped.includes('reply_to_email') && row.reply_to_email ? { notice: REPLY_TO_PENDING } : {}) });
 }
 

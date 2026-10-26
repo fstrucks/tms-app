@@ -3,7 +3,7 @@
 // first save even though the insert itself is allowed.
 // Columns added after the first release. If the database doesn't have one yet (migration not applied), the save is
 // retried without it, so the rest of the profile still saves exactly as before.
-export const OPTIONAL_COLUMNS = ['owner_name'];
+export const OPTIONAL_COLUMNS = ['owner_name', 'reply_to_email'];
 const MISSING_COL = new Set(['42703', 'PGRST204']);
 export const missingColumn = (error, col) => !!error && MISSING_COL.has(error.code) && String(error.message || '').includes(col);
 export async function saveProfileGraceful(c, row) {

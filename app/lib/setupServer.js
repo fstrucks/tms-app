@@ -19,7 +19,7 @@ export const isOffice = (role) => role === 'owner' || role === 'dispatcher' || r
 
 const DOC_TYPES = [...new Set(CHECKLIST_ITEMS.map((i) => i.docType).filter(Boolean))];
 const DRIVER_DOC_TYPES = new Set(['coi', 'medical_card', 'cab_card', 'ifta_license', 'annual_inspection', 'permit', 'carrier_lease']);
-const PROFILE_KEYS = ['id', 'owner_id', 'legal_name', 'dba_name', 'owner_name', 'mc_number', 'dot_number', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'phone', 'email', 'created_at', 'setup_started_at', 'setup_completed_at', 'setup_dismissed_at', 'setup_prompted_at', 'operation_answers', 'ifta_renewal_on', 'irp_renewal_on', 'hvut_first_use_on'];
+const PROFILE_KEYS = ['id', 'owner_id', 'legal_name', 'dba_name', 'owner_name', 'mc_number', 'dot_number', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'phone', 'email', 'reply_to_email', 'created_at', 'setup_started_at', 'setup_completed_at', 'setup_dismissed_at', 'setup_prompted_at', 'operation_answers', 'ifta_renewal_on', 'irp_renewal_on', 'hvut_first_use_on'];
 
 export function publicSetupProfile(p) {
   if (!p) return null;
