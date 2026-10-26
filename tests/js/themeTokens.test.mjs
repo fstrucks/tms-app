@@ -101,7 +101,7 @@ test('account menu offers Light / Dark / Auto as menu radios reachable by arrow 
 test('hardcoded hex/rgb colors in app/ are limited to the reviewed exceptions', () => {
   const allowed = ['app/globals.css', 'app/lib/theme.js', 'app/lib/statusColors.js', 'app/lib/packetStatus.js', 'app/lib/packetMapperModel.js',
     'app/lib/packetFill.js', 'app/icon.svg', 'app/components/RouteMap.js', 'app/components/SignaturePad.js', 'app/dev/signature/SignatureQA.js', 'app/packets/PacketMapper.js',
-    'app/packets/mapper-preview/page.js', 'app/expenses/page.js', 'app/lib/driverFilePdf.js', 'app/lib/invoicePdf.js', 'app/lib/stopTimesPdf.js'] // dev fake PDF page image; JPEG flatten canvas (white); PDF ink (not a theme token)
+    'app/packets/mapper-preview/page.js', 'app/expenses/page.js', 'app/lib/driverFilePdf.js', 'app/lib/invoicePdf.js', 'app/lib/stopTimesPdf.js', 'app/lib/invoiceBundlePdf.js'] // dev fake PDF page image; JPEG flatten canvas (white); PDF ink (not a theme token)
   const files = execSync("grep -rlE \"(['\\\"=:(]|solid|dashed|dotted|px) ?#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\\b|rgba?\\(\" app || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
   assert.deepEqual(files.filter((f) => !allowed.includes(f)), []);
 });
