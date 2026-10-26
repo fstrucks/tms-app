@@ -1,3 +1,4 @@
+import { isReplyToEmail } from './companyFields.js';
 // Carrier packet step F: Send to broker. Pure helpers (validation, guardrail, draft, Postmark call) so the
 // route stays thin and everything is unit-testable with a mocked fetch. Nothing here sends on its own.
 import { autoCcFor, uniqueEmails } from './packetSendClient.js';
@@ -6,14 +7,11 @@ export const SEND_ROLES = new Set(['owner', 'management']);
 export const canSend = (r) => SEND_ROLES.has(r);
 const EMAIL = /^[^\s@<>(),;:"\[\]]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 export const MAX_RECIPIENTS = 10;
-export const DEFAULT_PACKET_CC = 'marc@fstrucks.com';
-
-// PACKET_CC_EMAIL: the address copied on every packet sent to a broker. Unset/empty → marc@fstrucks.com.
-// 'none' / 'off' turns the copy off. An invalid value is ignored (no copy) and logged.
+// PACKET_CC_EMAIL: optional address copied on every packet / COI email. Unset/empty → no automatic copy.
+// 'none' / 'off' also means no copy. An invalid value is ignored (no copy) and logged.
 export function packetCcEmail(env = process.env) {
   const v = String(env?.PACKET_CC_EMAIL ?? '').trim().toLowerCase();
-  if (!v) return DEFAULT_PACKET_CC;
-  if (v === 'none' || v === 'off') return null;
+  if (!v || v === 'none' || v === 'off') return null;
   if (!EMAIL.test(v)) { console.error('[packets] PACKET_CC_EMAIL is not a valid email; no automatic copy'); return null; }
   return v;
 }
@@ -43,10 +41,16 @@ export function blockedRecipients(emails, domains) {
   return emails.filter((e) => { const k = e.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return !domains.includes(k.split('@')[1]); });
 }
 
+// Reply-To for an outgoing email: the company's own Reply-to email (company profile) when set and valid,
+// else the PACKET_REPLY_TO one, else none. Never changes From (always the TMS sender).
+export function companyReplyTo(profile, fallback = null) {
+  const v = String(profile?.reply_to_email ?? '').trim();
+  return v && isReplyToEmail(v) ? v : (fallback || null);
+}
 export function senderConfig(env = process.env) {
   return {
     from: (env.PACKET_FROM_EMAIL || 'noreply@fstrucks.com').trim(),
-    replyTo: (env.PACKET_REPLY_TO || 'marc@fstrucks.com').trim(),
+    replyTo: String(env.PACKET_REPLY_TO || '').trim() || null, // no built-in default
     token: env.POSTMARK_SERVER_TOKEN || null,
     stream: env.PACKET_MESSAGE_STREAM || 'outbound',
   };

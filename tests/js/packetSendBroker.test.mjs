@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEmails, allowedDomains, validateSend, senderConfig, defaultDraft, postmarkSend, canSend } from '../../app/lib/packetSend.js';
+import { parseEmails, allowedDomains, validateSend, senderConfig, defaultDraft, postmarkSend, canSend, companyReplyTo } from '../../app/lib/packetSend.js';
+import { createRequire } from 'node:module';
+const require_ = createRequire(import.meta.url);
 import { GET, POST } from '../../app/api/packets/[id]/send/route.js';
 
 const PID = '00000000-0000-4000-8000-0000000000f6';
@@ -11,7 +13,7 @@ test('parseEmails / roles / sender defaults', () => {
   assert.deepEqual(parseEmails('A@fstrucks.com, b@fstrucks.com; a@fstrucks.com').list, ['a@fstrucks.com', 'b@fstrucks.com']);
   assert.match(parseEmails('nope').error, /valid/); assert.match(parseEmails('', { required: true }).error, /Enter/);
   assert.equal(canSend('owner'), true); assert.equal(canSend('management'), true); assert.equal(canSend('dispatcher'), false); assert.equal(canSend('driver'), false);
-  const c = senderConfig({}); assert.equal(c.from, 'noreply@fstrucks.com'); assert.equal(c.replyTo, 'marc@fstrucks.com'); assert.equal(c.token, null);
+  const c = senderConfig({}); assert.equal(c.from, 'noreply@fstrucks.com'); assert.equal(c.replyTo, null); assert.equal(c.token, null);
   assert.equal(senderConfig({ PACKET_FROM_EMAIL: 'x@fstrucks.com', PACKET_REPLY_TO: 'y@fstrucks.com' }).replyTo, 'y@fstrucks.com');
   assert.match(defaultDraft({ subject: 'Fwd: Setup packet' }, 'Test Co (FAKE)').body, /Test Co \(FAKE\).*Setup packet/s);
 });
@@ -25,17 +27,17 @@ test('guardrail: default fstrucks.com only; configurable; * disables', () => {
   assert.equal(validateSend({ ...OK, cc: 'cc@other.example' }, {}).status, 403);
   assert.equal(validateSend({ ...OK, confirm: undefined }, {}).status, 400);
   assert.equal(validateSend({ ...OK, subject: 'a\r\nBcc: x' }, {}).subject, 'a Bcc: x');
-  assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, {}).cc, ['marc@fstrucks.com']); // typed CC = To dropped; the automatic copy (PACKET_CC_EMAIL default) stays
+  assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, {}).cc, []); // typed CC = To dropped; no automatic copy by default
   assert.deepEqual(validateSend({ ...OK, cc: 'dispatch@fstrucks.com' }, { PACKET_CC_EMAIL: 'none' }).cc, []);
 });
 
 test('postmarkSend: payload shape (mock fetch), error 412 explained', async () => {
   let seen;
   const f = async (url, o) => { seen = { url, o, b: JSON.parse(o.body) }; return new Response(JSON.stringify({ ErrorCode: 0, MessageID: 'mock-1' }), { status: 200 }); };
-  const r = await postmarkSend({ token: 't', from: 'noreply@fstrucks.com', replyTo: 'marc@fstrucks.com', stream: 'outbound', to: ['a@fstrucks.com'], cc: ['c@fstrucks.com'], subject: 'S', body: 'B', pdf: Buffer.from('%PDF-1.4 fake'), filename: 'p-filled.pdf' }, f);
+  const r = await postmarkSend({ token: 't', from: 'noreply@fstrucks.com', replyTo: 'office@fake-carrier.com', stream: 'outbound', to: ['a@fstrucks.com'], cc: ['c@fstrucks.com'], subject: 'S', body: 'B', pdf: Buffer.from('%PDF-1.4 fake'), filename: 'p-filled.pdf' }, f);
   assert.equal(r.messageId, 'mock-1'); assert.equal(seen.url, 'https://api.postmarkapp.com/email');
   assert.equal(seen.o.headers['X-Postmark-Server-Token'], 't');
-  assert.equal(seen.b.From, 'noreply@fstrucks.com'); assert.equal(seen.b.ReplyTo, 'marc@fstrucks.com'); assert.equal(seen.b.Cc, 'c@fstrucks.com');
+  assert.equal(seen.b.From, 'noreply@fstrucks.com'); assert.equal(seen.b.ReplyTo, 'office@fake-carrier.com'); assert.equal(seen.b.Cc, 'c@fstrucks.com');
   assert.equal(seen.b.Attachments[0].ContentType, 'application/pdf'); assert.equal(Buffer.from(seen.b.Attachments[0].Content, 'base64').toString(), '%PDF-1.4 fake');
   const bad = await postmarkSend({ token: 't', from: 'f', to: ['a@x.y'], cc: [], subject: 's', body: 'b', pdf: Buffer.alloc(1), filename: 'f' }, async () => new Response(JSON.stringify({ ErrorCode: 412, Message: 'pending approval' }), { status: 422 }));
   assert.match(bad.error, /test mode/); assert.equal(bad.code, 412);
@@ -90,9 +92,9 @@ test('send route: management sends via (mock) Postmark, logs who/when/to/message
   const sb = fakeSb({ packet: pkt() }); const f = mockFetch();
   const r = await POST(req({ ...OK, cc: 'ops@fstrucks.com' }), { params: { id: PID }, deps: { sb, mkUserClient: uc('management'), env: ENV, fetch: f } });
   assert.equal(r.status, 200); const j = await r.json();
-  assert.equal(j.messageId, 'pm-123'); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].ReplyTo, 'marc@fstrucks.com');
+  assert.equal(j.messageId, 'pm-123'); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].ReplyTo, undefined, 'no reply-to set anywhere → none');
   const log = sb.tbl.packet_sends[0];
-  assert.equal(log.sent_by, 'u-management'); assert.deepEqual(log.to_emails, ['dispatch@fstrucks.com']); assert.deepEqual(log.cc_emails, ['ops@fstrucks.com', 'marc@fstrucks.com']); assert.equal(f.calls[0].Cc, 'ops@fstrucks.com, marc@fstrucks.com'); assert.equal(log.postmark_message_id, 'pm-123'); assert.ok(log.sent_at);
+  assert.equal(log.sent_by, 'u-management'); assert.deepEqual(log.to_emails, ['dispatch@fstrucks.com']); assert.deepEqual(log.cc_emails, ['ops@fstrucks.com']); assert.equal(f.calls[0].Cc, 'ops@fstrucks.com'); assert.equal(log.postmark_message_id, 'pm-123'); assert.ok(log.sent_at);
   assert.equal(sb.tbl.packets[0].status, 'sent'); assert.equal(j.sends.length, 1);
   const g = await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('driver'), env: ENV } })).json();
   assert.equal(g.canSend, false); assert.equal(g.sends.length, 1); assert.deepEqual(g.allowedDomains, ['fstrucks.com']); assert.match(g.draft.subject, /Test Trucking \(FAKE\)/);
@@ -237,4 +239,32 @@ test('iPhone: Fill & download bar hidden during send write/review (unless unsave
   assert.match(p, /hideActionBar=\{sendStep === 'write' \|\| sendStep === 'review'( \|\| coiStep === 'write' \|\| coiStep === 'review')?\}/); assert.match(p, /onStepChange=\{setSendStep\}/);
   const c = readFileSync(new URL('../../app/packets/PacketSendBroker.js', import.meta.url), 'utf8');
   assert.match(c, /idempotencyKey: k/); assert.match(c, /resend: true/); assert.match(c, /already sent on/); assert.match(c, /attemptOutcome\(h\.sends, k\)/);
+});
+
+// ---- Company Reply-to email (Marc, Oct 26) on the packet Send too ----
+test('packet send: company Reply-to email wins over PACKET_REPLY_TO; blank keeps the env one', async () => {
+  const sb = fakeSb({ packet: pkt() }); sb.tbl.company_profiles[0].reply_to_email = 'office@fake-carrier.com'; const f = mockFetch();
+  assert.equal((await post(sb, { ...OK, idempotencyKey: K1 }, { fetch: f })).status, 200);
+  assert.equal(f.calls[0].ReplyTo, 'office@fake-carrier.com'); assert.equal(f.calls[0].From, 'noreply@fstrucks.com');
+  assert.equal(sb.tbl.packet_sends[0].reply_to, 'office@fake-carrier.com');
+  assert.equal((await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env: ENV } })).json()).replyTo, 'office@fake-carrier.com');
+  const sb2 = fakeSb({ packet: pkt() }); sb2.tbl.company_profiles[0].reply_to_email = null; const f2 = mockFetch();
+  await post(sb2, { ...OK, idempotencyKey: K1 }, { fetch: f2, env: { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' } });
+  assert.equal(f2.calls[0].ReplyTo, 'ops-test@fstrucks.com');
+});
+
+test('senderConfig: never marc@; Reply-To order is company, then PACKET_REPLY_TO, then none', () => {
+  const none = senderConfig({});
+  assert.equal(none.replyTo, null); assert.doesNotMatch(JSON.stringify(none), /marc@/i);
+  assert.equal(senderConfig({ PACKET_REPLY_TO: '  ' }).replyTo, null);
+  assert.equal(senderConfig({ PACKET_REPLY_TO: ' ops-test@fstrucks.com ' }).replyTo, 'ops-test@fstrucks.com');
+  const env = senderConfig({ PACKET_REPLY_TO: 'ops-test@fstrucks.com' }).replyTo;
+  assert.equal(companyReplyTo({ reply_to_email: 'office@fake-carrier.com' }, env), 'office@fake-carrier.com');
+  assert.equal(companyReplyTo({ reply_to_email: '' }, env), 'ops-test@fstrucks.com');
+  assert.equal(companyReplyTo({}, senderConfig({}).replyTo), null);
+});
+test('no marc@ anywhere in app code or .env.example', () => {
+  const { execSync } = require_('node:child_process');
+  const hits = execSync("grep -rIil 'marc@fstrucks' app .env.example || true", { encoding: 'utf8' }).trim();
+  assert.equal(hits, '', hits);
 });

@@ -77,7 +77,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
       {info.setupNeeded && <p style={{ fontSize: 14, color: 'var(--warning)' }}>Sending needs a database update that hasn’t been applied yet.</p>}
       {!info.canSend ? null : !info.filled ? <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Fill the packet first, then you can email it to the broker.</p>
         : step === 'closed' || step === 'done' ? <>
-          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>Sent. Broker replies go to {info.replyTo}.</p>}
+          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>Sent. Broker replies go to {info.replyTo || info.from}.</p>}
           {step === 'done' && warn && <p role="alert" style={{ fontSize: 14, color: 'var(--warning)' }}>{warn}</p>}
           <button style={primary} onClick={() => { setStep('write'); setErr(null); setWarn(null); }}>{info.sends?.length ? 'Send again…' : 'Send to broker…'}</button>
         </>
@@ -111,7 +111,7 @@ export default function PacketSendBroker({ load, send, filledAt, onStepChange })
           <p style={{ fontSize: 14, margin: '0 0 0.5rem' }}><strong>Check this before sending.</strong> It goes out as soon as you press Send now.</p>
           <dl style={{ fontSize: 14, margin: 0 }}>
             <dt style={{ fontWeight: 600 }}>From</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.from}</dd>
-            <dt style={{ fontWeight: 600 }}>Replies go to</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.replyTo}</dd>
+            <dt style={{ fontWeight: 600 }}>Replies go to</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.replyTo || `${info.from} (no reply-to set)`}</dd>
             <dt style={{ fontWeight: 600 }}>To</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.to).join(', ')}</dd>
             {reviewCc.length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd data-testid="send-review-cc" style={{ margin: '0 0 0.3rem' }}>{reviewCc.join(', ')}</dd></>}
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>

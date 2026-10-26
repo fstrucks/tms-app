@@ -1,6 +1,6 @@
 import { serviceClient, packetAccess, isMissingSchema } from '../../../../lib/packetServer';
 import { randomUUID } from 'node:crypto';
-import { canSend, senderConfig, allowedDomains, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
+import { canSend, senderConfig, companyReplyTo, allowedDomains, postmarkSend, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
 import { coiEnabled, defaultCoiDraft, validateCoiRequest, COI_MIGRATION } from '../../../../lib/coiRequest';
 import { minimumsFrom } from '../../../../lib/coiGaps';
@@ -33,7 +33,8 @@ export async function GET(req, { params, deps } = {}) {
     monthlyUsage(sb, env),
   ]);
   const setupNeeded = [ag.error, pol.error, hist.error].some(missing);
-  const cfg = senderConfig(env);
+  const base = senderConfig(env);
+  const cfg = { ...base, replyTo: companyReplyTo(profile, base.replyTo) }; // company Reply-to email first
   // Prefill the holder from this packet's last COI request (name + address), else the packet's broker name.
   const lastReq = (hist.data || [])[0];
   const certHolder = { name: lastReq?.cert_holder_name || a.packet.broker_name || '', address: lastReq?.cert_holder_address || a.packet.broker_address || '' };
@@ -64,7 +65,10 @@ export async function POST(req, { params, deps } = {}) {
   if (v.error) return json({ error: v.error, ...(v.blocked ? { blocked: v.blocked } : {}) }, v.status);
   const key = b.idempotencyKey == null ? (deps?.uuid || randomUUID)() : String(b.idempotencyKey).toLowerCase();
   if (!UUID.test(key)) return json({ error: 'Bad request (send id).' }, 400);
-  const cfg = senderConfig(env);
+  let profile = null;
+  try { ({ data: profile } = await sb.from('company_profiles').select('*').eq('owner_id', a.packet.owner_id).maybeSingle()); } catch { profile = null; }
+  const base = senderConfig(env);
+  const cfg = { ...base, replyTo: companyReplyTo(profile, base.replyTo) };
   if (!cfg.token) return json({ error: 'Email sending isn’t set up yet (missing Postmark token). Nothing was sent.' }, 503);
 
   const prior = await sb.from('coi_requests').select('*').eq('packet_id', a.packet.id).order('sent_at', { ascending: false });

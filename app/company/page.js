@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
-import { PROFILE_FIELDS, validateProfile, maskEin } from '../lib/companyFields';
+import { PROFILE_FIELDS, validateProfile, maskEin, REPLY_TO_HELP } from '../lib/companyFields';
 import { ROLE_LABELS, canEdit as roleCanEdit, canSign as roleCanSign } from '../lib/companyRoles';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
 import CompanyInsurance from './CompanyInsurance';
@@ -110,10 +110,12 @@ export default function CompanyProfilePage() {
                 <label htmlFor={`cp-${k}`} style={s.label}>{label}</label>
                 {editable
                   ? <input id={`cp-${k}`} style={{ ...s.input, ...(errors[k] ? { borderColor: 'var(--danger)' } : null) }} value={form[k] || ''} onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                      inputMode={['dot_number', 'postal_code', 'phone'].includes(k) ? 'numeric' : k === 'email' ? 'email' : undefined}
+                      inputMode={['dot_number', 'postal_code', 'phone'].includes(k) ? 'numeric' : k === 'email' || k === 'reply_to_email' ? 'email' : undefined}
+                      type={k === 'reply_to_email' ? 'email' : undefined} placeholder={k === 'reply_to_email' ? 'office@yourcompany.com' : undefined} aria-describedby={k === 'reply_to_email' ? 'cp-reply_to_email-help' : undefined}
                       autoCapitalize={k === 'state' ? 'characters' : undefined} maxLength={k === 'state' ? 2 : undefined} aria-invalid={!!errors[k]} />
                   : <div id={`cp-${k}`} style={s.ro}>{form[k] || '—'}</div>}
                 {errors[k] && <p style={s.err}>{errors[k]}</p>}
+                {k === 'reply_to_email' && <p id="cp-reply_to_email-help" style={{ color: 'var(--text-muted)', fontSize: 13, margin: '0.35rem 0 0' }}>{state.columns?.reply_to_email === false ? 'Saving the reply-to email needs a database update that hasn’t been applied yet.' : REPLY_TO_HELP}</p>}
                 {k === 'owner_name' && <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '0.35rem 0 0' }}>{state.columns?.owner_name === false ? 'Saving the owner name needs a database update that hasn’t been applied yet.' : 'Fills “Owner name” on carrier packets.'}</p>}
               </div>
             ))}

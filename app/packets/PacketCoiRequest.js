@@ -70,7 +70,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
       </ul>}
       {!info.canSend ? null : !info.agent?.email ? <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Add your insurance agent on the Company page to request a COI.</p>
         : step === 'closed' || step === 'done' ? <>
-          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>COI requested. Replies go to {info.replyTo}.</p>}
+          {step === 'done' && <p role="status" style={{ fontSize: 14, color: 'var(--success)' }}>COI requested. Replies go to {info.replyTo || info.from}.</p>}
           <button style={primary} onClick={() => { setStep('write'); setErr(null); }}>{info.requests?.length ? 'Request again…' : 'Request COI from agent…'}</button>
         </>
         : step === 'write' ? <form onSubmit={(e) => { e.preventDefault(); setStep('review'); setOk(false); setErr(null); setKey(newSendKey()); }}>
@@ -98,7 +98,7 @@ export default function PacketCoiRequest({ load, send, enabled = COI_FLAG, onSte
           <p style={{ fontSize: 14, margin: '0 0 0.5rem' }}><strong>Check this before sending.</strong> It goes out as soon as you press Send now.</p>
           <dl style={{ fontSize: 14, margin: 0 }}>
             <dt style={{ fontWeight: 600 }}>From</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.from}</dd>
-            <dt style={{ fontWeight: 600 }}>Replies go to</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.replyTo}</dd>
+            <dt style={{ fontWeight: 600 }}>Replies go to</dt><dd style={{ margin: '0 0 0.3rem' }}>{info.replyTo || `${info.from} (no reply-to set)`}</dd>
             <dt style={{ fontWeight: 600 }}>To</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.to).join(', ')}</dd>
             {list(d.cc).length > 0 && <><dt style={{ fontWeight: 600 }}>CC</dt><dd style={{ margin: '0 0 0.3rem' }}>{list(d.cc).join(', ')}</dd></>}
             <dt style={{ fontWeight: 600 }}>Subject</dt><dd style={{ margin: '0 0 0.3rem' }}>{d.subject}</dd>

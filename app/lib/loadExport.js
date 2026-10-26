@@ -87,6 +87,14 @@ export function exportInvoice({ load, invoice = null, profile = null, brokers = 
 }
 
 // {LOAD}_Packet.pdf / {LOAD}_Packet-NoInvoice.pdf (same naming as the invoice bundle).
+// The name the browser saves the download under: the server's Content-Disposition (the file that was actually
+// built), else the name the export info gave for this selection, else a generic one. Used for the a.download name
+// AND the "Downloaded …" message, so the two can't disagree.
+export function downloadedName(contentDisposition, sel, fileNames) {
+  const h = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(String(contentDisposition || ''))?.[1];
+  if (h) { try { return decodeURIComponent(h); } catch { return h; } }
+  return (sel?.invoice ? fileNames?.withInvoice : fileNames?.withoutInvoice) || 'Packet.pdf';
+}
 export function packetFileName(load, withInvoice) {
   const base = fileSafe(load?.broker_load_number) || 'Load';
   return `${base}_Packet${withInvoice ? '' : '-NoInvoice'}.pdf`;

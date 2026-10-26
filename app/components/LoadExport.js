@@ -3,7 +3,7 @@
 // exact list in order, then downloads one PDF or emails it. Email only goes out after the user reviews the recipient,
 // the attachment list and its size, and presses Send.
 import { useEffect, useState } from 'react';
-import { showExport, defaultSelection, previewList, selectionQuery, NOTE_MAX, looksLikeAccounting, formatBytes } from '../lib/loadExport';
+import { showExport, defaultSelection, previewList, selectionQuery, NOTE_MAX, looksLikeAccounting, formatBytes, downloadedName } from '../lib/loadExport';
 import { newSendKey, outsideRecipients } from '../lib/packetSendClient';
 import { parseEmails } from '../lib/packetSend';
 
@@ -59,7 +59,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
   // Notes saved in the Load notes box: re-read the options so "Print the load's notes" appears/updates.
   useEffect(() => { setInfo(null); setReview(null); }, [load?.notes]);
   // Any checklist change invalidates a review (size / too-large are recomputed on the next Review).
-  useEffect(() => { setReview(null); setSendErr(null); }, [sel]);
+  useEffect(() => { setReview(null); setSendErr(null); setNote(null); }, [sel]); // an old “Downloaded …” would name the wrong file
 
   if (!visible) return null;
   const o = info?.options;
@@ -73,7 +73,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
       let tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* default */ }
       const r = await fetch(`/api/loads/${load.id}/export?${selectionQuery(sel, tz)}`, { cache: 'no-store', headers: { Authorization: `Bearer ${await token()}` } });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Couldn’t build the packet. Please try again.'); }
-      const name = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')?.[1] || 'Packet.pdf';
+      const name = downloadedName(r.headers.get('content-disposition'), sel, info?.fileNames);
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -98,7 +98,7 @@ export default function LoadExport({ supabase, load, cardStyle }) {
     try {
       const r = await fetch(`/api/loads/${load.id}/export?${selectionQuery(sel, tz())}`, { cache: 'no-store', headers: { Authorization: `Bearer ${await token()}` } });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Couldn’t build the packet. Please try again.'); }
-      const name = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')?.[1] || 'Packet.pdf';
+      const name = downloadedName(r.headers.get('content-disposition'), sel, info?.fileNames);
       const size = (await r.blob()).size;
       setReview({ to: p.list, list: preview, filename: name, size, key: newSendKey() });
     } catch (e) { setSendErr(e.message || 'Couldn’t build the packet. Please try again.'); }
@@ -172,6 +172,9 @@ export default function LoadExport({ supabase, load, cardStyle }) {
               ) : (
                 <div data-testid="load-export-confirm" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, display: 'grid', gap: 4, fontSize: '0.9rem' }}>
                   <div><strong>To:</strong> {review.to.join(', ')}</div>
+                  <div data-testid="load-export-replyto">{mail.replyTo
+                    ? <>Replies will go to <strong>{mail.replyTo}</strong>.</>
+                    : <>No reply-to email is set, so replies go to {mail.from || 'the sending address'}. Set one under <a href="/company" style={{ color: 'var(--primary)' }}>Company</a> → Reply-to email.</>}</div>
                   <div><strong>Attachment:</strong> {review.filename} ({formatBytes(review.size)})</div>
                   <ol style={{ margin: 0, paddingLeft: 20 }}>{review.list.map((p, i) => <li key={i}>{p}</li>)}</ol>
                   {tooBig ? (<>

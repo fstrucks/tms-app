@@ -1,30 +1,31 @@
-// fix/broker-packet-cc: every carrier packet emailed to a broker is copied to PACKET_CC_EMAIL (default
-// marc@fstrucks.com). FAKE data only; Postmark is always a mock here, nothing is sent.
+// Automatic copy on packet / COI emails: only when PACKET_CC_EMAIL is set (no built-in default, Oct 26).
+// FAKE data only; Postmark is always a mock here, nothing is sent.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { validateSend, packetCcEmail, allowedDomains, DEFAULT_PACKET_CC } from '../../app/lib/packetSend.js';
+import * as PS from '../../app/lib/packetSend.js';
+import { validateSend, packetCcEmail, allowedDomains } from '../../app/lib/packetSend.js';
 import { autoCcFor } from '../../app/lib/packetSendClient.js';
 import { GET, POST } from '../../app/api/packets/[id]/send/route.js';
 
 const OK = { to: 'dispatch@fstrucks.com', cc: '', subject: 'Packet (FAKE)', body: 'Hi (FAKE)', confirm: true };
 
-test('CC added: default marc@fstrucks.com when PACKET_CC_EMAIL is unset or empty', () => {
-  assert.equal(DEFAULT_PACKET_CC, 'marc@fstrucks.com');
-  assert.equal(packetCcEmail({}), 'marc@fstrucks.com');
-  assert.equal(packetCcEmail({ PACKET_CC_EMAIL: '  ' }), 'marc@fstrucks.com');
+test('no default CC: PACKET_CC_EMAIL unset or empty → no automatic copy for any company', () => {
+  assert.equal('DEFAULT_PACKET_CC' in PS, false);
+  assert.equal(packetCcEmail({}), null);
+  assert.equal(packetCcEmail({ PACKET_CC_EMAIL: '  ' }), null);
   const v = validateSend(OK, {});
-  assert.deepEqual(v.to, ['dispatch@fstrucks.com']); assert.deepEqual(v.cc, ['marc@fstrucks.com']); assert.equal(v.autoCc, 'marc@fstrucks.com');
-  assert.deepEqual(validateSend({ ...OK, cc: 'ops@fstrucks.com' }, {}).cc, ['ops@fstrucks.com', 'marc@fstrucks.com']);
+  assert.deepEqual(v.to, ['dispatch@fstrucks.com']); assert.deepEqual(v.cc, []); assert.equal(v.autoCc, null);
+  assert.deepEqual(validateSend({ ...OK, cc: 'ops@fstrucks.com' }, {}).cc, ['ops@fstrucks.com']);
 });
+const COPY = { PACKET_CC_EMAIL: 'office-copy@fstrucks.com' };
 
 test('CC deduped: never duplicates a To address or a typed CC (case-insensitive)', () => {
-  const t = validateSend({ ...OK, to: 'dispatch@fstrucks.com, MARC@FSTRUCKS.COM' }, {});
-  assert.deepEqual(t.to, ['dispatch@fstrucks.com', 'marc@fstrucks.com']); assert.deepEqual(t.cc, []); assert.equal(t.autoCc, null);
-  assert.deepEqual(validateSend({ ...OK, to: 'Marc@FSTrucks.com' }, {}).cc, []); // Reply-To = To = marc@: no extra copy
-  assert.deepEqual(validateSend({ ...OK, cc: 'Marc@fstrucks.com' }, {}).cc, ['marc@fstrucks.com']); // typed + automatic → once
-  assert.equal(autoCcFor('marc@fstrucks.com', ['MARC@fstrucks.com ']), null);
-  assert.equal(autoCcFor(' Marc@fstrucks.com', ['a@fstrucks.com']), 'marc@fstrucks.com');
+  const t = validateSend({ ...OK, to: 'dispatch@fstrucks.com, OFFICE-COPY@FSTRUCKS.COM' }, COPY);
+  assert.deepEqual(t.to, ['dispatch@fstrucks.com', 'office-copy@fstrucks.com']); assert.deepEqual(t.cc, []); assert.equal(t.autoCc, null);
+  assert.deepEqual(validateSend({ ...OK, cc: 'Office-Copy@fstrucks.com' }, COPY).cc, ['office-copy@fstrucks.com']); // typed + automatic → once
+  assert.equal(autoCcFor('office-copy@fstrucks.com', ['OFFICE-COPY@fstrucks.com ']), null);
+  assert.equal(autoCcFor(' Office-Copy@fstrucks.com', ['a@fstrucks.com']), 'office-copy@fstrucks.com');
   assert.equal(autoCcFor(null, ['a@fstrucks.com']), null);
 });
 
@@ -46,7 +47,7 @@ test('limit unchanged: fstrucks.com-only still blocks typed outside addresses; t
   const v = validateSend(OK, { PACKET_SEND_ALLOWED_DOMAINS: 'fstrucks.com', PACKET_CC_EMAIL: 'copy@elsewhere.example' });
   assert.equal(v.error, undefined); assert.deepEqual(v.cc, ['copy@elsewhere.example']);
   assert.equal(allowedDomains({ PACKET_SEND_ALLOWED_DOMAINS: '*' }), null);
-  assert.deepEqual(validateSend({ ...OK, to: 'broker@outside.example' }, { PACKET_SEND_ALLOWED_DOMAINS: '*' }).cc, ['marc@fstrucks.com']);
+  assert.deepEqual(validateSend({ ...OK, to: 'broker@outside.example' }, { PACKET_SEND_ALLOWED_DOMAINS: '*' }).cc, []);
 });
 
 // ---- route: mock Postmark + in-memory packet_sends ----
@@ -73,17 +74,28 @@ function memSb() {
 const uc = (role) => () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u-' + role } } }) }, rpc: async () => ({ data: role }) });
 const req = (body, method = 'POST') => new Request(`http://x/api/packets/${PID}/send`, { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 
+test('route: no PACKET_CC_EMAIL → no Cc at all and no marc@ anywhere in the email', async () => {
+  const sb = memSb(); const calls = [];
+  const fetch = async (u, o) => { calls.push(JSON.parse(o.body)); return new Response(JSON.stringify({ ErrorCode: 0, MessageID: 'pm-nocc' }), { status: 200 }); };
+  const env = { POSTMARK_SERVER_TOKEN: 'fake-token-for-tests' };
+  const g = await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env } })).json();
+  assert.equal(g.autoCc, null); assert.equal(g.replyTo, null);
+  assert.equal((await POST(req({ ...OK, idempotencyKey: KEY }), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env, fetch } })).status, 200);
+  assert.equal(calls[0].Cc, undefined); assert.equal(calls[0].ReplyTo, undefined); assert.doesNotMatch(JSON.stringify(calls[0]), /marc@/i);
+  assert.deepEqual(sb.tbl.packet_sends[0].cc_emails, []);
+});
+
 test('route: the copy goes in Postmark Cc and is recorded in packet_sends.cc_emails; GET tells the sheet who gets it', async () => {
   const sb = memSb(); const calls = [];
   const fetch = async (u, o) => { calls.push(JSON.parse(o.body)); return new Response(JSON.stringify({ ErrorCode: 0, MessageID: 'pm-cc-1' }), { status: 200 }); };
-  const env = { POSTMARK_SERVER_TOKEN: 'fake-token-for-tests' };
+  const env = { POSTMARK_SERVER_TOKEN: 'fake-token-for-tests', ...COPY };
   const g = await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env } })).json();
-  assert.equal(g.autoCc, 'marc@fstrucks.com');
+  assert.equal(g.autoCc, 'office-copy@fstrucks.com');
   const r = await POST(req({ ...OK, idempotencyKey: KEY }), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env, fetch } });
   assert.equal(r.status, 200);
-  assert.equal(calls.length, 1); assert.equal(calls[0].To, 'dispatch@fstrucks.com'); assert.equal(calls[0].Cc, 'marc@fstrucks.com');
-  assert.deepEqual(sb.tbl.packet_sends[0].cc_emails, ['marc@fstrucks.com']);
-  const j = await r.json(); assert.deepEqual(j.sends[0].cc, ['marc@fstrucks.com']); // sent history shows "(cc marc@fstrucks.com)"
+  assert.equal(calls.length, 1); assert.equal(calls[0].To, 'dispatch@fstrucks.com'); assert.equal(calls[0].Cc, 'office-copy@fstrucks.com');
+  assert.deepEqual(sb.tbl.packet_sends[0].cc_emails, ['office-copy@fstrucks.com']);
+  const j = await r.json(); assert.deepEqual(j.sends[0].cc, ['office-copy@fstrucks.com']);
 });
 
 test('send sheet shows "A copy goes to …" and the review CC includes it', () => {

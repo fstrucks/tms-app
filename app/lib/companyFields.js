@@ -16,6 +16,7 @@ export const PROFILE_FIELDS = [
   ['address_line1', 'Street address'], ['address_line2', 'Suite / unit'],
   ['city', 'City'], ['state', 'State'], ['postal_code', 'ZIP'],
   ['phone', 'Phone'], ['email', 'Email'],
+  ['reply_to_email', 'Reply-to email'], // column added by 20261026000100_company_reply_to.sql (save degrades gracefully without it)
   ['signer_name', 'Authorized signer name'], ['signer_title', 'Signer title'],
 ];
 
@@ -27,7 +28,12 @@ export function validateProfile(input = {}) {
   if (input.dot_number && !/^\d{1,8}$/.test(String(input.dot_number).trim())) errs.dot_number = 'USDOT is digits only.';
   if (input.mc_number && !/^(MC-?)?\d{1,8}$/i.test(String(input.mc_number).trim())) errs.mc_number = 'MC is digits only (MC- prefix optional).';
   if (input.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(input.email).trim())) errs.email = 'Enter a valid email.';
+  if (input.reply_to_email && !isReplyToEmail(input.reply_to_email)) errs.reply_to_email = 'Enter a valid email, or leave it blank.';
   try { normalizeEin(input.ein); } catch (e) { errs.ein = e.message; }
   return errs;
 }
 
+
+// Reply-to email: where broker replies to emailed paperwork go. Same shape as the database check.
+export const REPLY_TO_HELP = 'Where broker replies to your emailed paperwork should go. Emails are still sent from the TMS address. Leave blank to use the default.';
+export const isReplyToEmail = (v) => { const s = String(v ?? '').trim(); return s.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s); };

@@ -4,7 +4,7 @@ import { monthlyUsage, capReached, CAP_MSG } from '../../../../lib/sendCap';
 import { vaultSendOptions, loadVaultAttachments } from '../../../../lib/vaultSend';
 import { fileSizes } from '../../../../lib/vaultServer';
 import { MAX_SEND_RAW_BYTES } from '../../../../lib/companyDocs';
-import { canSend, validateSend, packetCcEmail, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
+import { canSend, validateSend, packetCcEmail, senderConfig, allowedDomains, defaultDraft, attachmentName, postmarkSend, companyReplyTo, SEND_MIGRATION, POSTMARK_TIMEOUT_MS } from '../../../../lib/packetSend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,8 @@ export async function GET(req, { params, deps } = {}) {
   const env = deps?.env || process.env;
   const { data: profile } = await sb.from('company_profiles').select('*').eq('owner_id', a.packet.owner_id).maybeSingle();
   const h = await history(sb, a.packet.id);
-  const cfg = senderConfig(env);
+  const base = senderConfig(env);
+  const cfg = { ...base, replyTo: companyReplyTo(profile, base.replyTo) }; // company Reply-to email first
   const u = await monthlyUsage(sb, env);
   // PR #84: current vault files offered as extra attachments (owner/management only; W-9 / NOA are theirs to see).
   let vault = null;
@@ -77,7 +78,11 @@ export async function POST(req, { params, deps } = {}) {
   const key = b.idempotencyKey == null ? (deps?.uuid || randomUUID)() : String(b.idempotencyKey).toLowerCase();
   if (!UUID.test(key)) return json({ error: 'Bad request (send id).' }, 400);
   if (!a.packet.filled_path) return json({ error: 'Fill the packet first, then send it.' }, 409);
-  const cfg = senderConfig(env);
+  // Reply-To: the company's Reply-to email when set, else the env one. A failed read just means "not set".
+  let profile = null;
+  try { ({ data: profile } = await sb.from('company_profiles').select('*').eq('owner_id', a.packet.owner_id).maybeSingle()); } catch { profile = null; }
+  const base = senderConfig(env);
+  const cfg = { ...base, replyTo: companyReplyTo(profile, base.replyTo) };
   if (!cfg.token) return json({ error: 'Email sending isn’t set up yet (missing Postmark token). Nothing was sent.' }, 503);
 
   // Repeat of an earlier attempt? Return its result; never send twice.

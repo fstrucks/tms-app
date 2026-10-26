@@ -238,3 +238,21 @@ test('flag-gated UI + cap shown in both review steps', () => {
   const env = read('../../.env.example');
   assert.match(env, /EMAIL_MONTHLY_CAP=80/); assert.match(env, /NEXT_PUBLIC_COI_REQUEST_ENABLED=0/);
 });
+
+// ---- Oct 26: no marc@ defaults; Reply-To = company Reply-to email, else PACKET_REPLY_TO, else none; no automatic CC ----
+test('COI request: no defaults → no Reply-To, no Cc, nothing to marc@', async () => {
+  const sb = coiSb(); const f = mockFetch();
+  const g = await (await COI.GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env: ENV } })).json();
+  assert.equal(g.replyTo, null);
+  assert.equal((await post(sb, 'owner', OK, ENV, f)).status, 200);
+  const b = f.calls[0].b; assert.equal(b.ReplyTo, undefined); assert.equal(b.Cc, undefined); assert.equal(b.From, 'noreply@fstrucks.com');
+  assert.doesNotMatch(JSON.stringify(b), /marc@/i);
+});
+test('COI request: company Reply-to email wins, else PACKET_REPLY_TO', async () => {
+  const sb = coiSb({ seed: { company_profiles: [{ owner_id: 'owner1', legal_name: 'Test Co (FAKE)', reply_to_email: 'office@fake-carrier.com' }] } }); const f = mockFetch();
+  const env = { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' };
+  assert.equal((await (await COI.GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env } })).json()).replyTo, 'office@fake-carrier.com');
+  await post(sb, 'owner', OK, env, f); assert.equal(f.calls[0].b.ReplyTo, 'office@fake-carrier.com');
+  const sb2 = coiSb(); const f2 = mockFetch();
+  await post(sb2, 'owner', OK, env, f2); assert.equal(f2.calls[0].b.ReplyTo, 'ops-test@fstrucks.com');
+});
