@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { monthlyCap, monthStartISO, monthlyUsage, capReached, capLabel, DEFAULT_MONTHLY_CAP } from '../../app/lib/sendCap.js';
+import { monthlyCap, monthStartISO, monthlyUsage, capReached, capLabel, DEFAULT_MONTHLY_CAP, CAP_TABLES } from '../../app/lib/sendCap.js';
 import { coiGaps, minimumsFrom, DEFAULT_MINIMUMS } from '../../app/lib/coiGaps.js';
 import { defaultCoiDraft, validateCoiRequest, validateAgent, validatePolicy, suggestionsToPolicies, coiEnabled } from '../../app/lib/coiRequest.js';
 import { inputPart, DOC_TYPES } from '../../app/lib/ai-extract.js';
@@ -71,6 +71,16 @@ test('cap: counts packet_sends + coi_requests this month only; missing coi table
   assert.equal(u.used, 3); assert.equal(u.cap, 3); assert.equal(capReached(u), true); assert.equal(capLabel(u), 'Monthly limit reached'); assert.equal(capLabel({ used: 2, cap: 3 }), '2 of 3 used this month');
   const u2 = await monthlyUsage(fakeSb({ packet_sends: [{ id: 'a', sent_at: thisMonth() }] }, { missing: ['coi_requests'] }), {});
   assert.equal(u2.used, 1); assert.equal(capReached(u2), false);
+});
+
+test('cap: load_packet_sends (load packet emails) counts toward the same cap; missing table counts 0', async () => {
+  assert.deepEqual(CAP_TABLES, ['packet_sends', 'coi_requests', 'load_packet_sends']);
+  const old = '2026-01-15T12:00:00.000Z';
+  const sb = fakeSb({ packet_sends: [{ id: 'a', sent_at: thisMonth() }], coi_requests: [], load_packet_sends: [{ id: 'l1', sent_at: thisMonth() }, { id: 'l2', sent_at: thisMonth(), load_id: null }, { id: 'l3', sent_at: old }] });
+  const u = await monthlyUsage(sb, { EMAIL_MONTHLY_CAP: '3' });
+  assert.equal(u.used, 3, 'a row whose load was deleted (load_id null) still counts'); assert.equal(capReached(u), true);
+  const u2 = await monthlyUsage(fakeSb({ packet_sends: [{ id: 'a', sent_at: thisMonth() }], coi_requests: [] }, { missing: ['load_packet_sends'] }), {});
+  assert.equal(u2.used, 1);
 });
 
 test('#64 send route: refuses at the cap (429) WITHOUT calling Postmark; GET shows usage', async () => {
