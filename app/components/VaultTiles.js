@@ -44,7 +44,7 @@ export default function VaultTiles({ supabase, refreshKey = 0 }) {
   }, [supabase, refreshKey]);
 
   const items = [
-    { href: '/documents/vault', testid: 'vault-tile-loads', icon: '📄', label: 'Load documents', n: counts?.loadDocs, text: 'Rate cons, BOLs, PODs, and the rest of the load paperwork' },
+    { href: '/documents/vault', testid: 'vault-tile-loads', icon: '📄', label: 'Load documents', n: counts?.loadDocs, text: 'Rate cons, BOLs, PODs, pictures, and the rest of the load paperwork' },
     { href: '/documents/drivers', testid: 'vault-tile-drivers', icon: '🪪', label: 'Driver documents', n: counts?.driverDocs, capped: counts?.driverDocsCapped, text: 'CDL, medical card, MVR, and drug tests' },
     { href: '/company#company-documents', testid: 'vault-tile-company', icon: '🏢', label: 'Company documents', n: counts?.companyDocs, text: 'W-9, COI, MC Authority, and NOA' },
   ];
