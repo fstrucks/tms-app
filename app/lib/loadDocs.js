@@ -1,5 +1,6 @@
 // Load paperwork (BOL, POD, lumper receipt, scale ticket): which types belong under a load, who can see them,
 // and which load a new scan most likely belongs to. Pure and JSX-free so Node tests can import it.
+import { formatLocalDate } from './localDate';
 
 // Types that are shown under a load and get a "Link to load" picker on the Documents tab.
 export const LOAD_DOC_TYPE_IDS = ['bol', 'pod', 'lumper_receipt', 'scale_ticket'];
@@ -69,11 +70,24 @@ export function suggestLoad(loads, { refs = [], date = null, userId = null } = {
 
 export const SUGGEST_REASON = { number: 'matches the load number on the document', driver_active: 'your active load', date: 'matches the date on the document', only_in_transit: 'the only load in transit' };
 
-// Picker label for a load.
-export function loadPickLabel(l) {
+// Picker label for a load. pickup_date is a date-only column. created_at is an instant and uses the viewer's zone.
+export function loadPickLabel(l, timeZone) {
   const head = l.broker_load_number ? `#${l.broker_load_number}` : 'Load';
-  const when = l.pickup_date ? ` (${l.pickup_date.slice(5, 7)}/${l.pickup_date.slice(8, 10)})` : l.created_at ? ` (${new Date(l.created_at).toLocaleDateString()})` : '';
+  const created = l.created_at ? formatLocalDate(l.created_at, timeZone) : '';
+  const when = l.pickup_date ? ` (${l.pickup_date.slice(5, 7)}/${l.pickup_date.slice(8, 10)})` : created ? ` (${created})` : '';
   return [head, l.broker_name].filter(Boolean).join(' · ') + when;
+}
+
+// A server-built load link formats created_at in the server zone. Redraw a trailing (M/D/YYYY) in the viewer's zone.
+// A trailing (M/D) is a pickup date and stays.
+export function loadLinkLabel(row, timeZone) {
+  const label = row?.load_label || '';
+  const day = row?.load_created_at ? formatLocalDate(row.load_created_at, timeZone) : '';
+  if (label && day && /\(\d{1,2}\/\d{1,2}\/\d{4}\)$/.test(label)) return label.replace(/\(\d{1,2}\/\d{1,2}\/\d{4}\)$/, `(${day})`);
+  if (!label && row?.load_created_at) {
+    return loadPickLabel({ broker_load_number: row.load_number, broker_name: row.broker, created_at: row.load_created_at }, timeZone);
+  }
+  return label || 'Open load';
 }
 
 const IMG = /\.(jpe?g|png|webp|gif|heic|heif)$/i;

@@ -29,6 +29,7 @@ import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
+import { formatLocalDate } from '../../lib/localDate';
 import StopActions from '../../components/StopActions';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
 import LoadReviews from '../../components/LoadReviews';
@@ -354,7 +355,7 @@ export default function LoadDetailPage() {
                       <LoadDocThumb doc={d} onOpen={() => view(d)} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</div>
-                        <div style={s.muted}><strong data-testid="load-doc-type" style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {new Date(d.created_at).toLocaleDateString()}</div>
+                        <div style={s.muted}><strong data-testid="load-doc-type" style={{ color: 'var(--text)' }}>{d.label || docTypeLabel(d.doc_type)}</strong> · {formatLocalDate(d.created_at)}</div>
                       </div>
                       <button onClick={() => view(d)} style={s.btn}>View</button>
                     </div>

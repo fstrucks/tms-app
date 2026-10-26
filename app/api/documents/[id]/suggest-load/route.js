@@ -37,5 +37,8 @@ export async function GET(req, { params, deps } = {}) {
   }
   const rows = (await pickableLoads(svc, c.ownerId, { role: c.role, userId: c.user.id })).map(loadForSuggest);
   const suggestion = suggestLoad(rows, { refs: read?.reference_numbers || [], date: read?.doc_date || null, userId: c.user.id });
-  return json({ suggestion, read, loads: rows.map((l) => ({ id: l.id, label: loadPickLabel(l) })) });
+  return json({ suggestion, read, loads: rows.map((l) => ({
+    id: l.id, label: loadPickLabel(l), broker_load_number: l.broker_load_number || null, broker_name: l.broker_name || null,
+    pickup_date: l.pickup_date || null, created_at: l.created_at || null,
+  })) });
 }

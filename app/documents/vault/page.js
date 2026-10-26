@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { authedFetch } from '../../lib/authedFetch';
 import { docTypeLabel, LOAD_PICTURE_TYPE } from '../../lib/docTypes';
 import { DATE_RANGE_ERROR, LOAD_VAULT_TYPES, reversedDateRange } from '../../lib/loadVault';
+import { formatLocalDate } from '../../lib/localDate';
+import { loadLinkLabel } from '../../lib/loadDocs';
 import { canDeleteHandledEmailRatecon, deleteDocument, deleteHandledEmailRatecon, deletePrompt } from '../../lib/documents';
 import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import SignInLink from '../../components/SignInLink';
@@ -157,11 +159,11 @@ export default function LoadVaultPage() {
             {docs.map((d) => (
               <div key={d.id} data-confirm-row data-testid="load-vault-row" style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--divider)' }}>
                 <div style={{ overflowWrap: 'anywhere' }}>{d.original_filename || d.label}</div>
-                <div style={muted}>{d.label} · {d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}</div>
+                <div style={muted}>{d.label} · {d.created_at ? formatLocalDate(d.created_at) : ''}</div>
                 {(d.broker || d.load_number) && <div style={{ ...muted, overflowWrap: 'anywhere' }}>{[d.load_number ? `#${d.load_number}` : null, d.broker].filter(Boolean).join(' · ')}</div>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                   {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ ...btn, width: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none', padding: '0 0.9rem' }}>View</a>}
-                  {d.load_id && <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>{d.load_label || 'Open load'}</Link>}
+                  {d.load_id && <Link href={`/loads/${d.load_id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, color: 'var(--primary)' }}>{loadLinkLabel(d)}</Link>}
                   {canDeleteHandledEmailRatecon(d, userId) && (
                     <span data-testid="handled-ratecon-delete">
                       <ConfirmButton prompt={deletePrompt(d)} ariaLabel={`${deletePrompt(d)} ${d.original_filename || ''}`.trim()} onConfirm={() => removeDoc(d)} />

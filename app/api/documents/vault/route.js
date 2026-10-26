@@ -48,6 +48,7 @@ export async function GET(req, { deps } = {}) {
         created_at: doc.created_at,
         load_id: load?.id || null,
         load_label: load ? loadPickLabel(load) : null,
+        load_created_at: load?.created_at || null,
         broker: load?.broker_name || xdata.broker_name || null,
         load_number: load?.broker_load_number || xdata.load_number || null,
         source: doc.source || null,
