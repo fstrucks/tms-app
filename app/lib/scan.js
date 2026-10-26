@@ -377,3 +377,15 @@ export function scanFileName(docType, date = new Date()) {
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;
   return `${docTypeShort(docType)}_${stamp}.pdf`;
 }
+
+// RGBA → the same RGBA composited over white with alpha 255 (in place). A transparent pixel (often stored as
+// 0,0,0,0) becomes white instead of black when the page is encoded as JPEG.
+export function flattenOnWhite(d) {
+  for (let j = 0; j < d.length; j += 4) {
+    const a = d[j + 3];
+    if (a === 255) continue;
+    const k = a / 255, w = 255 * (1 - k);
+    d[j] = Math.round(d[j] * k + w); d[j + 1] = Math.round(d[j + 1] * k + w); d[j + 2] = Math.round(d[j + 2] * k + w); d[j + 3] = 255;
+  }
+  return d;
+}

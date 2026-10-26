@@ -2,7 +2,7 @@
 // Browser-only image steps for the scanner (canvas). Pure math lives in app/lib/scan.js.
 // Memory: each page keeps only a JPEG Blob (long side <= SOURCE_MAX) plus a small thumbnail URL.
 // Canvases/bitmaps are created per operation and released right after (width/height = 0, close()).
-import { fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, decodeGuarded, TOO_LARGE, heicFallbackAllowed, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
+import { flattenOnWhite, fitLongSide, detectQuad, fullFrame, homography, warpSize, levelsLut, planSave, decodeResize, decodeGuarded, TOO_LARGE, heicFallbackAllowed, probeImageSize, SAVE_SOURCE_MAX, JPEG_QUALITY, SOURCE_MAX, THUMB_W } from '../../lib/scan';
 
 const DETECT_MAX = 400; // edge detection runs on a small copy
 
@@ -29,6 +29,9 @@ export function release(...items) {
 export function revoke(url) { if (url) URL.revokeObjectURL(url); }
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+// JPEG has no alpha: transparent pixels (PNG/WebP screenshots, exported page images) encode as BLACK. Paint the
+// canvas white first so transparent areas come out as paper, the way the image looked on screen.
+function drawOnWhite(ctx, src, w, h) { ctx.fillStyle = 'white'; ctx.fillRect(0, 0, w, h); ctx.drawImage(src, 0, 0, w, h); }
 
 // Real (oriented) size from the file header, without decoding. null if unknown.
 export async function probeSize(blob) {
@@ -45,7 +48,7 @@ export async function decodeBitmap(blob, size) {
     close: (bm) => release(bm),
     drawDown: async (bmp, w, h) => { // target canvas is <= 3000x3000 (9 MP)
       const c = canvas(w, h);
-      try { c.getContext('2d').drawImage(bmp, 0, 0, w, h); return await createImageBitmap(c); } finally { release(c); }
+      try { drawOnWhite(c.getContext('2d'), bmp, w, h); return await createImageBitmap(c); } finally { release(c); }
     },
   });
 }
@@ -97,7 +100,7 @@ function detectOn(drawable, w, h) {
   const { width: dw, height: dh } = fitLongSide(w, h, DETECT_MAX);
   const c = canvas(dw, dh);
   const ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(drawable, 0, 0, dw, dh);
+  drawOnWhite(ctx, drawable, dw, dh);
   let q = null;
   try { q = detectQuad(toGray(ctx.getImageData(0, 0, dw, dh).data, dw * dh), dw, dh); } catch { q = null; }
   release(c);
@@ -113,7 +116,7 @@ export async function loadPhoto(file) {
   const { width: w, height: h } = fitLongSide(bmp.width, bmp.height, SOURCE_MAX);
   const c = canvas(w, h);
   try {
-    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    drawOnWhite(c.getContext('2d'), bmp, w, h);
     release(bmp);
     const det = detectOn(c, w, h);
     const blob = await toBlob(c, 'image/jpeg', 0.9);
@@ -132,8 +135,8 @@ export async function redetect(page) {
 function warp(drawable, sw, sh, quad, mode, maxW) {
   const sc = canvas(sw, sh);
   const sctx = sc.getContext('2d', { willReadFrequently: true });
-  sctx.drawImage(drawable, 0, 0, sw, sh);
-  const src = sctx.getImageData(0, 0, sw, sh).data;
+  drawOnWhite(sctx, drawable, sw, sh);
+  const src = flattenOnWhite(sctx.getImageData(0, 0, sw, sh).data); // belt and braces: never read RGB under alpha
   release(sc);
   const { width: W, height: H } = warpSize(quad, maxW);
   const out = canvas(W, H);
