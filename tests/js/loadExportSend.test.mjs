@@ -31,7 +31,7 @@ const body = (o = {}) => ({ to: 'dispatch-test@fstrucks.com', note: 'FAKE note',
 const post = (c, o) => SEND.POST(new Request('http://x/api', { method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify(body(o)) }), { params: { id: L1 }, deps: c.deps });
 const get = (c) => SEND.GET(new Request('http://x/api', { headers: { authorization: 'Bearer t' } }), { params: { id: L1 }, deps: c.deps });
 
-test('success: dispatcher sends one PDF via the fake sender; row claimed then message id recorded; no CC, not from marc@', async () => {
+test('success: dispatcher sends one PDF via the fake sender; row claimed then message id recorded; never any CC (even with PACKET_CC_EMAIL), not from marc@', async () => {
   const c = await ctx('dispatcher', DISP);
   const r = await post(c); const j = await r.json();
   assert.equal(r.status, 200, j.error); assert.equal(j.ok, true);
@@ -183,4 +183,8 @@ test('reply-to: review screen says where replies go before Send', () => {
   const ui = readFileSync(new URL('../../app/components/LoadExport.js', import.meta.url), 'utf8');
   assert.match(ui, /data-testid="load-export-replyto"/); assert.match(ui, /Replies will go to <strong>\{mail\.replyTo\}<\/strong>/);
   assert.doesNotMatch(ui, /\b(bot|AI)\b/);
+});
+test('export emails never CC anyone, even when PACKET_CC_EMAIL is set', async () => {
+  const c = await ctx('owner', OWNER, { env: { ...ENV, PACKET_CC_EMAIL: 'office-copy@fstrucks.com' } });
+  assert.equal((await post(c)).status, 200); assert.deepEqual(c.mails[0].cc, []);
 });
