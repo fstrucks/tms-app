@@ -19,6 +19,10 @@ const STATE_TZ = { AL: Z.C, AK: 'America/Anchorage', AZ: 'America/Phoenix', AR: 
 export const stateTz = (st) => STATE_TZ[String(st || '').trim().toUpperCase()] || null;
 // A stop's zone: its own timezone (set from its state when created from a rate con), else its state's zone,
 // else the viewer's device zone, else Central. (Before: a stop with no timezone, e.g. no appointment, used the viewer's zone.)
+// One zone for a whole packet (Taylor's QA of #153): the viewer's browser zone if it is a known IANA zone,
+// else the company's zone setting (if the profile has one), else America/Chicago.
+export const packetZone = (tz, company = null) => validTz(tz) || validTz(company?.timezone) || DEFAULT_TZ;
+export const zoneAbbr = (tz, at = new Date()) => new Intl.DateTimeFormat('en-US', { timeZone: validTz(tz) || DEFAULT_TZ, timeZoneName: 'short' }).formatToParts(at).find((p) => p.type === 'timeZoneName')?.value || '';
 export const stopZone = (s, tz) => validTz(s?.timezone) || stateTz(s?.state) || validTz(tz) || DEFAULT_TZ;
 export function fmtStopTime(iso, tz) {
   if (!iso || !isFinite(Date.parse(iso))) return null;
@@ -29,10 +33,10 @@ const ACTUAL = { pickup: 'Picked up', delivery: 'Delivered' };
 
 // load: { broker_load_number, broker_name, stops[] } → rows for the sheet (pure, for tests and the PDF).
 // delays: stop_delays rows for the load (optional). Arrived shows once stops carry arrived_at (20261022170000).
-export function stopTimeRows(load, { tz = null, delays = [] } = {}) {
+export function stopTimeRows(load, { tz = null, delays = [], oneZone = false } = {}) {
   const withArrival = (load?.stops || []).length > 0 && (load.stops || []).every((x) => Object.prototype.hasOwnProperty.call(x, 'arrived_at'));
   return [...(load?.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)).map((s, i) => {
-    const zone = stopZone(s, tz);
+    const zone = oneZone ? packetZone(tz) : stopZone(s, tz);
     const appt = s.appointment_start ? [fmtStopTime(s.appointment_start, zone), s.appointment_end ? fmtStopTime(s.appointment_end, zone) : null].filter(Boolean).join(' to ') : null;
     const actual = s.completion === 'skipped' ? 'Skipped' : s.completed_at ? fmtStopTime(s.completed_at, zone) : 'Not recorded';
     return { n: i + 1, type: TYPE[s.stop_type] || 'Stop', name: s.company_name || '', address: fullAddress(s), appointment: appt,
@@ -45,7 +49,7 @@ export function stopTimeRows(load, { tz = null, delays = [] } = {}) {
 }
 export const stopTimesFileName = (load) => `${String(load?.broker_load_number || 'Load').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'Load'}_StopTimes.pdf`;
 
-export async function stopTimesPdf(load, company = null, { tz = null, generatedAt = new Date(), delays = [] } = {}) {
+export async function stopTimesPdf(load, company = null, { tz = null, generatedAt = new Date(), delays = [], oneZone = false } = {}) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const ink = rgb(0.1, 0.1, 0.12), muted = rgb(0.4, 0.4, 0.45), rule = rgb(0.8, 0.8, 0.82);
@@ -55,9 +59,11 @@ export async function stopTimesPdf(load, company = null, { tz = null, generatedA
   const carrier = company?.legal_name || company?.dba_name || '';
   text('Stop times', M, y, { f: bold, size: 20 }); y -= 22;
   text([carrier, load?.broker_load_number ? `Load ${load.broker_load_number}` : null, load?.broker_name ? `Broker: ${load.broker_name}` : null].filter(Boolean).join('   |   '), M, y, { color: muted }); y -= 14;
-  text(`Actual arrival-to-completion record as checked off by the driver. Prepared ${fmtStopTime(generatedAt.toISOString(), tz)}.`, M, y, { size: 9, color: muted }); y -= 18;
+  text(`Actual arrival-to-completion record as checked off by the driver. Prepared ${fmtStopTime(generatedAt.toISOString(), tz)}.`, M, y, { size: 9, color: muted }); y -= 14;
+  if (oneZone) { text(`All times in ${zoneAbbr(tz, generatedAt)} (${packetZone(tz)}).`, M, y, { size: 9, color: muted }); y -= 14; }
+  y -= 4;
   page.drawLine({ start: { x: M, y }, end: { x: 612 - M, y }, thickness: 1, color: rule }); y -= 20;
-  const rows = stopTimeRows(load, { tz, delays });
+  const rows = stopTimeRows(load, { tz, delays, oneZone });
   if (!rows.length) text('No stops on this load.', M, y, { color: muted });
   for (const r of rows) {
     if (y < 110) { page = doc.addPage([612, 792]); y = 744; }

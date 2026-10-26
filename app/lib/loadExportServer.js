@@ -4,7 +4,7 @@ import { docInCompany } from './loadDocsServer';
 import { exportOptions, planPacket, exportInvoice, packetFileName, NOTE_MAX } from './loadExport';
 import { buildBundlePdf } from './invoiceBundlePdf';
 import { invoicePdf } from './invoicePdf';
-import { stopTimesPdf } from './stopTimesPdf';
+import { stopTimesPdf, packetZone } from './stopTimesPdf';
 import { delaysForLoad } from './stopTimesServer';
 import { notesPdf } from './notesPdf';
 import { loadLogo } from './invoiceServer';
@@ -27,6 +27,7 @@ export function readSelection(s = {}) {
 // → { bytes, items, skipped, filename, invoice } | { error, status }
 export async function buildLoadPacket(x, ctx, docs, sel, tz = '') {
   const { load, profile } = ctx;
+  const zone = packetZone(tz, profile); // one zone for every time on the packet
   const { items, unsupported } = planPacket({ load, docs, sel });
   if (!items.length) return { error: 'Nothing is selected. Pick at least one item to export.', status: 422 };
   const inv = exportInvoice(ctx);
@@ -35,11 +36,11 @@ export async function buildLoadPacket(x, ctx, docs, sel, tz = '') {
   const list = [];
   for (const it of items) {
     if (it.kind === 'doc') list.push({ name: it.label, doc: it.doc, supported: true });
-    else if (it.kind === 'stopTimes') list.push({ name: 'Stop times', pdfBytes: await stopTimesPdf(load, profile, { tz, delays: await delaysForLoad(x.svc, load.id) }).catch(() => null) });
+    else if (it.kind === 'stopTimes') list.push({ name: 'Stop times', pdfBytes: await stopTimesPdf(load, profile, { tz: zone, oneZone: true, delays: await delaysForLoad(x.svc, load.id) }).catch(() => null) });
     else if (it.kind === 'notes') list.push({ name: 'Notes', pdfBytes: await notesPdf({ loadNumber: load.broker_load_number, note: it.note, loadNotes: it.loadNotes }) });
   }
   const r = await buildBundlePdf(invBytes, list, download, { title: sel.invoice ? 'Load packet with invoice' : 'Load packet' });
-  return { bytes: r.bytes, items, skipped: [...unsupported, ...r.skipped], filename: packetFileName(load, sel.invoice), invoice: inv };
+  return { bytes: r.bytes, zone, items, skipped: [...unsupported, ...r.skipped], filename: packetFileName(load, sel.invoice), invoice: inv };
 }
 
 // Kept for the info GET.
