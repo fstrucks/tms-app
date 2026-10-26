@@ -238,3 +238,15 @@ test('iPhone: Fill & download bar hidden during send write/review (unless unsave
   const c = readFileSync(new URL('../../app/packets/PacketSendBroker.js', import.meta.url), 'utf8');
   assert.match(c, /idempotencyKey: k/); assert.match(c, /resend: true/); assert.match(c, /already sent on/); assert.match(c, /attemptOutcome\(h\.sends, k\)/);
 });
+
+// ---- Company Reply-to email (Marc, Oct 26) on the packet Send too ----
+test('packet send: company Reply-to email wins over PACKET_REPLY_TO; blank keeps the env one', async () => {
+  const sb = fakeSb({ packet: pkt() }); sb.tbl.company_profiles[0].reply_to_email = 'office@fake-carrier.com'; const f = mockFetch();
+  assert.equal((await post(sb, { ...OK, idempotencyKey: K1 }, { fetch: f })).status, 200);
+  assert.equal(f.calls[0].ReplyTo, 'office@fake-carrier.com'); assert.equal(f.calls[0].From, 'noreply@fstrucks.com');
+  assert.equal(sb.tbl.packet_sends[0].reply_to, 'office@fake-carrier.com');
+  assert.equal((await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env: ENV } })).json()).replyTo, 'office@fake-carrier.com');
+  const sb2 = fakeSb({ packet: pkt() }); sb2.tbl.company_profiles[0].reply_to_email = null; const f2 = mockFetch();
+  await post(sb2, { ...OK, idempotencyKey: K1 }, { fetch: f2, env: { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' } });
+  assert.equal(f2.calls[0].ReplyTo, 'ops-test@fstrucks.com');
+});

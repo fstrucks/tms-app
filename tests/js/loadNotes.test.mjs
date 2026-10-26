@@ -50,6 +50,6 @@ test('load page wiring: notes box with an explicit Save; Export refreshes on not
   assert.doesNotMatch(box, /\b(bot|AI|assistant)\b/);
   const ex = src('app/components/LoadExport.js');
   assert.match(ex, /useEffect\(\(\) => \{ setInfo\(null\); setReview\(null\); \}, \[load\?\.notes\]\);/);
-  assert.match(ex, /useEffect\(\(\) => \{ setReview\(null\); setSendErr\(null\); \}, \[sel\]\);/);
+  assert.match(ex, /useEffect\(\(\) => \{ setReview\(null\); setSendErr\(null\); setNote\(null\); \}, \[sel\]\);/);
   assert.ok(ex.indexOf('[sel]);') < ex.indexOf('if (!visible) return null;'), 'hooks run before the early return');
 });

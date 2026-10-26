@@ -13,10 +13,10 @@ const K1 = '00000000-0000-4000-8000-00000000c001', K2 = '00000000-0000-4000-8000
 const ENV = { POSTMARK_SERVER_TOKEN: 'fake-token', PACKET_FROM_EMAIL: 'noreply@fstrucks.com', EMAIL_MONTHLY_CAP: '80' };
 async function onePagePdf() { const d = await PDFDocument.create(); d.addPage([612, 792]); return new Uint8Array(await d.save()); }
 
-async function ctx(role, userId, { status = 'delivered', missing = [], sends = [], env = ENV, brokers = [] } = {}) {
+async function ctx(role, userId, { status = 'delivered', missing = [], sends = [], env = ENV, brokers = [], profile = {} } = {}) {
   const files = { [`${OWNER}/1-rc.pdf`]: await onePagePdf() };
   const tables = {
-    company_profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'FAKE Trucking LLC' }], invoices: [], brokers, factors: [], packet_sends: [], coi_requests: [], load_packet_sends: sends,
+    company_profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'FAKE Trucking LLC', ...profile }], invoices: [], brokers, factors: [], packet_sends: [], coi_requests: [], load_packet_sends: sends,
     loads: [{ id: L1, user_id: OWNER, status, rate: 990, broker_name: 'Fake Broker', broker_load_number: 'TEST-146', notes: '', stops: [] }],
     documents: [{ id: 'd1', doc_type: 'rate_confirmation', file_path: `${OWNER}/1-rc.pdf`, original_filename: 'rc.pdf', created_at: '1', user_id: OWNER, load_id: L1 }], stop_delays: [],
   };
@@ -154,4 +154,33 @@ test('send matrix: office roles send when delivered/invoiced/paid; driver 403 al
     const c = await ctx(role, uid, { status });
     assert.equal((await post(c)).status, 409, `${role} ${status}`); assert.equal((await get(c)).status, 409); assert.equal(c.mails.length, 0);
   }
+});
+
+// ---- Company Reply-to email (Marc, Oct 26): per company, then PACKET_REPLY_TO, then none. From never changes. ----
+test('reply-to: the company’s Reply-to email is the Reply-To header and is shown before Send', async () => {
+  const c = await ctx('owner', OWNER, { profile: { reply_to_email: 'office@fake-carrier.com' }, env: { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' } });
+  assert.equal((await (await get(c)).json()).replyTo, 'office@fake-carrier.com');
+  assert.equal((await post(c)).status, 200);
+  assert.equal(c.mails[0].replyTo, 'office@fake-carrier.com'); assert.equal(c.mails[0].from, 'noreply@fstrucks.com');
+});
+test('reply-to: no company value → PACKET_REPLY_TO; neither → none; env marc@ still dropped', async () => {
+  const a = await ctx('owner', OWNER, { env: { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' } });
+  assert.equal((await (await get(a)).json()).replyTo, 'ops-test@fstrucks.com');
+  await post(a); assert.equal(a.mails[0].replyTo, 'ops-test@fstrucks.com');
+  const b = await ctx('owner', OWNER, { profile: { reply_to_email: '' } });
+  assert.equal((await (await get(b)).json()).replyTo, null);
+  await post(b); assert.equal(b.mails[0].replyTo, null);
+  const m = await ctx('owner', OWNER, { env: { ...ENV, PACKET_REPLY_TO: 'marc@fstrucks.com' } });
+  await post(m); assert.equal(m.mails[0].replyTo, null);
+});
+test('reply-to: a bad stored value is ignored (falls back), and a company reply-to never changes From', async () => {
+  const c = await ctx('owner', OWNER, { profile: { reply_to_email: 'not an email' }, env: { ...ENV, PACKET_REPLY_TO: 'ops-test@fstrucks.com' } });
+  await post(c); assert.equal(c.mails[0].replyTo, 'ops-test@fstrucks.com');
+  const bad = await ctx('owner', OWNER, { env: { ...ENV, PACKET_FROM_EMAIL: 'marc@fstrucks.com' }, profile: { reply_to_email: 'office@fake-carrier.com' } });
+  assert.equal((await post(bad)).status, 503); assert.equal(bad.mails.length, 0, 'marc@ From refused; nothing sent');
+});
+test('reply-to: review screen says where replies go before Send', () => {
+  const ui = readFileSync(new URL('../../app/components/LoadExport.js', import.meta.url), 'utf8');
+  assert.match(ui, /data-testid="load-export-replyto"/); assert.match(ui, /Replies will go to <strong>\{mail\.replyTo\}<\/strong>/);
+  assert.doesNotMatch(ui, /\b(bot|AI)\b/);
 });
