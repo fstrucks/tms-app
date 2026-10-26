@@ -1,7 +1,7 @@
-// Shared monthly email cap (Postmark plan: 100/month). Counts packet_sends + coi_requests rows whose sent_at
+// Shared monthly email cap (Postmark plan: 100/month). Counts packet_sends + coi_requests + load_packet_sends rows whose sent_at
 // falls in the current calendar month (America/Los_Angeles). Claimed-but-unconfirmed rows count too (conservative).
 export const DEFAULT_MONTHLY_CAP = 80;
-export const CAP_TABLES = ['packet_sends', 'coi_requests'];
+export const CAP_TABLES = ['packet_sends', 'coi_requests', 'load_packet_sends'];
 const TZ = 'America/Los_Angeles';
 
 export function monthlyCap(env = process.env) {

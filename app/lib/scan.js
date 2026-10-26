@@ -188,11 +188,15 @@ export function otsu(gray) {
 
 // ---- cleanup ----
 // Levels from the 2nd/98th luminance percentiles. Returns a 256-entry lookup table.
+export const LEVELS_MIN_RANGE = 64;
 export function levelsLut(gray, mode = 'bw') {
   const hist = new Uint32Array(256);
   for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
   const pct = (p) => { let c = 0; const lim = gray.length * p; for (let i = 0; i < 256; i++) { c += hist[i]; if (c >= lim) return i; } return 255; };
-  const lo = pct(0.02), hi = Math.max(lo + 1, pct(0.98));
+  // Never stretch less than LEVELS_MIN_RANGE grey levels, anchored at the bright end. A mostly white page
+  // (>98% paper) used to give lo = 255, hi = 256, mapping paper (255) to BLACK; a flat photo (all ~140) mapped
+  // its one grey to black too. Now paper stays white and ink stays dark.
+  const hi = Math.min(255, Math.max(pct(0.98), LEVELS_MIN_RANGE)), lo = Math.max(0, Math.min(pct(0.02), hi - LEVELS_MIN_RANGE));
   const lut = new Uint8ClampedArray(256);
   for (let i = 0; i < 256; i++) {
     let v = (i - lo) / (hi - lo);
@@ -376,4 +380,16 @@ export function scanFileName(docType, date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`;
   return `${docTypeShort(docType)}_${stamp}.pdf`;
+}
+
+// RGBA → the same RGBA composited over white with alpha 255 (in place). A transparent pixel (often stored as
+// 0,0,0,0) becomes white instead of black when the page is encoded as JPEG.
+export function flattenOnWhite(d) {
+  for (let j = 0; j < d.length; j += 4) {
+    const a = d[j + 3];
+    if (a === 255) continue;
+    const k = a / 255, w = 255 * (1 - k);
+    d[j] = Math.round(d[j] * k + w); d[j + 1] = Math.round(d[j + 1] * k + w); d[j + 2] = Math.round(d[j + 2] * k + w); d[j + 3] = 255;
+  }
+  return d;
 }

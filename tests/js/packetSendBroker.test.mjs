@@ -42,7 +42,7 @@ test('postmarkSend: payload shape (mock fetch), error 412 explained', async () =
 });
 
 function fakeSb({ packet, sendsTable = true, failUpdate = null, throwUpdate = null }) {
-  const tbl = { packets: [packet], packet_sends: [], coi_requests: [], company_profiles: [{ owner_id: 'owner1', legal_name: 'Test Trucking (FAKE)' }] };
+  const tbl = { packets: [packet], packet_sends: [], coi_requests: [], load_packet_sends: [], company_profiles: [{ owner_id: 'owner1', legal_name: 'Test Trucking (FAKE)' }] };
   const from = (name) => {
     const st = { op: 'select', f: [] };
     const run = () => {
