@@ -8,6 +8,7 @@ import {
 import {
   addDays, addMonths, daysBetween, isISODate, nextMcs150Due, ucrCycle, form2290Dues, iftaDue,
 } from './complianceCalendar.js';
+import { localISODate } from './localDate.js';
 
 export const EQUIPMENT_RECHECK_DAYS = 365;
 export const FILTERS = [
@@ -253,7 +254,7 @@ export function resolveInstance(item, inst, ctx) {
   if (!state.done && row?.status === 'skipped') {
     return doneRow(item, inst, ctx, row, file, { skipped: true, bucket: 'missing', done: false, expiryOn: state.expiryOn, detail: 'Skipped. Still shown as missing.', uploadedAt: file?.created_at || null, fileName: file?.original_filename || null });
   }
-  const detail = state.bucket === 'expired' ? `Expired ${state.expiryOn}.` : state.bucket === 'expiring' ? `Expires ${state.expiryOn}.` : state.done && file ? `On file ${String(file.created_at).slice(0, 10)}.` : state.done ? 'Marked done.' : '';
+  const detail = state.bucket === 'expired' ? `Expired ${state.expiryOn}.` : state.bucket === 'expiring' ? `Expires ${state.expiryOn}.` : state.done && file ? `On file ${localISODate(file.created_at) || String(file.created_at).slice(0, 10)}.` : state.done ? 'Marked done.' : '';
   return doneRow(item, inst, ctx, row, file, {
     ...state, detail, uploadedAt: file?.created_at || null, fileName: file?.original_filename || null, documentId: file?.id || null,
   });

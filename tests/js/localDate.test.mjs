@@ -3,7 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { formatLocalDate } from '../../app/lib/localDate.js';
+import { formatLocalDate, localISODate } from '../../app/lib/localDate.js';
+import { loadLinkLabel, loadPickLabel } from '../../app/lib/loadDocs.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -31,6 +32,43 @@ test('empty and unreadable values stay blank', () => {
 
 test('an unknown timezone falls back to the runtime zone', () => {
   assert.equal(formatLocalDate('2026-10-26T00:20:00Z', 'Not/AZone'), '10/25/2026');
+});
+
+test('a load label uses the Chicago day for an evening Central created_at, not the next UTC day', () => {
+  const created_at = '2026-10-26T00:20:00Z';
+  assert.equal(formatLocalDate(created_at, 'UTC'), '10/26/2026');
+  assert.equal(
+    loadPickLabel({ broker_load_number: 'TEST-PICS-2', broker_name: 'Fake Broker', created_at }, 'America/Chicago'),
+    '#TEST-PICS-2 · Fake Broker (10/25/2026)',
+  );
+  // 1:30am in Chicago is still the previous evening in Los Angeles, so the zone argument has to be honored.
+  assert.equal(
+    loadPickLabel({ broker_load_number: 'TEST-PICS-2', broker_name: 'Fake Broker', created_at: '2026-10-26T06:30:00Z' }, 'America/Chicago'),
+    '#TEST-PICS-2 · Fake Broker (10/26/2026)',
+  );
+  assert.equal(
+    loadPickLabel({ broker_load_number: 'TEST-PICS-2', broker_name: 'Fake Broker', pickup_date: '2026-10-26', created_at }, 'America/Chicago'),
+    '#TEST-PICS-2 · Fake Broker (10/26)',
+  );
+  const src = read('../../app/lib/loadDocs.js');
+  assert.match(src, /formatLocalDate\(/);
+  assert.doesNotMatch(src, /toLocaleDateString/);
+  assert.equal(localISODate(created_at, 'America/Chicago'), '2026-10-25');
+  assert.equal(localISODate('2026-10-26'), '2026-10-26');
+  assert.equal(
+    loadLinkLabel({ load_label: '#TEST-PICS-2 · Fake Broker (10/26/2026)', load_created_at: created_at }, 'America/Chicago'),
+    '#TEST-PICS-2 · Fake Broker (10/25/2026)',
+  );
+  assert.equal(
+    loadLinkLabel({ load_label: '#TEST-PICS-2 · Fake Broker (10/26)', load_created_at: created_at }, 'America/Chicago'),
+    '#TEST-PICS-2 · Fake Broker (10/26)',
+  );
+  for (const file of ['../../app/documents/vault/page.js', '../../app/components/TeamDocsList.js']) {
+    assert.match(read(file), /loadLinkLabel\(/, file);
+  }
+  for (const file of ['../../app/api/documents/vault/route.js', '../../app/api/documents/team/route.js']) {
+    assert.match(read(file), /load_created_at/, file);
+  }
 });
 
 test('load document and picture rows format created_at in local time', () => {

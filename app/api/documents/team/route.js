@@ -1,4 +1,4 @@
-// GET → { documents: [{ id, doc_type, label, original_filename, created_at, url, isImage, own, file_path?, load_id, load_label, uploader }], role }
+// GET → { documents: [{ id, doc_type, label, original_filename, created_at, url, isImage, own, file_path?, load_id, load_label, load_created_at, uploader }], role }
 // Documents tab "Team" view: every load document the caller may see under the PR #110 rules, across the company's
 // loads. Same rules as the load page (/api/loads/:id/documents): it reuses canViewLoadDocs / visibleDocsFor per load,
 // so nothing is widened. Owner / management / dispatcher: all company loads; drivers: only loads assigned to them,
@@ -49,7 +49,7 @@ async function inboxResponse(c, svc) {
       const own = d.user_id === me;
       const load = got.loadsById?.get(d.load_id);
       return { id: d.id, doc_type: d.doc_type, label: docTypeLabel(d.doc_type), original_filename: d.original_filename, created_at: d.created_at,
-        own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: load ? loadPickLabel(load) : 'Load', uploader: names.get(d.user_id) || 'Teammate',
+        own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: load ? loadPickLabel(load) : 'Load', load_created_at: load?.created_at || null, uploader: names.get(d.user_id) || 'Teammate',
         url: urlOf.get(d.file_path) || null, isImage: isImagePath(d.file_path) };
     }),
   });
@@ -96,7 +96,7 @@ export async function GET(req, { deps } = {}) {
       const own = d.user_id === me;
       const load = byLoad.get(d.load_id);
       return { id: d.id, doc_type: d.doc_type, label: docTypeLabel(d.doc_type), original_filename: d.original_filename, created_at: d.created_at,
-        own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: loadPickLabel(load), uploader: names.get(d.user_id) || 'Teammate',
+        own, file_path: own ? d.file_path : undefined, load_id: d.load_id, load_label: loadPickLabel(load), load_created_at: load?.created_at || null, uploader: names.get(d.user_id) || 'Teammate',
         url: urlOf.get(d.file_path) || null, isImage: isImagePath(d.file_path) };
     }),
   });

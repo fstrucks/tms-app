@@ -15,3 +15,14 @@ export function formatLocalDate(value, timeZone) {
   }
   return new Intl.DateTimeFormat('en-US', opts).format(t);
 }
+
+// Same local calendar day as formatLocalDate, as YYYY-MM-DD. A date-only value is already a calendar day and stays.
+export function localISODate(value, timeZone) {
+  const s = value == null ? '' : String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const shown = formatLocalDate(value, timeZone);
+  if (!shown) return '';
+  const [month, day, year] = shown.split('/');
+  if (!year || !month || !day) return '';
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}

@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import Link from 'next/link';
 import { useSetup } from '../useSetup';
 import { buildChecklist, summarize, modelFromPayload } from '../../../lib/setupProgress';
+import { localISODate } from '../../../lib/localDate';
 import { CATEGORIES } from '../../../lib/setupCatalog';
 
 const sheet = { maxWidth: 900, margin: '0 auto', padding: '1rem', fontFamily: 'system-ui', color: 'var(--text)' };
@@ -62,7 +63,7 @@ export default function AuditFolderPage() {
                           <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{r.title}{r.unitLabel ? ` · ${r.unitLabel}` : ''}{r.verified === false ? ' · Not confirmed' : ''}</td>
                           <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{statusOf(r)}</td>
                           <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{r.expiryOn || '—'}</td>
-                          <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{r.uploadedAt ? String(r.uploadedAt).slice(0, 10) : '—'}</td>
+                          <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{r.uploadedAt ? (localISODate(r.uploadedAt) || '—') : '—'}</td>
                           <td style={{ padding: '0.3rem', borderBottom: '1px solid var(--divider)' }}>{r.fileName || '—'}</td>
                         </tr>
                       ))}
