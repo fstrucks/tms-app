@@ -268,3 +268,11 @@ test('no marc@ anywhere in app code or .env.example', () => {
   const hits = execSync("grep -rIil 'marc@fstrucks' app .env.example || true", { encoding: 'utf8' }).trim();
   assert.equal(hits, '', hits);
 });
+
+// Oct 26: export emails may go to any domain, but packet sends keep PACKET_SEND_ALLOWED_DOMAINS (default fstrucks.com).
+test('packet send still enforces the allow-list: example.com refused, Postmark never called', async () => {
+  const f = mockFetch();
+  const r = await POST(req({ ...OK, to: 'someone@example.com' }), { params: { id: PID }, deps: { sb: fakeSb({ packet: pkt() }), mkUserClient: uc('owner'), env: ENV, fetch: f } });
+  assert.equal(r.status, 403); assert.deepEqual((await r.json()).blocked, ['someone@example.com']); assert.equal(f.calls.length, 0);
+  assert.deepEqual(validateSend({ ...OK, to: 'someone@example.com' }, {}).blocked, ['someone@example.com']);
+});
