@@ -57,11 +57,37 @@ test('duplicate id: same key twice → sent once; second gets the earlier result
   assert.equal(p.status, 409); assert.equal((await p.json()).pending, true); assert.equal(pending.mails.length, 0);
 });
 
-test('allow-list: outside domain refused (403) with the address named; default fstrucks.com is not widened', async () => {
+test('any domain accepted: export goes to outside broker addresses (fake sender only), even with PACKET_SEND_ALLOWED_DOMAINS set', async () => {
+  for (const env of [ENV, { ...ENV, PACKET_SEND_ALLOWED_DOMAINS: 'fstrucks.com' }]) {
+    const c = await ctx('owner', OWNER, { env });
+    const r = await post(c, { to: 'someone@example.com, dispatch@fake-broker.example' }); const j = await r.json();
+    assert.equal(r.status, 200, j.error); assert.equal(c.mails.length, 1);
+    assert.deepEqual(c.mails[0].to, ['someone@example.com', 'dispatch@fake-broker.example']); assert.deepEqual(c.mails[0].cc, []);
+    assert.equal(c.mails[0].from, 'noreply@fstrucks.com');
+  }
+});
+
+test('recipient sanity: max 5 To; internal/reserved domains, IPs and the TMS sender refused (422); nothing sent', async () => {
   const c = await ctx('owner', OWNER);
-  const r = await post(c, { to: 'someone@fake-broker.example' }); const j = await r.json();
-  assert.equal(r.status, 403); assert.deepEqual(j.blocked, ['someone@fake-broker.example']); assert.match(j.error, /limited to fstrucks\.com/);
+  const six = Array.from({ length: 6 }, (_, i) => `b${i}@example.com`).join(', ');
+  const r = await post(c, { to: six }); assert.equal(r.status, 422); assert.match((await r.json()).error, /max 5/);
+  for (const to of ['ops@server.local', 'a@intranet.corp', 'x@localhost.localdomain', 'a@10.0.0.1', 'a@foo.internal', 'noreply@fstrucks.com', 'not-an-email', 'a@b']) {
+    assert.equal((await post(c, { to })).status, 422, to);
+  }
   assert.equal(c.mails.length, 0);
+  assert.equal((await post(c, { to: Array.from({ length: 5 }, (_, i) => `b${i}@example.com`).join(', ') })).status, 200);
+});
+
+test('accounting-style address on any domain still needs the extra confirm', async () => {
+  const c = await ctx('owner', OWNER);
+  const r = await post(c, { to: 'ap@example.com' }); assert.equal(r.status, 409); assert.equal((await r.json()).accountingConfirm, true); assert.equal(c.mails.length, 0);
+  assert.equal((await post(c, { to: 'ap@example.com', confirmAccounting: true })).status, 200);
+});
+
+test('export UI: no domain-limit text; recipient problems shown and Review disabled', () => {
+  const ui = readFileSync(new URL('../../app/components/LoadExport.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(ui, /limited to|allowedDomains|outsideRecipients/);
+  assert.match(ui, /exportRecipientProblem\(toList, mail\?\.from\)/); assert.match(ui, /!toList\.length \|\| !!toProblem/);
 });
 
 test('accounting address needs the extra confirm', async () => {
@@ -125,7 +151,7 @@ test('GET: history (who/to/when/invoice), prefill skips accounting, config flags
   const c = await ctx('management', OWNER, { brokers: [{ id: 'b1', owner_id: OWNER, name: 'Fake Broker', billing_emails: ['billing@fstrucks.com', 'jane-test@fstrucks.com'] }],
     sends: [{ id: K2, owner_id: OWNER, load_id: L1, sent_by: OWNER, sent_at: '2026-10-25T12:00:00Z', to_emails: ['x@fstrucks.com'], with_invoice: false, postmark_message_id: 'm' }] });
   const j = await (await get(c)).json();
-  assert.equal(j.prefill, 'jane-test@fstrucks.com'); assert.equal(j.configured, true); assert.deepEqual(j.allowedDomains, ['fstrucks.com']); assert.equal(j.maxBytes, SEND_MAX_BYTES);
+  assert.equal(j.prefill, 'jane-test@fstrucks.com'); assert.equal(j.configured, true); assert.equal(j.allowedDomains, undefined); assert.equal(j.maxTo, 5); assert.equal(j.maxBytes, SEND_MAX_BYTES);
   assert.deepEqual(j.sends.map((s) => [s.by, s.to[0], s.with_invoice, s.confirmed]), [['You', 'x@fstrucks.com', false, true]]);
   assert.equal((await post(c, { confirm: false })).status, 400); assert.equal(c.mails.length, 0);
 });

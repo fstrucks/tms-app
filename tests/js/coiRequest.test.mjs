@@ -256,3 +256,9 @@ test('COI request: company Reply-to email wins, else PACKET_REPLY_TO', async () 
   const sb2 = coiSb(); const f2 = mockFetch();
   await post(sb2, 'owner', OK, env, f2); assert.equal(f2.calls[0].b.ReplyTo, 'ops-test@fstrucks.com');
 });
+
+test('COI request still enforces the allow-list (export change does not widen it)', async () => {
+  const f = mockFetch();
+  const r = await post(coiSb(), 'owner', { ...OK, to: 'someone@example.com' }, ENV, f);
+  assert.equal(r.status, 403); assert.equal(f.calls.length, 0);
+});
