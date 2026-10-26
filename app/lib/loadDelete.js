@@ -56,7 +56,9 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // n = your linked documents (incl. company docs: W-9, insurance... which are unlinked, never deleted with a load),
 // team = teammates' documents, company = how many of the n are company docs. The confirm text and the "Also delete"
 // box use the same numbers (QA Oct 22: the prompt said all n were deleted).
-export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}, team = 0, company = 0) {
+const TICKET_STAYS = 'Scale ticket photos stay in your Truck tab.';
+
+export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = {}, team = 0, company = 0, ticketPhotos = 0) {
   const del = deleteDocs ? Math.max(0, n - company) : 0;
   const kept = [];
   if (n && !deleteDocs) kept.push(plural(n + team, 'document', 'documents'));
@@ -68,12 +70,15 @@ export function loadDeletePrompt(n, deleteDocs, { expenses = 0, mileage = 0 } = 
   if (mileage) kept.push(plural(mileage, 'mileage entry', 'mileage entries'));
   const keptText = kept.length ? ` ${kept.length > 1 ? kept.slice(0, -1).join(', ') + ' and ' + kept.at(-1) : kept[0]} will be kept, unlinked.` : '';
   const head = del ? `Delete this load, its stops and ${team ? 'your ' : ''}${plural(del, 'document', 'documents')}?` : 'Delete this load and its stops?';
-  return head + keptText;
+  const ticketText = ticketPhotos > 0 ? ` ${TICKET_STAYS}` : '';
+  return head + keptText + ticketText;
 }
 // Text next to the "Also delete" checkbox; null when nothing can be deleted (company docs only).
-export function loadDeleteDocsLabel(n, team = 0, company = 0) {
+// ticketPhotos are Truck-tab photos linked on the load but not deleted with it. They are not part of `n`.
+export function loadDeleteDocsLabel(n, team = 0, company = 0, ticketPhotos = 0) {
   const del = Math.max(0, n - company);
   if (!del) return null;
   const unlinked = [team && plural(team, 'team document', 'team documents'), company && plural(company, 'company document', 'company documents')].filter(Boolean);
-  return `Also delete ${team ? 'your ' : ''}${del} linked document${del === 1 ? '' : 's'}${unlinked.length ? `; ${unlinked.join(' and ')} will be unlinked, not deleted` : ''}`;
+  const body = `Also delete ${team ? 'your ' : ''}${del} linked document${del === 1 ? '' : 's'}${unlinked.length ? `; ${unlinked.join(' and ')} will be unlinked, not deleted` : ''}`;
+  return ticketPhotos > 0 ? `${body}. ${TICKET_STAYS}` : body;
 }

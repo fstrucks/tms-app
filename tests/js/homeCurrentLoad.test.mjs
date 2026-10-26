@@ -139,7 +139,7 @@ test('new load: driver, show-rate and pickup # are sent only when set', () => {
 });
 
 test('driver settings helpers: RPC names, error mapping, missing migration', async () => {
-  const sb = { rpc: async (n, a) => (n === 'set_load_driver_settings' ? (assert.deepEqual(a, { p_load: 'L', p_driver: null, p_show: true }), { data: null, error: { message: 'not_allowed' } }) : { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }) };
+  const sb = { rpc: async (n, a) => (n === 'set_load_driver_settings' ? (assert.deepEqual(a, { p_load: 'L', p_driver: null, p_show: false }), { data: null, error: { message: 'not_allowed' } }) : { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }) };
   const s = await saveDriverSettings(sb, 'L', { driverId: '', showRate: true });
   assert.equal(s.ok, false); assert.match(s.error, /Only the owner, management or a dispatcher/);
   assert.deepEqual(await fetchDriverChoices(sb), { available: false, choices: [], error: null });
