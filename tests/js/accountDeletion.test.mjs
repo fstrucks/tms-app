@@ -12,7 +12,7 @@ import {
 } from '../../app/lib/accountDeletion.js';
 import { formatUpdated, renderLegalMarkdown, safeHref } from '../../app/lib/legalMarkdown.js';
 import { PUBLIC_LEGAL_PATHS, isPublicLegalPath } from '../../app/lib/legalRoutes.js';
-import { applyStoragePlan, listStoragePrefix } from '../../app/lib/accountDeletionServer.js';
+import { applyStoragePlan, baselineSignInAt, listStoragePrefix } from '../../app/lib/accountDeletionServer.js';
 import { GET, POST } from '../../app/api/account/deletion/route.js';
 import { GET as CRON } from '../../app/api/cron/account-deletion/route.js';
 import { isBugButtonHidden } from '../../app/lib/bugReport.js';
@@ -199,6 +199,8 @@ test('migration is idempotent, service-role only, and matches the deletion rules
   assert.match(CHECK, /reverts_dispatched_to_booked/);
   assert.match(CHECK, /has_function_privilege\('anon'/);
   assert.match(CHECK, /has_function_privilege\('authenticated'/);
+  assert.match(CHECK, /has_function_privilege\('service_role', 'public\.account_deletion_apply\(uuid\)', 'execute'\) as service_role_execute/);
+  assert.match(CHECK, /service_role_execute true/);
   assert.match(CHECK, /acl\.grantee = 0/);
   assert.doesNotMatch(CHECK, /grantee in \('anon'/);
   assert.doesNotMatch(codeOnly(CHECK), /\b(insert|update|delete|drop|alter|create|grant|revoke|truncate)\b/i);
@@ -267,6 +269,24 @@ test('owner schedules 14 days out and does not delete yet; demo deletes now', as
   assert.equal((await gone.json()).deleted, true);
   assert.equal(demo.calls.rpc[0].args.p_user, OWNER);
   assert.deepEqual(demo.calls.deleted, [OWNER]);
+});
+
+test('baseline sign-in time falls back to now when the session has none', async () => {
+  assert.equal(baselineSignInAt({ last_sign_in_at: '2026-01-01T00:00:00.000Z' }), '2026-01-01T00:00:00.000Z');
+  assert.equal(baselineSignInAt({}, new Date('2026-10-28T00:00:00.000Z')), '2026-10-28T00:00:00.000Z');
+  assert.equal(baselineSignInAt(null, new Date('2026-10-28T00:00:00.000Z')), '2026-10-28T00:00:00.000Z');
+  const before = Date.now();
+  const ownerUser = { id: OWNER, email: 'owner@example.test' };
+  const live = world({ user: ownerUser, profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'FS Trucks', is_demo: false, deletion_locked: false }] });
+  const scheduled = await post({ confirm: 'DELETE' }, live.deps);
+  assert.equal(scheduled.status, 200);
+  const ownerAt = Date.parse(live.deps.admin.db.account_deletion_requests[0].baseline_sign_in_at);
+  assert.ok(ownerAt >= before - 1000 && ownerAt <= Date.now() + 1000);
+  const member = world({ user: { id: MEMBER, email: 'driver@example.test' }, profiles: [] });
+  const gone = await post({ confirm: 'DELETE' }, member.deps);
+  assert.equal(gone.status, 200);
+  const memberAt = Date.parse(member.deps.admin.db.account_deletion_requests[0].baseline_sign_in_at);
+  assert.ok(memberAt >= before - 1000 && memberAt <= Date.now() + 1000);
 });
 
 test('more than one company, a protected company, and a later sign-in do not delete the sign-in', async () => {

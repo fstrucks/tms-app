@@ -11,6 +11,10 @@ import {
 } from './accountDeletion.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+// The database cancel compares this to auth.users.last_sign_in_at. A null baseline skips that check, so always store a time.
+export function baselineSignInAt(user, now = new Date()) {
+  return user?.last_sign_in_at || now.toISOString();
+}
 const missing = (e) => !!e && (e.code === '42P01' || e.code === 'PGRST205' || e.code === 'PGRST204' || /does not exist|Could not find the|schema cache/i.test(e.message || ''));
 const SETUP = `Deleting an account isn’t available yet. Email ${SUPPORT_EMAIL} and we’ll delete it for you.`;
 
@@ -161,7 +165,7 @@ export async function postAccountDeletion(req, deps = {}) {
       company_profile_id: profile.id,
       kind: 'company',
       purge_after: at.toISOString(),
-      baseline_sign_in_at: who.user.last_sign_in_at || null,
+      baseline_sign_in_at: baselineSignInAt(who.user),
     });
     if (ins.error && missing(ins.error)) return json({ error: SETUP, setupNeeded: true }, 503);
     if (ins.error) return json({ error: 'Couldn’t schedule the deletion. Try again.' }, 500);
@@ -178,7 +182,7 @@ export async function postAccountDeletion(req, deps = {}) {
       company_profile_id: profile?.id || null,
       kind: plan.kind,
       purge_after: new Date(Date.now() - 1000).toISOString(),
-      baseline_sign_in_at: who.user.last_sign_in_at || null,
+      baseline_sign_in_at: baselineSignInAt(who.user),
     });
     if (ins.error && missing(ins.error)) return json({ error: SETUP, setupNeeded: true }, 503);
     if (ins.error && ins.error.code !== '23505') return json({ error: 'Couldn’t start the deletion. Try again.' }, 500);

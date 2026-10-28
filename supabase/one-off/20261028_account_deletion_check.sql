@@ -9,7 +9,8 @@
 --      booked, labels a removed person Former team member, and does not remove
 --      facilities or reviews. It refuses a locked company and a person on more than
 --      one company, and it cancels when a later sign-in is newer than the baseline.
---   2. anon, authenticated, and PUBLIC cannot execute that function. Expect false, false, false.
+--   2. anon, authenticated, and PUBLIC cannot execute that function. Expect false.
+--      service_role can execute it. Expect true.
 --   3. company_profiles.is_demo and deletion_locked exist.
 --   4. facility review authors, load_packet_sends.owner_id, and company_profiles.signed_by
 --      can be empty (so a removed sign-in does not remove those rows).
@@ -36,10 +37,12 @@ select p.proname as function_name,
  where n.nspname = 'public'
    and p.proname = 'account_deletion_apply';
 
--- 2. Execute rights. Expect false, false, false.
+-- 2. Execute rights. Expect anon_execute false, authenticated_execute false,
+--    service_role_execute true, public_execute false.
 --    grantee 0 on the function acl is PUBLIC. A null proacl means the default acl.
 select has_function_privilege('anon', 'public.account_deletion_apply(uuid)', 'execute') as anon_execute,
        has_function_privilege('authenticated', 'public.account_deletion_apply(uuid)', 'execute') as authenticated_execute,
+       has_function_privilege('service_role', 'public.account_deletion_apply(uuid)', 'execute') as service_role_execute,
        exists (
          select 1
            from pg_proc p
