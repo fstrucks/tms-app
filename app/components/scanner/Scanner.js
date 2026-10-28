@@ -6,6 +6,7 @@ import { SCAN_DOC_TYPES, isCompanyDocType, docTypeShort, otherDocType, uploadBut
 import { movePage, removePage, replacePage, fullFrame, buildPdf, buildPdfWithinLimit, SIZE_STEPS, PDF_MAX_BYTES, scanFileName, rateConScanFileName, pagesAddedNote, capPages, TOO_LARGE, PAGE_MAX_WIDTH, MAX_PAGES } from '../../lib/scan';
 import { PDF_ACCEPT, pdfFileProblem, PDF_PROBLEM, pdfUploadName } from '../../lib/pdfFile';
 import { loadPhoto, redetect, renderPageJpeg, renderThumbUrl, bitmapOf, release, revoke, rejectReason } from './imaging';
+import { nativeImageInput } from '../../lib/native';
 
 // Full-screen BOL/POD scanner. Loaded lazily (next/dynamic) only when a scan starts, so pdf-lib and
 // the image code never ship with the normal page. Edge detection is a small built-in heuristic
@@ -114,6 +115,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
     if (!f.length) setMsg({ err: true, text: NO_PHOTO });
     return f;
   }
+
+  // Native app camera/photos (lib/native): same path as an input's change event.
+  function nativeFiles(f) { if (!f.length) setMsg({ err: true, text: NO_PHOTO }); else addFiles(f); }
 
   async function addFiles(files, replaceAt = null) {
     if (!files.length) return;
@@ -347,9 +351,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
 
       {/* Own inputs, never shared with the PDF-only picker (Android chooser bug). Camera = capture; Choose = no capture. */}
       <input ref={pdfRef} id={ids.pdf} type="file" accept={PDF_ACCEPT} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onChange={pickPdf} />
-      <input ref={cameraRef} id={ids.camera} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'camera')} onChange={(e) => addFiles(takeFiles(e))} />
-      <input ref={chooseRef} id={ids.choose} type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => armInput(e.currentTarget, 'choose')} onChange={(e) => addFiles(takeFiles(e))} />
-      <input ref={retakeRef} id={ids.retake} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onClick={(e) => armInput(e.currentTarget, 'retake')}
+      <input ref={cameraRef} id={ids.camera} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => nativeImageInput(e, { source: 'camera', onFiles: nativeFiles }) || armInput(e.currentTarget, 'camera')} onChange={(e) => addFiles(takeFiles(e))} />
+      <input ref={chooseRef} id={ids.choose} type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy || full} onClick={(e) => nativeImageInput(e, { source: 'photos', multiple: true, onFiles: nativeFiles }) || armInput(e.currentTarget, 'choose')} onChange={(e) => addFiles(takeFiles(e))} />
+      <input ref={retakeRef} id={ids.retake} type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN} disabled={!!busy} onClick={(e) => nativeImageInput(e, { source: 'camera', onFiles: (f) => (f.length ? addFiles(f.slice(0, 1), retakeIdx.current) : nativeFiles(f)) }) || armInput(e.currentTarget, 'retake')}
         onChange={(e) => { const f = takeFiles(e); if (f.length) addFiles(f.slice(0, 1), retakeIdx.current); }} />
 
       {editing != null && pages[editing] && (
