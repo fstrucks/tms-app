@@ -81,12 +81,12 @@ do $$ begin
   end if;
 end $$;
 
--- Private bucket for ZIP parts. bucket limit 50 MB, the Free plan's global upload limit; parts are built at 45 MB, under it. After a Pro upgrade, raise both with a new migration and the constants.
+-- Private bucket for ZIP parts. 45 MB per object (the Free plan's global upload limit is 50 MB; raise with a new migration after a Pro upgrade).
 -- No storage.objects policies: downloads only through short signed URLs minted by the server.
 do $$ begin
   if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'buckets') then
     insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-    values ('company-exports', 'company-exports', false, 52428800, array['application/zip'])
+    values ('company-exports', 'company-exports', false, 47185920, array['application/zip'])
     on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
   end if;
 end $$;
