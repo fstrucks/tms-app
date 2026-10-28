@@ -66,5 +66,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>PowerHaul uses the camera to scan rate confirmations, PODs, BOLs and receipts.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>PowerHaul lets you choose photos of rate confirmations, PODs, BOLs, receipts and truck paperwork to attach to your loads and records.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>PowerHaul uses your location while the app is open to show where you are on the load map.</string>
 </dict>
 </plist>
