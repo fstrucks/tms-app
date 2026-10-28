@@ -19,7 +19,7 @@ const TABS = [
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
   { href: '/truck', label: 'Truck', icon: '🚛', match: (p) => p.startsWith('/truck') }, // took Mileage's spot (Marc, Oct 17)
 ];
-const HIDDEN = (p) => p.startsWith('/login');
+const HIDDEN = (p) => p.startsWith('/login') || p === '/site'; // /site: public marketing page
 
 const blue = 'var(--primary)';
 
