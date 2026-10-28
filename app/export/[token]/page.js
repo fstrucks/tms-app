@@ -29,7 +29,7 @@ export default async function ExportPage({ params }) {
       <p>{v.partCount === 1 ? 'It comes as 1 part.' : `It comes as ${v.partCount} parts (${fmtBytes(v.totalBytes)} in total).`} {MANY_PARTS_NOTE}</p>
       <ul style={{ padding: 0, listStyle: 'none' }}>
         {v.parts.map((p) => (
-          <li key={p.n} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(0,0,0,0.12)' }}>
+          <li key={p.n} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
             <a href={`/api/export-link/${encodeURIComponent(params.token)}/${p.n}`} rel="noreferrer nofollow" download>{p.name}</a>
             <span>{fmtBytes(p.bytes)}</span>
           </li>
