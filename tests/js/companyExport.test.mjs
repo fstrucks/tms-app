@@ -60,14 +60,14 @@ test('zip paths are unique and safe', () => {
   for (const e of r) assert.ok(!e.zipPath.split('/').includes('..'));
 });
 
-test('parts split at 500 MB', () => {
+test('parts split at 45 MB', () => {
   const MB = 1024 * 1024;
-  assert.equal(X.PART_MAX_BYTES, 524288000);
-  const files = Array.from({ length: 120 }, (_, i) => ({ id: i, bytes: 10 * MB }));
+  assert.equal(X.PART_MAX_BYTES, 47185920);
+  const files = Array.from({ length: 100 }, (_, i) => ({ id: i, bytes: MB }));
   const parts = X.splitParts(files);
-  assert.deepEqual(parts.map((p) => p.files.length), [50, 50, 20]);
+  assert.deepEqual(parts.map((p) => p.files.length), [45, 45, 10]);
   for (const p of parts) assert.ok(p.bytes <= X.PART_MAX_BYTES);
-  assert.equal(X.splitParts(files, { reserve: 5 * MB })[0].files.length, 49, 'data files reserve room in part 1');
+  assert.equal(X.splitParts(files, { reserve: 5 * MB })[0].files.length, 40, 'data files reserve room in part 1');
   assert.deepEqual(X.splitParts([]).map((p) => p.files.length), [0], 'empty export still has one part');
   const big = X.splitParts([{ bytes: 1 }, { bytes: 600 * MB }, { bytes: 1 }]);
   assert.equal(big.length, 3); assert.ok(big[1].oversize);
