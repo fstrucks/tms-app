@@ -24,8 +24,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // columns: null = all columns; an array = only these (metadata-only tables).
 export const EXPORT_TABLES = [
   { table: 'company_profiles', scope: 'company', key: 'id', file: 'company' },
-  { table: 'company_members', scope: 'company', key: 'profile_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
-  { table: 'former_members', scope: 'owner', key: 'company_owner_id', file: 'former_members', needs: 'PR 161' },
+  { table: 'company_members', scope: 'company', key: 'profile_id', order: 'user_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
+  { table: 'former_members', scope: 'owner', key: 'company_owner_id', order: 'former_user_id', file: 'former_members', needs: 'PR 161' },
   { table: 'loads', scope: 'members', key: 'user_id', file: 'loads' },
   { table: 'stops', scope: 'load', key: 'load_id', file: 'stops' },
   { table: 'stop_delays', scope: 'load', key: 'load_id', file: 'stop_delays' },

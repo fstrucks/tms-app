@@ -33,7 +33,7 @@ export class ZipWriter {
   }
   async #out(b) { this.offset += b.length; await this.write(b); }
   // Bytes the archive would have if closed right now (used for the part size limit).
-  projected(extra = 0) { return this.offset + this.central + END + extra; }
+  projected(extra = 0) { return this.offset + this.central + END + extra + (this.open ? DESC + CENTRAL + this.open.name.length + 8 : 0); }
 
   async begin(name, { deflate = false } = {}) {
     if (this.open) throw new Error('entry_open');
