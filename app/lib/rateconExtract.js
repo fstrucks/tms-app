@@ -54,6 +54,7 @@ export async function callRateConModel({ apiKey, model, mime, name, bytes, fetch
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
+        store: false, // don't keep the request/response on OpenAI's side
         max_output_tokens: 1500,
         input: [{ role: 'user', content: [{ type: 'input_text', text: PROMPT }, filePart] }],
         text: { format: { type: 'json_schema', name: 'rate_confirmation', strict: true, schema } },
