@@ -23,7 +23,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const EXPORT_TABLES = [
   { table: 'company_profiles', scope: 'company', key: 'id', file: 'company' },
   { table: 'company_members', scope: 'company', key: 'company_profile_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
-  { table: 'former_members', scope: 'company', key: 'company_profile_id', file: 'former_members', needs: '#161' },
+  { table: 'former_members', scope: 'company', key: 'company_profile_id', file: 'former_members', needs: 'PR 161' },
   { table: 'loads', scope: 'members', key: 'user_id', file: 'loads' },
   { table: 'stops', scope: 'load', key: 'load_id', file: 'stops' },
   { table: 'stop_delays', scope: 'load', key: 'load_id', file: 'stop_delays' },
@@ -33,8 +33,8 @@ export const EXPORT_TABLES = [
   { table: 'invoice_events', scope: 'invoice', key: 'invoice_id', file: 'invoice_events' },
   { table: 'expenses', scope: 'members', key: 'user_id', file: 'expenses' },
   { table: 'mileage_entries', scope: 'members', key: 'user_id', file: 'mileage' },
-  { table: 'trucks', scope: 'owner', key: 'user_id', file: 'trucks' },
-  { table: 'trailers', scope: 'owner', key: 'user_id', file: 'trailers' },
+  { table: 'trucks', scope: 'members', key: 'user_id', file: 'trucks' },
+  { table: 'trailers', scope: 'members', key: 'user_id', file: 'trailers' },
   { table: 'service_records', scope: 'owner', key: 'user_id', file: 'maintenance_service_records' },
   { table: 'service_record_items', scope: 'service_record', key: 'service_record_id', file: 'maintenance_service_items' },
   { table: 'pm_schedules', scope: 'owner', key: 'user_id', file: 'maintenance_pm_schedules' },
@@ -80,11 +80,11 @@ export function pickColumns(spec, row) {
   return out;
 }
 
-export const DRUG_ALCOHOL_TYPES = ['drug_test', 'preemployment_drug', 'clearinghouse_queries', 'clearinghouse'];
+export const DRUG_ALCOHOL_TYPES = ['drug_test', 'preemployment_drug', 'clearinghouse_queries', 'clearinghouse', 'da_consortium', 'da_policy'];
 export const DRIVER_FILE_TYPES = ['cdl', 'medical_card', 'mvr', 'prehire_mvr', 'annual_mvr'];
 
 const safe = (s, fallback = 'item') => {
-  const t = String(s ?? '').normalize('NFKD').replace(/[^\w.\- ]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const t = String(s ?? '').normalize('NFKD').replace(/[^\w.\- ]+/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').trim().slice(0, 80);
   return t && t !== '.' && t !== '..' ? t : fallback;
 };
 const ext = (p) => { const m = /\.([a-z0-9]{1,5})$/i.exec(String(p || '')); return m ? '.' + m[1].toLowerCase() : ''; };
@@ -108,7 +108,7 @@ export function zipPaths(entries) {
   const seen = new Set();
   return entries.map((e) => {
     const folder = e.folder.replace(/\/+$/, '');
-    const base = safe(String(e.name || '').replace(/\.[^.]*$/, ''), 'file');
+    const base = safe(String(e.name || '').split('/').pop().replace(/\.[^.]*$/, ''), 'file');
     const x = ext(e.name) || ext(e.file_path);
     let p = `${folder}/${base}${x}`;
     for (let n = 2; seen.has(p.toLowerCase()); n++) p = `${folder}/${base} (${n})${x}`;
@@ -209,3 +209,25 @@ export function linkState(job, now = new Date()) {
   return 'preparing';
 }
 export const needsCleanup = (job, now = new Date()) => !job?.cleaned_at && !!job?.expires_at && Date.parse(job.expires_at) <= +now;
+
+// Which user_ids are "this company" (same rule as docInCompany: owner plus company_members).
+// A member who also belongs to / owns another company is "shared": their user_id rows can't be
+// attributed by user_id alone, so E2 only includes them when tied to this owner's load.
+export function companyUserIds({ companyId, ownerId, members = [], allMemberships = [], owned = [] }) {
+  const ids = [ownerId, ...members.filter((m) => m.company_profile_id === companyId).map((m) => m.user_id)].filter(Boolean);
+  const uniq = [...new Set(ids)];
+  const elsewhere = new Set([
+    ...allMemberships.filter((m) => m.company_profile_id !== companyId).map((m) => m.user_id),
+    ...owned.filter((c) => c.id !== companyId).map((c) => c.owner_id),
+  ]);
+  const shared = uniq.filter((u) => u !== ownerId && elsewhere.has(u));
+  return { ids: uniq, exclusive: uniq.filter((u) => !shared.includes(u)), shared };
+}
+
+// Include a user_id-owned row? Exclusive users: yes. Shared members: only when the row's load is this owner's.
+export function rowBelongs(row, { exclusive = [], shared = [], ownerId } = {}, { loadOwner } = {}) {
+  const u = row?.user_id;
+  if (!u) return false;
+  if (exclusive.includes(u)) return true;
+  return shared.includes(u) && !!ownerId && loadOwner === ownerId;
+}
