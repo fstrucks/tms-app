@@ -5,9 +5,11 @@
 // 7 days after purge; inbound rate con emails are metadata only; facility notes/reviews only where the
 // author is in the company; export emails do not count toward the monthly send cap.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { entryOverhead, END_BYTES } from './zipStream.js';
 
 export const EXPORT_BUCKET = 'company-exports';
-export const PART_MAX_BYTES = 45 * 1024 * 1024; // must match the bucket file_size_limit (47185920); Free plan upload limit is 50 MB
+export const PART_MAX_BYTES = 44 * 1024 * 1024; // finished part size cap incl. ZIP headers; strictly below the bucket limit
+export const BUCKET_FILE_SIZE_LIMIT = 47185920; // must match the migration file_size_limit (45 MiB)
 export const LINK_DAYS_AFTER_PURGE = 7;
 export const LINK_DAYS_NO_PURGE = 7;
 export const TOKEN_BYTES = 32;
@@ -117,18 +119,21 @@ export function zipPaths(entries) {
   });
 }
 
-// Split files (with known bytes) into parts no bigger than maxBytes (data files go in part 1).
-// A single file larger than maxBytes gets its own part and is flagged (the bucket's 10 MB file limit makes this unlikely).
+// Split files (with known bytes) into parts whose finished ZIP (headers, descriptors, central directory,
+// footer) is at most maxBytes. Data files are reserved in part 1. A file that can't fit even alone is left
+// out of every part and returned in parts.oversize, so the manifest lists it as too large for this export.
 export function splitParts(files, { maxBytes = PART_MAX_BYTES, reserve = 0 } = {}) {
   const parts = [];
-  let cur = { n: 1, files: [], bytes: reserve };
+  const oversize = [];
+  let cur = { n: 1, files: [], bytes: reserve + END_BYTES };
   for (const f of files) {
-    const b = Math.max(0, Number(f.bytes) || 0);
-    if (cur.files.length && cur.bytes + b > maxBytes) { parts.push(cur); cur = { n: parts.length + 1, files: [], bytes: 0 }; }
+    const b = Math.max(0, Number(f.bytes) || 0) + entryOverhead(f.zipPath || f.name || 'file');
+    if (b + END_BYTES > maxBytes) { oversize.push(f); continue; }
+    if (cur.files.length && cur.bytes + b > maxBytes) { parts.push(cur); cur = { n: parts.length + 1, files: [], bytes: END_BYTES }; }
     cur.files.push(f); cur.bytes += b;
-    if (b > maxBytes) cur.oversize = true;
   }
   if (cur.files.length || !parts.length) parts.push(cur);
+  parts.oversize = oversize;
   return parts;
 }
 
@@ -168,7 +173,8 @@ export function planExport({ jobId, companyName, at = new Date(), documents = []
   const total = parts.length;
   return {
     tables: EXPORT_TABLES.map((t) => ({ table: t.table, zipPath: `data/${t.file}.csv`, json: `data/${t.file}.json`, metadataOnly: !!t.columns, sensitive: !!t.sensitive })),
-    parts: parts.map((p) => ({ n: p.n, name: partName(companyName, at, p.n, total), object: partObject(jobId, p.n), bytes: p.bytes, oversize: !!p.oversize, files: p.files })),
+    parts: parts.map((p) => ({ n: p.n, name: partName(companyName, at, p.n, total), object: partObject(jobId, p.n), bytes: p.bytes, files: p.files })),
+    oversize: parts.oversize,
     manifestColumns: MANIFEST_COLUMNS,
     sensitiveFiles: entries.filter((e) => isSensitivePath(e.zipPath)).length,
   };
