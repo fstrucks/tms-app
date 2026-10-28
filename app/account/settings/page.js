@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { readAutoLocation, setAutoLocation } from '../../lib/autoLocation';
+import DangerZone from '../../components/DangerZone';
+import LegalFooter from '../../components/LegalFooter';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -33,7 +35,9 @@ export default function SettingsPage() {
         {prefs && !prefs.optedIn && prefs.enabled && <p style={s.muted} data-testid="auto-location-hint">Tap “Use my location” on the Home map once to turn it on.</p>}
         <p style={s.muted}>Your phone may still ask for permission now and then; that’s controlled by the phone, not the app.</p>
       </div>
-      <p style={{ marginTop: '1rem' }}><Link href="/" style={{ color: 'var(--primary)' }}>← Home</Link></p>
+      <DangerZone />
+      <p style={{ marginTop: '1rem' }}><Link href="/" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Home</Link></p>
+      <LegalFooter includeDelete />
     </main>
   );
 }
