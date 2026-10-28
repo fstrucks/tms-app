@@ -193,6 +193,7 @@ test('public page wiring: noindex, no referrer, no-store headers; shell hidden; 
     const page = readFileSync(new URL('../../app/export/[token]/page.js', import.meta.url), 'utf8');
     assert.match(page, /robots: \{ index: false/); assert.match(page, /referrer: 'no-referrer'/); assert.match(page, /notFound\(\)/);
     assert.match(page, /MANY_PARTS_NOTE/); assert.match(L.MANY_PARTS_NOTE, /many parts. Download each one/i);
+    assert.match(page, /Part \{p.n\} of \{v.partCount\}/);
     assert.ok(existsSync(new URL('../../app/api/export-link/[token]/[n]/route.js', import.meta.url)));
     assert.doesNotMatch(readFileSync(new URL('../../app/components/DangerZone.js', import.meta.url), 'utf8'), /startExportForDeletion/);
   });

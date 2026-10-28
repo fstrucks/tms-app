@@ -6,6 +6,7 @@
 import {
   EXPORT_BUCKET, EXPORT_TABLES, PART_MAX_BYTES, MANIFEST_COLUMNS, canExport, companyUserIds, csvCell,
   exportExpiresAt, folderFor, isSensitivePath, partObject, pickColumns, rowBelongs, zipPaths,
+  OWNER_TIED_FILES,
 } from './companyExport.js';
 import { ZipWriter, END_BYTES, entryOverhead, streamSink } from './zipStream.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -388,11 +389,13 @@ function readmeText({ company, job, cur, partNumber }) {
   const counts = Object.entries(cur.counts).map(([t, c]) => `  ${t}: ${c}`).join('\r\n');
   return [
     `PowerHaul export for ${name}`,
-    `Started ${job.created_at}. This export has ${partNumber} part(s); this README is in the last part.`,
+    `Started ${job.created_at}. This export has ${partNumber} ${partNumber === 1 ? 'part' : 'parts'}; this README is in part ${partNumber} of ${partNumber}, the last part.`,
     'Each part is a separate ZIP. Download every part and unzip them into one folder.',
     'data/ holds every table as CSV (opens in Excel or Sheets) and JSON. Large tables are split into -2, -3 pieces.',
-    'Original files are in folders (loads, drivers, receipts, maintenance, documents). manifest/part-N.csv lists the files in each part.',
+    `Original files are in folders (loads, drivers, receipts, maintenance, documents). manifest/part-N.csv lists the files in part N of ${partNumber}.`,
     'manifest/not-included.csv lists files that were missing from storage or too large for this export.',
+    `${OWNER_TIED_FILES.join(', ')} have no company id column: they are tied to the owner account, so every row in them belongs to this company's owner.`,
+    'The company file leaves out the encrypted EIN; ein_last4 shows its last four digits.',
     'drivers/ and drug-alcohol/ contain sensitive driver records. Store them securely.',
     `Rows per table:\r\n${counts}`,
     cur.problem_total > cur.problems.length ? `${cur.problem_total - cur.problems.length} more files could not be included and are not listed.` : '',

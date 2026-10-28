@@ -30,7 +30,7 @@ export default async function ExportPage({ params }) {
       <ul style={{ padding: 0, listStyle: 'none' }}>
         {v.parts.map((p) => (
           <li key={p.n} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-            <a href={`/api/export-link/${encodeURIComponent(params.token)}/${p.n}`} rel="noreferrer nofollow" download>{p.name}</a>
+            <span>Part {p.n} of {v.partCount}: <a href={`/api/export-link/${encodeURIComponent(params.token)}/${p.n}`} rel="noreferrer nofollow" download>{p.name}</a></span>
             <span>{fmtBytes(p.bytes)}</span>
           </li>
         ))}
