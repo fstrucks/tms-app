@@ -63,3 +63,11 @@ test('single pick keeps one photo; plugin errors give []', async () => {
   console.warn = orig;
   assert.deepEqual(files, []);
 });
+
+test('Android back: exit at the root, history back elsewhere, home when there is no history', async () => {
+  const { backAction } = await import('../../app/lib/native.js');
+  assert.equal(backAction({ pathname: '/', canGoBack: true }), 'exit');
+  assert.equal(backAction({ pathname: '/login', canGoBack: false }), 'exit');
+  assert.equal(backAction({ pathname: '/loads/1', canGoBack: true }), 'back');
+  assert.equal(backAction({ pathname: '/loads/1', canGoBack: false }), 'home');
+});

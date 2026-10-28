@@ -64,3 +64,11 @@ export function nativeImageInput(e, { source, multiple = false, onFiles, ...deps
   run.then(onFiles, (err) => { console.warn('Native picker failed', err); onFiles([]); });
   return true;
 }
+
+// Android back button: pages with nowhere to go back to (home, sign-in) close the app;
+// elsewhere go back in history, or to home when there is no history.
+export const ROOT_PATHS = ['/', '/login'];
+export function backAction({ pathname = '/', canGoBack = false } = {}) {
+  if (ROOT_PATHS.includes(pathname)) return 'exit';
+  return canGoBack ? 'back' : 'home';
+}
