@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PowerHaul TMS</string>
+    <string name="title_activity_main">PowerHaul TMS</string>
+    <string name="package_name">com.pwrstrong.powerhaul</string>
+    <string name="custom_url_scheme">com.pwrstrong.powerhaul</string>
+</resources>

@@ -3,6 +3,7 @@ import ReportBugButton from './components/ReportBugButton';
 import AppNav from './components/AppNav';
 import WelcomeScreen from './components/WelcomeScreen';
 import CompanyAddPrompt from './components/CompanyAddPrompt';
+import NativeShell from './components/NativeShell';
 import { THEME_INIT_SCRIPT, THEME_COLORS } from './lib/theme';
 
 export const metadata = {
@@ -26,6 +27,7 @@ export default function RootLayout({ children }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
+        <NativeShell />
         <ReportBugButton />
         <AppNav />
         <CompanyAddPrompt />

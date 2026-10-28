@@ -6,6 +6,7 @@ import ConfirmButton from './ui/ConfirmButton';
 import { deleteDocument } from '../lib/documents';
 import { formatLocalDate } from '../lib/localDate';
 import { runPictureBatch, uploadLoadPicture } from '../lib/loadPictures';
+import { nativeImageInput } from '../lib/native';
 
 const btn = {
   minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--primary)',
@@ -114,6 +115,7 @@ export default function LoadPictures({ supabase, userId, loadId, pictures = [], 
           multiple
           data-testid="load-picture-input"
           onChange={onPick}
+          onClick={(e) => nativeImageInput(e, { source: 'photos', multiple: true, onFiles: (files) => onPick({ target: { files, value: '' } }) })}
           tabIndex={-1}
           aria-hidden="true"
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }}
