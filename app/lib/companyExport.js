@@ -23,7 +23,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //   'author'   shared-directory rows, only where the author is in the company
 // columns: null = all columns; an array = only these (metadata-only tables).
 export const EXPORT_TABLES = [
-  { table: 'company_profiles', scope: 'company', key: 'id', file: 'company' },
+  { table: 'company_profiles', scope: 'company', key: 'id', file: 'company', omit: ['ein_ciphertext'] }, // ein_last4 stays; the encrypted EIN never leaves the database
   { table: 'company_members', scope: 'company', key: 'profile_id', order: 'user_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
   { table: 'former_members', scope: 'owner', key: 'company_owner_id', order: 'former_user_id', file: 'former_members', needs: 'PR 161' },
   { table: 'loads', scope: 'members', key: 'user_id', file: 'loads' },
@@ -75,12 +75,17 @@ export const EXCLUDED_TABLES = {
 };
 
 // Column-limited tables are metadata only. Unknown columns are left out by E2, never added.
+// omit: columns never exported (e.g. encrypted values), applied in both CSV and JSON.
 export function pickColumns(spec, row) {
-  if (!spec.columns) return { ...row };
   const out = {};
-  for (const c of spec.columns) if (c in row) out[c] = row[c];
+  if (!spec.columns) Object.assign(out, row);
+  else for (const c of spec.columns) if (c in row) out[c] = row[c];
+  for (const c of spec.omit || []) delete out[c];
   return out;
 }
+
+// Tables tied to the owner account, not a company id (README explains this).
+export const OWNER_TIED_FILES = ['company.csv', 'packets.csv', 'packet_layouts.csv'];
 
 export const DRUG_ALCOHOL_TYPES = ['drug_test', 'preemployment_drug', 'clearinghouse_queries', 'clearinghouse', 'da_consortium', 'da_policy'];
 export const DRIVER_FILE_TYPES = ['cdl', 'medical_card', 'mvr', 'prehire_mvr', 'annual_mvr'];

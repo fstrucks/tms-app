@@ -6,6 +6,7 @@
 import {
   EXPORT_BUCKET, EXPORT_TABLES, PART_MAX_BYTES, MANIFEST_COLUMNS, canExport, companyUserIds, csvCell,
   exportExpiresAt, folderFor, isSensitivePath, partObject, pickColumns, rowBelongs, zipPaths,
+  OWNER_TIED_FILES,
 } from './companyExport.js';
 import { ZipWriter, END_BYTES, entryOverhead, streamSink } from './zipStream.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -388,11 +389,13 @@ function readmeText({ company, job, cur, partNumber }) {
   const counts = Object.entries(cur.counts).map(([t, c]) => `  ${t}: ${c}`).join('\r\n');
   return [
     `PowerHaul export for ${name}`,
-    `Started ${job.created_at}. This export has ${partNumber} part(s); this README is in the last part.`,
+    `Started ${job.created_at}. This export has ${partNumber} ${partNumber === 1 ? 'part' : 'parts'}; this README is in part ${partNumber} of ${partNumber}, the last part.`,
     'Each part is a separate ZIP. Download every part and unzip them into one folder.',
     'data/ holds every table as CSV (opens in Excel or Sheets) and JSON. Large tables are split into -2, -3 pieces.',
-    'Original files are in folders (loads, drivers, receipts, maintenance, documents). manifest/part-N.csv lists the files in each part.',
+    `Original files are in folders (loads, drivers, receipts, maintenance, documents). manifest/part-N.csv lists the files in part N of ${partNumber}.`,
     'manifest/not-included.csv lists files that were missing from storage or too large for this export.',
+    `${OWNER_TIED_FILES.join(', ')} have no company id column: they are tied to the owner account, so every row in them belongs to this company's owner.`,
+    'The company file leaves out the encrypted EIN; ein_last4 shows its last four digits.',
     'drivers/ and drug-alcohol/ contain sensitive driver records. Store them securely.',
     `Rows per table:\r\n${counts}`,
     cur.problem_total > cur.problems.length ? `${cur.problem_total - cur.problems.length} more files could not be included and are not listed.` : '',
@@ -400,7 +403,7 @@ function readmeText({ company, job, cur, partNumber }) {
 }
 
 // ---------- starting and status (owner only) ----------
-export async function startExport(admin, user, { now = new Date(), env = process.env, storageBudgetBytes = storageBudgetFromEnv(env) } = {}) {
+export async function startExport(admin, user, { now = new Date(), env = process.env, storageBudgetBytes = storageBudgetFromEnv(env), skipDailyLimit = false } = {}) {
   const co = await admin.from('company_profiles').select('id, owner_id, legal_name, dba_name').eq('owner_id', user?.id || '').maybeSingle();
   if (co.error) throw co.error;
   const g = canExport(user, co.data);
@@ -409,7 +412,7 @@ export async function startExport(admin, user, { now = new Date(), env = process
   if (recent.error) throw recent.error;
   const open = (recent.data || []).find((j) => OPEN.includes(j.status));
   if (open) return { status: 200, body: { ok: true, already: true, job_id: open.id } };
-  if ((recent.data || []).length >= START_LIMIT_PER_DAY) return { status: 429, body: { error: 'You can start up to 3 exports a day. Try again tomorrow.' } };
+  if (!skipDailyLimit && (recent.data || []).length >= START_LIMIT_PER_DAY) return { status: 429, body: { error: 'You can start up to 3 exports a day. Try again tomorrow.' } };
   if ((await exportStorageInUse(admin)) + PART_MAX_BYTES > storageBudgetBytes) return { status: 503, body: { error: 'Exports are busy right now. Try again later.', code: 'storage_budget' } };
   let deletion = null;
   const dr = await admin.from('account_deletion_requests').select('id, purge_after').eq('user_id', user.id).is('cancelled_at', null).is('completed_at', null).maybeSingle();
@@ -437,6 +440,7 @@ export function jobStatus(job) {
       partCount: parts.length, partMaxBytes: PART_MAX_BYTES,
       fileCount: job.file_count || 0, missingCount: job.missing_count || 0, byteCount: job.byte_count || 0,
       createdAt: job.created_at, completedAt: job.completed_at || null, expiresAt: job.expires_at || null,
+      hasLink: !!job.token_hash, emailedAt: job.cursor?.mail_sent_at || null,
     },
     partMaxBytes: PART_MAX_BYTES,
   };
@@ -514,5 +518,36 @@ export async function runAndChain(admin, jobId, deps = {}) {
   try { r = await runExportJob(admin, jobId, deps); }
   catch (e) { console.error('[company-export] run', jobId, String(e?.code || e?.message || e).slice(0, 120)); return { ok: false }; }
   if (r.ok && !r.done && !r.busy) await (deps.kick || kickNextRun)(jobId, deps.env || process.env);
+  if (r.ok && r.done) {
+    try { await (deps.deliver || (await import('./companyExportLink.js')).deliverExport)(admin, jobId, { env: deps.env || process.env, ...(deps.mailDeps || {}) }); }
+    catch (e) { console.error('[company-export] mail', jobId, String(e?.code || e?.message || e).slice(0, 120)); }
+  }
   return r;
+}
+
+// For the deletion confirm flow (E4 calls this; nothing in the UI calls it yet). Starts the owner's export
+// for a company, mailed to the owner's sign-in email. The 3-a-day limit does not apply here; the one-open-job rule does.
+export async function startExportForDeletion(admin, companyProfileId, { now = new Date(), storageBudgetBytes } = {}) {
+  const co = await admin.from('company_profiles').select('id, owner_id').eq('id', companyProfileId || '').maybeSingle();
+  if (co.error) throw co.error;
+  if (!co.data?.owner_id) return { status: 404, body: { error: 'Company not found.' } };
+  const u = await admin.auth.admin.getUserById(co.data.owner_id);
+  const email = u?.data?.user?.email || null;
+  if (!email) return { status: 409, body: { error: 'The company owner has no email on file.', code: 'no_owner_email' } };
+  return startExport(admin, { id: co.data.owner_id, email }, { now, skipDailyLimit: true, ...(storageBudgetBytes ? { storageBudgetBytes } : {}) });
+}
+
+// Owner asks for a fresh link (for example the email never came). Replaces the old link.
+export async function ownerNewLink(admin, user, { now = new Date(), env = process.env } = {}) {
+  const co = await admin.from('company_profiles').select('id, owner_id').eq('owner_id', user?.id || '').maybeSingle();
+  if (co.error) throw co.error;
+  const g = canExport(user, co.data);
+  if (!g.ok) return { status: g.status, body: { error: g.error } };
+  const r = await admin.from('export_jobs').select('*').eq('company_profile_id', co.data.id).order('created_at', { ascending: false }).limit(1);
+  if (r.error) throw r.error;
+  const { issueLink } = await import('./companyExportLink.js');
+  const link = await issueLink(admin, (r.data || [])[0], { now, env });
+  if (!link.ok) return { status: 409, body: { error: 'There is no finished export to link to.' } };
+  if (!link.url) return { status: 503, body: { error: 'Export links aren’t available yet.' } };
+  return { status: 200, body: { ok: true, url: link.url } };
 }
