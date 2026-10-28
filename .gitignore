@@ -2,3 +2,13 @@ node_modules
 .next
 .env*.local
 !.env.example
+
+# Native app signing material and local build output (never commit)
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+keystore.properties
+android/local.properties
+ios/App/Pods/

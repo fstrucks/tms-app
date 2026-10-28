@@ -207,3 +207,10 @@ button:disabled, button[aria-disabled="true"] {
   background: var(--disabled-bg) !important; color: var(--disabled-text) !important;
   border-color: var(--disabled-border) !important; opacity: 1 !important; cursor: not-allowed;
 }
+
+/* Native app (html.native-app, set by components/NativeShell): the page runs edge to edge, so keep
+   content clear of the notch/status bar and home indicator, and stop rubber-band overscroll. */
+html.native-app, html.native-app body { overscroll-behavior: none; }
+html.native-app body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); -webkit-tap-highlight-color: transparent; }
+html.native-app body:not(.has-appnav) { padding-top: env(safe-area-inset-top); }
+html.native-app .appnav-top, html.native-app .appnav-mtop { padding-top: env(safe-area-inset-top); }

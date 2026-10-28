@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
+import { nativeImageInput } from '../lib/native';
 
 // One "Upload" button that opens a small menu with three options, each backed by its own
 // hidden input. Files / PDF uses a PDF-only accept with NO capture, which makes Android open
@@ -122,6 +123,9 @@ export default function UploadMenu({ onFile, onScan, disabled = false, label = '
     return input;
   };
 
+  // Native app camera/photos (lib/native) deliver here instead of the input's change event.
+  const nativePicked = (o, all) => { clearBack(); refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); };
+
   // Keyboard: Enter/Space on a label doesn't activate it, so click the input directly
   // (still synchronous inside the key event, and the input stays mounted).
   const onItemKey = (e, id) => {
@@ -136,6 +140,7 @@ export default function UploadMenu({ onFile, onScan, disabled = false, label = '
         <input key={o.id} ref={(el) => { inputRefs.current[o.id] = el; }} type="file" accept={o.accept}
           {...(o.capture ? { capture: o.capture } : {})} {...(o.multiple ? { multiple: true } : {})} id={`${menuId}-${o.id}`} tabIndex={-1} aria-hidden="true" style={VISUALLY_HIDDEN}
           onClick={closeAfterInputClick}
+          onClickCapture={(e) => { if (o.id !== 'files') nativeImageInput(e, { source: o.capture ? 'camera' : 'photos', multiple: !!o.multiple, onFiles: (all) => nativePicked(o, all) }); }}
           onChange={(e) => { setOpen(false); clearBack(); const all = Array.from(e.target.files || []); e.target.value = ''; refocus(); if (o.id === 'scan') { if (all.length) onScan(all); } else if (all[0]) onFile(all[0]); }}
         />
       ))}
