@@ -5,9 +5,11 @@
 // 7 days after purge; inbound rate con emails are metadata only; facility notes/reviews only where the
 // author is in the company; export emails do not count toward the monthly send cap.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { entryOverhead, END_BYTES } from './zipStream.js';
 
 export const EXPORT_BUCKET = 'company-exports';
-export const PART_MAX_BYTES = 45 * 1024 * 1024; // must match the bucket file_size_limit (47185920); Free plan upload limit is 50 MB
+export const PART_MAX_BYTES = 44 * 1024 * 1024; // finished part size cap incl. ZIP headers; strictly below the bucket limit
+export const BUCKET_FILE_SIZE_LIMIT = 47185920; // must match the migration file_size_limit (45 MiB)
 export const LINK_DAYS_AFTER_PURGE = 7;
 export const LINK_DAYS_NO_PURGE = 7;
 export const TOKEN_BYTES = 32;
@@ -22,39 +24,38 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // columns: null = all columns; an array = only these (metadata-only tables).
 export const EXPORT_TABLES = [
   { table: 'company_profiles', scope: 'company', key: 'id', file: 'company' },
-  { table: 'company_members', scope: 'company', key: 'company_profile_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
-  { table: 'former_members', scope: 'company', key: 'company_profile_id', file: 'former_members', needs: 'PR 161' },
+  { table: 'company_members', scope: 'company', key: 'profile_id', order: 'user_id', file: 'members', columns: ['user_id', 'role', 'created_at'] },
+  { table: 'former_members', scope: 'owner', key: 'company_owner_id', order: 'former_user_id', file: 'former_members', needs: 'PR 161' },
   { table: 'loads', scope: 'members', key: 'user_id', file: 'loads' },
   { table: 'stops', scope: 'load', key: 'load_id', file: 'stops' },
   { table: 'stop_delays', scope: 'load', key: 'load_id', file: 'stop_delays' },
   { table: 'documents', scope: 'members', key: 'user_id', file: 'documents', hasFiles: true },
   { table: 'scale_tickets', scope: 'members', key: 'user_id', file: 'scale_tickets' },
-  { table: 'invoices', scope: 'members', key: 'user_id', file: 'invoices' },
+  { table: 'invoices', scope: 'owner', key: 'owner_id', file: 'invoices' },
   { table: 'invoice_events', scope: 'invoice', key: 'invoice_id', file: 'invoice_events' },
   { table: 'expenses', scope: 'members', key: 'user_id', file: 'expenses' },
   { table: 'mileage_entries', scope: 'members', key: 'user_id', file: 'mileage' },
   { table: 'trucks', scope: 'members', key: 'user_id', file: 'trucks' },
   { table: 'trailers', scope: 'members', key: 'user_id', file: 'trailers' },
-  { table: 'service_records', scope: 'owner', key: 'user_id', file: 'maintenance_service_records' },
+  { table: 'service_records', scope: 'owner', key: 'owner_id', file: 'maintenance_service_records' },
   { table: 'service_record_items', scope: 'service_record', key: 'service_record_id', file: 'maintenance_service_items' },
-  { table: 'pm_schedules', scope: 'owner', key: 'user_id', file: 'maintenance_pm_schedules' },
-  { table: 'maintenance_interval_templates', scope: 'owner', key: 'user_id', file: 'maintenance_interval_templates' },
+  { table: 'pm_schedules', scope: 'owner', key: 'owner_id', file: 'maintenance_pm_schedules' },
   { table: 'drivers', scope: 'owner', key: 'user_id', file: 'drivers', sensitive: true },
-  { table: 'insurance_policies', scope: 'owner', key: 'user_id', file: 'insurance_policies' },
-  { table: 'insurance_agents', scope: 'owner', key: 'user_id', file: 'insurance_agents' },
-  { table: 'coi_requests', scope: 'owner', key: 'user_id', file: 'coi_requests' },
-  { table: 'brokers', scope: 'owner', key: 'user_id', file: 'brokers' },
-  { table: 'factors', scope: 'owner', key: 'user_id', file: 'factors' },
+  { table: 'insurance_policies', scope: 'owner', key: 'owner_id', file: 'insurance_policies' },
+  { table: 'insurance_agents', scope: 'owner', key: 'owner_id', file: 'insurance_agents' },
+  { table: 'coi_requests', scope: 'owner', key: 'owner_id', file: 'coi_requests' },
+  { table: 'brokers', scope: 'owner', key: 'owner_id', file: 'brokers' },
+  { table: 'factors', scope: 'owner', key: 'owner_id', file: 'factors' },
   { table: 'packets', scope: 'owner', key: 'owner_id', file: 'packets', hasFiles: true },
   { table: 'packet_fields', scope: 'packet', key: 'packet_id', file: 'packet_fields' },
-  { table: 'packet_layouts', scope: 'packet', key: 'packet_id', file: 'packet_layouts' },
-  { table: 'packet_sends', scope: 'owner', key: 'user_id', file: 'packet_sends' },
+  { table: 'packet_layouts', scope: 'owner', key: 'owner_id', file: 'packet_layouts' },
+  { table: 'packet_sends', scope: 'owner', key: 'owner_id', file: 'packet_sends' },
   { table: 'load_packet_sends', scope: 'load', key: 'load_id', file: 'load_packet_sends' },
-  { table: 'company_checklist_status', scope: 'owner', key: 'user_id', file: 'checklist' },
-  { table: 'compliance_reminders_state', scope: 'owner', key: 'user_id', file: 'compliance_reminders' },
-  { table: 'inbound_emails', scope: 'owner', key: 'user_id', file: 'inbound_emails', columns: ['id', 'from_email', 'subject', 'received_at', 'status'] },
-  { table: 'facility_notes', scope: 'author', key: 'user_id', file: 'facility_notes' },
-  { table: 'facility_reviews', scope: 'author', key: 'user_id', file: 'facility_reviews' },
+  { table: 'company_checklist_status', scope: 'company', key: 'company_id', file: 'checklist' },
+  { table: 'compliance_reminders_state', scope: 'company', key: 'company_id', file: 'compliance_reminders' },
+  { table: 'inbound_emails', scope: 'owner', key: 'owner_id', file: 'inbound_emails', columns: ['id', 'from_email', 'subject', 'received_at', 'status'] },
+  { table: 'facility_notes', scope: 'author', key: 'author_id', file: 'facility_notes' },
+  { table: 'facility_reviews', scope: 'author', key: 'author_id', file: 'facility_reviews' },
 ];
 
 // Deliberately not exported, each with the reason (a guard test keeps this list and EXPORT_TABLES complete).
@@ -65,6 +66,7 @@ export const EXCLUDED_TABLES = {
   ratecon_inbound_addresses: 'app routing setting',
   extraction_runs: 'internal reading log',
   eld_import_mappings: 'import setting',
+  maintenance_interval_templates: 'shared reference catalog, not company data',
   bug_reports: 'not a business record',
   account_deletion_requests: 'internal',
   account_deletion_storage_jobs: 'internal',
@@ -117,18 +119,21 @@ export function zipPaths(entries) {
   });
 }
 
-// Split files (with known bytes) into parts no bigger than maxBytes (data files go in part 1).
-// A single file larger than maxBytes gets its own part and is flagged (the bucket's 10 MB file limit makes this unlikely).
+// Split files (with known bytes) into parts whose finished ZIP (headers, descriptors, central directory,
+// footer) is at most maxBytes. Data files are reserved in part 1. A file that can't fit even alone is left
+// out of every part and returned in parts.oversize, so the manifest lists it as too large for this export.
 export function splitParts(files, { maxBytes = PART_MAX_BYTES, reserve = 0 } = {}) {
   const parts = [];
-  let cur = { n: 1, files: [], bytes: reserve };
+  const oversize = [];
+  let cur = { n: 1, files: [], bytes: reserve + END_BYTES };
   for (const f of files) {
-    const b = Math.max(0, Number(f.bytes) || 0);
-    if (cur.files.length && cur.bytes + b > maxBytes) { parts.push(cur); cur = { n: parts.length + 1, files: [], bytes: 0 }; }
+    const b = Math.max(0, Number(f.bytes) || 0) + entryOverhead(f.zipPath || f.name || 'file');
+    if (b + END_BYTES > maxBytes) { oversize.push(f); continue; }
+    if (cur.files.length && cur.bytes + b > maxBytes) { parts.push(cur); cur = { n: parts.length + 1, files: [], bytes: END_BYTES }; }
     cur.files.push(f); cur.bytes += b;
-    if (b > maxBytes) cur.oversize = true;
   }
   if (cur.files.length || !parts.length) parts.push(cur);
+  parts.oversize = oversize;
   return parts;
 }
 
@@ -168,7 +173,8 @@ export function planExport({ jobId, companyName, at = new Date(), documents = []
   const total = parts.length;
   return {
     tables: EXPORT_TABLES.map((t) => ({ table: t.table, zipPath: `data/${t.file}.csv`, json: `data/${t.file}.json`, metadataOnly: !!t.columns, sensitive: !!t.sensitive })),
-    parts: parts.map((p) => ({ n: p.n, name: partName(companyName, at, p.n, total), object: partObject(jobId, p.n), bytes: p.bytes, oversize: !!p.oversize, files: p.files })),
+    parts: parts.map((p) => ({ n: p.n, name: partName(companyName, at, p.n, total), object: partObject(jobId, p.n), bytes: p.bytes, files: p.files })),
+    oversize: parts.oversize,
     manifestColumns: MANIFEST_COLUMNS,
     sensitiveFiles: entries.filter((e) => isSensitivePath(e.zipPath)).length,
   };

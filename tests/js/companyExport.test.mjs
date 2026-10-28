@@ -60,17 +60,24 @@ test('zip paths are unique and safe', () => {
   for (const e of r) assert.ok(!e.zipPath.split('/').includes('..'));
 });
 
-test('parts split at 45 MB', () => {
+test('parts: 44 MiB cap counts ZIP overhead; strictly below the bucket limit', () => {
   const MB = 1024 * 1024;
-  assert.equal(X.PART_MAX_BYTES, 47185920);
-  const files = Array.from({ length: 100 }, (_, i) => ({ id: i, bytes: MB }));
+  assert.equal(X.PART_MAX_BYTES, 44 * MB);
+  assert.ok(X.PART_MAX_BYTES < X.BUCKET_FILE_SIZE_LIMIT);
+  const files = Array.from({ length: 100 }, (_, i) => ({ id: i, bytes: MB, zipPath: `loads/L${i}/bol-${i}.pdf` }));
   const parts = X.splitParts(files);
-  assert.deepEqual(parts.map((p) => p.files.length), [45, 45, 10]);
-  for (const p of parts) assert.ok(p.bytes <= X.PART_MAX_BYTES);
-  assert.equal(X.splitParts(files, { reserve: 5 * MB })[0].files.length, 40, 'data files reserve room in part 1');
+  assert.deepEqual(parts.map((p) => p.files.length), [43, 43, 14]);
+  for (const p of parts) {
+    const zipBytes = p.files.reduce((s, f) => s + f.bytes + 100 + 2 * Buffer.byteLength(f.zipPath), 22);
+    assert.ok(p.bytes <= X.PART_MAX_BYTES && zipBytes <= X.PART_MAX_BYTES && zipBytes < X.BUCKET_FILE_SIZE_LIMIT);
+  }
+  assert.equal(X.splitParts(files, { reserve: 5 * MB })[0].files.length, 38, 'data files reserve room in part 1');
   assert.deepEqual(X.splitParts([]).map((p) => p.files.length), [0], 'empty export still has one part');
-  const big = X.splitParts([{ bytes: 1 }, { bytes: 600 * MB }, { bytes: 1 }]);
-  assert.equal(big.length, 3); assert.ok(big[1].oversize);
+  const big = X.splitParts([{ bytes: 1 }, { bytes: X.PART_MAX_BYTES }, { bytes: 1 }]);
+  assert.equal(big.length, 1); assert.equal(big[0].files.length, 2); assert.equal(big.oversize.length, 1);
+  const many = X.splitParts(Array.from({ length: 1000 }, () => ({ bytes: 10 * MB })));
+  assert.equal(many.length, 250, 'big accounts arrive as many parts');
+  assert.match(X.partName('FAKE Co', '2026-10-28', 7, 250), /part7of250\.zip$/);
 });
 
 test('plan: part names, objects, manifest, sensitive count', () => {
@@ -144,5 +151,5 @@ test('expiry: 7 days after purge, else 7 days after ready; link state and cleanu
 test('export emails are outside the monthly cap; bucket constant matches the migration', () => {
   assert.equal(X.COUNTS_TOWARD_SEND_CAP, false);
   const sql = readFileSync(MIG + '20261028000400_company_exports.sql', 'utf8');
-  assert.ok(sql.includes(`'${X.EXPORT_BUCKET}'`) && sql.includes(String(X.PART_MAX_BYTES)));
+  assert.ok(sql.includes(`'${X.EXPORT_BUCKET}'`) && sql.includes(String(X.BUCKET_FILE_SIZE_LIMIT)));
 });
