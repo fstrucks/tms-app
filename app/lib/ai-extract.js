@@ -298,6 +298,7 @@ export async function runExtraction(docType, { apiKey, dataUrl, timeoutMs = 45_0
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: pickModel(),
+        store: false, // don't keep the request/response on OpenAI's side
         max_output_tokens: cfg.maxOutputTokens || 1000,
         input: [{ role: 'user', content: [{ type: 'input_text', text: cfg.prompt }, inputPart(dataUrl)] }],
         text: { format: { type: 'json_schema', name: cfg.name, strict: true, schema: cfg.schema } },
