@@ -7,7 +7,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const EXPORT_BUCKET = 'company-exports';
-export const PART_MAX_BYTES = 45 * 1024 * 1024; // must match the bucket file_size_limit (47185920); Free plan upload limit is 50 MB
+export const PART_MAX_BYTES = 45 * 1024 * 1024; // part size, kept under the bucket limit; raise later together with the bucket (Free plan upload limit is 50 MB)
+export const BUCKET_FILE_SIZE_LIMIT = 50 * 1024 * 1024; // must match the migration (52428800)
 export const LINK_DAYS_AFTER_PURGE = 7;
 export const LINK_DAYS_NO_PURGE = 7;
 export const TOKEN_BYTES = 32;

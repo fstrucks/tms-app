@@ -144,5 +144,5 @@ test('expiry: 7 days after purge, else 7 days after ready; link state and cleanu
 test('export emails are outside the monthly cap; bucket constant matches the migration', () => {
   assert.equal(X.COUNTS_TOWARD_SEND_CAP, false);
   const sql = readFileSync(MIG + '20261028000400_company_exports.sql', 'utf8');
-  assert.ok(sql.includes(`'${X.EXPORT_BUCKET}'`) && sql.includes(String(X.PART_MAX_BYTES)));
+  assert.ok(sql.includes(`'${X.EXPORT_BUCKET}'`) && sql.includes(String(X.BUCKET_FILE_SIZE_LIMIT)) && X.PART_MAX_BYTES < X.BUCKET_FILE_SIZE_LIMIT);
 });
