@@ -183,6 +183,7 @@ export async function runExportJob(admin, jobId, deps = {}) {
   const docBucket = admin.storage.from(DOCUMENTS_BUCKET);
   const outBucket = admin.storage.from(EXPORT_BUCKET);
 
+  try {
   while (cur.phase !== 'done') {
     if (clock() - t0 > budget - MIN_LEFT_FOR_NEW_PART_MS) break;
     const used = await exportStorageInUse(admin, { exceptJobId: job.id });
@@ -198,6 +199,15 @@ export async function runExportJob(admin, jobId, deps = {}) {
     const patch = { cursor: { ...cur, attempts: 0, lease: done ? '' : lease, lease_until: done ? null : cur.lease_until }, parts, ...totals };
     if (done) Object.assign(patch, { status: 'ready', completed_at: at.toISOString(), expires_at: exportExpiresAt({ purgeAt: job.purge_at, readyAt: at }) });
     await save(admin, job.id, lease, patch);
+  }
+  } catch (e) {
+    // Give the lease back with one more attempt counted so the next run retries from the last saved part.
+    if (e?.code !== 'lease_lost') {
+      const last = await admin.from('export_jobs').select('cursor').eq('id', job.id).maybeSingle();
+      const c = last.data?.cursor || cur;
+      await save(admin, job.id, lease, { cursor: { ...c, attempts: (c.attempts || 0) + 1, lease: '', lease_until: null, last_error: String(e?.code || e?.message || 'error').slice(0, 80) } }).catch(() => {});
+    }
+    throw e;
   }
   if (cur.phase !== 'done') await save(admin, job.id, lease, { cursor: { ...cur, attempts: 0, lease: '', lease_until: null } });
   return { ok: true, done: cur.phase === 'done', parts: parts.length };
@@ -346,9 +356,10 @@ async function buildPart(admin, { job, scope, cache, cur: start, partMax, deadli
 function uniquePath(p, id, cur) {
   cur.names = cur.names || {};
   const k = createHash('sha1').update(p.toLowerCase()).digest('base64').slice(0, 12);
-  if (!cur.names[k]) { cur.names[k] = 1; return p; }
+  const who = String(id).slice(0, 8);
+  if (!cur.names[k] || cur.names[k] === who) { cur.names[k] = who; return p; } // same row retried in the next part keeps its name
   const dot = p.lastIndexOf('.');
-  const tag = ` [${String(id).slice(0, 8)}]`;
+  const tag = ` [${who}]`;
   return dot > p.lastIndexOf('/') ? p.slice(0, dot) + tag + p.slice(dot) : p + tag;
 }
 
@@ -397,7 +408,7 @@ export async function startExport(admin, user, { now = new Date(), storageBudget
   const ins = await admin.from('export_jobs').insert({
     company_profile_id: co.data.id, owner_id: co.data.owner_id, requested_by: user.id,
     trigger: deletion ? 'deletion' : 'manual', status: 'queued', deliver_to: user.email || null,
-    cursor: initialCursor(), parts: [], deletion_request_id: deletion?.id || null, purge_at: deletion?.purge_after || null,
+    cursor: initialCursor(), parts: [], created_at: now.toISOString(), deletion_request_id: deletion?.id || null, purge_at: deletion?.purge_after || null,
   }).select('id').maybeSingle();
   if (ins.error?.code === '23505') {
     const o = await admin.from('export_jobs').select('id').eq('company_profile_id', co.data.id).in('status', OPEN).maybeSingle();
