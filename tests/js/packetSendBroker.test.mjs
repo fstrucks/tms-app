@@ -13,7 +13,7 @@ test('parseEmails / roles / sender defaults', () => {
   assert.deepEqual(parseEmails('A@fstrucks.com, b@fstrucks.com; a@fstrucks.com').list, ['a@fstrucks.com', 'b@fstrucks.com']);
   assert.match(parseEmails('nope').error, /valid/); assert.match(parseEmails('', { required: true }).error, /Enter/);
   assert.equal(canSend('owner'), true); assert.equal(canSend('management'), true); assert.equal(canSend('dispatcher'), false); assert.equal(canSend('driver'), false);
-  const c = senderConfig({}); assert.equal(c.from, 'noreply@fstrucks.com'); assert.equal(c.replyTo, null); assert.equal(c.token, null);
+  const c = senderConfig({}); assert.equal(c.from, 'noreply@pwrstrong.net'); assert.equal(c.replyTo, null); assert.equal(c.token, null);
   assert.equal(senderConfig({ PACKET_FROM_EMAIL: 'x@fstrucks.com', PACKET_REPLY_TO: 'y@fstrucks.com' }).replyTo, 'y@fstrucks.com');
   assert.match(defaultDraft({ subject: 'Fwd: Setup packet' }, 'Test Co (FAKE)').body, /Test Co \(FAKE\).*Setup packet/s);
 });
@@ -245,7 +245,7 @@ test('iPhone: Fill & download bar hidden during send write/review (unless unsave
 test('packet send: company Reply-to email wins over PACKET_REPLY_TO; blank keeps the env one', async () => {
   const sb = fakeSb({ packet: pkt() }); sb.tbl.company_profiles[0].reply_to_email = 'office@fake-carrier.com'; const f = mockFetch();
   assert.equal((await post(sb, { ...OK, idempotencyKey: K1 }, { fetch: f })).status, 200);
-  assert.equal(f.calls[0].ReplyTo, 'office@fake-carrier.com'); assert.equal(f.calls[0].From, 'noreply@fstrucks.com');
+  assert.equal(f.calls[0].ReplyTo, 'office@fake-carrier.com'); assert.equal(f.calls[0].From, 'noreply@pwrstrong.net');
   assert.equal(sb.tbl.packet_sends[0].reply_to, 'office@fake-carrier.com');
   assert.equal((await (await GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env: ENV } })).json()).replyTo, 'office@fake-carrier.com');
   const sb2 = fakeSb({ packet: pkt() }); sb2.tbl.company_profiles[0].reply_to_email = null; const f2 = mockFetch();
