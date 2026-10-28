@@ -17,3 +17,10 @@ test('app and preview hosts keep the app at /', () => {
     assert.equal(siteRewritePath(h, '/'), null, String(h));
   assert.equal(isSiteHost('app.pwrstrong.net'), false);
 });
+
+test('Sign in goes to the app /login', async () => {
+  const { signInHref } = await import('../../app/lib/siteHost.js');
+  assert.equal(signInHref('https://tms-app-two-pi.vercel.app'), 'https://tms-app-two-pi.vercel.app/login');
+  assert.equal(signInHref('https://tms-app-two-pi.vercel.app/'), 'https://tms-app-two-pi.vercel.app/login');
+  assert.equal(signInHref(''), '/login');
+});
