@@ -62,7 +62,7 @@ ok((await as('service_role', `delete from public.export_jobs where id='${job}'`)
 
 // Bucket
 const b = (await db.query(`select * from storage.buckets where id='company-exports'`)).rows;
-ok(b.length === 1 && b[0].public === false && Number(b[0].file_size_limit) === 52428800 && b[0].allowed_mime_types.join() === 'application/zip', 'private bucket, 50 MB limit, zip only');
+ok(b.length === 1 && b[0].public === false && Number(b[0].file_size_limit) === 47185920 && b[0].allowed_mime_types.join() === 'application/zip', 'private bucket, 45 MB, zip only');
 await db.exec(`update storage.buckets set public = true where id='company-exports'`); await db.exec(mig);
 ok((await db.query(`select public from storage.buckets where id='company-exports'`)).rows[0].public === false, 're-run forces the bucket back to private');
 ok((await db.query(`select count(*)::int n from pg_policies where schemaname='storage'`)).rows[0].n === 0, 'no storage.objects policies added');
