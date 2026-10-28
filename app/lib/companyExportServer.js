@@ -16,7 +16,16 @@ export const LEASE_MS = 90_000;                 // longer than the 60 s function
 export const MAX_ATTEMPTS = 6;                  // runs that ended without saving progress, then the job fails
 export const OPEN_JOB_MAX_MS = 48 * 3600_000;   // purge hold and open-job lifetime
 export const FAILED_CLEANUP_MS = 24 * 3600_000; // failed jobs' parts are removed after this
-export const EXPORT_STORAGE_BUDGET_BYTES = 400 * 1024 * 1024; // all not-yet-cleaned export objects, every company
+export const DEFAULT_EXPORT_STORAGE_BUDGET_BYTES = 400 * 1024 * 1024; // all not-yet-cleaned export objects, every company
+export const MAX_EXPORT_STORAGE_BUDGET_BYTES = 100 * 1024 ** 3; // sanity cap: 100 GB
+// EXPORT_STORAGE_BUDGET_BYTES env: a positive whole number of bytes, at most 100 GB. Anything else uses the 400 MB default.
+export function storageBudgetFromEnv(env = process.env) {
+  const raw = String(env?.EXPORT_STORAGE_BUDGET_BYTES ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(raw)) return DEFAULT_EXPORT_STORAGE_BUDGET_BYTES;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n <= MAX_EXPORT_STORAGE_BUDGET_BYTES ? n : DEFAULT_EXPORT_STORAGE_BUDGET_BYTES;
+}
+export const EXPORT_STORAGE_BUDGET_BYTES = DEFAULT_EXPORT_STORAGE_BUDGET_BYTES; // kept for callers; the live value is storageBudgetFromEnv()
 export const START_LIMIT_PER_DAY = 3;
 export const PAGE_ROWS = 500;
 export const IN_CHUNK = 150;
@@ -158,7 +167,7 @@ export async function runExportJob(admin, jobId, deps = {}) {
   const now = () => new Date(deps.now ? +deps.now + (clock() - t0) : clock());
   const budget = deps.runBudgetMs ?? RUN_BUDGET_MS;
   const partMax = deps.partMaxBytes ?? PART_MAX_BYTES;
-  const storageBudget = deps.storageBudgetBytes ?? EXPORT_STORAGE_BUDGET_BYTES;
+  const storageBudget = deps.storageBudgetBytes ?? storageBudgetFromEnv(deps.env || process.env);
 
   const got = await admin.from('export_jobs').select('*').eq('id', jobId).maybeSingle();
   if (got.error) throw got.error;
@@ -391,7 +400,7 @@ function readmeText({ company, job, cur, partNumber }) {
 }
 
 // ---------- starting and status (owner only) ----------
-export async function startExport(admin, user, { now = new Date(), storageBudgetBytes = EXPORT_STORAGE_BUDGET_BYTES, skipDailyLimit = false } = {}) {
+export async function startExport(admin, user, { now = new Date(), env = process.env, storageBudgetBytes = storageBudgetFromEnv(env), skipDailyLimit = false } = {}) {
   const co = await admin.from('company_profiles').select('id, owner_id, legal_name, dba_name').eq('owner_id', user?.id || '').maybeSingle();
   if (co.error) throw co.error;
   const g = canExport(user, co.data);
@@ -492,8 +501,9 @@ export async function cleanupExports(admin, { now = new Date(), list } = {}) {
 // Kicks the next run in a new invocation (the cron route answers at once and works in the background).
 export async function kickNextRun(jobId, env = process.env, fetchImpl = fetch) {
   const base = env.EXPORT_WORKER_BASE_URL || (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : env.VERCEL_URL ? `https://${env.VERCEL_URL}` : '');
-  const secret = String(env.CRON_SECRET || '');
-  if (!base || !secret) return { ok: false };
+  const secret = String(env.CRON_SECRET || '').trim();
+  if (!secret) { console.warn('[company-export] CRON_SECRET is not set; job', jobId, 'waits for the next owner request'); return { ok: false, code: 'no_cron_secret' }; }
+  if (!base) return { ok: false, code: 'no_base_url' };
   try {
     await fetchImpl(`${base}/api/cron/company-export?job=${encodeURIComponent(jobId)}`, { method: 'POST', headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(5000) });
     return { ok: true };

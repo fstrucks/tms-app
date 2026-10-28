@@ -264,7 +264,7 @@ test('run and chain: kicks the next run only when work is left', async () => {
   const env = { CRON_SECRET: 'test-secret', EXPORT_WORKER_BASE_URL: 'https://example.test' };
   const seen = []; await S.kickNextRun('job-1', env, async (u, o) => { seen.push([u, o.headers.authorization]); });
   assert.deepEqual(seen, [['https://example.test/api/cron/company-export?job=job-1', 'Bearer test-secret']]);
-  assert.deepEqual(await S.kickNextRun('job-1', {}, async () => {}), { ok: false });
+  assert.deepEqual(await S.kickNextRun('job-1', {}, async () => {}), { ok: false, code: 'no_cron_secret' });
 });
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -339,4 +339,53 @@ test('E3: a finished job hands off to the link email exactly once', async () => 
   for (let i = 0; i < 50 && job(sb, s.jobId).status !== 'ready'; i += 1) await S.runAndChain(sb, s.jobId, { kick: async () => {}, deliver: async (_a, id) => delivered.push(id), now: new Date(T0), clock: () => (t += 1) });
   assert.equal(job(sb, s.jobId).status, 'ready');
   assert.deepEqual(delivered, [s.jobId]);
+});
+
+test('storage budget: EXPORT_STORAGE_BUDGET_BYTES overrides the 400 MB default; bad values fall back', () => {
+  const D = 400 * 1024 * 1024;
+  assert.equal(S.storageBudgetFromEnv({}), D);
+  assert.equal(S.storageBudgetFromEnv({ EXPORT_STORAGE_BUDGET_BYTES: '10737418240' }), 10737418240);
+  assert.equal(S.storageBudgetFromEnv({ EXPORT_STORAGE_BUDGET_BYTES: ' 5000000 ' }), 5000000);
+  assert.equal(S.storageBudgetFromEnv({ EXPORT_STORAGE_BUDGET_BYTES: String(100 * 1024 ** 3) }), 100 * 1024 ** 3);
+  for (const bad of ['', '0', '-5', '1.5', '1e9', 'abc', '400MB', '0x10', String(100 * 1024 ** 3 + 1), '99999999999999999999']) assert.equal(S.storageBudgetFromEnv({ EXPORT_STORAGE_BUDGET_BYTES: bad }), D, bad);
+  assert.equal(PART_MAX_BYTES, 44 * 1024 * 1024);
+});
+
+test('storage budget from env is used by startExport', async () => {
+  const sb = world();
+  const small = await S.startExport(sb, { id: ids.o, email: 'owner@example.test' }, { now: new Date(T0), env: { EXPORT_STORAGE_BUDGET_BYTES: '1000' } });
+  assert.equal(small.status, 503); assert.equal(small.body.code, 'storage_budget');
+  const big = await S.startExport(sb, { id: ids.o, email: 'owner@example.test' }, { now: new Date(T0), env: { EXPORT_STORAGE_BUDGET_BYTES: String(10 * 1024 ** 3) } });
+  assert.equal(big.status, 202);
+});
+
+test('no CRON_SECRET: cron 503 and runs nothing, self-call skipped without fetching, POST still creates a job and asking again continues it', async () => {
+  for (const env of [{}, { CRON_SECRET: '' }, { CRON_SECRET: '   ' }]) {
+    const sb = world(); const s = await start(sb); let ran = 0;
+    const res = await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth: 'Bearer anything' }), { admin: sb, env, waitUntil: () => { ran += 1; } });
+    assert.equal(res.status, 503); assert.match((await res.json()).error, /CRON_SECRET is not set/);
+    const sweep = await cronCompanyExport(req('https://x.test/api/cron/company-export'), { admin: sb, env });
+    assert.equal(sweep.status, 503); assert.equal(ran, 0); assert.equal(job(sb, s.jobId).status, 'queued');
+    let fetched = 0;
+    assert.deepEqual(await S.kickNextRun(s.jobId, { ...env, VERCEL_PROJECT_PRODUCTION_URL: 'app.example.test' }, async () => { fetched += 1; }), { ok: false, code: 'no_cron_secret' });
+    assert.equal(fetched, 0);
+  }
+  // Owner POST with no secret: job is created, one run happens, no loop; a second POST continues it.
+  const sb = world({ files: { big: Buffer.alloc(1) } }); let t = 0; const runs = [];
+  const env = { VERCEL_PROJECT_PRODUCTION_URL: 'app.example.test' };
+  const deps = { admin: sb, mkUserClient, env, waitUntil: (p) => runs.push(p), clock: () => (t += 1000), runBudgetMs: 30_000, now: new Date(T0), kick: (id) => S.kickNextRun(id, env, async () => { throw new Error('must not fetch'); }), deliver: async () => {} };
+  const r1 = await postCompanyExport(req('https://x.test/api/company-export', { method: 'POST', token: 'tok-owner' }), deps);
+  assert.equal(r1.status, 202); await Promise.all(runs); assert.equal(runs.length, 1); assert.notEqual(job(sb, sb.db.export_jobs[0].id).status, 'ready', 'needs more than one run'); let posts = 0;
+  const id = sb.db.export_jobs[0].id;
+  for (let i = 0; i < 60 && job(sb, id).status !== 'ready'; i += 1) {
+    runs.length = 0; const r = await postCompanyExport(req('https://x.test/api/company-export', { method: 'POST', token: 'tok-owner' }), deps);
+    assert.equal(r.status, 200); await Promise.all(runs); posts += 1;
+  }
+  assert.equal(job(sb, id).status, 'ready', JSON.stringify({ s: job(sb, id).status, e: job(sb, id).error, c: job(sb, id).cursor }).slice(0, 600)); assert.equal(sb.db.export_jobs.length, 1); assert.ok(posts >= 1);
+});
+
+test('wrong or missing cron secret is 401; the right one runs', async () => {
+  const sb = world(); const s = await start(sb); const env = { CRON_SECRET: 'test-secret' };
+  for (const auth of [undefined, 'Bearer nope', 'test-secret', 'Basic test-secret', 'Bearer test-secretX']) assert.equal((await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth }), { admin: sb, env, waitUntil: () => {} })).status, 401, String(auth));
+  assert.equal((await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth: 'Bearer test-secret' }), { admin: sb, env, waitUntil: () => {}, kick: async () => {} })).status, 202);
 });
