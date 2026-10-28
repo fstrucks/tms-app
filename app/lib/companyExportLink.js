@@ -43,8 +43,8 @@ export function ipLimited(key, now = Date.now(), limit = HITS_PER_IP_PER_10_MIN)
 }
 export const _resetLimiter = () => hits.clear();
 
-export async function logEvent(admin, jobId, kind, { ip = null, userAgent = null, env = process.env } = {}) {
-  const r = await admin.from('export_link_events').insert({ job_id: jobId, kind, ip_hash: ipHash(ip, env), user_agent: userAgent ? String(userAgent).slice(0, 300) : null });
+export async function logEvent(admin, jobId, kind, { ip = null, userAgent = null, env = process.env, now = new Date() } = {}) {
+  const r = await admin.from('export_link_events').insert({ job_id: jobId, kind, at: now.toISOString(), ip_hash: ipHash(ip, env), user_agent: userAgent ? String(userAgent).slice(0, 300) : null });
   if (r?.error) console.error('[company-export] event', kind, r.error.code || r.error.message);
 }
 
@@ -84,8 +84,8 @@ export async function exportLinkPage(admin, token, { headers, now = new Date(), 
   const ip = clientIp(headers); const ua = headers?.get?.('user-agent') || null;
   if (ipLimited(ipHash(ip, env) || ip, +now)) return { status: 429 };
   const f = await findByToken(admin, token, now);
-  if (!f.found) { if (f.expiredJob) await logEvent(admin, f.expiredJob.id, 'expired_hit', { ip, userAgent: ua, env }); return NOT_FOUND; }
-  await logEvent(admin, f.job.id, 'link_opened', { ip, userAgent: ua, env });
+  if (!f.found) { if (f.expiredJob) await logEvent(admin, f.expiredJob.id, 'expired_hit', { ip, userAgent: ua, env, now }); return NOT_FOUND; }
+  await logEvent(admin, f.job.id, 'link_opened', { ip, userAgent: ua, env, now });
   return { status: 200, view: pageView(f.job) };
 }
 
@@ -94,7 +94,7 @@ export async function exportPartUrl(admin, token, n, { headers, now = new Date()
   const ip = clientIp(headers); const ua = headers?.get?.('user-agent') || null;
   if (ipLimited(ipHash(ip, env) || ip, +now)) return { status: 429 };
   const f = await findByToken(admin, token, now);
-  if (!f.found) { if (f.expiredJob) await logEvent(admin, f.expiredJob.id, 'expired_hit', { ip, userAgent: ua, env }); return NOT_FOUND; }
+  if (!f.found) { if (f.expiredJob) await logEvent(admin, f.expiredJob.id, 'expired_hit', { ip, userAgent: ua, env, now }); return NOT_FOUND; }
   const parts = Array.isArray(f.job.parts) ? f.job.parts : [];
   const part = parts.find((p) => p.n === Number(n));
   if (!part || !/^\d+$/.test(String(n))) return NOT_FOUND;
@@ -103,7 +103,7 @@ export async function exportPartUrl(admin, token, n, { headers, now = new Date()
   if (!used.error && (used.data || []).length >= MINTS_PER_JOB_PER_HOUR) return { status: 429 };
   const s = await admin.storage.from(EXPORT_BUCKET).createSignedUrl(part.object, SIGNED_URL_SECONDS, { download: partFileName(part.n, parts.length) });
   if (s.error || !s.data?.signedUrl) return { status: 503 };
-  await logEvent(admin, f.job.id, 'url_minted', { ip, userAgent: ua, env });
+  await logEvent(admin, f.job.id, 'url_minted', { ip, userAgent: ua, env, now });
   return { status: 302, location: s.data.signedUrl };
 }
 
@@ -166,6 +166,6 @@ export async function deliverExport(admin, jobId, { now = new Date(), env = proc
   }
   if (res?.unknown) { await done({ mail_unknown: now.toISOString() }); return { ok: false, code: 'mail_unknown' }; }
   await done({ mail_sent_at: now.toISOString() });
-  await logEvent(admin, job.id, 'email_sent', { env });
+  await logEvent(admin, job.id, 'email_sent', { env, now });
   return { ok: true, sent: true };
 }

@@ -72,3 +72,15 @@ export async function cronCompanyExport(req, deps = {}) {
   }
   return json({ ok: true, cleaned, continued, mailed });
 }
+
+// No-sign-in part download for the /export/<token> page: mints a short signed URL and redirects to it.
+export const LINK_HEADERS = { 'Cache-Control': 'no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow' };
+export async function getExportPart(req, token, n, deps = {}) {
+  let admin;
+  try { admin = adminOf(deps); } catch { return new Response('Not found', { status: 404, headers: LINK_HEADERS }); }
+  const { exportPartUrl } = await import('./companyExportLink.js');
+  const r = await exportPartUrl(admin, token, n, { headers: req.headers, now: deps.now || new Date(), env: deps.env || process.env });
+  if (r.status === 302) return new Response(null, { status: 302, headers: { ...LINK_HEADERS, Location: r.location } });
+  const text = r.status === 429 ? 'Too many requests. Wait a few minutes and try again.' : r.status === 503 ? 'This part is not available right now. Try again in a minute.' : 'Not found';
+  return new Response(text, { status: r.status, headers: { ...LINK_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } });
+}

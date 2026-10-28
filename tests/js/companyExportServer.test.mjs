@@ -332,3 +332,11 @@ test('account deletion cron skips a company with an open export (held), purges o
   const held = await run(new Date(T0 + 3600_000));
   assert.deepEqual(held.results, [{ user_id: ids.o, ok: false, held_for_export: s.jobId }]);
 });
+
+test('E3: a finished job hands off to the link email exactly once', async () => {
+  const sb = world(); const s = await start(sb); const delivered = [];
+  let t = 0;
+  for (let i = 0; i < 50 && job(sb, s.jobId).status !== 'ready'; i += 1) await S.runAndChain(sb, s.jobId, { kick: async () => {}, deliver: async (_a, id) => delivered.push(id), now: new Date(T0), clock: () => (t += 1) });
+  assert.equal(job(sb, s.jobId).status, 'ready');
+  assert.deepEqual(delivered, [s.jobId]);
+});

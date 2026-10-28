@@ -4,7 +4,7 @@ let seq = 0;
 export const fid = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
 const get = (r, c) => { const m = /^(\w+)->>(\w+)$/.exec(c); if (!m) return r[c]; const v = r[m[1]]?.[m[2]]; return v == null ? null : String(v); };
 
-export function fakeExportSupabase({ tables = {}, files = {}, missing = [], unique = {}, failUpload = null, failDownload = null } = {}) {
+export function fakeExportSupabase({ tables = {}, files = {}, missing = [], unique = {}, failUpload = null, failDownload = null, users = {} } = {}) {
   const db = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.map((r) => structuredClone(r))]));
   const buckets = { documents: new Map(Object.entries(files)), 'company-exports': new Map() };
   const stats = { uploads: [], maxChunk: 0, removed: [], downloads: 0 };
@@ -75,6 +75,11 @@ export function fakeExportSupabase({ tables = {}, files = {}, missing = [], uniq
           b.set(p, buf); stats.uploads.push({ p, bytes: buf.length });
           return { data: { path: p }, error: null };
         },
+        async createSignedUrl(p, secs, opts) {
+          if (!b.has(p)) return { data: null, error: { statusCode: '404', message: 'Object not found' } };
+          stats.signed = (stats.signed || 0) + 1;
+          return { data: { signedUrl: `https://storage.example.test/sign/${name}/${p}?expires=${secs}&download=${encodeURIComponent(opts?.download || '')}` }, error: null };
+        },
         async remove(paths) { for (const p of paths) { b.delete(p); stats.removed.push(p); } return { data: paths, error: null }; },
         async list(dir, { limit = 1000, offset = 0 } = {}) {
           const pre = dir ? `${dir}/` : '';
@@ -86,5 +91,6 @@ export function fakeExportSupabase({ tables = {}, files = {}, missing = [], uniq
       };
     },
   };
-  return { from, storage, db, buckets, stats };
+  const auth = { admin: { async getUserById(id) { const u = (users || {})[id]; return u ? { data: { user: u }, error: null } : { data: { user: null }, error: { status: 404, message: 'User not found' } }; } } };
+  return { from, storage, auth, db, buckets, stats };
 }
