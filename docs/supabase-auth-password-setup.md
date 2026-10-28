@@ -44,5 +44,8 @@ Leaving the default `{{ .ConfirmationURL }}` templates also works: the callback 
 No for the URL config and templates: they are stored in Supabase and used by whichever SMTP sends.
 Yes for real-world delivery: Supabase's built-in mailer only sends to project team members and is
 limited to a few emails per hour, so invites/resets to testers need the custom SMTP
-(smtp.postmarkapp.com:587, noreply@fstrucks.com) and Postmark DKIM/Return-Path DNS verified.
+(smtp.postmarkapp.com:587, noreply@pwrstrong.net) and Postmark DKIM/Return-Path DNS verified for pwrstrong.net.
+Switch the Supabase SMTP sender (Auth → SMTP Settings → Sender email) from noreply@fstrucks.com to
+noreply@pwrstrong.net only after Postmark shows pwrstrong.net as verified; until then invites and resets keep
+using the fstrucks.com sender. Check the invite, magic link and recovery templates for any fstrucks.com text at the same time.
 Also: Supabase applies an "Emails per hour" rate limit (Auth → Rate Limits), set to 30.

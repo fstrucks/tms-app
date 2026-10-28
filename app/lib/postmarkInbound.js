@@ -3,7 +3,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 
 export const PACKET_MAX_BYTES = 10 * 1024 * 1024;
 export const MAX_PDFS_PER_EMAIL = 10;
-export const INBOUND_ADDRESS = 'packets@in.fstrucks.com';
+export { INBOUND_ADDRESS } from './rateconDrafts.js';
 
 const h = (s) => createHash('sha256').update(String(s)).digest();
 const eq = (a, b) => timingSafeEqual(h(a), h(b));

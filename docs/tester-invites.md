@@ -8,7 +8,7 @@
 3. Duplicate check against `auth.admin.listUsers`:
    - An address that is registered or has accepted gets 409 "already has a PowerHaul account".
    - An address with a pending invite gets 409 "already invited … Use Resend".
-4. `auth.admin.inviteUserByEmail(email, { redirectTo: <origin>/account/password, data: { full_name } })`. The existing "You're invited to PowerHaul TMS" template and Postmark SMTP send it.
+4. `auth.admin.inviteUserByEmail(email, { redirectTo: <origin>/account/password, data: { full_name } })`. The existing "You're invited to PowerHaul TMS" template and Postmark SMTP send it, from the Supabase SMTP sender (noreply@pwrstrong.net once pwrstrong.net is verified in Postmark; see docs/supabase-auth-password-setup.md).
 5. `auth.admin.updateUserById(id, { app_metadata: { tester_invite: { by, company, role, log } } })`. This is the trusted record. Only the service role can write `app_metadata`.
 6. A `company_members` row `(profile_id = owner's company, user_id, role)` is inserted with the service role (idempotent, and it never changes an existing member's role). That's what `packet_role` / `company_role` already use, so the tester sees the company's packets, company profile and Truck tab once they accept. Loads, documents, expenses and mileage stay per-user under the existing RLS, so a tester starts with their own empty lists.
 

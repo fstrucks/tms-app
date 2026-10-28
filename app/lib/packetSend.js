@@ -49,7 +49,7 @@ export function companyReplyTo(profile, fallback = null) {
 }
 export function senderConfig(env = process.env) {
   return {
-    from: (env.PACKET_FROM_EMAIL || 'noreply@fstrucks.com').trim(),
+    from: (env.PACKET_FROM_EMAIL || 'noreply@pwrstrong.net').trim(),
     replyTo: String(env.PACKET_REPLY_TO || '').trim() || null, // no built-in default
     token: env.POSTMARK_SERVER_TOKEN || null,
     stream: env.PACKET_MESSAGE_STREAM || 'outbound',

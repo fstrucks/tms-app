@@ -7,6 +7,7 @@ import { makeApi } from '../lib/packetApi';
 import { VISUALLY_HIDDEN } from '../components/UploadMenu';
 import { isPendingStatus, PACKET_FILTERS, filterPackets, filterCounts, pollDelay, POLL_MAX_MS, statusChipStyle } from '../lib/packetStatus';
 import { formatListTime } from '../lib/packetDate';
+import { INBOUND_ADDRESS } from '../lib/rateconDrafts';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
@@ -131,7 +132,7 @@ export default function PacketsPage() {
   return (
     <main style={s.main}>
       <h1 style={{ marginBottom: '0.25rem' }}>Carrier packets</h1>
-      <p style={s.muted}>Upload a broker packet PDF, or have brokers email it to packets@in.fstrucks.com once email-in is turned on.</p>
+      <p style={s.muted}>Upload a broker packet PDF, or have brokers email it to {INBOUND_ADDRESS} once email-in is turned on.</p>
       <div style={{ margin: '1rem 0' }}>
         {/* iOS-safe: label htmlFor + visually hidden input; no hidden-by-display, no programmatic clicks. */}
         <input id={FILE_ID} type="file" accept="application/pdf,.pdf" onChange={onFile} style={VISUALLY_HIDDEN} tabIndex={-1} disabled={busy} />

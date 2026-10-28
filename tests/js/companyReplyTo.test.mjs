@@ -26,7 +26,7 @@ test('companyReplyTo: company value, else fallback, else null; no marc@ hard-cod
   assert.equal(companyReplyTo({ reply_to_email: '' }, 'env@fstrucks.com'), 'env@fstrucks.com');
   assert.equal(companyReplyTo({ reply_to_email: 'garbage' }, null), null);
   assert.equal(companyReplyTo(null, null), null);
-  assert.equal(senderConfig({}).from, 'noreply@fstrucks.com', 'From stays the TMS sender');
+  assert.equal(senderConfig({}).from, 'noreply@pwrstrong.net', 'From stays the TMS sender');
 });
 
 test('setup: the company step offers the optional field (only once the column exists) with the help text', () => {
