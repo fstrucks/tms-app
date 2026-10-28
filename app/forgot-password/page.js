@@ -70,7 +70,7 @@ export default function ForgotPasswordPage() {
           </form>
         )}
       </div>
-      <LegalFooter />
+      <LegalFooter includeDelete />
     </main>
   );
 }

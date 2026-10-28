@@ -169,10 +169,15 @@ export async function postAccountDeletion(req, deps = {}) {
     });
     if (ins.error && missing(ins.error)) return json({ error: SETUP, setupNeeded: true }, 503);
     if (ins.error) return json({ error: 'Couldn’t schedule the deletion. Try again.' }, 500);
+    // The deletion request row exists now. Start the automatic export (final confirm only; the first tap
+    // only opens the dialog). A failed start never undoes the request: the owner stays signed in so they
+    // can start one from the Danger zone (signing in again later would cancel the deletion).
+    const exp = await startDeletionExport(admin, profile.id, deps);
     return json({
       ok: true, scheduled: true, immediate: false, grace_days: GRACE_DAYS,
-      purge_after: at.toISOString(), sign_out: true,
-      message: scheduledMessage({ purgeAt: at.toISOString(), companyName: profile?.legal_name || profile?.dba_name }),
+      purge_after: at.toISOString(), sign_out: exp.started,
+      export: exp,
+      message: scheduledMessage({ purgeAt: at.toISOString(), companyName: profile?.legal_name || profile?.dba_name, exportStarted: exp.started }),
     });
   }
 
@@ -198,6 +203,27 @@ export async function postAccountDeletion(req, deps = {}) {
       ? 'The company and your sign-in have been deleted.'
       : 'Your sign-in has been deleted. Company records you worked on were kept.',
   });
+}
+
+// Starts the owner's export for a company being deleted and runs its first step after the response.
+// Never throws: { started: true, job_id } or { started: false, code }.
+export async function startDeletionExport(admin, companyProfileId, deps = {}) {
+  try {
+    const mod = deps.startExportForDeletion && deps.runExport ? null : await import('./companyExportServer.js');
+    const r = await (deps.startExportForDeletion || mod.startExportForDeletion)(admin, companyProfileId, { now: deps.now || new Date() });
+    const jobId = r?.jobId || (r?.body?.already ? r.body.job_id : null);
+    if (!jobId) {
+      console.error('[account-deletion] export not started', companyProfileId, r?.status, r?.body?.code || '');
+      return { started: false, code: r?.body?.code || (r?.status === 429 ? 'rate_limited' : 'not_started') };
+    }
+    const run = () => Promise.resolve((deps.runExport || mod.runAndChain)(admin, jobId, deps)).catch((e) => console.error('[account-deletion] export run', jobId, e?.code || e?.message));
+    if (deps.waitUntil) deps.waitUntil(run());
+    else { try { const { waitUntil } = await import('@vercel/functions'); waitUntil(run()); } catch { run(); } }
+    return { started: true, job_id: jobId };
+  } catch (e) {
+    console.error('[account-deletion] export not started', companyProfileId, String(e?.code || e?.message || e).slice(0, 120));
+    return { started: false, code: 'error' };
+  }
 }
 
 export async function executeAccountDeletion(admin, userId, deps = {}) {

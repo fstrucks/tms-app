@@ -12,6 +12,8 @@ export const SUPPORT_EMAIL = 'support@pwrstrong.net';
 export const PROTECTED_COMPANY_ID = '155fd2a0-11a9-4a3c-8f58-7efab00a188b';
 export const DELETE_ACCOUNT_PAGE_UPDATED = '2026-10-28';
 export const DOCUMENTS_BUCKET = 'documents';
+// Must match LINK_DAYS_AFTER_PURGE in companyExport.js (kept here so this file stays browser-safe; a test checks both).
+export const EXPORT_LINK_DAYS_AFTER_PURGE = 7;
 
 // Personal files live under {uid}/bug-reports/. Everything else under {uid}/ that is not tied to
 // company work (a load, truck, expense, scale ticket, maintenance record, or packet) is also personal
@@ -147,7 +149,23 @@ export function ownerWarnings({ companyName, graceDays = GRACE_DAYS, demo = fals
     'Monthly email counts are kept so the limit does not reset. Addresses on those sends are removed.',
     'Other people on this company lose their sign-in when the company is deleted, unless they also belong to another company or own one. They are not emailed.',
     'Transfer ownership first if others should keep the company. Transferring ownership is not available in the app yet.',
+    ...recordWarnings({ demo }),
   ];
+}
+
+// Records to keep, and what happens to the export. Shown in the owner list and repeated in the confirm dialog.
+export function recordWarnings({ demo = false } = {}) {
+  return [
+    'Carriers may have to keep records after they stop operating: FMCSA rules call for 6 months to 5 years depending on the record, and the IRS 3 to 7 years. Keep a copy of what you need.',
+    'Deleting permanently removes the company’s data. It can’t be recovered after the deletion date.',
+    demo
+      ? 'A demo company is deleted right away, so no automatic export is made. Use Download full export above first if you want a copy.'
+      : `When you confirm, a full export of the company starts automatically and a download link is emailed to you. The export does not cancel the deletion. The link and files stay available for ${EXPORT_LINK_DAYS_AFTER_PURGE} days after the company is deleted.`,
+  ];
+}
+
+export function exportNotStartedMessage() {
+  return 'The automatic export could not be started. The deletion is still scheduled. You are still signed in: use Download full export in the Danger zone now to get a copy. Signing in again later cancels the deletion.';
 }
 
 export function memberWarnings() {
@@ -161,10 +179,14 @@ export function memberWarnings() {
   ];
 }
 
-export function scheduledMessage({ purgeAt, companyName } = {}) {
+// exportStarted: undefined (no export step, e.g. already scheduled), true, or false (see exportNotStartedMessage).
+export function scheduledMessage({ purgeAt, companyName, exportStarted } = {}) {
   const when = formatWhen(purgeAt);
   const name = companyName ? `“${companyName}”` : 'Your company';
-  return `${name} is scheduled to be deleted on ${when}. You are signed out now. Sign in again before that date to cancel.`;
+  const head = `${name} is scheduled to be deleted on ${when}.`;
+  if (exportStarted === false) return `${head} ${exportNotStartedMessage()}`;
+  const mail = exportStarted ? ' A full export has started; the download link will be emailed to you. It does not cancel the deletion.' : '';
+  return `${head}${mail} You are signed out now. Sign in again before that date to cancel.`;
 }
 
 export function cancelledMessage() {
