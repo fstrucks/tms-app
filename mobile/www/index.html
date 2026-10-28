@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PowerHaul TMS</title>
+<style>
+  html, body { margin: 0; height: 100%; overscroll-behavior: none; }
+  body { font-family: system-ui, -apple-system, Arial, sans-serif; background: #ffffff; color: #0f172a;
+         display: flex; align-items: center; justify-content: center; text-align: center;
+         padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+  @media (prefers-color-scheme: dark) { body { background: #0b1220; color: #e2e8f0; } }
+  .logo { width: 72px; height: 72px; border-radius: 16px; background: #2563eb; color: #fff; font-weight: 700; font-size: 32px;
+          display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 0 24px 24px; opacity: .8; line-height: 1.4; }
+  button { font: inherit; font-weight: 600; background: #2563eb; color: #fff; border: 0; border-radius: 10px; padding: 12px 32px; }
+</style>
+</head>
+<body>
+  <main>
+    <div class="logo" aria-hidden="true">PH</div>
+    <h1>You're offline</h1>
+    <p>PowerHaul TMS can't reach the server. Check your signal or Wi-Fi, then try again.</p>
+    <button id="retry" type="button">Retry</button>
+  </main>
+  <script>
+    var APP_URL = 'https://tms-app-two-pi.vercel.app/';
+    document.getElementById('retry').addEventListener('click', function () {
+      var cfg = window.Capacitor && window.Capacitor.getServerUrl && window.Capacitor.getServerUrl();
+      window.location.href = cfg || APP_URL;
+    });
+  </script>
+</body>
+</html>
