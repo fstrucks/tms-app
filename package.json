@@ -11,6 +11,11 @@
     "test:sql": "./tests/sql/run.sh"
   },
   "dependencies": {
+    "@capacitor/app": "8.1.2",
+    "@capacitor/camera": "8.2.6",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.4",
     "@supabase/supabase-js": "^2.45.0",
     "@vercel/functions": "^3.10.1",
     "heic2any": "^0.0.4",
@@ -20,5 +25,10 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/ios": "8.5.3"
   }
 }
