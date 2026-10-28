@@ -44,6 +44,7 @@ export default function DangerZone() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   async function load() {
     const { access } = await token();
@@ -56,6 +57,12 @@ export default function DangerZone() {
   }
 
   useEffect(() => { load().catch(() => setError('Couldn’t load this section.')); }, []);
+  useEffect(() => {
+    if (!confirming) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape' && !busy) setConfirming(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [confirming, busy]);
 
   async function post(payload) {
     setBusy(true);
@@ -86,6 +93,11 @@ export default function DangerZone() {
 
   const ready = confirmationMatches(typed, status?.email);
   const pending = status?.pending;
+  const confirmText = status?.role === 'owner'
+    ? (status.demo || status.immediate
+      ? "Delete this company? It will be deleted right away. This can't be undone."
+      : `Delete this company? It is scheduled for deletion ${status.grace_days || 14} days after you confirm. This can't be undone.`)
+    : "Delete my account? This can't be undone.";
 
   return (
     <section style={card} data-testid="danger-zone">
@@ -111,13 +123,28 @@ export default function DangerZone() {
             Type DELETE or your email to confirm
           </label>
           <input id="delete-confirm" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="characters" style={input} />
-          <button type="button" data-testid="delete-account-button" disabled={!ready || busy} onClick={() => post({ confirm: typed })}
+          <button type="button" data-testid="delete-account-button" disabled={!ready || busy} onClick={() => { setError(null); setConfirming(true); }}
             style={{ ...btn, background: 'var(--danger-solid)', color: 'var(--on-danger)', opacity: !ready || busy ? 0.55 : 1 }}>
-            {busy ? 'Working…' : (status.role === 'owner' ? 'Delete company' : 'Delete my account')}
+            {status.role === 'owner' ? 'Delete company' : 'Delete my account'}
           </button>
         </>
       )}
-      {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
+      {confirming && !done && (
+        <div data-testid="delete-confirm-backdrop" onClick={() => { if (!busy) setConfirming(false); }}
+          style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title" data-testid="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 12, padding: '1rem', maxWidth: 420, width: '100%' }}>
+            <p id="delete-confirm-title" style={{ marginTop: 0 }}>{confirmText}</p>
+            {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
+            <button type="button" disabled={busy} onClick={() => setConfirming(false)} style={{ ...btn, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}>Cancel</button>
+            <button type="button" data-testid="delete-final-confirm" disabled={busy} onClick={() => post({ confirm: typed })}
+              style={{ ...btn, background: 'var(--danger-solid)', color: 'var(--on-danger)', opacity: busy ? 0.55 : 1 }}>
+              {busy ? 'Working…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      )}
+      {error && !confirming && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
     </section>
   );
 }
