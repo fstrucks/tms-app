@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
-import { confirmationMatches } from '../lib/accountDeletion';
+import { confirmationMatches, recordWarnings } from '../lib/accountDeletion';
+import CompanyExportPanel from './CompanyExportPanel';
 
 const card = {
   border: '1px solid var(--danger-border)',
@@ -102,6 +103,7 @@ export default function DangerZone() {
   return (
     <section style={card} data-testid="danger-zone">
       <h2 style={{ fontSize: '1.05rem', marginTop: 0, color: 'var(--danger)' }}>Danger zone</h2>
+      {status?.role === 'owner' && !status.signedOut && <CompanyExportPanel />}
       {status?.signedOut && <p>Sign in to delete an account.</p>}
       {!status && !error && <p>Loading…</p>}
       {done && <p role="status">{done}</p>}
@@ -135,6 +137,11 @@ export default function DangerZone() {
           <div role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title" data-testid="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}
             style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 12, padding: '1rem', maxWidth: 420, width: '100%' }}>
             <p id="delete-confirm-title" style={{ marginTop: 0 }}>{confirmText}</p>
+            {status?.role === 'owner' && (
+              <ul data-testid="delete-confirm-records" style={{ paddingLeft: '1.1rem', margin: '0 0 0.5rem' }}>
+                {recordWarnings({ demo: !!(status.demo || status.immediate) }).map((line) => <li key={line} style={{ margin: '0.3rem 0' }}>{line}</li>)}
+              </ul>
+            )}
             {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
             <button type="button" disabled={busy} onClick={() => setConfirming(false)} style={{ ...btn, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}>Cancel</button>
             <button type="button" data-testid="delete-final-confirm" disabled={busy} onClick={() => post({ confirm: typed })}

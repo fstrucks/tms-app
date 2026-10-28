@@ -278,10 +278,12 @@ test('route uses the session user, never a user id in the body', async () => {
 test('owner schedules 14 days out and does not delete yet; demo deletes now', async () => {
   const ownerUser = { id: OWNER, email: 'owner@example.test', last_sign_in_at: '2026-10-20T00:00:00.000Z' };
   const live = world({ user: ownerUser, profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'FS Trucks', dba_name: null, is_demo: false }] });
-  const res = await post({ confirm: 'owner@example.test', user_id: MEMBER }, live.deps);
+  // The automatic export (E4) is stubbed here; tests/js/deletionExport.test.mjs covers it.
+  const res = await post({ confirm: 'owner@example.test', user_id: MEMBER }, { ...live.deps, startExportForDeletion: async () => ({ status: 202, body: { ok: true }, jobId: 'job-fake-1' }), runExport: async () => {}, waitUntil: () => {} });
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.scheduled, true);
+  assert.deepEqual(body.export, { started: true, job_id: 'job-fake-1' });
   assert.equal(body.immediate, false);
   assert.equal(body.grace_days, 14);
   assert.equal(body.sign_out, true);

@@ -3,6 +3,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { EXPORT_BUCKET, COUNTS_TOWARD_SEND_CAP, PART_MAX_BYTES, hashToken, newLinkToken, tokenMatches } from './companyExport.js';
 import { senderConfig, postmarkSend } from './packetSend.js';
+import { MANY_PARTS_NOTE } from './companyExportCopy.js';
 
 export const SIGNED_URL_SECONDS = 300;
 export const MINTS_PER_JOB_PER_HOUR = 120;
@@ -111,7 +112,7 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-US', { year: 'nume
 export const fmtBytes = (b) => (b >= 1024 * 1024 * 1024 ? `${(b / 1024 ** 3).toFixed(1)} GB` : b >= 1024 * 1024 ? `${(b / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 export const RETENTION_NOTE = 'Keep this copy somewhere safe. Carriers often have to keep records for years: FMCSA rules call for keeping many records from 6 months to 5 years, and the IRS generally expects tax records for 3 to 7 years. Deleting your account permanently removes your data from PowerHaul TMS, and it cannot be recovered after that.';
-export const MANY_PARTS_NOTE = 'Big accounts arrive as many parts. Download each one; together they make the full copy.';
+export { MANY_PARTS_NOTE };
 
 export function exportEmail({ url, expiresAt, partCount, totalBytes, deletion }) {
   const subject = 'Your PowerHaul TMS company export is ready';
