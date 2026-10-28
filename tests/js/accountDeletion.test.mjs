@@ -103,6 +103,19 @@ test('a newer sign-in cancels a pending company deletion; the same sign-in does 
   const formBlock = zone.slice(formAt);
   assert.match(formBlock, /status\.warnings/);
   assert.doesNotMatch(formBlock, /Cancel deletion/);
+  assert.match(zone, /setConfirming\(true\)/);
+  assert.match(zone, /data-testid="delete-final-confirm"/);
+  assert.match(zone, /role="alertdialog"/);
+  assert.match(zone, /Delete my account\? This can't be undone\./);
+  assert.match(zone, /It is scheduled for deletion \$\{status\.grace_days \|\| 14\} days after you confirm/);
+  assert.match(zone, /It will be deleted right away\. This can't be undone\./);
+  assert.match(zone, /e\.key === 'Escape'/);
+  assert.match(zone, /data-testid="delete-confirm-backdrop"/);
+  assert.match(zone, /busy \? 'Working…' : 'Delete'/);
+  assert.doesNotMatch(zone, /busy \? 'Working…' : \(status\.role/);
+  const firstClick = zone.slice(zone.indexOf('data-testid="delete-account-button"'), zone.indexOf('data-testid="delete-final-confirm"'));
+  assert.match(firstClick, /setConfirming\(true\)/);
+  assert.doesNotMatch(firstClick, /post\(\{ confirm/);
 });
 
 test('personal files are bug-report screenshots and anything not kept for the company', () => {
@@ -171,8 +184,7 @@ test('legal files are placeholders and the public pages do not require a sign-in
   for (const file of ['app/login/page.js', 'app/forgot-password/page.js', 'app/account/password/page.js', 'app/account/invite/page.js', 'app/account/settings/page.js']) {
     assert.match(read(file), /<LegalFooter/);
   }
-  assert.match(read('app/forgot-password/page.js'), /<LegalFooter \/>/);
-  assert.doesNotMatch(read('app/forgot-password/page.js'), /includeDelete/);
+  assert.match(read('app/forgot-password/page.js'), /<LegalFooter includeDelete \/>/);
   assert.match(read('app/account/invite/page.js'), /<LegalFooter \/>/);
   assert.match(read('app/account/settings/page.js'), /DangerZone/);
   assert.match(read('app/company/page.js'), /role === 'owner' && <DangerZone/);
