@@ -46,13 +46,13 @@ export default function DeleteAccountPage() {
       <p>Where a name is still shown for someone who left, it says “{FORMER_MEMBER_LABEL}”.</p>
 
       <h2 style={{ fontSize: '1.15rem' }}>If you own the company</h2>
-      <p>Deletion waits {GRACE_DAYS} days. Sign in again before that date to cancel it. You can also tap Cancel in Danger zone while you are still signed in.</p>
+      <p>If you delete the company, it is scheduled for deletion {GRACE_DAYS} days after you confirm. Sign in again before that day to cancel, or tap Cancel in Danger zone while you are still signed in.</p>
       <p>Transfer ownership first if other people should keep the company. That option is not in the app yet.</p>
       <p>Other people on the company lose their sign-in when the company is deleted, unless they also belong to another company or own one. They are not emailed.</p>
       <List title="Removed" items={COMPANY_REMOVED} />
       <List title="Changed" items={COMPANY_ANONYMIZED} />
       <List title="Kept" items={COMPANY_KEPT} />
-      <p>A company marked as a demo is deleted right away. There is no {GRACE_DAYS}-day wait, and signing in again does not restore it. The company name does not decide that.</p>
+      <p>A company marked as a demo will be deleted right away. There is no {GRACE_DAYS}-day wait, and signing in again does not restore it. The company name does not decide that.</p>
       <p>Some companies can’t be deleted from the app. Contact support at {SUPPORT_EMAIL}.</p>
 
       <h2 style={{ fontSize: '1.15rem' }}>If you cannot sign in</h2>

@@ -138,8 +138,8 @@ export const COMPANY_KEPT = [
 export function ownerWarnings({ companyName, graceDays = GRACE_DAYS, demo = false } = {}) {
   const name = companyName ? `“${companyName}”` : 'this company';
   const wait = demo
-    ? `${name} is marked as a demo, so it is deleted right away. There is no waiting period and signing in again will not bring it back.`
-    : `${name} is scheduled for deletion ${graceDays} days from now. Sign in again before that day to cancel. You can also tap Cancel while you are still signed in.`;
+    ? `If you delete ${name}, it is marked as a demo, so it will be deleted right away. There is no waiting period and signing in again will not bring it back.`
+    : `If you delete ${name}, it is scheduled for deletion ${graceDays} days after you confirm. Sign in again before that day to cancel, or tap Cancel here while you are still signed in.`;
   return [
     wait,
     'This removes the company and its loads, documents, expenses, mileage, trucks, invoices, and packets.',

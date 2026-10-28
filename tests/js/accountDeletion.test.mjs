@@ -86,6 +86,23 @@ test('a newer sign-in cancels a pending company deletion; the same sign-in does 
   assert.match(cancelledMessage(), /cancelled because you signed in/);
   assert.match(scheduledMessage({ purgeAt: '2026-11-11T00:00:00.000Z', companyName: 'FS Trucks' }), /November 11, 2026/);
   assert.match(ownerWarnings({ companyName: 'FS Trucks' }).join(' '), /Transfer ownership first/);
+  const before = ownerWarnings({ companyName: 'FS Trucks' })[0];
+  assert.equal(before, 'If you delete “FS Trucks”, it is scheduled for deletion 14 days after you confirm. Sign in again before that day to cancel, or tap Cancel here while you are still signed in.');
+  assert.doesNotMatch(before, /from now/);
+  const demoLine = ownerWarnings({ companyName: 'FS Trucks', demo: true })[0];
+  assert.match(demoLine, /If you delete “FS Trucks”, it is marked as a demo, so it will be deleted right away/);
+  assert.doesNotMatch(demoLine, /is deleted right away/);
+  const zone = read('app/components/DangerZone.js');
+  const pendingAt = zone.indexOf('{!done && pending &&');
+  const formAt = zone.indexOf('!pending && !status.blocked');
+  assert.ok(pendingAt > 0 && formAt > pendingAt);
+  const pendingBlock = zone.slice(pendingAt, formAt);
+  assert.match(pendingBlock, /purge_after/);
+  assert.match(pendingBlock, /Cancel deletion/);
+  assert.doesNotMatch(pendingBlock, /status\.warnings/);
+  const formBlock = zone.slice(formAt);
+  assert.match(formBlock, /status\.warnings/);
+  assert.doesNotMatch(formBlock, /Cancel deletion/);
 });
 
 test('personal files are bug-report screenshots and anything not kept for the company', () => {
@@ -132,7 +149,9 @@ test('legal files are placeholders and the public pages do not require a sign-in
   assert.match(del, /Danger zone/);
   assert.match(del, /GRACE_DAYS/);
   assert.match(del, /more than one company/);
-  assert.match(del, /marked as a demo/);
+  assert.match(del, /will be deleted right away/);
+  assert.match(del, /after you confirm/);
+  assert.doesNotMatch(del, /marked as a demo is deleted right away|from now/);
   assert.doesNotMatch(del, /word demo or test|name that happens/i);
   assert.doesNotMatch(del, /getSupabase|redirect\(/);
   assert.equal(existsSync(new URL('middleware.js', root)), false);
@@ -149,9 +168,12 @@ test('legal files are placeholders and the public pages do not require a sign-in
   assert.match(footer, /href="\/privacy"/);
   assert.match(footer, /href="\/terms"/);
   assert.match(footer, /href="\/delete-account"/);
-  for (const file of ['app/login/page.js', 'app/account/password/page.js', 'app/account/settings/page.js']) {
+  for (const file of ['app/login/page.js', 'app/forgot-password/page.js', 'app/account/password/page.js', 'app/account/invite/page.js', 'app/account/settings/page.js']) {
     assert.match(read(file), /<LegalFooter/);
   }
+  assert.match(read('app/forgot-password/page.js'), /<LegalFooter \/>/);
+  assert.doesNotMatch(read('app/forgot-password/page.js'), /includeDelete/);
+  assert.match(read('app/account/invite/page.js'), /<LegalFooter \/>/);
   assert.match(read('app/account/settings/page.js'), /DangerZone/);
   assert.match(read('app/company/page.js'), /role === 'owner' && <DangerZone/);
   assert.equal(SUPPORT_EMAIL, 'support@pwrstrong.net');

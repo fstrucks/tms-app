@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getSupabase, supabaseConfigError } from '../lib/supabase';
 import { useHydrated, fallbackAction } from '../lib/authForms';
 import { recoveryRedirect } from '../lib/passwordSetup';
+import LegalFooter from '../components/LegalFooter';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -69,6 +70,7 @@ export default function ForgotPasswordPage() {
           </form>
         )}
       </div>
+      <LegalFooter />
     </main>
   );
 }
