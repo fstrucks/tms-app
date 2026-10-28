@@ -1,7 +1,7 @@
 // Route handlers for the company export (E2). Owner only, signed-in user from auth.getUser(token).
 // The export_jobs row (requested_by, trigger, created_at) is the audit record of each request.
 import { bearer, userClient, serviceClient, isAuthRejection, isAuthUnavailable } from './packetServer.js';
-import { cronAuthorized } from './accountDeletion.js';
+import { timingSafeEqual, createHash } from 'node:crypto';
 import { startExport, exportStatus, runAndChain, cleanupExports, runExportJob, kickNextRun, OPEN_JOB_MAX_MS } from './companyExportServer.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -35,16 +35,23 @@ export async function getCompanyExport(req, deps = {}) {
 export async function postCompanyExport(req, deps = {}) {
   const c = await caller(req, deps); if (c.error) return c.error;
   const admin = adminOf(deps); if (!admin) return json({ error: SETUP, setupNeeded: true }, 503);
-  const r = await startExport(admin, c.user, { now: deps.now || new Date() });
-  if (r.jobId) await later(deps, () => runAndChain(admin, r.jobId, deps).catch((e) => console.error('[company-export] run', r.jobId, e?.code || e?.message)));
+  const r = await startExport(admin, c.user, { now: deps.now || new Date(), env: deps.env || process.env });
+  // Asking again while a job is open continues it (one run at a time; the lease keeps runs apart).
+  // This is how a job moves on when CRON_SECRET is not set and the worker cannot call itself.
+  const openId = r.jobId || (r.body?.already ? r.body.job_id : null);
+  if (openId) await later(deps, () => runAndChain(admin, openId, deps).catch((e) => console.error('[company-export] run', openId, e?.code || e?.message)));
   return json(r.body, r.status);
 }
+
+const sha = (v) => createHash('sha256').update(String(v)).digest();
+const bearerMatches = (h, secret) => { const m = /^Bearer\s+(.+)$/i.exec(String(h || '')); return !!m && timingSafeEqual(sha(m[1].trim()), sha(secret)); };
 
 // Vercel Cron (daily) and the self-kick between runs. Same secret check as the account deletion cron.
 export async function cronCompanyExport(req, deps = {}) {
   const env = deps.env || process.env;
-  if (!String(env.CRON_SECRET || env.ACCOUNT_DELETION_CRON_SECRET || '')) return json({ error: 'Export worker is not configured.' }, 503);
-  if (!cronAuthorized(req.headers.get('authorization'), req.headers.get('x-account-deletion-secret'), env)) return json({ error: 'Not allowed.' }, 401);
+  const secret = String(env.CRON_SECRET || '').trim();
+  if (!secret) return json({ error: 'Export worker is off: CRON_SECRET is not set. Nothing was run.', code: 'no_cron_secret' }, 503);
+  if (!bearerMatches(req.headers.get('authorization'), secret)) return json({ error: 'Not allowed.' }, 401);
   const admin = adminOf(deps); if (!admin) return json({ error: SETUP, setupNeeded: true }, 503);
   const jobId = new URL(req.url).searchParams.get('job');
   const chain = { ...deps, kick: deps.kick || ((id) => kickNextRun(id, env)) };

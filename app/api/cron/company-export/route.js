@@ -1,6 +1,7 @@
 // Builds company exports in short runs and removes old ones. Vercel Cron calls this daily as a
-// backstop; each run also calls it with ?job=<id> to continue. Needs CRON_SECRET (Bearer), like
-// the account deletion cron. Nothing runs if it is unset.
+// backstop; each run also calls it with ?job=<id> to continue. Needs CRON_SECRET (Authorization: Bearer).
+// If CRON_SECRET is unset or empty it answers 503 and runs nothing; a job then moves on only when the
+// owner asks to export again (POST /api/company-export continues the open job).
 import { cronCompanyExport } from '../../../lib/companyExportRoutes';
 
 export const runtime = 'nodejs';
