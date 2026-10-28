@@ -101,7 +101,8 @@ export default function DangerZone() {
           </button>
         </>
       )}
-      {!done && status && !status.signedOut && !pending && (
+      {!done && status?.blocked && <p data-testid="deletion-blocked" role="status">{status.message}</p>}
+      {!done && status && !status.signedOut && !pending && !status.blocked && (
         <>
           <ul style={{ paddingLeft: '1.1rem', margin: '0.25rem 0 0.75rem' }}>
             {(status.warnings || []).map((line) => <li key={line} style={{ margin: '0.35rem 0' }}>{line}</li>)}

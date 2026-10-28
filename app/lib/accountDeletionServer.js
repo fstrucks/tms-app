@@ -6,7 +6,8 @@ import { bearer, userClient, serviceClient, isAuthRejection, isAuthUnavailable }
 import {
   DOCUMENTS_BUCKET, FORMER_MEMBER_LABEL, GRACE_DAYS, SUPPORT_EMAIL,
   cancelledMessage, confirmationMatches, cronAuthorized, deletionKind, isDemoCompany,
-  memberWarnings, ownerWarnings, purgeAfter, scheduledMessage, shouldCancelOnSignIn,
+  isProtectedCompany, memberWarnings, multiCompanyMessage, ownerWarnings,
+  protectedCompanyMessage, purgeAfter, scheduledMessage, shouldCancelOnSignIn,
 } from './accountDeletion.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -30,23 +31,34 @@ function adminOf(deps) {
 }
 
 async function ownedProfile(admin, userId) {
-  const cols = 'id, owner_id, legal_name, dba_name, is_demo';
+  const cols = 'id, owner_id, legal_name, dba_name, is_demo, deletion_locked';
   let res = await admin.from('company_profiles').select(cols).eq('owner_id', userId).maybeSingle();
-  if (res.error && /is_demo/.test(res.error.message || '')) {
+  if (res.error && /is_demo|deletion_locked/.test(res.error.message || '')) {
     res = await admin.from('company_profiles').select('id, owner_id, legal_name, dba_name').eq('owner_id', userId).maybeSingle();
-    if (res.data) res.data.is_demo = false;
+    if (res.data) { res.data.is_demo = false; res.data.deletion_locked = false; }
   }
   return res;
+}
+
+async function membershipCount(admin, userId) {
+  const res = await admin.from('company_members').select('profile_id').eq('user_id', userId);
+  if (res.error && missing(res.error)) return { count: 0 };
+  if (res.error) return { error: res.error };
+  return { count: (res.data || []).length };
 }
 
 async function openRequest(admin, userId) {
   return admin.from('account_deletion_requests').select('*').eq('user_id', userId).is('cancelled_at', null).is('completed_at', null).maybeSingle();
 }
 
-function shapeStatus({ user, profile, pending, cancelled }) {
+function shapeStatus({ user, profile, pending, cancelled, memberships = 0 }) {
   const owns = !!profile?.id;
   const demo = owns && isDemoCompany(profile);
   const kind = deletionKind({ ownsCompany: owns, demo });
+  const protectedCo = owns && isProtectedCompany(profile);
+  const multi = !owns && memberships > 1;
+  const blocked = protectedCo ? 'protected_company' : multi ? 'multi_company_member' : null;
+  const blockedMessage = protectedCo ? protectedCompanyMessage() : multi ? multiCompanyMessage() : null;
   return {
     email: user.email || null,
     role: owns ? 'owner' : 'member',
@@ -54,13 +66,14 @@ function shapeStatus({ user, profile, pending, cancelled }) {
     company_profile_id: profile?.id || null,
     demo,
     grace_days: kind.graceDays,
-    immediate: kind.immediate,
+    immediate: kind.immediate && !blocked,
     former_label: FORMER_MEMBER_LABEL,
     support_email: SUPPORT_EMAIL,
-    warnings: owns ? ownerWarnings({ companyName: profile?.legal_name || profile?.dba_name, graceDays: GRACE_DAYS, demo }) : memberWarnings(),
+    warnings: blocked ? [] : (owns ? ownerWarnings({ companyName: profile?.legal_name || profile?.dba_name, graceDays: GRACE_DAYS, demo }) : memberWarnings()),
     pending: pending ? { kind: pending.kind, purge_after: pending.purge_after, company_profile_id: pending.company_profile_id || null } : null,
     cancelled: !!cancelled,
-    message: cancelled ? cancelledMessage() : null,
+    blocked,
+    message: cancelled ? cancelledMessage() : blockedMessage,
   };
 }
 
@@ -79,6 +92,8 @@ export async function getAccountDeletion(req, deps = {}) {
   const owned = await ownedProfile(admin, who.user.id);
   if (owned.error && missing(owned.error)) return json({ error: SETUP, setupNeeded: true }, 503);
   if (owned.error) return json({ error: 'Couldn’t check your company. Try again.' }, 500);
+  const memberships = owned.data ? { count: 0 } : await membershipCount(admin, who.user.id);
+  if (memberships.error) return json({ error: 'Couldn’t check your companies. Try again.' }, 500);
   let pendingRes = await openRequest(admin, who.user.id);
   if (pendingRes.error && missing(pendingRes.error)) return json({ error: SETUP, setupNeeded: true }, 503);
   if (pendingRes.error) return json({ error: 'Couldn’t check a scheduled deletion. Try again.' }, 500);
@@ -90,7 +105,7 @@ export async function getAccountDeletion(req, deps = {}) {
     pending = null;
     cancelled = true;
   }
-  return json(shapeStatus({ user: who.user, profile: owned.data, pending, cancelled }));
+  return json(shapeStatus({ user: who.user, profile: owned.data, pending, cancelled, memberships: memberships.count }));
 }
 
 async function insertRequest(admin, row) {
@@ -121,6 +136,12 @@ export async function postAccountDeletion(req, deps = {}) {
     return json({ ok: true, cancelled: true, message: 'Company deletion was cancelled. The company will be kept.' });
   }
 
+  if (profile && isProtectedCompany(profile)) return json({ error: protectedCompanyMessage() }, 409);
+  if (!profile) {
+    const memberships = await membershipCount(admin, who.user.id);
+    if (memberships.error) return json({ error: 'Couldn’t check your companies. Try again.' }, 500);
+    if (memberships.count > 1) return json({ error: multiCompanyMessage() }, 409);
+  }
   if (!confirmationMatches(body?.confirm, who.user.email)) {
     return json({ error: 'Type DELETE or your email to confirm.' }, 400);
   }
@@ -163,6 +184,7 @@ export async function postAccountDeletion(req, deps = {}) {
     if (ins.error && ins.error.code !== '23505') return json({ error: 'Couldn’t start the deletion. Try again.' }, 500);
   }
   const ran = await executeAccountDeletion(admin, who.user.id, deps);
+  if (ran.cancelled) return json({ ok: true, cancelled: true, message: cancelledMessage(), sign_out: false });
   if (ran.status) return json(ran.body, ran.status);
   await admin.from('account_deletion_requests').update({ completed_at: new Date().toISOString() }).eq('user_id', who.user.id).is('completed_at', null).is('cancelled_at', null);
   return json({
@@ -181,10 +203,13 @@ export async function executeAccountDeletion(admin, userId, deps = {}) {
   if (rpc?.error) {
     if (missing(rpc.error)) return { status: 503, body: { error: SETUP, setupNeeded: true } };
     if (/grace_period|grace_required/.test(rpc.error.message || '')) return { status: 409, body: { error: 'This company is still in the waiting period.' } };
+    if (/protected_company/.test(rpc.error.message || '')) return { status: 409, body: { error: protectedCompanyMessage() } };
+    if (/multi_company_member/.test(rpc.error.message || '')) return { status: 409, body: { error: multiCompanyMessage() } };
     console.error('[account-deletion] apply', rpc.error.code || '', String(rpc.error.message || '').slice(0, 200));
     return { status: 500, body: { error: 'Couldn’t delete the account. Try again.' } };
   }
   const plan = rpc?.data || {};
+  if (plan.cancelled) return { ok: true, cancelled: true, plan };
   const storage = await (deps.applyStorage || applyStoragePlan)(admin, plan);
   if (storage?.error) return { status: 500, body: { error: 'Account data was updated, but file cleanup did not finish. It will be tried again.', partial: true } };
   const ids = Array.isArray(plan.auth_user_ids) && plan.auth_user_ids.length ? plan.auth_user_ids : [userId];
@@ -298,6 +323,10 @@ export async function runDueDeletions(admin, deps = {}, now = new Date()) {
   const results = [];
   for (const row of due.data || []) {
     const ran = await executeAccountDeletion(admin, row.user_id, deps);
+    if (ran.cancelled) {
+      results.push({ user_id: row.user_id, ok: true, cancelled: true });
+      continue;
+    }
     if (ran.ok) {
       await admin.from('account_deletion_requests').update({ completed_at: new Date().toISOString() }).eq('id', row.id);
       results.push({ user_id: row.user_id, ok: true });

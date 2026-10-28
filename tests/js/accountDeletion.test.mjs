@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fakeSupabase } from './fakeSupabase.mjs';
 import {
-  CONFIRM_WORD, FORMER_MEMBER_LABEL, GRACE_DAYS, GRACE_MS, SUPPORT_EMAIL,
+  CONFIRM_WORD, FORMER_MEMBER_LABEL, GRACE_DAYS, GRACE_MS, PROTECTED_COMPANY_ID, SUPPORT_EMAIL,
   cancelledMessage, classifyMemberObject, confirmationMatches, cronAuthorized,
-  deletionKind, formatWhen, isDemoCompany, memberKeepsLogin, ownerWarnings,
-  purgeAfter, retainedStoragePath, scheduledMessage, shouldCancelOnSignIn,
+  deletionKind, formatWhen, isDemoCompany, isProtectedCompany, memberKeepsLogin,
+  multiCompanyMessage, ownerWarnings, protectedCompanyMessage, purgeAfter,
+  retainedStoragePath, scheduledMessage, shouldCancelOnSignIn,
 } from '../../app/lib/accountDeletion.js';
 import { formatUpdated, renderLegalMarkdown, safeHref } from '../../app/lib/legalMarkdown.js';
 import { PUBLIC_LEGAL_PATHS, isPublicLegalPath } from '../../app/lib/legalRoutes.js';
@@ -48,13 +49,20 @@ test('grace period is 14 days from the request, as an exact duration', () => {
   assert.equal(formatWhen('2026-11-11T15:04:00.000Z'), 'November 11, 2026');
 });
 
-test('demo and test companies delete immediately; a normal company waits', () => {
+test('only is_demo deletes immediately; the company name does not', () => {
   assert.equal(isDemoCompany({ legal_name: 'FS Trucks', is_demo: false }), false);
   assert.equal(isDemoCompany({ legal_name: 'Latest Logistics' }), false);
   assert.equal(isDemoCompany({ legal_name: 'Greatest Hauling' }), false);
-  assert.equal(isDemoCompany({ legal_name: 'Demo Trucking' }), true);
-  assert.equal(isDemoCompany({ dba_name: 'Test Co' }), true);
+  assert.equal(isDemoCompany({ legal_name: 'Demo Trucking', is_demo: false }), false);
+  assert.equal(isDemoCompany({ dba_name: 'Test Co', is_demo: false }), false);
   assert.equal(isDemoCompany({ legal_name: 'FS Trucks', is_demo: true }), true);
+  assert.equal(isProtectedCompany({ id: PROTECTED_COMPANY_ID, deletion_locked: false }), true);
+  assert.equal(isProtectedCompany({ id: '00000000-0000-4000-8000-0000000000aa', deletion_locked: true }), true);
+  assert.equal(isProtectedCompany({ id: '00000000-0000-4000-8000-0000000000aa', deletion_locked: false }), false);
+  assert.match(protectedCompanyMessage(), /can't be deleted from the app/);
+  assert.match(protectedCompanyMessage(), new RegExp(SUPPORT_EMAIL.replace('.', '\\.')));
+  assert.match(multiCompanyMessage(), /more than one company/);
+  assert.match(multiCompanyMessage(), new RegExp(SUPPORT_EMAIL.replace('.', '\\.')));
   assert.deepEqual(deletionKind({ ownsCompany: false, demo: false }), { kind: 'member', immediate: true, graceDays: 0 });
   assert.equal(deletionKind({ ownsCompany: true, demo: true }).immediate, true);
   assert.equal(deletionKind({ ownsCompany: true, demo: true }).reason, 'demo');
@@ -123,6 +131,9 @@ test('legal files are placeholders and the public pages do not require a sign-in
   assert.match(del, /SUPPORT_EMAIL/);
   assert.match(del, /Danger zone/);
   assert.match(del, /GRACE_DAYS/);
+  assert.match(del, /more than one company/);
+  assert.match(del, /marked as a demo/);
+  assert.doesNotMatch(del, /word demo or test|name that happens/i);
   assert.doesNotMatch(del, /getSupabase|redirect\(/);
   assert.equal(existsSync(new URL('middleware.js', root)), false);
   assert.equal(existsSync(new URL('src/middleware.js', root)), false);
@@ -152,7 +163,7 @@ function codeOnly(sql) {
 
 test('migration is idempotent, service-role only, and matches the deletion rules', () => {
   assert.match(SQL, /create or replace function public\.account_deletion_apply\(p_user uuid\)/);
-  assert.match(SQL, /language plpgsql\s+security definer\s+set search_path = public/);
+  assert.match(SQL, /language plpgsql\s+security definer\s+set search_path = public, pg_temp/);
   assert.match(SQL, /revoke all on function public\.account_deletion_apply\(uuid\) from public/);
   assert.match(SQL, /revoke all on function public\.account_deletion_apply\(uuid\) from authenticated/);
   assert.match(SQL, /grant execute on function public\.account_deletion_apply\(uuid\) to service_role/);
@@ -164,7 +175,17 @@ test('migration is idempotent, service-role only, and matches the deletion rules
   assert.match(SQL, /status = case when l\.status = 'dispatched' then 'booked' else l\.status end/);
   assert.match(SQL, /grace_period/);
   assert.match(SQL, /grace_required/);
-  assert.match(SQL, /\\m\(demo\|test\)\\M/);
+  assert.doesNotMatch(SQL, /\\m\(demo\|test\)\\M/);
+  assert.match(SQL, /coalesce\(v_profile\.is_demo, false\)/);
+  assert.match(SQL, /deletion_locked boolean not null default false/);
+  assert.match(SQL, /155fd2a0-11a9-4a3c-8f58-7efab00a188b/);
+  assert.match(SQL, /protected_company/);
+  assert.match(SQL, /multi_company_member/);
+  assert.match(SQL, /last_sign_in_at/);
+  assert.match(SQL, /account_deletion_retarget_fk\('company_profiles', 'signed_by', 'auth\.users\(id\)', 'set null', true\)/);
+  assert.match(SQL, /set signed_by = null where signed_by = p_user/);
+  assert.match(SQL, /auth_user_id = any\(v_ids\)\s+or \(auth_user_id = any\(v_keep\) and user_id = p_user\)/);
+  assert.doesNotMatch(SQL, /auth_user_id = any\(v_ids \|\| v_keep\)/);
   assert.match(SQL, /\/retained\//);
   assert.match(SQL, /array\['redacted'\]/);
   assert.match(SQL, /load_packet_sends/);
@@ -176,6 +197,10 @@ test('migration is idempotent, service-role only, and matches the deletion rules
   assert.match(SQL, /enable row level security/);
   assert.match(CHECK, /account_deletion_apply/);
   assert.match(CHECK, /reverts_dispatched_to_booked/);
+  assert.match(CHECK, /has_function_privilege\('anon'/);
+  assert.match(CHECK, /has_function_privilege\('authenticated'/);
+  assert.match(CHECK, /acl\.grantee = 0/);
+  assert.doesNotMatch(CHECK, /grantee in \('anon'/);
   assert.doesNotMatch(codeOnly(CHECK), /\b(insert|update|delete|drop|alter|create|grant|revoke|truncate)\b/i);
 });
 
@@ -230,12 +255,72 @@ test('owner schedules 14 days out and does not delete yet; demo deletes now', as
   assert.equal(live.deps.admin.db.account_deletion_requests[0].user_id, OWNER);
   assert.match(body.message, /Sign in again/);
 
-  const demo = world({ user: ownerUser, profiles: [{ id: 'p2', owner_id: OWNER, legal_name: 'Test Hauling', is_demo: false }] });
+  const named = world({ user: ownerUser, profiles: [{ id: 'p2', owner_id: OWNER, legal_name: 'Test Hauling', dba_name: 'Demo Trucking', is_demo: false, deletion_locked: false }] });
+  const waited = await post({ confirm: 'DELETE' }, named.deps);
+  assert.equal(waited.status, 200);
+  assert.equal((await waited.json()).scheduled, true);
+  assert.equal(named.calls.rpc.length, 0);
+
+  const demo = world({ user: ownerUser, profiles: [{ id: 'p3', owner_id: OWNER, legal_name: 'FS Trucks', is_demo: true, deletion_locked: false }] });
   const gone = await post({ confirm: 'DELETE' }, demo.deps);
   assert.equal(gone.status, 200);
   assert.equal((await gone.json()).deleted, true);
   assert.equal(demo.calls.rpc[0].args.p_user, OWNER);
   assert.deepEqual(demo.calls.deleted, [OWNER]);
+});
+
+test('more than one company, a protected company, and a later sign-in do not delete the sign-in', async () => {
+  const member = world({
+    user: { id: MEMBER, email: 'driver@example.test', last_sign_in_at: '2026-10-01T00:00:00.000Z' },
+    profiles: [],
+  });
+  member.deps.admin.db.company_members = [
+    { profile_id: 'p1', user_id: MEMBER },
+    { profile_id: 'p2', user_id: MEMBER },
+  ];
+  const multi = await post({ confirm: 'DELETE' }, member.deps);
+  const multiBody = await multi.json();
+  assert.equal(multi.status, 409);
+  assert.match(multiBody.error, /more than one company/);
+  assert.match(multiBody.error, /support@pwrstrong\.net/);
+  assert.equal(member.calls.rpc.length, 0);
+  assert.equal(member.calls.deleted.length, 0);
+  const listed = await GET(new Request('http://x/api/account/deletion', { headers: { authorization: 'Bearer t' } }), { deps: member.deps });
+  const listedBody = await listed.json();
+  assert.equal(listedBody.blocked, 'multi_company_member');
+  assert.match(listedBody.message, /support@pwrstrong\.net/);
+
+  const ownerUser = { id: OWNER, email: 'owner@example.test', last_sign_in_at: '2026-10-20T00:00:00.000Z' };
+  const locked = world({ user: ownerUser, profiles: [{ id: 'p9', owner_id: OWNER, legal_name: 'FS Trucks', is_demo: true, deletion_locked: true }] });
+  const refused = await post({ confirm: 'DELETE' }, locked.deps);
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /can't be deleted from the app/);
+  assert.equal(locked.calls.rpc.length, 0);
+  const real = world({ user: ownerUser, profiles: [{ id: PROTECTED_COMPANY_ID, owner_id: OWNER, legal_name: 'FS Trucks', is_demo: false, deletion_locked: false }] });
+  const hard = await post({ confirm: 'DELETE' }, real.deps);
+  assert.equal(hard.status, 409);
+  assert.equal(real.calls.deleted.length, 0);
+
+  const sqlSays = world({
+    user: { id: MEMBER, email: 'driver@example.test', last_sign_in_at: '2026-10-01T00:00:00.000Z' },
+    rpcResult: { data: null, error: { message: 'multi_company_member' } },
+  });
+  const fromSql = await post({ confirm: 'DELETE' }, sqlSays.deps);
+  assert.equal(fromSql.status, 409);
+  assert.match((await fromSql.json()).error, /Email support@pwrstrong\.net/);
+  assert.equal(sqlSays.calls.deleted.length, 0);
+
+  const due = world({
+    user: ownerUser,
+    requests: [{ id: 'req9', user_id: OWNER, kind: 'company', purge_after: '2020-01-01T00:00:00.000Z', cancelled_at: null, completed_at: null, baseline_sign_in_at: '2026-10-01T00:00:00.000Z' }],
+    rpcResult: { data: { cancelled: true, reason: 'signed_in' }, error: null },
+  });
+  const cron = await CRON(new Request('http://x/api/cron/account-deletion', { headers: { authorization: 'Bearer s3cret' } }), { deps: { ...due.deps, env: { CRON_SECRET: 's3cret' } } });
+  assert.equal(cron.status, 200);
+  assert.equal((await cron.json()).results[0].cancelled, true);
+  assert.equal(due.calls.deleted.length, 0);
+  assert.equal(due.deps.admin.db.account_deletion_requests[0].completed_at ?? null, null);
+  assert.match(read('app/components/DangerZone.js'), /data-testid="deletion-blocked"/);
 });
 
 test('signing in again cancels a pending company deletion; an explicit cancel does too', async () => {

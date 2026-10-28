@@ -39,7 +39,7 @@ export default function DeleteAccountPage() {
       </ol>
 
       <h2 style={{ fontSize: '1.15rem' }}>If you are on a company and you are not the owner</h2>
-      <p>Your sign-in is deleted right away. The company stays.</p>
+      <p>Your sign-in is deleted right away when you belong to one company. The company stays. If you belong to more than one company, the app will not delete the account. Email {SUPPORT_EMAIL} and ask support to delete it.</p>
       <List title="Removed" items={MEMBER_REMOVED} />
       <List title="Changed" items={MEMBER_ANONYMIZED} />
       <List title="Kept with the company" items={MEMBER_KEPT} />
@@ -52,7 +52,8 @@ export default function DeleteAccountPage() {
       <List title="Removed" items={COMPANY_REMOVED} />
       <List title="Changed" items={COMPANY_ANONYMIZED} />
       <List title="Kept" items={COMPANY_KEPT} />
-      <p>A demo or test company is deleted right away. There is no {GRACE_DAYS}-day wait, and signing in again does not restore it.</p>
+      <p>A company marked as a demo is deleted right away. There is no {GRACE_DAYS}-day wait, and signing in again does not restore it. The company name does not decide that.</p>
+      <p>Some companies can’t be deleted from the app. Contact support at {SUPPORT_EMAIL}.</p>
 
       <h2 style={{ fontSize: '1.15rem' }}>If you cannot sign in</h2>
       <p>

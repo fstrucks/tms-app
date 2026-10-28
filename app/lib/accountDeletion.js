@@ -8,6 +8,8 @@ export const CONFIRM_WORD = 'DELETE';
 export const FORMER_MEMBER_LABEL = 'Former team member';
 // Change this in one place if the mailbox is different. Needs confirmation before release.
 export const SUPPORT_EMAIL = 'support@pwrstrong.net';
+// Real owner company. Also honored when company_profiles.deletion_locked is true.
+export const PROTECTED_COMPANY_ID = '155fd2a0-11a9-4a3c-8f58-7efab00a188b';
 export const DELETE_ACCOUNT_PAGE_UPDATED = '2026-10-28';
 export const DOCUMENTS_BUCKET = 'documents';
 
@@ -35,14 +37,22 @@ export function formatWhen(iso) {
   return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' }).format(d);
 }
 
-// A company deletes immediately when is_demo is true, or when the legal name or DBA contains the
-// whole word "demo" or "test" (Demo Trucking, Test Co). "FS Trucks" and "Latest Hauling" do not match.
-// The column is the reliable switch. The name check covers companies that were labeled that way in the name.
+// Immediate deletion is only company_profiles.is_demo, set by hand. The company name is not used.
 export function isDemoCompany(profile) {
+  return profile?.is_demo === true;
+}
+
+export function isProtectedCompany(profile) {
   if (!profile) return false;
-  if (profile.is_demo === true) return true;
-  const name = `${profile.legal_name || ''} ${profile.dba_name || ''}`;
-  return /\b(demo|test)\b/i.test(name);
+  return profile.deletion_locked === true || profile.id === PROTECTED_COMPANY_ID;
+}
+
+export function protectedCompanyMessage() {
+  return `This company can't be deleted from the app. Contact support at ${SUPPORT_EMAIL}.`;
+}
+
+export function multiCompanyMessage() {
+  return `You belong to more than one company. Email ${SUPPORT_EMAIL} and ask support to delete this account.`;
 }
 
 export function deletionKind({ ownsCompany, demo }) {
@@ -128,7 +138,7 @@ export const COMPANY_KEPT = [
 export function ownerWarnings({ companyName, graceDays = GRACE_DAYS, demo = false } = {}) {
   const name = companyName ? `“${companyName}”` : 'this company';
   const wait = demo
-    ? `${name} is a demo or test company, so it is deleted right away. There is no waiting period and signing in again will not bring it back.`
+    ? `${name} is marked as a demo, so it is deleted right away. There is no waiting period and signing in again will not bring it back.`
     : `${name} is scheduled for deletion ${graceDays} days from now. Sign in again before that day to cancel. You can also tap Cancel while you are still signed in.`;
   return [
     wait,

@@ -9,9 +9,11 @@
 --   to booked when the driver is cleared. Files that are only theirs (bug-report screenshots
 --   and uploads not tied to company work) are removed. Files tied to company work are moved
 --   under the company owner's folder.
---   A company owner schedules deletion 14 days out. Signing in again cancels it. A demo or
---   test company (is_demo, or the name contains the whole word demo or test) is deleted
---   right away. When a company is deleted, its business records go away. Facilities and
+--   A company owner schedules deletion 14 days out. Signing in again cancels it, including
+--   inside this function when auth.users.last_sign_in_at is later than the request baseline.
+--   A demo company (company_profiles.is_demo, set by hand) is deleted right away. The name
+--   is not used. A locked company, and the real owner company, cannot be deleted here.
+--   When a company is deleted, its business records go away. Facilities and
 --   facility reviews stay, detached from the company and the people. Email-send rows stay
 --   so the monthly email count does not shrink, with the addresses removed.
 --   People who belong only to that company lose their sign-in too. People who also belong
@@ -27,6 +29,8 @@ begin;
 
 alter table public.company_profiles
   add column if not exists is_demo boolean not null default false;
+alter table public.company_profiles
+  add column if not exists deletion_locked boolean not null default false;
 
 create table if not exists public.account_deletion_requests (
   id uuid primary key default gen_random_uuid(),
@@ -137,14 +141,47 @@ select public.account_deletion_retarget_fk('coi_requests', 'owner_id', 'auth.use
 select public.account_deletion_retarget_fk('coi_requests', 'packet_id', 'public.packets(id)', 'set null', true);
 select public.account_deletion_retarget_fk('company_checklist_status', 'checked_by', 'auth.users(id)', 'set null', true);
 select public.account_deletion_retarget_fk('compliance_reminders_state', 'acted_by', 'auth.users(id)', 'set null', true);
+-- signed_by had no on-delete action, so removing a person who signed a profile blocked the auth delete.
+select public.account_deletion_retarget_fk('company_profiles', 'signed_by', 'auth.users(id)', 'set null', true);
 
 drop function if exists public.account_deletion_retarget_fk(text, text, text, text, boolean);
+
+-- After the retargets above, no public foreign key to auth.users may still be NO ACTION or RESTRICT.
+-- Those are the ones that make deleting a sign-in fail. Cascade and set null are left as they are.
+-- Checked in this migration (repo): company_profiles.signed_by had no action (fixed above).
+-- company_checklist_status.checked_by and compliance_reminders_state.acted_by had no action
+-- (fixed above). Every other auth.users reference in supabase/migrations already cascades or sets null.
+do $$
+declare
+  r record;
+  v_list text := '';
+begin
+  for r in
+    select n.nspname || '.' || c.relname || '.' || a.attname as col, con.conname as conname
+      from pg_constraint con
+      join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_attribute a on a.attrelid = con.conrelid and a.attnum = any (con.conkey)
+      join pg_class cf on cf.oid = con.confrelid
+      join pg_namespace nf on nf.oid = cf.relnamespace
+     where con.contype = 'f'
+       and n.nspname = 'public'
+       and nf.nspname = 'auth'
+       and cf.relname = 'users'
+       and con.confdeltype in ('a', 'r')
+  loop
+    v_list := v_list || r.col || ' (' || r.conname || '); ';
+  end loop;
+  if v_list <> '' then
+    raise exception 'account_deletion_blocking_fk: %', v_list;
+  end if;
+end $$;
 
 create or replace function public.account_deletion_apply(p_user uuid)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $fn$
 declare
   v_profile public.company_profiles%rowtype;
@@ -155,6 +192,8 @@ declare
   v_ids uuid[] := array[]::uuid[];
   v_keep uuid[] := array[]::uuid[];
   v_member uuid;
+  v_memberships integer := 0;
+  v_signed timestamptz;
   v_to text;
   r record;
 begin
@@ -183,9 +222,22 @@ begin
   select * into v_profile from public.company_profiles where owner_id = p_user;
   v_has_profile := found;
   if v_has_profile then
-    v_demo := coalesce(v_profile.is_demo, false)
-      or coalesce(v_profile.legal_name, '') ~* '\m(demo|test)\M'
-      or coalesce(v_profile.dba_name, '') ~* '\m(demo|test)\M';
+    -- Hard stop for the real owner company, and for any company flagged deletion_locked.
+    if v_profile.id = '155fd2a0-11a9-4a3c-8f58-7efab00a188b' or coalesce(v_profile.deletion_locked, false) then
+      raise exception 'protected_company';
+    end if;
+    v_demo := coalesce(v_profile.is_demo, false);
+    -- Grace cancel does not depend on the app. A later sign-in than the one that scheduled
+    -- this request cancels it here, before any company row is removed.
+    if not v_demo and v_request.id is not null and v_request.baseline_sign_in_at is not null then
+      select u.last_sign_in_at into v_signed from auth.users u where u.id = p_user;
+      if v_signed is not null and v_signed > v_request.baseline_sign_in_at then
+        update public.account_deletion_requests
+           set cancelled_at = now(), cancel_reason = 'signed_in'
+         where id = v_request.id and cancelled_at is null and completed_at is null;
+        return jsonb_build_object('cancelled', true, 'reason', 'signed_in');
+      end if;
+    end if;
     if not v_demo then
       if v_request.id is null then raise exception 'grace_required'; end if;
       if v_request.purge_after > now() then raise exception 'grace_period'; end if;
@@ -245,6 +297,8 @@ begin
       update public.facility_note_reports set reporter_id = null where reporter_id = any(v_ids);
     end if;
 
+    -- Same limit as driver cards: a person who keeps their sign-in is cleared only on this
+    -- company's loads (user_id = p_user). A person whose sign-in is removed is cleared everywhere.
     if to_regclass('public.loads') is not null then
       update public.loads l
          set assigned_driver_user_id = null,
@@ -253,9 +307,18 @@ begin
        where l.assigned_driver_user_id = any(v_ids || v_keep)
          and (l.assigned_driver_user_id = any(v_ids) or l.user_id = p_user);
     end if;
+    -- People who keep their sign-in are unlinked only on this company's driver cards.
+    -- People whose sign-in is removed are unlinked everywhere, because that login is going away.
     if to_regclass('public.drivers') is not null then
-      update public.drivers set auth_user_id = null where auth_user_id = any(v_ids || v_keep);
+      update public.drivers
+         set auth_user_id = null
+       where auth_user_id = any(v_ids)
+          or (auth_user_id = any(v_keep) and user_id = p_user);
     end if;
+    -- A person whose sign-in is removed may have signed another company's profile.
+    update public.company_profiles set signed_by = null where signed_by = any(v_ids);
+    -- checked_by / acted_by only for people whose sign-in is removed. People who keep a sign-in
+    -- stay on the rows they completed, including at other companies.
     if to_regclass('public.company_checklist_status') is not null then
       update public.company_checklist_status set checked_by = null where checked_by = any(v_ids);
     end if;
@@ -322,6 +385,10 @@ begin
     delete from public.company_profiles where id = v_profile.id;
   else
     -- Member (or a sign-in with no company). Company records stay. Personal sign-in goes.
+    -- More than one membership is refused: there is no safe single company to keep the rows with.
+    select count(*) into v_memberships from public.company_members m where m.user_id = p_user;
+    if v_memberships > 1 then raise exception 'multi_company_member'; end if;
+
     select p.owner_id into v_primary
       from public.company_members m
       join public.company_profiles p on p.id = m.profile_id
@@ -345,6 +412,7 @@ begin
         update public.drivers set user_id = v_primary where user_id = p_user;
       end if;
     end if;
+    update public.company_profiles set signed_by = null where signed_by = p_user;
 
     if v_primary is not null and to_regclass('public.expenses') is not null then
       update public.expenses e
