@@ -1,4 +1,4 @@
-// Rate con email-in: ratecon+<token>@in.fstrucks.com → rate_confirmation documents (drafts for review).
+// Rate con email-in: ratecon+<token>@in.fstrucks.com or @in.pwrstrong.net → rate_confirmation documents (drafts for review).
 // Called by app/api/inbound/postmark/route.js after Basic auth. Never logs bodies, tokens or file contents.
 // A load is never created here, and an existing load is never updated. When the read broker load number
 // matches a load already in this account, the document is linked to that load (documents.load_id only)
@@ -11,9 +11,9 @@ import { parseWeightLb } from './loadWeight.js';
 import { parseTripMiles } from './loadMiles.js';
 import { escapeIlike, normalizeBrokerLoadNumber, pickExistingLoad } from './rateconMatch.js';
 
-export { RATECON_DOMAIN, RATECON_LOCAL, rateconAddress } from './rateconDrafts.js';
-import { RATECON_DOMAIN, RATECON_LOCAL } from './rateconDrafts.js';
-const ADDR_RE = new RegExp(`^${RATECON_LOCAL}(?:\\+([^@]*))?@${RATECON_DOMAIN.replace(/\./g, '\\.')}$`, 'i');
+export { RATECON_DOMAIN, INBOUND_DOMAINS, RATECON_LOCAL, rateconAddress } from './rateconDrafts.js';
+import { INBOUND_DOMAINS, RATECON_LOCAL } from './rateconDrafts.js';
+const ADDR_RE = new RegExp(`^${RATECON_LOCAL}(?:\\+([^@]*))?@(?:${INBOUND_DOMAINS.map((d) => d.replace(/\./g, '\\.')).join('|')})$`, 'i');
 const TOKEN_RE = /^[a-f0-9]{32}$/;
 
 // Every recipient Postmark gives us (OriginalRecipient first, then To/Cc/Bcc, structured and raw).

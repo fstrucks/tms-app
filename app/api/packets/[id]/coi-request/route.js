@@ -61,7 +61,7 @@ export async function POST(req, { params, deps } = {}) {
   if (a.error) return json({ error: a.error }, a.status);
   if (!canSend(a.role)) return json({ error: 'Only the owner or management can request a COI.' }, 403);
   let b; try { b = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
-  const v = validateCoiRequest(b, env); // includes the fstrucks.com-only allowlist on To + CC
+  const v = validateCoiRequest(b, env); // includes the allowed-domains check on To + CC
   if (v.error) return json({ error: v.error, ...(v.blocked ? { blocked: v.blocked } : {}) }, v.status);
   const key = b.idempotencyKey == null ? (deps?.uuid || randomUUID)() : String(b.idempotencyKey).toLowerCase();
   if (!UUID.test(key)) return json({ error: 'Bad request (send id).' }, 400);
