@@ -236,7 +236,6 @@ test('zip writer: projected size is exact, so a part can never pass the cap; cap
   const res = await z.finish();
   assert.equal(res.bytes, before); assert.equal(Buffer.concat(chunks).length, before);
   // Worst case overhead for a full part of tiny files still keeps the cap below the bucket limit.
-  const entries = 20000; const worst = PART_MAX_BYTES + entries * 0; void worst;
   assert.ok(PART_MAX_BYTES + END_BYTES < BUCKET_FILE_SIZE_LIMIT);
   assert.ok(BUCKET_FILE_SIZE_LIMIT - PART_MAX_BYTES >= 1024 * 1024, 'at least 1 MiB headroom');
 });
@@ -262,4 +261,70 @@ test('run and chain: kicks the next run only when work is left', async () => {
   const seen = []; await S.kickNextRun('job-1', env, async (u, o) => { seen.push([u, o.headers.authorization]); });
   assert.deepEqual(seen, [['https://example.test/api/cron/company-export?job=job-1', 'Bearer test-secret']]);
   assert.deepEqual(await S.kickNextRun('job-1', {}, async () => {}), { ok: false });
+});
+
+import { readFileSync, readdirSync } from 'node:fs';
+import { EXPORT_TABLES } from '../../app/lib/companyExport.js';
+import { getCompanyExport, postCompanyExport, cronCompanyExport } from '../../app/lib/companyExportRoutes.js';
+import { runDueDeletions } from '../../app/lib/accountDeletionServer.js';
+
+test('guard: every table key/order column exists in the migration that creates the table', () => {
+  const dir = new URL('../../supabase/migrations/', import.meta.url);
+  const sql = readdirSync(dir).filter((f) => f.endsWith('.sql')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
+  let checked = 0;
+  for (const spec of EXPORT_TABLES) {
+    const m = new RegExp(`create table (?:if not exists )?(?:public\\.)?${spec.table}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i').exec(sql);
+    if (!m) continue; // created outside migrations (dashboard tables); checked against Dakota's column list instead
+    const cols = sql.match(new RegExp(`alter table (?:if exists )?(?:public\\.)?${spec.table}\\s+add column (?:if not exists )?(\\w+)`, 'gi')) || [];
+    const body = m[1] + '\n' + cols.join('\n');
+    for (const c of [spec.key, spec.order].filter(Boolean)) assert.match(body, new RegExp(`\\b${c}\\b`), `${spec.table}.${c}`);
+    checked += 1;
+  }
+  assert.ok(checked >= 10, `checked ${checked}`);
+});
+
+test('same file name in two places of one folder: the repeat gets the row id, both kept', async () => {
+  const documents = [{ id: 'aaaaaaaa-1', user_id: ids.o, doc_type: 'w9', file_path: `${ids.o}/1.pdf`, original_filename: 'w9.pdf' }, { id: 'bbbbbbbb-2', user_id: ids.o, doc_type: 'w9', file_path: `${ids.o}/2.pdf`, original_filename: 'W9.pdf' }];
+  const sb = world({ tables: { documents }, files: { [`${ids.o}/1.pdf`]: Buffer.from('1'), [`${ids.o}/2.pdf`]: Buffer.from('2') } });
+  const s = await start(sb); await runAll(sb, s.jobId);
+  const names = Object.keys(allEntries(sb, job(sb, s.jobId))).filter((n) => n.startsWith('documents/'));
+  assert.deepEqual(names.sort(), ['documents/w9/W9 [bbbbbbbb].pdf', 'documents/w9/w9.pdf']);
+});
+
+const req = (url, { token, method = 'GET', auth } = {}) => new Request(url, { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(auth ? { authorization: auth } : {}) } });
+const users = { 'tok-owner': { id: ids.o, email: 'owner@example.test' }, 'tok-m1': { id: ids.m1 } };
+const mkUserClient = () => ({ auth: { getUser: async (t) => (users[t] ? { data: { user: users[t] }, error: null } : { data: null, error: { status: 401, message: 'invalid JWT' } }) } });
+
+test('routes: start and status for the signed-in owner only; work runs after the response', async () => {
+  const sb = world(); const later = [];
+  const deps = { admin: sb, mkUserClient, waitUntil: (p) => later.push(p), now: new Date(T0) };
+  assert.equal((await postCompanyExport(req('https://x.test/api/company-export', { method: 'POST' }), deps)).status, 401);
+  assert.equal((await postCompanyExport(req('https://x.test/api/company-export', { method: 'POST', token: 'tok-m1' }), deps)).status, 403);
+  const r = await postCompanyExport(req('https://x.test/api/company-export', { method: 'POST', token: 'tok-owner' }), { ...deps, kick: async () => {} });
+  assert.equal(r.status, 202); assert.equal(later.length, 1); await Promise.all(later);
+  const st = await (await getCompanyExport(req('https://x.test/api/company-export', { token: 'tok-owner' }), deps)).json();
+  assert.equal(st.job.status, 'ready'); assert.equal(st.job.partMaxBytes, PART_MAX_BYTES); assert.ok(st.job.partCount >= 1);
+  assert.ok(!('cursor' in st.job) && !('token_hash' in st.job));
+});
+
+test('cron: same secret rules as account deletion; ?job continues one job; sweep cleans and continues', async () => {
+  const sb = world(); const s = await start(sb);
+  const env = { CRON_SECRET: 'test-secret' };
+  assert.equal((await cronCompanyExport(req('https://x.test/api/cron/company-export'), { admin: sb, env: {} })).status, 503);
+  assert.equal((await cronCompanyExport(req('https://x.test/api/cron/company-export', { auth: 'Bearer nope' }), { admin: sb, env })).status, 401);
+  const later = []; const kicks = [];
+  const one = await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth: 'Bearer test-secret' }), { admin: sb, env, waitUntil: (p) => later.push(p), kick: async (id) => kicks.push(id), now: new Date(T0) });
+  assert.equal(one.status, 202); await Promise.all(later);
+  assert.equal(job(sb, s.jobId).status, 'ready');
+  const sweep = await (await cronCompanyExport(req('https://x.test/api/cron/company-export', { auth: 'Bearer test-secret' }), { admin: sb, env, now: new Date('2026-11-05T16:00:00Z') })).json();
+  assert.equal(sweep.cleaned.cleaned, 1); assert.equal(job(sb, s.jobId).status, 'expired');
+  assert.equal(sb.buckets['company-exports'].size, 0);
+});
+
+test('account deletion cron skips a company with an open export (held), purges once it is done', async () => {
+  const sb = world({ tables: { account_deletion_requests: [{ id: 'dr1', user_id: ids.o, company_profile_id: ids.A, purge_after: '2026-10-28T10:15:00Z', cancelled_at: null, completed_at: null }] } });
+  const s = await start(sb);
+  const run = (now) => runDueDeletions(sb, { exportHold: undefined }, now);
+  const held = await run(new Date(T0 + 3600_000));
+  assert.deepEqual(held.results, [{ user_id: ids.o, ok: false, held_for_export: s.jobId }]);
 });

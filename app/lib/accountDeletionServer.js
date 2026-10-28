@@ -326,6 +326,9 @@ export async function runDueDeletions(admin, deps = {}, now = new Date()) {
   if (due.error) return { error: due.error, results: [] };
   const results = [];
   for (const row of due.data || []) {
+    // An open company export holds the purge (at most 48 h after it started; see companyExportServer).
+    const held = await (deps.exportHold || (await import('./companyExportServer.js')).exportHold)(admin, row.company_profile_id, now);
+    if (held.hold) { results.push({ user_id: row.user_id, ok: false, held_for_export: held.jobId }); continue; }
     const ran = await executeAccountDeletion(admin, row.user_id, deps);
     if (ran.cancelled) {
       results.push({ user_id: row.user_id, ok: true, cancelled: true });
