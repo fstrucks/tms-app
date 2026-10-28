@@ -3,6 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inflateRawSync } from 'node:zlib';
 import { fakeExportSupabase, fid } from './fakeExportSupabase.mjs';
+// Never send real email from tests.
+delete process.env.POSTMARK_SERVER_TOKEN;
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u, o) => { if (/postmarkapp|\.test\//.test(String(u))) throw new Error(`blocked network in tests: ${u}`); return realFetch(u, o); };
 import * as S from '../../app/lib/companyExportServer.js';
 import { PART_MAX_BYTES, BUCKET_FILE_SIZE_LIMIT } from '../../app/lib/companyExport.js';
 import { ZipWriter, crc32, entryOverhead, END_BYTES } from '../../app/lib/zipStream.js';
