@@ -76,6 +76,11 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Two-column form rows stay side by side on phones; stack only on very narrow screens. */
 @media (max-width: 339px) { .form-grid-2 { grid-template-columns: minmax(0, 1fr) !important; } }
 
+/* Public legal pages: links inside the rendered policy text. */
+.legal-copy a { color: var(--primary); }
+.legal-copy p, .legal-copy li { line-height: 1.45; }
+.legal-copy ul, .legal-copy ol { padding-left: 1.15rem; }
+
 /* Account email next to the avatar only on wide screens. */
 .account-email { display: inline-flex; flex-direction: column; }
 @media (max-width: 1023.98px) { .account-email { display: none; } }

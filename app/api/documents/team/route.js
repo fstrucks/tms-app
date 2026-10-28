@@ -9,6 +9,7 @@ import { loadDocsCtx, json, DOC_COLS, docInCompany } from '../../../lib/loadDocs
 import { canViewLoadDocs, visibleDocsFor, isImagePath, loadPickLabel } from '../../../lib/loadDocs';
 import { docTypeLabel, isDocumentsTabDoc } from '../../../lib/docTypes';
 import { selectInboxTeamDocs } from '../../../lib/docsInboxQuery';
+import { FORMER_MEMBER_LABEL } from '../../../lib/accountDeletion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,7 @@ async function uploaderNames(svc, ids, me) {
     try {
       const { data } = await svc.auth.admin.getUserById(id);
       const u = data?.user;
+      if (!u) { out.set(id, FORMER_MEMBER_LABEL); continue; }
       name = String(u?.user_metadata?.full_name || u?.user_metadata?.name || '').trim() || (u?.email ? String(u.email).split('@')[0] : null);
     } catch { /* name is optional */ }
     out.set(id, name || 'Teammate');

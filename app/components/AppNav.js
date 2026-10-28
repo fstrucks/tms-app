@@ -9,6 +9,7 @@ import { navTabs } from '../lib/dispatchNav';
 import { DOCS_ATTENTION_EVENT, fetchNeedsAttention } from '../lib/docsInbox';
 import { syncAuthCookie } from '../lib/authCookie';
 import { dispatcherStatus, shouldRecheck, checkUntilDefinite, rememberRole, recallRole, forgetRole } from '../lib/roleRefresh';
+import { isPublicLegalPath } from '../lib/legalRoutes';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
@@ -19,7 +20,7 @@ const TABS = [
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
   { href: '/truck', label: 'Truck', icon: '🚛', match: (p) => p.startsWith('/truck') }, // took Mileage's spot (Marc, Oct 17)
 ];
-const HIDDEN = (p) => p.startsWith('/login');
+const HIDDEN = (p) => p.startsWith('/login') || isPublicLegalPath(p);
 
 const blue = 'var(--primary)';
 

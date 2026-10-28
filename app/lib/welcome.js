@@ -1,9 +1,11 @@
 // First-sign-in welcome screen: content + "seen" flag logic. No SQL: the flag lives in Supabase
 // auth user_metadata.welcome_seen_at (via auth.updateUser), with a per-user localStorage fallback.
+import { PUBLIC_LEGAL_PATHS } from './legalRoutes.js';
+
 export const WELCOME_KEY = 'powerhaul.welcome.seen.v1';
 export const OPEN_WELCOME_EVENT = 'powerhaul:open-welcome';
 // Never cover sign-in / password-setup flows (invite links land on /account/password).
-export const WELCOME_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', '/account/password', '/dev/welcome-reset'];
+export const WELCOME_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', '/account/password', '/dev/welcome-reset', ...PUBLIC_LEGAL_PATHS];
 
 export const WELCOME_CARDS = [
   { id: 'what', title: 'What PowerHaul TMS does', lines: [

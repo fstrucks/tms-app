@@ -8,6 +8,7 @@ import { VISUALLY_HIDDEN } from '../components/UploadMenu';
 import CompanyInsurance from './CompanyInsurance';
 import CompanyDocuments from './CompanyDocuments';
 import CompanyBilling from './CompanyBilling';
+import DangerZone from '../components/DangerZone';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 560, margin: '0 auto' },
@@ -158,6 +159,7 @@ export default function CompanyProfilePage() {
       {p && <CompanyDocuments />}
       {p && <CompanyInsurance />}
       {p && role !== 'driver' && <CompanyBilling />}
+      {role === 'owner' && <DangerZone />}
     </main>
   );
 }

@@ -3,6 +3,7 @@ import ReportBugButton from './components/ReportBugButton';
 import AppNav from './components/AppNav';
 import WelcomeScreen from './components/WelcomeScreen';
 import CompanyAddPrompt from './components/CompanyAddPrompt';
+import DeletionBanner from './components/DeletionBanner';
 import { THEME_INIT_SCRIPT, THEME_COLORS } from './lib/theme';
 
 export const metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }) {
       <body>
         <ReportBugButton />
         <AppNav />
+        <DeletionBanner />
         <CompanyAddPrompt />
         <div className="app-container">{children}</div>
         <WelcomeScreen />
