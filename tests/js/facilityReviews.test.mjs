@@ -122,7 +122,7 @@ test('migration: shared directory, trigger link, no client access to reviews/rep
 
 test('UI wiring: prompt after picked up / delivered, dismissible; facility info on the stop card; facility page with Report', () => {
   const a = read('../../app/components/StopActions.js');
-  assert.match(a, /if \(action === 'done' && !r\.already && \['pickup', 'delivery'\]\.includes\(stop\.stop_type\)\) setReviewStop/);
+  assert.match(a, /if \(action === 'done' && !r\.already && r\.ratingPrompt && \['pickup', 'delivery'\]\.includes\(stop\.stop_type\)\) \{ setReviewStop/); // server decides who is asked
   assert.match(a, /<FacilityInfo info=\{facilities\[target\.id\]\} \/>/);
   const f = read('../../app/components/FacilityReview.js');
   assert.match(f, /facility-review-dismiss/); assert.match(f, /What could be better \(optional\)/); assert.match(f, /Need to know \(optional\)/); assert.match(f, /without your name or company/);

@@ -58,7 +58,25 @@ export function FacilityInfo({ info }) {
   );
 }
 
-export function FacilityReviewPrompt({ loadId, stop, onClose }) {
+// mode: undefined = opened by "Review this facility" (Not now just closes)
+//       'auto'     = right after the mark (Skip → the 9 AM next-day reminder still comes)
+//       'reminder' = the next-day reminder card (Skip → never again)
+// In 'auto' / 'reminder' a "Don't ask about this facility again" link mutes the facility. 'auto' is a bottom sheet on phones.
+const promptPost = (stopId, action) => api('/api/rating-prompts', { method: 'POST', body: JSON.stringify({ stopId, action }) }).catch(() => ({}));
+function useNarrow() {
+  const [n, setN] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(max-width: 640px)'); const on = () => setN(mq.matches); on();
+    mq.addEventListener?.('change', on); return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return n;
+}
+export function FacilityReviewPrompt({ loadId, stop, onClose, mode }) {
+  const narrow = useNarrow();
+  const asked = mode === 'auto' || mode === 'reminder';
+  const skip = async () => { if (asked) await promptPost(stop.id, mode === 'auto' ? 'skip' : 'dismiss'); onClose?.(); };
+  const mute = async () => { await promptPost(stop.id, 'dismiss_facility'); onClose?.(); };
   const [st, setSt] = useState({ loading: true });
   const [form, setForm] = useState({ stars: 0, better_note: '', need_to_know: '' });
   const [busy, setBusy] = useState(false);
@@ -104,10 +122,13 @@ export function FacilityReviewPrompt({ loadId, stop, onClose }) {
     </div>
   );
   return (
-    <div role="group" data-testid="facility-review-prompt" aria-label={`Review ${place}`} style={{ marginTop: 10, border: '1px solid var(--divider)', borderRadius: 10, padding: 10 }}>
+    <div role="group" data-testid="facility-review-prompt" data-sheet={mode === 'auto' && narrow ? 'true' : undefined} aria-label={`Review ${place}`}
+      style={mode === 'auto' && narrow
+        ? { position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, maxHeight: '85vh', overflowY: 'auto', background: 'var(--surface)', borderTop: '1px solid var(--divider)', borderRadius: '14px 14px 0 0', padding: '12px 14px calc(12px + env(safe-area-inset-bottom))' }
+        : { marginTop: 10, border: '1px solid var(--divider)', borderRadius: 10, padding: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <strong style={{ flex: 1 }}>{st.existing ? 'Your review of' : 'How was'} {place}?</strong>
-        <button type="button" aria-label="Not now" data-testid="facility-review-dismiss" onClick={onClose} style={{ ...btn, minHeight: 36, padding: '0 10px' }}>Not now</button>
+        <button type="button" aria-label={asked ? 'Skip' : 'Not now'} data-testid="facility-review-dismiss" onClick={skip} style={{ ...btn, minHeight: 36, padding: '0 10px' }}>{asked ? 'Skip' : 'Not now'}</button>
       </div>
       <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Optional. Shared with other drivers without your name or company.</p>
       <StarRating value={form.stars} name="Stars" testIdPrefix="facility-star" onChange={(n) => setForm({ ...form, stars: n })} />
@@ -119,6 +140,8 @@ export function FacilityReviewPrompt({ loadId, stop, onClose }) {
       <button type="button" data-testid="facility-review-save" disabled={busy} onClick={save}
         style={{ ...btn, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600 }}>{busy ? 'Saving…' : st.existing ? 'Save changes' : 'Post review'}</button>
       {err && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem', margin: '6px 0 0' }}>{err}</p>}
+      {asked && <button type="button" data-testid="facility-review-mute" onClick={mute}
+        style={{ ...btn, display: 'block', minHeight: 36, marginTop: 6, border: 'none', background: 'none', color: 'var(--text-muted)', padding: '0 4px', fontSize: '0.85rem', textDecoration: 'underline' }}>Don’t ask about this facility again</button>}
     </div>
   );
 }

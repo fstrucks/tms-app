@@ -9,6 +9,7 @@
 // in_transit → dispatched. Before migration 20261020000400: 409 { setupNeeded } (the UI hides the buttons).
 import { loadDocsCtx, json, UUID } from '../../../../../lib/loadDocsServer';
 import { isMissing } from '../../../../../lib/truckServer';
+import { createPrompt, clearOpenPrompts } from '../../../../../lib/facilityRatingPromptsServer';
 import { canCompleteStops, planStopAction, supportsStopCompletion, supportsArrival, patchApplied } from '../../../../../lib/stopProgress';
 
 export const runtime = 'nodejs';
@@ -72,6 +73,11 @@ export async function POST(req, { params, deps } = {}) {
     if (dErr) console.error('[stops] draft invoice', dErr.code);
     else invoiceDraftDeleted = !!gone?.length;
   }
+  // Facility rating prompt (best effort; never fails the check-off): only the assigned driver, or the owner on his own
+  // load with no assigned driver. ratingPrompt tells the UI to show the immediate prompt.
+  let ratingPrompt = false;
+  if (body.action === 'done' && stop.completed_at) ratingPrompt = await createPrompt(svc, { load, stop, userId: c.user.id, now: deps?.now ? new Date(deps.now()) : new Date() });
+  else if (body.action === 'undo') await clearOpenPrompts(svc, stop.id);
   if (body.action === 'deliver' && status !== 'delivered') return out({ error: 'Couldn’t mark the load delivered. Please try again.' }, 500, 'deliver_not_updated');
-  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}) }, 200, `saved_${body.action}`);
+  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}), ...(ratingPrompt ? { ratingPrompt } : {}) }, 200, `saved_${body.action}`);
 }
