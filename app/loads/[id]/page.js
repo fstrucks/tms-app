@@ -30,7 +30,7 @@ import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
-import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
+import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtStopAppt, fullAddress } from '../../lib/loads';
 import { formatLocalDate } from '../../lib/localDate';
 import StopActions from '../../components/StopActions';
 import FacilityRatingReminders from '../../components/FacilityRatingReminders';
@@ -347,7 +347,7 @@ export default function LoadDetailPage() {
                         {st.notes && <div style={{ ...s.muted, whiteSpace: 'pre-line' }}>{st.notes}</div>}
                       </div>
                       <div style={{ ...s.muted, textAlign: 'right', maxWidth: '45%' }}>
-                        {fmtApptWindow(st.appointment_start, st.appointment_end, st.timezone)}
+                        {fmtStopAppt(st)}
                       </div>
                     </div>
                   ))}
