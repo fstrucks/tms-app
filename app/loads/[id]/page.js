@@ -40,6 +40,7 @@ import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
 import LoadExport from '../../components/LoadExport';
+import RateConRescan from '../../components/RateConRescan';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -316,6 +317,7 @@ export default function LoadDetailPage() {
                   onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
 
                 <LoadExport supabase={supabase} load={load} cardStyle={s.card} />
+                <RateConRescan supabase={supabase} load={load} docs={docs} owner={owner} cardStyle={s.card} onSaved={() => fetchAll()} />
 
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
