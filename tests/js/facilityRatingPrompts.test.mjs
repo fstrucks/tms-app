@@ -201,7 +201,7 @@ test('wiring: review save marks rated; UI asks only when the server says so; rem
   const sa = read('../../app/components/StopActions.js');
   assert.match(sa, /r\.ratingPrompt/); assert.match(sa, /mode=\{reviewAuto \? 'auto' : undefined\}/);
   const fr = read('../../app/components/FacilityReview.js');
-  assert.match(fr, /Don’t ask about this facility again/); assert.match(fr, /'dismiss_facility'/); assert.match(fr, /matchMedia\('\(max-width: 640px\)'\)/);
+  assert.match(fr, /Don’t ask about this facility again/); assert.match(fr, /'dismiss_facility'/); assert.match(fr, /const PHONE = '\(max-width: 767\.98px\)'/);
   assert.match(fr, /mode === 'auto' \? 'skip' : 'dismiss'/);
   const rem = read('../../app/components/FacilityRatingReminders.js');
   assert.match(rem, /action: 'shown'/); assert.match(rem, /c\.state === 'first'/);
@@ -222,4 +222,49 @@ test('SQL: additive, own-row read only, no functions / definer, writes by servic
   assert.match(code, /status in \('pending', 'skipped', 'reminded', 'rated', 'dismissed'\)/);
   assert.match(code, /timezone text not null default 'America\/Chicago'/);
   assert.match(code, /unique \(user_id, stop_id, kind\)/);
+});
+
+// ---- QA polish: card order, tap targets, phone bottom sheet, room for the floating button ----
+import { sortPromptRows } from '../../app/lib/facilityRatingPrompts.js';
+
+test('reminder cards: deterministic order by remind_at, then created_at, then id', () => {
+  const rows = [
+    { id: 'b', remind_at: '2026-11-03T15:00:00Z', created_at: '2026-11-02T10:00:00Z' },
+    { id: 'c', remind_at: '2026-11-03T14:00:00Z', created_at: '2026-11-02T12:00:00Z' },
+    { id: 'a', remind_at: '2026-11-03T15:00:00Z', created_at: '2026-11-02T10:00:00Z' },
+    { id: 'd', remind_at: '2026-11-03T15:00:00Z', created_at: '2026-11-02T09:00:00Z' },
+    { id: 'e', remind_at: null, created_at: null },
+  ];
+  const want = ['c', 'd', 'a', 'b', 'e'];
+  assert.deepEqual(sortPromptRows(rows).map((r) => r.id), want);
+  assert.deepEqual(sortPromptRows([...rows].reverse()).map((r) => r.id), want, 'same order whatever the input order');
+  assert.deepEqual(rows.map((r) => r.id), ['b', 'c', 'a', 'd', 'e'], 'input not mutated');
+});
+
+test('GET /api/rating-prompts: same card order on every request, ties broken by created_at then id', async () => {
+  const due = '2026-11-03T15:00:00.000Z';
+  const mk = (stop_id, id, created_at) => row({ stop_id, id, created_at, remind_at: due });
+  const a = [mk(S2, 'p-2', '2026-11-02T18:00:00Z'), mk(S3, 'p-3', '2026-11-02T17:00:00Z'), mk(S1, 'p-1', '2026-11-02T18:00:00Z')];
+  const c1 = at(ctx('driver', DRIVER, { tables: { facility_rating_prompts: a } }), '2026-11-03T15:30:00Z');
+  const c2 = at(ctx('driver', DRIVER, { tables: { facility_rating_prompts: [...a].reverse() } }), '2026-11-03T15:30:00Z');
+  const ids1 = (await list(c1)).map((x) => x.id); const ids2 = (await list(c2)).map((x) => x.id);
+  assert.deepEqual(ids1, ['p-3', 'p-1', 'p-2']); assert.deepEqual(ids2, ids1);
+  const src = readFileSync(new URL('../../app/api/rating-prompts/route.js', import.meta.url), 'utf8');
+  assert.match(src, /\.order\('remind_at'[^)]*\)\.order\('created_at'[^)]*\)\.order\('id'/);
+});
+
+test('prompt UI: 44px tap targets, phone bottom sheet above the tab bar, focus trap + Escape, room for Report a bug', () => {
+  const fr = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(fr, /minHeight: (3\d|2\d)\b/, 'no tap target under 44px');
+  assert.match(fr, /data-testid="facility-review-dismiss"[^>]*minHeight: 44/);
+  assert.match(fr, /data-testid="facility-review-mute"[\s\S]{0,120}minHeight: 44/);
+  assert.match(fr, /useState\(\(\) => typeof window !== 'undefined' && !!window\.matchMedia\?\.\(PHONE\)\.matches\)/, 'no inline→sheet jump');
+  assert.match(fr, /const sheet = mode === 'auto' && narrow;/);
+  assert.match(fr, /role="dialog" aria-modal="true"/);
+  assert.equal((fr.match(/bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\)\)'/g) || []).length, 2, 'sheet + backdrop stop at the tab bar');
+  assert.match(fr, /e\.key === 'Escape'/); assert.match(fr, /e\.key !== 'Tab'/); assert.match(fr, /prev\.focus/);
+  assert.match(fr, /zIndex: 71/, 'sheet above the Report a bug button (z 60)');
+  assert.match(fr, /data-above-fab aria-label=\{`Review \$\{place\}`\}\s+style=\{\{ marginTop: 10, marginBottom: 'var\(--fab-space\)'/);
+  const rem = readFileSync(new URL('../../app/components/FacilityRatingReminders.js', import.meta.url), 'utf8');
+  assert.match(rem, /mode="reminder"/, 'next-day reminders stay inline cards');
 });
