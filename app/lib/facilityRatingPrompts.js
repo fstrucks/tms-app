@@ -70,3 +70,11 @@ export function cardState(row, now = new Date()) {
 }
 
 export const recentSince = (now = new Date()) => new Date((now instanceof Date ? now : new Date(now)).getTime() - RECENT_REVIEW_DAYS * 86400000);
+
+// Reminder cards in a fixed order (QA: the order varied between loads): remind_at, then created_at, then id.
+const ms = (v) => { const t = v ? new Date(v).getTime() : NaN; return Number.isFinite(t) ? t : Infinity; };
+export function comparePromptRows(a, b) {
+  const num = (x, y) => (x < y ? -1 : x > y ? 1 : 0); // missing dates (Infinity) sort last
+  return num(ms(a.remind_at), ms(b.remind_at)) || num(ms(a.created_at), ms(b.created_at)) || num(String(a.id ?? ''), String(b.id ?? ''));
+}
+export const sortPromptRows = (rows) => [...(rows || [])].sort(comparePromptRows);

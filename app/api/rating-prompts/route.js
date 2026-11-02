@@ -8,12 +8,12 @@
 // Own rows only (filtered by user_id, service role). Before migration 20261102000100: { cards: [] } / { ok: false }.
 import { loadDocsCtx, json, UUID } from '../../lib/loadDocsServer';
 import { isMissing } from '../../lib/truckServer';
-import { cardState, OPEN_STATUSES, PROMPT_ACTIONS } from '../../lib/facilityRatingPrompts';
+import { cardState, OPEN_STATUSES, PROMPT_ACTIONS, sortPromptRows } from '../../lib/facilityRatingPrompts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const T = 'facility_rating_prompts';
-const COLS = 'id,stop_id,load_id,facility_id,kind,status,timezone,remind_at,reminded_at';
+const COLS = 'id,stop_id,load_id,facility_id,kind,status,timezone,remind_at,reminded_at,created_at';
 const nowOf = (deps) => (deps?.now ? new Date(deps.now()) : new Date());
 
 export async function GET(req, { deps } = {}) {
@@ -21,11 +21,11 @@ export async function GET(req, { deps } = {}) {
   const loadId = new URL(req.url).searchParams.get('loadId');
   if (loadId && !UUID.test(loadId)) return json({ cards: [] });
   const now = nowOf(deps);
-  let q = x.svc.from(T).select(COLS).eq('user_id', x.c.user.id).in('status', OPEN_STATUSES).lte('remind_at', now.toISOString()).order('remind_at', { ascending: true }).limit(20);
+  let q = x.svc.from(T).select(COLS).eq('user_id', x.c.user.id).in('status', OPEN_STATUSES).lte('remind_at', now.toISOString()).order('remind_at', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(20);
   if (loadId) q = q.eq('load_id', loadId);
   const { data, error } = await q;
   if (error) { if (!isMissing(error)) console.error('[rating-prompts] list', error.code); return json({ cards: [] }); }
-  const due = (data || []).map((r) => ({ r, state: cardState(r, now) })).filter((c) => c.state);
+  const due = sortPromptRows(data).map((r) => ({ r, state: cardState(r, now) })).filter((c) => c.state);
   const ids = [...new Set(due.map((c) => c.r.facility_id))];
   let names = {};
   if (ids.length) {
