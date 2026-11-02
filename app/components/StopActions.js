@@ -37,6 +37,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
   const [when, setWhen] = useState(''); // actual time for the confirm (datetime-local, device time), defaults to now
   const [edit, setEdit] = useState({}); // stopId → datetime-local value being edited
   const [reviewStop, setReviewStop] = useState(null); // stop to review after picked up / delivered (optional prompt)
+  const [reviewAuto, setReviewAuto] = useState(false); // opened by the mark itself (Skip → next-day reminder)
   const facilities = useLoadFacilities(load?.id, load?.stops?.length);
   const busyRef = useRef(false); // a second tap while a save runs is ignored (state updates lag a fast double tap)
   const coolUntil = useRef(0);   // after a save the next stop's button lands under the finger: ignore taps briefly
@@ -60,7 +61,8 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
     if (r.setupNeeded) { setErr('Stop check-off isn’t available on the server yet. Nothing was saved.'); return false; } // was a silent hide (prod Oct 20)
     if (!r.ok) { setErr(r.error); return false; }
     onChange?.(applyStopResult(load, r)); // the re-read server row (also for "already done": treated as success)
-    if (action === 'done' && !r.already && ['pickup', 'delivery'].includes(stop.stop_type)) setReviewStop(r.stop || stop); else if (action === 'undo') setReviewStop(null);
+    // Only when the server says this user is asked (assigned driver / owner with no driver; not muted or rated in 30 days).
+    if (action === 'done' && !r.already && r.ratingPrompt && ['pickup', 'delivery'].includes(stop.stop_type)) { setReviewStop(r.stop || stop); setReviewAuto(true); } else if (action === 'undo') setReviewStop(null);
     try { onRefresh?.(); } catch (e) { console.error('[stops] refresh', e); } // then re-read the whole load
     return true;
   }
@@ -149,9 +151,9 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
           })}
         </details>
       )}
-      {reviewStop && <FacilityReviewPrompt key={reviewStop.id} loadId={load.id} stop={reviewStop} onClose={() => setReviewStop(null)} />}
+      {reviewStop && <FacilityReviewPrompt key={reviewStop.id} loadId={load.id} stop={reviewStop} mode={reviewAuto ? 'auto' : undefined} onClose={() => { setReviewStop(null); setReviewAuto(false); }} />}
       {!reviewStop && isReviewableStop(last) && (
-        <button type="button" data-testid="facility-review-open" onClick={() => setReviewStop(last)}
+        <button type="button" data-testid="facility-review-open" onClick={() => { setReviewAuto(false); setReviewStop(last); }}
           style={{ ...btn, marginTop: 4, border: 'none', background: 'none', color: 'var(--primary)', padding: '0 4px', fontWeight: 400, fontSize: '0.9rem' }}>Review this facility</button>
       )}
       <StopDelays supabase={supabase} load={load} />

@@ -33,6 +33,7 @@ import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed
 import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
 import { formatLocalDate } from '../../lib/localDate';
 import StopActions from '../../components/StopActions';
+import FacilityRatingReminders from '../../components/FacilityRatingReminders';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
 import LoadReviews from '../../components/LoadReviews';
 import StarRating from '../../components/StarRating';
@@ -319,6 +320,7 @@ export default function LoadDetailPage() {
 
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
+                  <FacilityRatingReminders loadId={load.id} />
                   <StopActions supabase={supabase} load={load} userId={user.id} onChange={(next) => { setLoad((l) => ({ ...l, status: next.status, stops: next.stops })); list?.patchLoad?.(id, { status: next.status }); }} onRefresh={() => fetchRef.current?.()} />
                   <StopTimesDownload supabase={supabase} load={load} />
                   {load.stops.length === 0 ? <p style={s.muted}>No stops.</p> : load.stops.map((st, i) => (

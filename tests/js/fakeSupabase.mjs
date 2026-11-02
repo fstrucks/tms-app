@@ -23,6 +23,16 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
         db[t].push(...rows);
         return { data: rows, error: null };
       }
+      if (st.op === 'upsert') { // onConflict cols; ignoreDuplicates → keep the existing row
+        const cols = String(st.opts?.onConflict || 'id').split(',').map((c) => c.trim());
+        const out = [];
+        for (const r of (Array.isArray(st.payload) ? st.payload : [st.payload])) {
+          const cur = db[t].find((o) => cols.every((c) => o[c] === r[c]));
+          if (cur) { if (!st.opts?.ignoreDuplicates) { Object.assign(cur, r); out.push(cur); } }
+          else { const row = { id: r.id || fakeId(), created_at: new Date(Date.now() + seq).toISOString(), ...r }; db[t].push(row); out.push(row); }
+        }
+        return { data: out, error: null };
+      }
       if (st.op === 'update') {
         const hit = db[t].filter(match);
         for (const r of hit) if (violates(t, { ...r, ...st.payload }, r.id)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
@@ -66,6 +76,7 @@ export function fakeSupabase({ tables = {}, user = null, role = 'owner', files =
       limit(n) { st.lim = n; return api; },
       insert(p) { st.op = 'insert'; st.payload = p; return api; },
       update(p) { st.op = 'update'; st.payload = p; return api; },
+      upsert(p, o) { st.op = 'upsert'; st.payload = p; st.opts = o || {}; return api; },
       delete() { st.op = 'delete'; return api; },
       async maybeSingle() { const r = run(); return r.error ? r : { data: (Array.isArray(r.data) ? r.data[0] : r.data) || null, error: null }; },
       async single() { const r = run(); if (r.error) return r; const row = Array.isArray(r.data) ? r.data[0] : r.data; return row ? { data: row, error: null } : { data: null, error: { code: 'PGRST116' } }; },
