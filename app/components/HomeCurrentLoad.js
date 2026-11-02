@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { hasSession } from '../lib/supabase';
-import { StatusBadge, fullAddress, fmtApptWindow, fmtApptDate, fmtNumber } from '../lib/loads';
+import { StatusBadge, fullAddress, fmtStopAppt, fmtApptDate, fmtNumber } from '../lib/loads';
 import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { Loading, LoadError } from './DataState';
@@ -39,7 +39,7 @@ function StopBlock({ load, stop, big = false }) {
 }
 function StopBlockInner({ load, stop, big }) {
   const facilities = useLoadFacilities(load?.id, load?.stops?.length);
-  const appt = fmtApptWindow(stop.appointment_start, stop.appointment_end, stop.timezone);
+  const appt = fmtStopAppt(stop); // date-only rate con appointments: date + the rate con's time window, never "12:00 AM"
   return (
     <div data-testid="home-stop" style={{ minWidth: 0 }}>
       <div style={s.lbl}>{STOP_LABEL(stop)}</div>
