@@ -4,6 +4,7 @@ import { noStoreFetch } from '../../lib/noStoreFetch';
 import { classifyDocText, decideDocKind } from '../../lib/docClassify';
 import { callRateConModel, pdfTextOf, pickModel } from '../../lib/rateconExtract';
 import { parseWeightLb } from '../../lib/loadWeight';
+import { normalizeRateConStops } from '../../lib/rateconStops';
 import { fillLinkedLoadWeight } from '../../lib/loadWeightFill';
 import { parseTripMiles, fillLinkedLoadMiles } from '../../lib/loadMiles';
 
@@ -126,7 +127,7 @@ export async function POST(req) {
   const kind = decideDocKind({ pdfText, aiKind, aiText });
   if (kind === 'coi') return reclassifyCoi(admin, doc, user, finish);
   if (kind === 'bol' || kind === 'scale_ticket') return reclassifyLoadDoc(admin, doc, user, finish, kind, loadData);
-  extracted = { ...loadData, total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
+  extracted = { ...normalizeRateConStops(loadData), total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
   const { error: upErr } = await admin.from('documents').update({ ai_extracted_data: extracted })
     .eq('id', doc.id).eq('user_id', user.id);
   if (upErr) { await finish('error'); return fail(500, GENERIC, 'save', upErr.message); }

@@ -9,7 +9,20 @@ export const pickModel = (env) => (ALLOWED_MODELS.includes(env) ? env : DEFAULT_
 
 const str = { type: ['string', 'null'] };
 const party = { type: ['object', 'null'], additionalProperties: false, required: ['name', 'address'], properties: { name: { ...str, description: 'Facility / company name (e.g. "Acme Foods DC"), not the address' }, address: str } };
-const stop = { type: ['object', 'null'], additionalProperties: false, required: ['date', 'time', 'address'], properties: { date: str, time: str, address: str } };
+// Nov 2: street / city / state / zip and the pickup number per stop (see lib/rateconStops.js for how they're used).
+const stop = {
+  type: ['object', 'null'], additionalProperties: false,
+  required: ['date', 'time', 'address', 'street', 'city', 'state', 'zip', 'pickup_number'],
+  properties: {
+    date: str, time: str,
+    address: { ...str, description: 'Full street address of this stop as printed: street, city, state, zip' },
+    street: { ...str, description: 'Street line only, e.g. "4800 NW Fruit Valley Rd" (often printed on its own line under the facility name)' },
+    city: str,
+    state: { ...str, description: 'Two-letter state code' },
+    zip: str,
+    pickup_number: { ...str, description: 'Pickup stop only: the number the shipper needs to release the load, labeled e.g. "Pickup #", "PU#", "Pickup Number", "Shipper Ref", "Appointment ID" / "Appt #" when that is the pickup reference. null for deliveries or if not printed.' },
+  },
+};
 export const schema = {
   type: 'object',
   additionalProperties: false,
@@ -35,7 +48,7 @@ export const schema = {
   },
 };
 
-export const PROMPT = 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, "bol" if it is a bill of lading, "scale_ticket" if it is a truck scale (CAT Scale) weight ticket, else "other". For a bill of lading still copy any load / PO / BOL numbers into load_number and reference_numbers and the ship date into pickup. Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units. total_miles is the total or loaded trip distance for the whole load (pickup to final delivery) as a number, only when the document prints it as a load figure, e.g. a Miles / Loaded miles / Distance / Total miles field, or the miles on a linehaul or per-mile charge line ("626 mi x $0.40/mi", "Linehaul (1,270 mi)"). IGNORE any miles that appear only inside driving directions, route or turn-by-turn instructions, or facility/gate directions (e.g. "17.2 miles north to a 4-way stop", "exit 562 then 1.1 miles"): those are never the trip distance. Do not add segments up, do not estimate from addresses, and use null when no trip distance is printed.';
+export const PROMPT = 'First set document_kind: "coi" if this is a certificate of insurance (ACORD 25, "Certificate of Liability Insurance", PRODUCER / INSURER A / CERTIFICATE HOLDER boxes), "rate_confirmation" if it is a trucking rate/load confirmation, "bol" if it is a bill of lading, "scale_ticket" if it is a truck scale (CAT Scale) weight ticket, else "other". For a bill of lading still copy any load / PO / BOL numbers into load_number and reference_numbers and the ship date into pickup. Copy the title and main labels into heading_text. Then extract the load details from the rate confirmation. Use null for anything not present (all load fields null if it is not a rate confirmation). Dates as YYYY-MM-DD when possible. rate is the total carrier pay in USD as a number. weight is the total cargo weight exactly as printed, with units. total_miles is the total or loaded trip distance for the whole load (pickup to final delivery) as a number, only when the document prints it as a load figure, e.g. a Miles / Loaded miles / Distance / Total miles field, or the miles on a linehaul or per-mile charge line ("626 mi x $0.40/mi", "Linehaul (1,270 mi)"). IGNORE any miles that appear only inside driving directions, route or turn-by-turn instructions, or facility/gate directions (e.g. "17.2 miles north to a 4-way stop", "exit 562 then 1.1 miles"): those are never the trip distance. Do not add segments up, do not estimate from addresses, and use null when no trip distance is printed. For each stop (pickup and delivery) copy the facility\'s full street address into address and also split it into street, city, state and zip; the street line is often printed on its own line under the facility name, separate from a "City, ST" header, so look under the facility name and do not stop at the city. pickup.pickup_number is the pickup / PU / shipper reference number for the pickup stop, without its label; also keep it in reference_numbers.';
 
 // One model call. Returns { ok: true, extracted } or { ok: false, status: 'timeout' | 'error', log }.
 // Never logs or returns the file or the key.
