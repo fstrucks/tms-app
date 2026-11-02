@@ -48,3 +48,8 @@ test('Home card and load page both use the stop formatter', () => {
   assert.match(readFileSync(new URL('../../app/components/HomeCurrentLoad.js', import.meta.url), 'utf8'), /const appt = fmtStopAppt\(stop\)/);
   assert.match(readFileSync(new URL('../../app/loads/[id]/page.js', import.meta.url), 'utf8'), /\{fmtStopAppt\(st\)\}/);
 });
+
+test('loads.js imports fmtApptDate locally (a bare re-export left stopSummary with an undefined name)', () => {
+  const src = readFileSync(new URL('../../app/lib/loads.js', import.meta.url), 'utf8');
+  assert.match(src, /^import \{[^}]*\bfmtApptDate\b[^}]*\} from '\.\/stopAppt';/m);
+});

@@ -10,6 +10,7 @@ export { fmtMoney } from './money'; // shared formatter (always 2 decimals)
 export const fmtNumber = (n, unit = '') => (has(n) ? `${Number(n).toLocaleString('en-US')}${unit}` : '—');
 
 // Appointment formatting lives in stopAppt.js (pure, testable); re-exported so callers don't change.
+import { fmtApptDate } from './stopAppt';
 export { fmtApptDate, fmtApptWindow, fmtStopAppt, fmtTimeText, noteTime, isDateOnlyAppt } from './stopAppt';
 
 export const cityState = (stop) => [stop?.city, stop?.state].filter(Boolean).join(', ');
