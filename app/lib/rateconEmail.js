@@ -8,6 +8,7 @@ import { emailOf, safeName } from './postmarkInbound.js';
 import { callRateConModel, pdfTextOf, pickModel } from './rateconExtract.js';
 import { classifyDocText, decideDocKind } from './docClassify.js';
 import { parseWeightLb } from './loadWeight.js';
+import { normalizeRateConStops } from './rateconStops.js';
 import { parseTripMiles } from './loadMiles.js';
 import { escapeIlike, normalizeBrokerLoadNumber, pickExistingLoad } from './rateconMatch.js';
 
@@ -200,7 +201,7 @@ export async function extractEmailRateCon({ sb, userId, docId, bytes, name, deps
   if (!ai.ok) { await finish(ai.status); console.error('[inbound ratecon] read', ai.log?.[0]); return failed(ai.status); }
   const { document_kind: aiKind, heading_text: aiText, ...loadData } = ai.extracted || {};
   if (decideDocKind({ pdfText, aiKind, aiText }) === 'coi' || aiKind === 'other') { await finish('success'); return failed('not_ratecon'); }
-  const extracted = { ...loadData, total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
+  const extracted = { ...normalizeRateConStops(loadData), total_miles: parseTripMiles(loadData.total_miles), weight_lb: parseWeightLb(loadData.weight) };
   const empty = !extracted.rate && !extracted.pickup && !extracted.delivery && !extracted.broker_name;
   const { error } = await mark(empty ? { extraction_status: 'failed', extraction_error: 'nothing_read', ai_extracted_data: null }
     : { extraction_status: 'done', extraction_error: null, ai_extracted_data: extracted });

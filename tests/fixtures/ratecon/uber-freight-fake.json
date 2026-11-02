@@ -1,0 +1,17 @@
+{
+  "_comment": "FAKE Uber-Freight-style rate con model output (no real load, company or address). Mirrors the layout problem: a 'City, ST' stop header plus the street printed on its own line under the facility name.",
+  "document_kind": "rate_confirmation",
+  "heading_text": "Uber Freight Load Confirmation, Stops, Pickup #, Carrier Pay",
+  "broker_name": "Uber Freight (FAKE)",
+  "load_number": "9990001111",
+  "reference_numbers": ["88123", "PO 55-TEST"],
+  "shipper": { "name": "Sample Cold Storage (FAKE)", "address": "100 Example Industrial Way, Vancouver, WA 98660" },
+  "receiver": { "name": "Test Foods DC (FAKE)", "address": null },
+  "pickup": { "date": "2026-11-03", "time": "08:00", "address": "Vancouver, WA", "street": null, "city": "Vancouver", "state": "WA", "zip": null, "pickup_number": "PU# 88123" },
+  "delivery": { "date": "2026-11-07", "time": "06:00", "address": "Hanover, PA", "street": "200 Sample Distribution Rd", "city": "Hanover", "state": "PA", "zip": "17331", "pickup_number": null },
+  "rate": 6100,
+  "equipment_type": "53' Reefer",
+  "weight": "40,000 lbs",
+  "total_miles": 2690,
+  "notes": null
+}
