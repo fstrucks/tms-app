@@ -50,11 +50,15 @@ export function buildBugRow(body, user) {
 // Hide the floating button while another sheet (e.g. the welcome screen) marks <body data-welcome-open>.
 // No polling: a MutationObserver on that one attribute. Returns an unsubscribe fn.
 export const COVER_ATTR = 'data-welcome-open';
+// Also hidden while a facility rating card sits in the strip where the button floats (QA: at ~765px / 250% zoom the
+// button took taps meant for the card's Skip). Set by FacilityReview.js only while the card overlaps that strip.
+export const RATING_COVER_ATTR = 'data-rating-card-low';
+const COVER_ATTRS = [COVER_ATTR, RATING_COVER_ATTR];
 export function watchCovered(body, cb, MO = typeof MutationObserver === 'undefined' ? null : MutationObserver) {
   if (!body) return () => {};
-  const check = () => cb(body.hasAttribute(COVER_ATTR));
+  const check = () => cb(COVER_ATTRS.some((a) => body.hasAttribute(a)));
   check();
   if (!MO) return () => {};
-  const mo = new MO(check); mo.observe(body, { attributes: true, attributeFilter: [COVER_ATTR] });
+  const mo = new MO(check); mo.observe(body, { attributes: true, attributeFilter: COVER_ATTRS });
   return () => mo.disconnect();
 }

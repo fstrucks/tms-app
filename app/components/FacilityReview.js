@@ -9,6 +9,39 @@ import { makeApi } from '../lib/packetApi';
 import { NOTE_MAX, NEED_TO_KNOW_HINT, fmtStars } from '../lib/facilityReviews';
 import StarRating from './StarRating';
 import { ratingText } from '../lib/facilityPage';
+import { RATING_COVER_ATTR } from '../lib/bugReport';
+
+// Height of the bottom strip where the Report a bug button floats: tab bar (phone) + safe area + button + gap.
+const fabStrip = () => {
+  const cs = getComputedStyle(document.documentElement);
+  return (parseFloat(cs.getPropertyValue('--nav-h')) || 0) + (parseFloat(cs.getPropertyValue('--fab-space')) || 64) + 16;
+};
+// Rating cards currently overlapping that strip; the button hides while any does (all widths, any zoom).
+const lowCards = new Set();
+const syncCover = () => { if (lowCards.size) document.body.setAttribute(RATING_COVER_ATTR, ''); else document.body.removeAttribute(RATING_COVER_ATTR); };
+function useClearOfFab(ref, on) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!on || !el || typeof IntersectionObserver === 'undefined') return undefined;
+    let io;
+    const start = () => {
+      io?.disconnect();
+      const top = Math.max(0, window.innerHeight - fabStrip());
+      io = new IntersectionObserver(([e]) => { if (e.isIntersecting) lowCards.add(el); else lowCards.delete(el); syncCover(); },
+        { rootMargin: `-${top}px 0px 0px 0px` });
+      io.observe(el);
+    };
+    start(); window.addEventListener('resize', start);
+    return () => { window.removeEventListener('resize', start); io?.disconnect(); lowCards.delete(el); syncCover(); };
+  }, [ref, on]);
+}
+// Where focus goes when the sheet closes: what had focus before it opened (if it's still on the page), else the
+// stop check-off block it belongs to ([data-focus-return], tabIndex -1), never the page root.
+export function focusReturnTarget(prev, fallback, doc = document) {
+  if (prev && prev !== doc.body && prev.isConnected) return prev;
+  if (fallback?.isConnected) return fallback;
+  return doc.querySelector('[data-focus-return]');
+}
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 const btn = { minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.95rem', cursor: 'pointer' };
@@ -85,6 +118,7 @@ function PromptFrame({ sheet, place, onEscape, children }) {
   useEffect(() => {
     if (!sheet) return undefined;
     const el = ref.current; const prev = document.activeElement;
+    const fallback = el?.parentElement?.closest('[data-focus-return]') || null;
     (el?.querySelector(FOCUSABLE) || el)?.focus();
     const key = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); escRef.current?.(); return; }
@@ -96,10 +130,12 @@ function PromptFrame({ sheet, place, onEscape, children }) {
       else if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('keydown', key); if (prev?.isConnected) prev.focus?.(); };
+    return () => { document.removeEventListener('keydown', key); focusReturnTarget(prev, fallback)?.focus?.({ preventScroll: true }); };
   }, [sheet]);
+  const cardRef = useRef(null);
+  useClearOfFab(cardRef, !sheet);
   if (!sheet) return (
-    <div role="group" data-testid="facility-review-prompt" data-above-fab aria-label={`Review ${place}`}
+    <div ref={cardRef} role="group" data-testid="facility-review-prompt" data-above-fab aria-label={`Review ${place}`}
       style={{ marginTop: 10, marginBottom: 'var(--fab-space)', border: '1px solid var(--divider)', borderRadius: 10, padding: 10 }}>{children}</div>
   );
   return (

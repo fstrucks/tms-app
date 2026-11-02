@@ -79,7 +79,7 @@ export default function StopActions({ supabase, load, userId, role, onChange, on
     ...(x.completion === 'done' ? [{ x, field: 'completed', iso: x.completed_at, label: stopDoneLabel(x) }] : []),
   ]);
   return (
-    <div data-testid="stop-actions" style={{ borderTop: '1px solid var(--divider)', marginTop: 12, paddingTop: 10 }}>
+    <div data-testid="stop-actions" data-focus-return tabIndex={-1} style={{ outline: 'none', borderTop: '1px solid var(--divider)', marginTop: 12, paddingTop: 10 }}>
       {target ? (
         <>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 6 }}>

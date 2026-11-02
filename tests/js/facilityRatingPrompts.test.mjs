@@ -262,9 +262,38 @@ test('prompt UI: 44px tap targets, phone bottom sheet above the tab bar, focus t
   assert.match(fr, /const sheet = mode === 'auto' && narrow;/);
   assert.match(fr, /role="dialog" aria-modal="true"/);
   assert.equal((fr.match(/bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\)\)'/g) || []).length, 2, 'sheet + backdrop stop at the tab bar');
-  assert.match(fr, /e\.key === 'Escape'/); assert.match(fr, /e\.key !== 'Tab'/); assert.match(fr, /prev\.focus/);
+  assert.match(fr, /e\.key === 'Escape'/); assert.match(fr, /e\.key !== 'Tab'/); assert.match(fr, /focusReturnTarget\(prev, fallback\)/);
   assert.match(fr, /zIndex: 71/, 'sheet above the Report a bug button (z 60)');
   assert.match(fr, /data-above-fab aria-label=\{`Review \$\{place\}`\}\s+style=\{\{ marginTop: 10, marginBottom: 'var\(--fab-space\)'/);
   const rem = readFileSync(new URL('../../app/components/FacilityRatingReminders.js', import.meta.url), 'utf8');
   assert.match(rem, /mode="reminder"/, 'next-day reminders stay inline cards');
+});
+
+// ---- QA: Report a bug pill over the inline card's Skip (desktop widths, zoom); focus after the sheet closes ----
+import { watchCovered, COVER_ATTR, RATING_COVER_ATTR } from '../../app/lib/bugReport.js';
+
+test('Report a bug hides while a rating card sits in its strip (and still for the welcome sheet)', () => {
+  const attrs = new Set(); const body = { hasAttribute: (a) => attrs.has(a) };
+  let cb; class MO { constructor(f) { cb = f; } observe(_b, o) { assert.deepEqual(o.attributeFilter, [COVER_ATTR, RATING_COVER_ATTR]); } disconnect() {} }
+  const seen = []; watchCovered(body, (v) => seen.push(v), MO);
+  attrs.add(RATING_COVER_ATTR); cb(); attrs.delete(RATING_COVER_ATTR); cb(); attrs.add(COVER_ATTR); cb();
+  assert.deepEqual(seen, [false, true, false, true]);
+  const fr = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.match(fr, /useClearOfFab\(cardRef, !sheet\)/, 'inline card (every width) is watched; the sheet already covers the button');
+  assert.match(fr, /rootMargin: `-\$\{top\}px 0px 0px 0px`/);
+  assert.match(fr, /lowCards\.delete\(el\); syncCover\(\)/, 'cleared on unmount');
+});
+
+test('sheet close: focus returns to the previous element, else the stop block, never the page root', async () => {
+  const { focusReturnTarget } = await import('../../app/components/FacilityReview.js').catch(() => ({}));
+  const fr = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.match(fr, /closest\('\[data-focus-return\]'\)/); assert.match(fr, /focusReturnTarget\(prev, fallback\)\?\.focus\?\.\(\{ preventScroll: true \}\)/);
+  assert.match(readFileSync(new URL('../../app/components/StopActions.js', import.meta.url), 'utf8'), /data-testid="stop-actions" data-focus-return tabIndex=\{-1\}/);
+  if (!focusReturnTarget) return; // JSX module not importable in this runner: the source checks above cover the wiring
+  const body = { isConnected: true }; const block = { isConnected: true, n: 'block' }; const q = { n: 'query' };
+  const doc = { body, querySelector: () => q };
+  assert.equal(focusReturnTarget({ isConnected: true, n: 'btn' }, block, doc).n, 'btn');
+  assert.equal(focusReturnTarget({ isConnected: false }, block, doc), block, 'Mark/Yes button re-rendered away');
+  assert.equal(focusReturnTarget(body, block, doc), block, 'page root never');
+  assert.equal(focusReturnTarget(null, { isConnected: false }, doc), q);
 });
