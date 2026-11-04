@@ -196,11 +196,14 @@ export function parseDirections(json) {
 }
 
 // ORS failure → short code stored in loads.route_error.
-export function classifyOrsError({ status = null, body = null, timedOut = false } = {}) {
+// keep2004: route options only. ORS error 2004 (request over the server's limits, e.g. the distance cap when
+// avoid_features is used) comes back as 'too_long' instead of 'no_route'. The stored route keeps the old mapping.
+export function classifyOrsError({ status = null, body = null, timedOut = false } = {}, { keep2004 = false } = {}) {
   if (timedOut) return 'timeout';
   if (status === 429) return 'rate_limited';
   if (status === 401 || status === 403) return 'bad_key';
   const code = Number(body?.error?.code);
+  if (keep2004 && code === 2004) return 'too_long';
   // 2009 route not found, 2010 point not found (not routable), 2004 limits exceeded (distance etc.)
   if (code === 2009 || code === 2010 || code === 2004) return 'no_route';
   if (status === 400 || status === 404) return 'no_route';
