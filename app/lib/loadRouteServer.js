@@ -106,13 +106,18 @@ export async function geocodeStop(stop, { key, fetchImpl = fetch, take = (k) => 
 // The shared per-instance directions limiter (load map + home card ETA share one ORS key and one budget).
 export const takeDirections = (k = 'directions') => limiter.take(k);
 
-export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null, radiuses = null } = {}) {
+// Route options P1: one daily stop for every ORS directions call this instance makes (route, ETA, options), under
+// the free plan's 2,000/day. Separate from the per-feature limits above.
+export const ORS_DAILY_STOP = 1900;
+const allOrs = createLimiter({ all: { perMinute: 40, perDay: ORS_DAILY_STOP } });
+export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null, radiuses = null, extra = null, total = allOrs } = {}) {
   if (!take('directions')) return { error: 'rate_limited' };
+  if (total && !total.take('all')) return { error: 'rate_limited' };
   const r = await orsFetch(fetchImpl, `${ORS_BASE}${ORS_DIRECTIONS_PATH}`, {
     method: 'POST',
     headers: { Authorization: key, 'Content-Type': 'application/json', Accept: 'application/json' },
     // radiuses: a city/ZIP-level point may be off the road network; allow snapping up to 5 km.
-    body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: radiuses || points.map(() => 5000) }),
+    body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: radiuses || points.map(() => 5000), ...(extra || {}) }),
   }, timeoutMs, deadline);
   if (!r.ok) return { error: classifyOrsError(r) };
   const parsed = parseDirections(r.body);
@@ -156,7 +161,7 @@ export function viewOf(load, stops, extra = {}, now = Date.now()) {
   };
 }
 
-async function readLoad(db, ownerId, loadId) {
+export async function readLoad(db, ownerId, loadId) {
   if (!UUID.test(loadId || '')) return { notFound: true };
   const l = await db.from('loads').select('*').eq('id', loadId).eq('user_id', ownerId).maybeSingle();
   if (l.error) return isMissing(l.error) ? { setupNeeded: true } : { error: 'Could not load the load.' };

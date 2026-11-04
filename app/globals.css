@@ -214,3 +214,7 @@ html.native-app, html.native-app body { overscroll-behavior: none; }
 html.native-app body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); -webkit-tap-highlight-color: transparent; }
 html.native-app body:not(.has-appnav) { padding-top: env(safe-area-inset-top); }
 html.native-app .appnav-top, html.native-app .appnav-mtop { padding-top: env(safe-area-inset-top); }
+
+/* Route options (load map): colors from theme variables; Leaflet sets a default stroke attribute, these override it. */
+.leaflet-container path.ph-route-sel { stroke: var(--primary); }
+.leaflet-container path.ph-route-alt { stroke: var(--text-muted); cursor: pointer; }

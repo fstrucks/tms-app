@@ -91,7 +91,7 @@ test('QA #118 nit: map framing includes the truck dot and live leg; refit once, 
   assert.deepEqual(boundsWithTruck([[1, 2]], { lat: NaN, lng: 1 }), [[1, 2]]);
   assert.equal(fitTarget(b).kind, 'bounds');
   const src = readFileSync(new URL('../../app/components/RouteMap.js', import.meta.url), 'utf8');
-  assert.match(src, /\[\.\.\.bounds, \.\.\.extra\.current\]/);
+  assert.match(src, /\[\.\.\.bounds, \.\.\.extra\.current(, \.\.\.optExtra\.current)?\]/); // route options P1 adds option lines
   assert.match(src, /truckFitted\.current !== m/);
   assert.match(src, /maxZoom: 12/);
 });

@@ -32,7 +32,7 @@ export function redactRate(view) {
   const { rate_per_mile, rate, ...load } = view.load; // eslint-disable-line no-unused-vars
   return { ...view, load };
 }
-async function rateGate(c, loadId) {
+export async function rateGate(c, loadId) {
   if (RATE_ROLES.has(c.role)) return { canSeeRate: true };
   const { data } = await c.db.from('loads').select('assigned_driver_user_id,show_rate_to_driver').eq('id', loadId).eq('user_id', c.ownerId).maybeSingle();
   if (!data || data.assigned_driver_user_id !== c.user.id) return { hidden: true, canSeeRate: false };
