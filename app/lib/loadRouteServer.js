@@ -110,7 +110,7 @@ export const takeDirections = (k = 'directions') => limiter.take(k);
 // the free plan's 2,000/day. Separate from the per-feature limits above.
 export const ORS_DAILY_STOP = 1900;
 const allOrs = createLimiter({ all: { perMinute: 40, perDay: ORS_DAILY_STOP } });
-export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null, radiuses = null, extra = null, total = allOrs } = {}) {
+export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) => limiter.take(k), timeoutMs = ORS_ROUTE_TIMEOUT_MS, deadline = null, radiuses = null, extra = null, total = allOrs, keep2004 = false } = {}) {
   if (!take('directions')) return { error: 'rate_limited' };
   if (total && !total.take('all')) return { error: 'rate_limited' };
   const r = await orsFetch(fetchImpl, `${ORS_BASE}${ORS_DIRECTIONS_PATH}`, {
@@ -119,9 +119,9 @@ export async function fetchRoute(points, { key, fetchImpl = fetch, take = (k) =>
     // radiuses: a city/ZIP-level point may be off the road network; allow snapping up to 5 km.
     body: JSON.stringify({ coordinates: points.map((p) => [p.lng, p.lat]), units: 'mi', instructions: false, radiuses: radiuses || points.map(() => 5000), ...(extra || {}) }),
   }, timeoutMs, deadline);
-  if (!r.ok) return { error: classifyOrsError(r) };
+  if (!r.ok) return { error: classifyOrsError(r, { keep2004 }), ...(r.status ? { status: r.status } : {}) };
   const parsed = parseDirections(r.body);
-  return parsed || { error: 'no_route' };
+  return parsed || { error: 'no_route', ...(r.status ? { status: r.status } : {}) };
 }
 
 // Database-wide guard (all companies share one ORS key): route attempts in the last minute / UTC day,

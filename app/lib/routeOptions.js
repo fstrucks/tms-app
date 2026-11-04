@@ -84,6 +84,7 @@ export const OPTIONS_TEXT = {
   busy: 'Route options are busy right now. Try again in a few minutes.',
   notReady: 'Route options show once the truck route is ready.',
   partial: (names) => `${names} isn’t available right now.`,
+  tooLong: 'No-toll routing isn’t available for trips this long.',
 };
 export const fmtOptionMiles = (m) => (m > 0 ? `${Math.round(m).toLocaleString('en-US')} mi` : '—');
 export const chipDetail = (o) => [fmtOptionMiles(o.miles), fmtDriveTime(o.seconds)].filter(Boolean).join(' · ');
@@ -105,8 +106,9 @@ export function viewOfReply(j, { online = true } = {}) {
   if (j.state === 'busy') return { kind: 'busy', text: j.message || OPTIONS_TEXT.busy };
   if (j.state === 'not_ready') return { kind: 'not_ready', text: OPTIONS_TEXT.notReady };
   if (j.state !== 'ready' || !Array.isArray(j.options) || !j.options.length) return { kind: 'error', text: j?.message || OPTIONS_TEXT.failed };
-  const failed = (j.failed || []).map((f) => labelOf(f.id));
-  const partial = failed.length ? OPTIONS_TEXT.partial(failed.join(' and ')) : null;
+  const tooLong = (j.failed || []).some((f) => f.id === 'no_tolls' && f.code === 'too_long');
+  const failed = (j.failed || []).filter((f) => !(tooLong && f.id === 'no_tolls')).map((f) => labelOf(f.id));
+  const partial = [failed.length ? OPTIONS_TEXT.partial(failed.join(' and ')) : null, tooLong ? OPTIONS_TEXT.tooLong : null].filter(Boolean).join(' ') || null;
   if (j.options.length === 1) return { kind: 'one', text: failed.length ? null : OPTIONS_TEXT.onlyOne, partial, options: j.options };
   return { kind: 'list', options: j.options, partial };
 }
