@@ -3,6 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inflateRawSync } from 'node:zlib';
 import { fakeExportSupabase, fid } from './fakeExportSupabase.mjs';
+// Never send real email from tests.
+delete process.env.POSTMARK_SERVER_TOKEN;
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u, o) => { if (/postmarkapp|\.test\//.test(String(u))) throw new Error(`blocked network in tests: ${u}`); return realFetch(u, o); };
 import * as S from '../../app/lib/companyExportServer.js';
 import { PART_MAX_BYTES, BUCKET_FILE_SIZE_LIMIT } from '../../app/lib/companyExport.js';
 import { ZipWriter, crc32, entryOverhead, END_BYTES } from '../../app/lib/zipStream.js';
@@ -34,7 +38,7 @@ function world(extra = {}) {
   return fakeExportSupabase({
     unique: { export_jobs: [{ cols: ['company_profile_id'], where: (r) => ['queued', 'running'].includes(r.status) }] },
     tables: {
-      company_profiles: [{ id: ids.A, owner_id: ids.o, legal_name: 'FAKE Trucking LLC' }, { id: ids.B, owner_id: ids.y, legal_name: 'Other FAKE Co' }],
+      company_profiles: [{ id: ids.A, owner_id: ids.o, legal_name: 'FAKE Trucking LLC', ein_last4: '4321', ein_ciphertext: 'FAKE-CIPHERTEXT-zzz' }, { id: ids.B, owner_id: ids.y, legal_name: 'Other FAKE Co' }],
       company_members: [{ profile_id: ids.A, user_id: ids.m1, role: 'dispatcher' }, { profile_id: ids.A, user_id: ids.m2, role: 'driver' }, { profile_id: ids.B, user_id: ids.m2, role: 'driver' }, { profile_id: ids.B, user_id: ids.x, role: 'driver' }],
       loads: [L('l1', ids.o, 'TEST-1'), L('l2', ids.m1, 'TEST-2'), L('l3', ids.m2, 'M2-OWN'), L('l9', ids.y, 'OTHER-9')],
       stops: [{ id: 's1', load_id: 'l1', city: 'Testville' }, { id: 's3', load_id: 'l3', city: 'Elsewhere' }, { id: 's9', load_id: 'l9', city: 'Nope' }],
@@ -329,6 +333,14 @@ test('account deletion cron skips a company with an open export (held), purges o
   assert.deepEqual(held.results, [{ user_id: ids.o, ok: false, held_for_export: s.jobId }]);
 });
 
+test('E3: a finished job hands off to the link email exactly once', async () => {
+  const sb = world(); const s = await start(sb); const delivered = [];
+  let t = 0;
+  for (let i = 0; i < 50 && job(sb, s.jobId).status !== 'ready'; i += 1) await S.runAndChain(sb, s.jobId, { kick: async () => {}, deliver: async (_a, id) => delivered.push(id), now: new Date(T0), clock: () => (t += 1) });
+  assert.equal(job(sb, s.jobId).status, 'ready');
+  assert.deepEqual(delivered, [s.jobId]);
+});
+
 test('storage budget: EXPORT_STORAGE_BUDGET_BYTES overrides the 400 MB default; bad values fall back', () => {
   const D = 400 * 1024 * 1024;
   assert.equal(S.storageBudgetFromEnv({}), D);
@@ -376,4 +388,23 @@ test('wrong or missing cron secret is 401; the right one runs', async () => {
   const sb = world(); const s = await start(sb); const env = { CRON_SECRET: 'test-secret' };
   for (const auth of [undefined, 'Bearer nope', 'test-secret', 'Basic test-secret', 'Bearer test-secretX']) assert.equal((await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth }), { admin: sb, env, waitUntil: () => {} })).status, 401, String(auth));
   assert.equal((await cronCompanyExport(req(`https://x.test/api/cron/company-export?job=${s.jobId}`, { auth: 'Bearer test-secret' }), { admin: sb, env, waitUntil: () => {}, kick: async () => {} })).status, 202);
+});
+
+test('company file keeps ein_last4 but never the encrypted EIN; README explains owner-tied files and part N of M', async () => {
+  const sb = world();
+  const s = await start(sb);
+  const { r } = await runAll(sb, s.jobId);
+  assert.ok(r.done);
+  const j = job(sb, s.jobId);
+  const e = allEntries(sb, j);
+  const csv = e['data/company.csv'].toString(), json = JSON.parse(e['data/company.json']);
+  assert.match(csv, /ein_last4/); assert.match(csv, /4321/);
+  assert.doesNotMatch(csv, /ein_ciphertext|FAKE-CIPHERTEXT/);
+  assert.equal(json[0].ein_last4, '4321'); assert.ok(!('ein_ciphertext' in json[0]));
+  for (const k of Object.keys(e)) assert.doesNotMatch(e[k].toString(), /FAKE-CIPHERTEXT/, k);
+  const readme = e['README.txt'].toString(), m = j.parts.length;
+  assert.match(readme, /company\.csv, packets\.csv, packet_layouts\.csv have no company id column: they are tied to the owner account/);
+  assert.match(readme, new RegExp(`this README is in part ${m} of ${m}, the last part`));
+  assert.match(readme, new RegExp(`lists the files in part N of ${m}\\.`));
+  assert.ok(j.parts.every((p, i) => p.object.endsWith(`/part-${i + 1}.zip`)), 'storage names stay part-N.zip');
 });

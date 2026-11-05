@@ -2,7 +2,8 @@
 // There is no auth middleware; these prefixes are also skipped by the welcome sheet, the bug button,
 // and the main nav so a signed-out visitor is not sent through the signed-in shell.
 
-export const PUBLIC_LEGAL_PATHS = ['/privacy', '/terms', '/delete-account'];
+// /export is the no-sign-in company export download page (link emailed to the owner).
+export const PUBLIC_LEGAL_PATHS = ['/privacy', '/terms', '/delete-account', '/export'];
 
 export function isPublicLegalPath(pathname = '') {
   const p = String(pathname || '');
