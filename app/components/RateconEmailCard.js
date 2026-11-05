@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import ConfirmButton from './ui/ConfirmButton';
 import { rateconAddress, parseSenders, copyText, EMAIL_TOTAL_MB } from '../lib/rateconDrafts';
 
-// Documents: the user's secret rate con address (ratecon+<token>@in.fstrucks.com), Copy, New address, and an
+// Documents: the user's secret rate con address (ratecon+<token>@ the inbound domain shown, see rateconDrafts.js), Copy, New address, and an
 // optional sender allowlist. Hidden quietly when migration 20261019000200 isn't applied yet.
 const s = {
   card: { border: '1px solid var(--divider)', borderRadius: 12, padding: '1rem', marginBottom: '1rem' },
