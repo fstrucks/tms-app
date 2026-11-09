@@ -4,9 +4,17 @@ import { readFileSync } from 'node:fs';
 import { countByTab } from '../../app/lib/loadTabs.js';
 
 test('removing the deleted load clears its Pending count', () => {
-  const loads = [{ id: 'a', status: 'delivered' }, { id: 'b', status: 'booked' }];
+  // Pending = invoiced (awaiting payment). Delivered is Past as of Nov 9 2026.
+  const loads = [{ id: 'a', status: 'invoiced' }, { id: 'b', status: 'booked' }];
   assert.equal(countByTab(loads).pending, 1);
   assert.equal(countByTab(loads.filter((l) => l.id !== 'a')).pending || 0, 0);
+});
+
+test('removing a delivered load clears its Past count', () => {
+  const loads = [{ id: 'a', status: 'delivered' }, { id: 'b', status: 'booked' }];
+  assert.equal(countByTab(loads).past, 1);
+  assert.equal(countByTab(loads).pending, 0);
+  assert.equal(countByTab(loads.filter((l) => l.id !== 'a')).past || 0, 0);
 });
 
 test('load page drops the deleted load from the shared list before re-fetching', () => {
