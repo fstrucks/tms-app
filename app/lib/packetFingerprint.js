@@ -151,7 +151,7 @@ export function extractBrokerMc(pagesOrText, opts = {}) {
 }
 
 // ---------- broker identity: email domain ----------
-export const OWN_DOMAINS = ['fstrucks.com'];
+export const OWN_DOMAINS = ['fstrucks.com', 'pwrstrong.net'];
 export const FREE_MAIL_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'rocketmail.com', 'outlook.com', 'hotmail.com', 'live.com',
   'msn.com', 'aol.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me', 'pm.me', 'gmx.com', 'gmx.net',

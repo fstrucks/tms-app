@@ -2,6 +2,15 @@
 
 Users forward rate con PDFs to a private address: `ratecon+<32-hex token>@in.fstrucks.com`.
 
+**Moving to in.pwrstrong.net.** Only the token is stored, so the same address works on either domain. The webhook accepts
+`ratecon+…@` and `packets@` on both `in.fstrucks.com` and `in.pwrstrong.net` (`INBOUND_DOMAINS` in `app/lib/rateconDrafts.js`).
+The app shows in.fstrucks.com until `NEXT_PUBLIC_INBOUND_DOMAIN=in.pwrstrong.net` is set in Vercel. Set it (and redeploy) only after:
+1. DNS: MX on the `in.pwrstrong.net` subdomain only → `inbound.postmarkapp.com`, priority 10. The apex pwrstrong.net MX is not touched.
+2. Postmark: an inbound stream has a single Inbound domain. Add a second server's inbound stream with Inbound domain
+   `in.pwrstrong.net`, the same webhook URL and the same Basic auth; leave the in.fstrucks.com stream as is.
+3. A test email to `ratecon+<token>@in.pwrstrong.net` shows up on Documents.
+Keep in.fstrucks.com (MX and stream) working until users have switched; old addresses keep working the whole time.
+
 - Route: the existing Postmark webhook `POST /api/inbound/postmark` (same Basic auth). Any `ratecon@` / `ratecon+…@in.fstrucks.com`
   recipient goes to `app/lib/rateconEmail.js`; everything else (e.g. `packets@`) stays on the packet path unchanged.
 - Token → user via `ratecon_owner_for_token` (service role only). Unknown/rotated token or a sender not on the optional allowlist:

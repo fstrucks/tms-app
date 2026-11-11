@@ -245,7 +245,7 @@ test('COI request: no defaults → no Reply-To, no Cc, nothing to marc@', async 
   const g = await (await COI.GET(req(null, 'GET'), { params: { id: PID }, deps: { sb, mkUserClient: uc('owner'), env: ENV } })).json();
   assert.equal(g.replyTo, null);
   assert.equal((await post(sb, 'owner', OK, ENV, f)).status, 200);
-  const b = f.calls[0].b; assert.equal(b.ReplyTo, undefined); assert.equal(b.Cc, undefined); assert.equal(b.From, 'noreply@fstrucks.com');
+  const b = f.calls[0].b; assert.equal(b.ReplyTo, undefined); assert.equal(b.Cc, undefined); assert.equal(b.From, 'noreply@pwrstrong.net');
   assert.doesNotMatch(JSON.stringify(b), /marc@/i);
 });
 test('COI request: company Reply-to email wins, else PACKET_REPLY_TO', async () => {
