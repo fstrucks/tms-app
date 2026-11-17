@@ -8,6 +8,7 @@ import {
   validateStart, isShareLive, expiryPatch, viewShare, canStartShare, canStopShare, canReadShare,
   canStartForOthers, defaultAutoStopOnDelivered, shouldRemind, pingAllowed, shouldPurgePing,
   shouldPurgeLatest, untilLabel, cronAuthorized, intervalSql, REMIND_AFTER_MS, CONSENT_FOREGROUND,
+  normalizeShareInsert, guardShareUpdate, fillPingFromShare, SHARE_LOCK_COLS,
 } from '../../app/lib/locationShare.js';
 import {
   startShare, stopShare, recordPing, officeShares, stopSharesForDeliveredLoad,
@@ -334,6 +335,12 @@ test('migration is Phase 1 only, additive, and keeps retention parameterized', (
   assert.match(sql, /create table if not exists public\.location_share_latest/);
   assert.match(sql, /p_max_age interval default interval '30 days'/);
   assert.match(sql, /p_after_end interval default interval '7 days'/);
+  assert.match(sql, /location_pings_fill_from_share/);
+  assert.match(sql, /s\.company_id = location_pings\.company_id/);
+  assert.equal(/s\.company_id = company_id/.test(sql), false, 'unqualified company_id in pings policy');
+  assert.match(sql, /location_shares_force_insert_nulls/);
+  assert.match(sql, /location_shares_guard_update/);
+  assert.match(sql, /location_is_service_role/);
   assert.equal(/alter table public\.(loads|stops|company_profiles|company_members)\b/i.test(sql), false);
   assert.match(read('app/api/cron/location-shares/route.js'), /CRON_SECRET/);
   assert.match(read('vercel.json'), /\/api\/cron\/location-shares/);
@@ -343,4 +350,82 @@ test('migration is Phase 1 only, additive, and keeps retention parameterized', (
   // Existing "Use my location" copy is unchanged.
   assert.match(read('app/account/settings/page.js'), /Your position is used only while that screen is open and is never saved/);
   assert.equal(/location_share_links/.test(read('app/lib/companyExport.js')), false);
+});
+
+
+test('insert trigger: stopped_at, last_reminded_at, stopped_by, stopped_reason are forced null', () => {
+  const row = normalizeShareInsert({
+    company_id: COMPANY, user_id: DRV, mode: 'timed', duration_hours: 8,
+    started_at: iso(NOW), expires_at: iso(NOW + 8 * 3600e3),
+    stopped_at: iso(NOW), last_reminded_at: iso(NOW), stopped_by: DISP, stopped_reason: 'office',
+  });
+  assert.equal(row.stopped_at, null);
+  assert.equal(row.last_reminded_at, null);
+  assert.equal(row.stopped_by, null);
+  assert.equal(row.stopped_reason, null);
+  assert.equal(row.user_id, DRV);
+});
+
+test('update guard: office cannot un-stop or extend a share; driver cannot change company_id', () => {
+  const live = {
+    id: '00000000-0000-4000-8000-0000000000a1', company_id: COMPANY, user_id: DRV,
+    started_at: iso(NOW - 1000), mode: 'timed', duration_hours: 8, expires_at: iso(NOW + 8 * 3600e3),
+    created_at: iso(NOW - 1000), stopped_at: null, stopped_reason: null, stopped_by: null, last_reminded_at: null,
+  };
+  const office = { actorId: DISP, isOffice: true, isServiceRole: false, now: NOW };
+  const extend = guardShareUpdate(live, { ...live, expires_at: iso(NOW + 24 * 3600e3) }, office);
+  assert.equal(extend.ok, false);
+  assert.equal(extend.error, 'location_share_locked');
+  assert.equal(extend.column, 'expires_at');
+  const stopped = { ...live, stopped_at: iso(NOW), stopped_reason: 'office', stopped_by: DISP };
+  const okStop = guardShareUpdate(live, stopped, office);
+  assert.equal(okStop.ok, true);
+  const unstop = guardShareUpdate(stopped, { ...stopped, stopped_at: null, stopped_reason: null, stopped_by: null }, office);
+  assert.equal(unstop.ok, false);
+  assert.equal(unstop.error, 'location_share_already_stopped');
+  const changeStop = guardShareUpdate(stopped, { ...stopped, stopped_at: iso(NOW + 1000) }, office);
+  assert.equal(changeStop.ok, false);
+
+  const driver = { actorId: DRV, isOffice: false, isServiceRole: false, now: NOW };
+  const moveCo = guardShareUpdate(live, { ...live, company_id: '00000000-0000-4000-8000-0000000000c2' }, driver);
+  assert.equal(moveCo.ok, false);
+  assert.equal(moveCo.error, 'location_share_locked');
+  assert.equal(moveCo.column, 'company_id');
+  assert.ok(SHARE_LOCK_COLS.includes('company_id'));
+  const selfStop = guardShareUpdate(live, { ...live, stopped_at: iso(NOW), stopped_reason: 'user', stopped_by: DRV }, driver);
+  assert.equal(selfStop.ok, true);
+  const remind = guardShareUpdate(live, { ...live, last_reminded_at: iso(NOW) }, driver);
+  assert.equal(remind.ok, true);
+  const officeRemind = guardShareUpdate(live, { ...live, last_reminded_at: iso(NOW) }, office);
+  assert.equal(officeRemind.ok, false);
+  // service role (cron / delivered auto-stop) is exempt
+  const svc = guardShareUpdate(live, { ...live, stopped_at: iso(NOW), stopped_reason: 'delivered', stopped_by: null }, { isServiceRole: true, now: NOW });
+  assert.equal(svc.ok, true);
+});
+
+test('startShare: an expired-but-unstopped share is stamped expired, then a new share can start', async () => {
+  const oldId = '00000000-0000-4000-8000-0000000000a1';
+  const db = world({
+    tables: {
+      location_shares: [{
+        id: oldId, company_id: COMPANY, user_id: DRV, mode: 'timed', duration_hours: 1,
+        started_at: iso(NOW - 2 * 3600e3), expires_at: iso(NOW - 60e3), stopped_at: null,
+      }],
+    },
+  });
+  // Unique index would block a second row with stopped_at null; restart must stamp the old one first.
+  const r = await startShare(db, ctx(DRV, 'driver'), { duration_hours: 8 }, NOW);
+  assert.equal(r.share.live, true);
+  assert.equal(r.share.duration_hours, 8);
+  assert.notEqual(r.share.id, oldId);
+  const old = db.db.location_shares.find((x) => x.id === oldId);
+  assert.equal(old.stopped_reason, 'expired');
+  assert.ok(old.stopped_at);
+  assert.equal(db.db.location_shares.filter((x) => !x.stopped_at).length, 1);
+});
+
+test('fillPingFromShare overwrites a spoofed company_id from the share', () => {
+  const share = { id: 's', company_id: COMPANY, user_id: DRV };
+  const ping = fillPingFromShare({ share_id: 's', company_id: '00000000-0000-4000-8000-0000000000c9', lat: 1, lng: 2 }, share);
+  assert.equal(ping.company_id, COMPANY);
 });

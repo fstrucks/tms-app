@@ -7,6 +7,7 @@ import {
   validateStart, canStartShare, canStopShare, canReadShare, isShareLive, expiryPatch, viewShare,
   shouldRemind, pingAllowed, defaultAutoStopOnDelivered, isOfficeRole, publicShareView,
   PING_MAX_AGE_DAYS, PING_AFTER_END_DAYS, SETUP_MSG, intervalSql, cronAuthorized,
+  normalizeShareInsert, guardShareUpdate, fillPingFromShare,
 } from './locationShare.js';
 
 export { json };
@@ -162,28 +163,29 @@ export async function startShare(db, ctx, body, now = Date.now()) {
   }
   v.auto_stop_on_delivered = defaultAutoStopOnDelivered(v.load_id) && v.auto_stop_on_delivered !== false && !!v.load_id;
 
-  const open = await db.from('location_shares').select('id, expires_at, stopped_at').eq('user_id', ctx.userId).is('stopped_at', null).maybeSingle();
+  // The unique index is "one row per user where stopped_at is null". Stamp any expired-but-unstopped
+  // share for this user (stopped_reason 'expired') before insert, so a late cron cannot block a restart.
+  const open = await db.from('location_shares').select('*').eq('user_id', ctx.userId).is('stopped_at', null);
   if (open.error) return missing(open.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t start sharing.', status: 500 };
-  if (open.data && isShareLive(open.data, now)) {
-    return { error: 'You’re already sharing. Stop it first, or wait until it ends.', status: 409, code: 'already_sharing' };
+  for (const row of open.data || []) {
+    if (isShareLive(row, now)) {
+      return { error: 'You’re already sharing. Stop it first, or wait until it ends.', status: 409, code: 'already_sharing' };
+    }
+    await stampExpired(db, row, now);
   }
-  if (open.data) await stampExpired(db, open.data, now);
 
-  const row = {
+  const row = normalizeShareInsert({
     company_id: ctx.companyId,
     user_id: ctx.userId,
     truck_id: v.truck_id && UUID.test(v.truck_id) ? v.truck_id : null,
     load_id: v.load_id,
     started_at: v.started_at,
     expires_at: v.expires_at,
-    stopped_at: null,
-    stopped_reason: null,
-    stopped_by: null,
     mode: v.mode,
     duration_hours: v.duration_hours,
     auto_stop_on_delivered: !!v.auto_stop_on_delivered,
-    last_reminded_at: null,
-  };
+    // stopped_at / last_reminded_at / stopped_by / stopped_reason forced null (matches the insert trigger)
+  });
   const ins = await db.from('location_shares').insert(row).select('*').maybeSingle();
   if (ins.error) return missing(ins.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t start sharing.', status: 500 };
   return { share: viewShare(ins.data, now) };
@@ -202,8 +204,12 @@ export async function stopShare(db, ctx, { shareId, reason } = {}, now = Date.no
     return { share: viewShare({ ...got.share, stopped_at: got.share.stopped_at || new Date(now).toISOString() }, now), already: true };
   }
   const self = got.share.user_id === ctx.userId;
-  const stopped_reason = reason && (self ? 'user' : 'office') ? (self ? 'user' : (reason === 'office' || !self ? 'office' : 'user')) : (self ? 'user' : 'office');
+  const stopped_reason = self ? 'user' : (reason === 'delivered' ? 'delivered' : 'office');
   const patch = { stopped_at: new Date(now).toISOString(), stopped_reason, stopped_by: ctx.userId };
+  const guard = guardShareUpdate(got.share, { ...got.share, ...patch }, {
+    actorId: ctx.userId, isOffice: isOfficeRole(ctx.role), isServiceRole: !!ctx.asService, now,
+  });
+  if (!guard.ok) return { error: 'Not allowed.', status: guard.status || 403, code: guard.error };
   const { data, error } = await db.from('location_shares').update(patch).eq('id', shareId).is('stopped_at', null).select('*');
   if (error) return { error: 'Couldn’t stop sharing.', status: 500 };
   const row = (data && data[0]) || { ...got.share, ...patch };
@@ -229,15 +235,15 @@ export async function recordPing(db, ctx, body, now = Date.now()) {
   if (!pingAllowed(lastAt, now)) return { ok: true, skipped: 'rate' };
 
   const recorded_at = body.recorded_at && Number.isFinite(Date.parse(body.recorded_at)) ? body.recorded_at : new Date(now).toISOString();
-  const ping = {
+  const ping = fillPingFromShare({
     share_id: shareId,
-    company_id: share.company_id,
+    company_id: null, // trigger/helper overwrites this from the share (callers cannot spoof company_id)
     lat, lng,
     accuracy_m: body.accuracy_m == null ? null : Number(body.accuracy_m),
     speed_mps: body.speed_mps == null ? null : Number(body.speed_mps),
     heading: body.heading == null ? null : Number(body.heading),
     recorded_at,
-  };
+  }, share);
   if (ping.accuracy_m != null && !(ping.accuracy_m >= 0)) ping.accuracy_m = null;
   if (ping.speed_mps != null && !(ping.speed_mps >= 0)) ping.speed_mps = null;
   if (ping.heading != null && !(ping.heading >= 0 && ping.heading < 360)) ping.heading = null;
@@ -267,7 +273,12 @@ export async function markReminded(db, ctx, shareId, now = Date.now()) {
   if (got.error) return missing(got.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t update the reminder.', status: 500 };
   if (!got.share || got.share.user_id !== ctx.userId) return { error: 'Not allowed.', status: 403 };
   if (!isShareLive(got.share, now)) return { ok: true, share: viewShare(got.share, now) };
-  const { data, error } = await db.from('location_shares').update({ last_reminded_at: new Date(now).toISOString() }).eq('id', shareId).select('*');
+  const patch = { last_reminded_at: new Date(now).toISOString() };
+  const guard = guardShareUpdate(got.share, { ...got.share, ...patch }, {
+    actorId: ctx.userId, isOffice: isOfficeRole(ctx.role), isServiceRole: !!ctx.asService, now,
+  });
+  if (!guard.ok) return { error: 'Not allowed.', status: guard.status || 403, code: guard.error };
+  const { data, error } = await db.from('location_shares').update(patch).eq('id', shareId).select('*');
   if (error) return { error: 'Couldn’t update the reminder.', status: 500 };
   return { ok: true, share: viewShare((data && data[0]) || got.share, now), remind: false };
 }
@@ -321,6 +332,8 @@ export async function officeShares(db, ctx, now = Date.now()) {
 }
 
 // Hooked from the stop-completion route after a load's status becomes delivered. Best effort: missing tables are ignored.
+// Runs with the service-role client on that route, which the SQL update guard exempts. An office user may also
+// set stopped_reason = 'delivered' on a share that has auto_stop_on_delivered and a tied load_id.
 export async function stopSharesForDeliveredLoad(db, loadId, now = Date.now()) {
   if (!db || !loadId) return { n: 0 };
   const { data, error } = await db.from('location_shares').select('*')

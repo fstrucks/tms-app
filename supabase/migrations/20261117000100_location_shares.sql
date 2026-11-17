@@ -2,6 +2,9 @@
 -- Dakota applies after Sam reviews. Do not run this against production from a bot or preview.
 -- Depends on public.company_profiles / company_members (20261015001200), auth.users,
 -- public.loads, and public.trucks (trucks exists in production; created outside the earliest repo migrations).
+-- trucks.id is documented as uuid in docs/design/maintenance.md and is the target of many
+-- `truck_id uuid references public.trucks(id)` FKs in this repo. Dakota should still confirm
+-- `public.trucks.id` is uuid in prod before applying (`\d public.trucks`).
 --
 -- Phase 1 tables only: location_shares, location_pings, location_share_latest.
 -- No public share-link table (Phase 2 is out of scope).
@@ -99,6 +102,28 @@ create index if not exists location_pings_company_recorded_idx
 create index if not exists location_pings_recorded_idx
   on public.location_pings (recorded_at);
 
+-- 3b. BEFORE INSERT on pings: always copy company_id from the share so a client cannot spoof it.
+-- (The insert policy compares s.company_id = location_pings.company_id; an unqualified "company_id"
+-- inside the EXISTS subquery would bind to s.company_id and be always true.)
+create or replace function public.location_pings_fill_from_share()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  s public.location_shares;
+begin
+  select * into s from public.location_shares where id = new.share_id;
+  if not found then
+    raise exception 'location_ping_no_share' using errcode = 'P0001';
+  end if;
+  new.company_id := s.company_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists location_pings_fill_from_share on public.location_pings;
+create trigger location_pings_fill_from_share
+  before insert on public.location_pings
+  for each row execute function public.location_pings_fill_from_share();
+
 -- 4. Latest point per share (maintained by trigger; the API also upserts so tests and a missed trigger still work).
 create table if not exists public.location_share_latest (
   share_id uuid primary key references public.location_shares(id) on delete cascade,
@@ -185,6 +210,131 @@ $$;
 revoke execute on function public.expire_location_shares() from public, anon, authenticated;
 revoke execute on function public.purge_location_pings(interval, interval) from public, anon, authenticated;
 
+-- 5b. Share write guards.
+-- INSERT: always force stopped_at, last_reminded_at, stopped_by, stopped_reason to null (even for service_role).
+-- UPDATE: service_role is exempt (cron expiry, expire-on-read, and auto-stop on delivery all use the service
+--         client from the API). Authenticated callers cannot change locked columns, cannot un-stop, and may
+--         only make the narrow stop / reminder updates below.
+
+create or replace function public.location_is_service_role()
+returns boolean language sql stable as $$
+  select coalesce(nullif(auth.role(), ''), current_setting('request.jwt.claim.role', true), current_user) = 'service_role';
+$$;
+revoke execute on function public.location_is_service_role() from public, anon;
+grant execute on function public.location_is_service_role() to authenticated, service_role;
+
+create or replace function public.location_shares_force_insert_nulls()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.stopped_at := null;
+  new.last_reminded_at := null;
+  new.stopped_by := null;
+  new.stopped_reason := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists location_shares_force_insert_nulls on public.location_shares;
+create trigger location_shares_force_insert_nulls
+  before insert on public.location_shares
+  for each row execute function public.location_shares_force_insert_nulls();
+
+create or replace function public.location_shares_guard_update()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  is_sharer boolean := (auth.uid() is not null and auth.uid() = old.user_id);
+  is_office boolean := public.location_is_office(old.company_id);
+  stop_only boolean;
+begin
+  if public.location_is_service_role() then
+    return new;
+  end if;
+
+  if new.company_id is distinct from old.company_id
+     or new.user_id is distinct from old.user_id
+     or new.started_at is distinct from old.started_at
+     or new.mode is distinct from old.mode
+     or new.duration_hours is distinct from old.duration_hours
+     or new.expires_at is distinct from old.expires_at
+     or new.id is distinct from old.id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'location_share_locked' using errcode = 'P0001';
+  end if;
+
+  if old.stopped_at is not null then
+    raise exception 'location_share_already_stopped' using errcode = 'P0001';
+  end if;
+
+  -- Reminder only (sharer): last_reminded_at may change; everything else must stay the same.
+  if new.stopped_at is null and new.stopped_reason is not distinct from old.stopped_reason
+     and new.stopped_by is not distinct from old.stopped_by then
+    if new.truck_id is distinct from old.truck_id
+       or new.load_id is distinct from old.load_id
+       or new.auto_stop_on_delivered is distinct from old.auto_stop_on_delivered then
+      raise exception 'location_share_not_allowed' using errcode = 'P0001';
+    end if;
+    if new.last_reminded_at is distinct from old.last_reminded_at then
+      if not is_sharer then
+        raise exception 'location_share_not_allowed' using errcode = 'P0001';
+      end if;
+      return new;
+    end if;
+    return new;
+  end if;
+
+  -- Stop only: stopped_at / stopped_reason / stopped_by. last_reminded_at and other fields must not change.
+  if new.last_reminded_at is distinct from old.last_reminded_at
+     or new.truck_id is distinct from old.truck_id
+     or new.load_id is distinct from old.load_id
+     or new.auto_stop_on_delivered is distinct from old.auto_stop_on_delivered then
+    raise exception 'location_share_not_allowed' using errcode = 'P0001';
+  end if;
+
+  if new.stopped_at is null then
+    raise exception 'location_share_not_allowed' using errcode = 'P0001';
+  end if;
+  if new.stopped_at < now() - interval '60 seconds' or new.stopped_at > now() + interval '60 seconds' then
+    raise exception 'location_share_stop_time' using errcode = 'P0001';
+  end if;
+
+  if is_sharer then
+    if new.stopped_reason not in ('user', 'delivered') then
+      raise exception 'location_share_stop_reason' using errcode = 'P0001';
+    end if;
+    if new.stopped_by is not null and new.stopped_by is distinct from auth.uid() then
+      raise exception 'location_share_stop_by' using errcode = 'P0001';
+    end if;
+    return new;
+  end if;
+
+  if is_office then
+    if new.stopped_reason = 'office' then
+      if new.stopped_by is distinct from auth.uid() then
+        raise exception 'location_share_stop_by' using errcode = 'P0001';
+      end if;
+      return new;
+    end if;
+    -- Office (or a dispatcher marking the load delivered through a user token) may end a share
+    -- tied to that load when auto_stop_on_delivered is on. The production path uses service_role
+    -- (exempt above) from POST /api/loads/:id/stops/:stopId.
+    if new.stopped_reason = 'delivered' and old.auto_stop_on_delivered and old.load_id is not null then
+      if new.stopped_by is not null and new.stopped_by is distinct from auth.uid() then
+        raise exception 'location_share_stop_by' using errcode = 'P0001';
+      end if;
+      return new;
+    end if;
+    raise exception 'location_share_stop_reason' using errcode = 'P0001';
+  end if;
+
+  raise exception 'location_share_not_allowed' using errcode = 'P0001';
+end;
+$$;
+
+drop trigger if exists location_shares_guard_update on public.location_shares;
+create trigger location_shares_guard_update
+  before update on public.location_shares
+  for each row execute function public.location_shares_guard_update();
+
 -- 6. RLS
 alter table public.location_shares enable row level security;
 alter table public.location_pings enable row level security;
@@ -230,9 +380,9 @@ create policy location_pings_insert on public.location_pings
   for insert to authenticated
   with check (exists (
     select 1 from public.location_shares s
-     where s.id = share_id
+     where s.id = location_pings.share_id
        and s.user_id = auth.uid()
-       and s.company_id = company_id
+       and s.company_id = location_pings.company_id
        and public.location_share_is_live(s.expires_at, s.stopped_at)
   ));
 

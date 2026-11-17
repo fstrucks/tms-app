@@ -251,3 +251,74 @@ export function intervalSql(days) {
   if (!Number.isFinite(n) || n <= 0 || n > 3650) return null;
   return `${n} days`;
 }
+
+
+// Mirrors the BEFORE INSERT / BEFORE UPDATE triggers in 20261117000100_location_shares.sql
+// (service_role is exempt from the update guard; insert always forces stop fields to null).
+export const SHARE_LOCK_COLS = ['id', 'company_id', 'user_id', 'started_at', 'mode', 'duration_hours', 'expires_at', 'created_at'];
+export const STOP_TIME_SLACK_MS = 60_000;
+
+export function normalizeShareInsert(row = {}) {
+  return { ...row, stopped_at: null, last_reminded_at: null, stopped_by: null, stopped_reason: null };
+}
+
+const norm = (v) => (v == null || v === '' ? null : v);
+function sameVal(a, b) {
+  if (norm(a) == null && norm(b) == null) return true;
+  const ta = ts(a), tb = ts(b);
+  if (Number.isFinite(ta) && Number.isFinite(tb)) return ta === tb;
+  return String(a) === String(b);
+}
+
+export function stoppedAtIsNow(at, now = Date.now(), slack = STOP_TIME_SLACK_MS) {
+  const t = ts(at);
+  return Number.isFinite(t) && Math.abs(t - now) <= slack;
+}
+
+// → { ok: true } | { ok: false, error, status, column? }
+// isServiceRole: the SQL trigger skips the update guard for service_role (cron expiry, delivered auto-stop
+// from the stops route, expire-on-read). Authenticated office/sharer paths are still checked.
+export function guardShareUpdate(prev, next, { actorId, isOffice = false, isServiceRole = false, now = Date.now() } = {}) {
+  if (isServiceRole) return { ok: true };
+  if (!prev) return { ok: false, error: 'location_share_missing', status: 404 };
+  for (const c of SHARE_LOCK_COLS) {
+    if (!sameVal(prev[c], next[c])) return { ok: false, error: 'location_share_locked', status: 403, column: c };
+  }
+  if (prev.stopped_at) return { ok: false, error: 'location_share_already_stopped', status: 409 };
+
+  const keys = new Set([...Object.keys(prev || {}), ...Object.keys(next || {})]);
+  const changed = [...keys].filter((c) => !sameVal(prev[c], next[c]));
+  const isSharer = !!actorId && actorId === prev.user_id;
+
+  if (changed.length === 1 && changed[0] === 'last_reminded_at') {
+    return isSharer ? { ok: true } : { ok: false, error: 'location_share_not_allowed', status: 403 };
+  }
+
+  const stopCols = new Set(['stopped_at', 'stopped_reason', 'stopped_by']);
+  if (next.stopped_at && changed.every((c) => stopCols.has(c))) {
+    if (!stoppedAtIsNow(next.stopped_at, now)) return { ok: false, error: 'location_share_stop_time', status: 422 };
+    if (isSharer) {
+      if (!['user', 'delivered'].includes(next.stopped_reason)) return { ok: false, error: 'location_share_stop_reason', status: 403 };
+      if (next.stopped_by != null && next.stopped_by !== actorId) return { ok: false, error: 'location_share_stop_by', status: 403 };
+      return { ok: true };
+    }
+    if (isOffice) {
+      if (next.stopped_reason === 'office') {
+        return next.stopped_by === actorId ? { ok: true } : { ok: false, error: 'location_share_stop_by', status: 403 };
+      }
+      // Office may end a share when its tied load is marked delivered (same rule as the service-role auto-stop path).
+      if (next.stopped_reason === 'delivered' && prev.auto_stop_on_delivered && prev.load_id) {
+        if (next.stopped_by != null && next.stopped_by !== actorId) return { ok: false, error: 'location_share_stop_by', status: 403 };
+        return { ok: true };
+      }
+      return { ok: false, error: 'location_share_stop_reason', status: 403 };
+    }
+    return { ok: false, error: 'location_share_not_allowed', status: 403 };
+  }
+  return { ok: false, error: 'location_share_not_allowed', status: 403 };
+}
+
+export function fillPingFromShare(ping, share) {
+  if (!share) return { ...ping };
+  return { ...ping, company_id: share.company_id };
+}
