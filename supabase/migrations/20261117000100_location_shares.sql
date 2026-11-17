@@ -298,7 +298,7 @@ begin
   end if;
 
   if is_sharer then
-    if new.stopped_reason not in ('user', 'delivered') then
+    if new.stopped_reason is null or new.stopped_reason not in ('user', 'delivered') then
       raise exception 'location_share_stop_reason' using errcode = 'P0001';
     end if;
     if new.stopped_by is not null and new.stopped_by is distinct from auth.uid() then
