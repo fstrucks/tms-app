@@ -58,6 +58,9 @@ export const EXPORT_TABLES = [
   { table: 'facility_reviews', scope: 'author', key: 'author_id', file: 'facility_reviews' },
   { table: 'facility_rating_prompts', scope: 'members', key: 'user_id', file: 'facility_rating_prompts', needs: 'facility rating prompts PR' },
   { table: 'facility_rating_mutes', scope: 'members', key: 'user_id', file: 'facility_rating_mutes', needs: 'facility rating prompts PR' },
+  { table: 'location_shares', scope: 'company', key: 'company_id', file: 'location_shares' },
+  { table: 'location_pings', scope: 'company', key: 'company_id', file: 'location_pings' },
+  { table: 'location_share_latest', scope: 'company', key: 'company_id', file: 'location_share_latest', order: 'share_id' },
 ];
 
 // Deliberately not exported, each with the reason (a guard test keeps this list and EXPORT_TABLES complete).

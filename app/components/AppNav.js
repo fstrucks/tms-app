@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AccountMenu from './ui/AccountMenu';
+import LocationShareBar from './LocationShareBar';
 import { getSupabase } from '../lib/supabase';
 import { navTabs } from '../lib/dispatchNav';
 import { DOCS_ATTENTION_EVENT, fetchNeedsAttention } from '../lib/docsInbox';
@@ -179,6 +180,7 @@ export default function AppNav() {
           );
         })}
       </nav>
+      <LocationShareBar />
     </>
   );
 }

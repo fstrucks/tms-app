@@ -34,6 +34,7 @@ export default function SettingsPage() {
         </p>
         {prefs && !prefs.optedIn && prefs.enabled && <p style={s.muted} data-testid="auto-location-hint">Tap “Use my location” on the Home map once to turn it on.</p>}
         <p style={s.muted}>Your phone may still ask for permission now and then; that’s controlled by the phone, not the app.</p>
+        <p style={{ margin: '0.85rem 0 0' }}><Link href="/location" data-testid="settings-share-location" style={{ color: 'var(--primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>Share my location with your company</Link></p>
       </div>
       <DangerZone />
       <p style={{ marginTop: '1rem' }}><Link href="/" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Home</Link></p>

@@ -218,3 +218,30 @@ html.native-app .appnav-top, html.native-app .appnav-mtop { padding-top: env(saf
 /* Route options (load map): colors from theme variables; Leaflet sets a default stroke attribute, these override it. */
 .leaflet-container path.ph-route-sel { stroke: var(--primary); }
 .leaflet-container path.ph-route-alt { stroke: var(--text-muted); cursor: pointer; }
+
+/* Location share bar: under the top nav on desktop; above the bottom tabs on phones. */
+@media (max-width: 767px) {
+  .location-share-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    z-index: 45;
+    border-bottom: none !important;
+    border-top: 1px solid var(--warning-border);
+  }
+  body.has-appnav.has-location-share { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 64px); }
+}
+@media (min-width: 768px) {
+  .location-share-bar { position: sticky; top: 56px; z-index: 35; }
+}
+
+.ph-office-truck-dot {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 5px var(--primary-soft);
+}

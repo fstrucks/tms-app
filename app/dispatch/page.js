@@ -8,6 +8,7 @@ import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
 import DispatchHeaderLinks from './DispatchHeaderLinks';
+import OfficeLocationPanel from '../components/OfficeLocationPanel';
 import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
@@ -81,6 +82,7 @@ export default function DispatchPage() {
           <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
         ) : (
           <>
+            <OfficeLocationPanel />
             <div style={{ ...s.row, margin: '0 0 0.9rem' }}>
               <p style={{ ...s.muted, margin: 0 }}>{state.company.company_name} · {state.company.role === 'management' ? 'Management' : 'Dispatcher'}</p>
               <Link href="/dispatch/new" data-testid="dispatch-new-load" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 14px', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>

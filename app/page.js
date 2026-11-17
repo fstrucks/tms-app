@@ -39,6 +39,7 @@ export default function Home() {
           <>
             <p style={{ ...s.muted, overflow: 'hidden', textOverflow: 'ellipsis' }}>Signed in as {user.email}. Sign out from the account menu (top right).</p>
             <p style={{ lineHeight: 1.5, maxWidth: 640 }}>Welcome back. Use the menu to manage documents, loads, mileage, expenses and your weekly dashboard.</p>
+            <p><Link href="/location" data-testid="home-share-location" style={{ color: 'var(--primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', minHeight: 44, textDecoration: 'none' }}>Share my location</Link></p>
             <FacilityRatingReminders />
             <HomeCurrentLoad supabase={supabase} user={user} />
             <HomeMaintenanceDue supabase={supabase} user={user} />
