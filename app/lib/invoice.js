@@ -270,3 +270,7 @@ export function loadStatusAfterVoid(current, otherInvoices = []) {
   if (current !== 'invoiced' && current !== 'paid') return null;
   return otherInvoices.some((i) => i.status !== 'void') ? null : 'delivered';
 }
+
+// An unfinalized draft whose load is gone (the load was deleted before drafts were removed with it). It can't be opened
+// (no load to open), so the list offers Delete. Never true for a numbered / sent / paid / void invoice.
+export const isOrphanDraft = (i) => !!i && !i.load_id && i.status === 'draft' && !i.invoice_number;
