@@ -9,7 +9,7 @@ import {
   canStartForOthers, defaultAutoStopOnDelivered, shouldRemind, pingAllowed, shouldPurgePing,
   shouldPurgeLatest, untilLabel, cronAuthorized, intervalSql, REMIND_AFTER_MS, CONSENT_FOREGROUND,
   normalizeShareInsert, guardShareUpdate, fillPingFromShare, SHARE_LOCK_COLS,
-  STALE_MS, HEARTBEAT_MS, isStale, lastSeenAt, pickOfficeStopNotice, officeStopText, alreadySharingText,
+  STALE_MS, HEARTBEAT_MS, isStale, shouldShowStopNotice, readStopSeen, markStopSeen, clockOffset, officeRowView, STOP_SEEN_KEY, lastSeenAt, pickOfficeStopNotice, officeStopText, alreadySharingText,
 } from '../../app/lib/locationShare.js';
 import {
   startShare, stopShare, recordPing, officeShares, stopSharesForDeliveredLoad,
@@ -527,4 +527,85 @@ test('office map uses the same tile URL and referrer policy as the route map', (
   assert.match(m, /TILE_URL = 'https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png'/);
   assert.match(m, /referrerPolicy: 'strict-origin-when-cross-origin'/);
   assert.match(r, /referrerPolicy: 'strict-origin-when-cross-origin'/);
+});
+
+// ---- Taylor recheck (#179, c2edd18) ----
+import * as MINE from '../../app/api/location-share/route.js';
+import * as OFFICE from '../../app/api/location-share/office/route.js';
+const apiReq = () => new Request('http://x/api/location-share', { headers: { authorization: 'Bearer t' } });
+function apiDeps(db, userId, role) {
+  const uc = fakeSupabase({
+    tables: {
+      company_profiles: [{ id: COMPANY, owner_id: OWNER, legal_name: 'Test Trucking Co' }],
+      company_members: [{ profile_id: COMPANY, user_id: DISP, role: 'dispatcher', created_at: '2026-11-01T00:00:00Z' }, { profile_id: COMPANY, user_id: DRV, role: 'driver', created_at: '2026-11-01T00:00:00Z' }, { profile_id: COMPANY, user_id: OWNER, role: 'owner', created_at: '2026-11-01T00:00:00Z' }],
+    },
+    user: { id: userId }, role,
+  });
+  return { mkUserClient: () => uc, sb: db, now: () => NOW };
+}
+
+test('GET /api/location-share returns stopped_notice after an office stop (dispatcher AND owner) and a server_now', async () => {
+  for (const [who, role] of [[DISP, 'dispatcher'], [OWNER, 'owner']]) {
+    const db = world({ tables: { location_shares: [liveRow()] } });
+    const stop = await stopShare(db, ctx(who, role), { shareId: SID, reason: 'office' }, NOW - 20 * 60_000);
+    assert.equal(stop.share.stopped_reason, 'office', role);
+    const res = await MINE.GET(apiReq(), { deps: apiDeps(db, DRV, 'driver') });
+    assert.equal(res.status, 200, role);
+    const j = await res.json();
+    assert.equal(j.share, null);
+    assert.equal(j.stopped_notice?.id, SID, `notice after ${role} stop`);
+    assert.equal(j.server_now, iso(NOW));
+  }
+});
+
+test('office list returns server_now; the panel computes end time, age and stale in the viewer’s zone against the server clock', async () => {
+  const db = world({ tables: { location_shares: [liveRow({ expires_at: '2026-11-17T23:34:00Z' })], location_share_latest: [{ share_id: SID, company_id: COMPANY, user_id: DRV, lat: 1, lng: 1, recorded_at: iso(NOW - 12 * 60_000), updated_at: iso(NOW - 2 * 60_000) }] } });
+  const j = await (await OFFICE.GET(apiReq(), { deps: apiDeps(db, DISP, 'dispatcher') })).json();
+  assert.equal(j.server_now, iso(NOW));
+  const row = j.shares[0];
+  assert.equal(row.last_seen_at, iso(NOW - 2 * 60_000)); // heartbeat, not the old stored point
+  const a = officeRowView(row, { offset: 0, clientNow: NOW });
+  assert.equal(a.age, 'Updated 2 min ago');
+  assert.equal(a.stale, false);
+  const b = officeRowView(row, { offset: 0, clientNow: NOW + 4 * 60_000 }); // later, no new heartbeat
+  assert.equal(b.age, 'Updated 6 min ago');
+  assert.equal(b.stale, true);
+  // A phone clock 10 minutes fast: the offset from server_now cancels it.
+  const skew = clockOffset(j.server_now, NOW + 10 * 60_000);
+  assert.equal(officeRowView(row, { offset: skew, clientNow: NOW + 10 * 60_000 }).age, 'Updated 2 min ago');
+  // End time follows the viewer's zone (process zone here), not a fixed UTC zone.
+  assert.equal(a.until, untilLabel(row, NOW));
+  assert.doesNotMatch(read('app/lib/locationShareServer.js').replace(/\/\/.*$/gm, ''), /timeZone/);
+  assert.match(read('app/components/OfficeLocationPanel.js'), /officeRowView/);
+});
+
+test('seen-once: fetching never marks a notice seen; only the render effect on /location does', () => {
+  const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
+  const st = mem();
+  const n = { id: 'n1', stopped_at: iso(NOW) };
+  assert.equal(shouldShowStopNotice(n, readStopSeen(st)), true);
+  assert.equal(readStopSeen(st), null); // reading/deciding marks nothing
+  markStopSeen(st, 'n1');
+  assert.equal(st.getItem(STOP_SEEN_KEY), 'n1');
+  assert.equal(shouldShowStopNotice(n, readStopSeen(st)), false); // a later visit
+  assert.equal(shouldShowStopNotice(n, readStopSeen(st), 'n1'), true); // refetch while it is on screen keeps it
+  assert.equal(shouldShowStopNotice(null, null), false);
+  // Wiring: the key is written only by markStopSeen, called only from an effect keyed on the rendered notice.
+  const page = read('app/location/page.js');
+  assert.match(page, /useEffect\(\(\) => \{ if \(noticeId\) markStopSeen\(window\.localStorage, noticeId\); \}, \[noticeId\]\);/);
+  assert.equal((page.match(/markStopSeen\(/g) || []).length, 1);
+  assert.doesNotMatch(page, /localStorage\.setItem/);
+  for (const f of ['app/components/LocationShareBar.js', 'app/components/OfficeLocationPanel.js', 'app/lib/locationShareServer.js', 'app/api/location-share/route.js']) {
+    assert.doesNotMatch(read(f), /markStopSeen|ph_loc_stop_seen|STOP_SEEN_KEY/, f);
+  }
+});
+
+test('delivered auto-stop: the stops response says shareStopped and the stop action pokes the Sharing bar to refetch', async () => {
+  const db = world({ tables: { location_shares: [liveRow({ load_id: LOAD, auto_stop_on_delivered: true })] } });
+  const r = await stopSharesForDeliveredLoad(db, LOAD, NOW);
+  assert.equal(r.n, 1);
+  assert.match(read('app/api/loads/[id]/stops/[stopId]/route.js'), /shareStopped/);
+  const sa = read('app/components/StopActions.js');
+  assert.match(sa, /j\.shareStopped \|\| j\.status === 'delivered'[\s\S]*dispatchEvent\(new Event\('ph-location-share'\)\)/);
+  assert.match(read('app/components/LocationShareBar.js'), /addEventListener\('ph-location-share', go\)/);
 });

@@ -10,7 +10,7 @@ export async function GET(req, { deps } = {}) {
   const x = await locationShareCtx(req, deps); if (x.res) return x.res;
   const r = await myShareState(x.db, { userId: x.user.id, ownerId: x.ownerId, companyId: x.companyId, role: x.role }, x.now());
   if (r.error) return isMissing(r.error) ? json(SETUP, 409) : json({ error: 'Couldn’t load location sharing.' }, 500);
-  return json({ share: r.share, remind: r.remind, loads: r.loads, isOffice: r.isOffice });
+  return json({ share: r.share, stopped_notice: r.stopped_notice || null, remind: r.remind, loads: r.loads, isOffice: r.isOffice, server_now: new Date(x.now()).toISOString() });
 }
 
 export async function POST(req, { deps } = {}) {

@@ -360,3 +360,31 @@ export function fillPingFromShare(ping, share) {
   if (!share) return { ...ping };
   return { ...ping, company_id: share.company_id };
 }
+
+// ---- Seen-once notice (driver /location) ----
+export const STOP_SEEN_KEY = 'ph_loc_stop_seen';
+// Show a notice unless it was already shown (seenId), except when it is the one on screen right now (a refetch of the same
+// page must not make it vanish).
+export const shouldShowStopNotice = (notice, seenId, shownId = null) => !!notice && (notice.id !== seenId || notice.id === shownId);
+export function readStopSeen(storage) { try { return storage?.getItem(STOP_SEEN_KEY) || null; } catch { return null; } }
+// Called ONLY from the effect that runs after the notice rendered on /location (never from fetching, the bar, or the office panel).
+export function markStopSeen(storage, id) { try { if (id) storage?.setItem(STOP_SEEN_KEY, id); } catch { /* storage off */ } }
+
+// ---- Clock: ages come from server-provided times against the server's 'now' ----
+// offset = serverNow - clientNow at fetch time; clientNow + offset is "the server's now" even if the phone's clock is off.
+export function clockOffset(serverNowIso, clientNow = Date.now()) {
+  const t = ts(serverNowIso);
+  return Number.isFinite(t) ? t - clientNow : 0;
+}
+// A share row from the office list as the viewer should see it: end time in the viewer's own zone (no timeZone option =
+// the browser's), age and stale from last_seen_at against the server clock.
+export function officeRowView(x, { offset = 0, clientNow = Date.now() } = {}) {
+  const now = clientNow + offset;
+  const seen = ts(x?.last_seen_at);
+  return {
+    ...x,
+    until: untilLabel(x, now),
+    age: Number.isFinite(seen) ? ageLabel(seen, now) : 'No location yet',
+    stale: isStale(Number.isFinite(seen) ? seen : ts(x?.started_at), now),
+  };
+}

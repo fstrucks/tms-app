@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { authedFetch } from '../lib/authedFetch';
+import { clockOffset, officeRowView } from '../lib/locationShare';
 
 const OfficeLocationMap = dynamic(() => import('./OfficeLocationMap'), { ssr: false, loading: () => <div style={{ height: 240, borderRadius: 10, background: 'var(--surface-2)' }} /> });
 
@@ -19,6 +20,8 @@ export default function OfficeLocationPanel({ hideWhenEmpty = false }) {
   const [shares, setShares] = useState(null); // null = loading/hidden
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [offset, setOffset] = useState(0);     // server clock minus this device's clock, from the last fetch
+  const [, setTick] = useState(0);         // re-render so ages and the stale label keep moving between fetches
   const [forbidden, setForbidden] = useState(false); // not office: stop asking
 
   const load = useCallback(async () => {
@@ -31,6 +34,7 @@ export default function OfficeLocationPanel({ hideWhenEmpty = false }) {
     if (res.status === 403) { setShares(null); setForbidden(true); return; }
     if (!res.ok) { setError(body?.error || 'Couldn’t load shared locations.'); return; }
     setError(null);
+    setOffset(clockOffset(body.server_now, Date.now()));
     setShares(body.shares || []);
   }, []);
 
@@ -61,10 +65,13 @@ export default function OfficeLocationPanel({ hideWhenEmpty = false }) {
     }
   }
 
+  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
   if (shares == null && !error) return null;
   if (hideWhenEmpty && !error && shares && shares.length === 0) return null; // Loads page: only shown while someone is sharing
 
-  const points = (shares || []).filter((x) => x.lat != null && x.lng != null);
+  // End time, age and stale are worked out here, in the viewer's own time zone and against the server's clock.
+  const view = (shares || []).map((x) => officeRowView(x, { offset, clientNow: Date.now() }));
+  const points = view.filter((x) => x.lat != null && x.lng != null);
 
   return (
     <section style={s.box} data-testid="office-location-panel">
@@ -75,7 +82,7 @@ export default function OfficeLocationPanel({ hideWhenEmpty = false }) {
       {error && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{error}</p>}
       {shares && shares.length === 0 && <p style={s.muted}>No one is sharing right now.</p>}
       {points.length > 0 && <OfficeLocationMap points={points} />}
-      {(shares || []).map((x) => (
+      {view.map((x) => (
         <div key={x.id} style={s.row} data-testid="office-location-row">
           <div>
             <strong>{x.label}</strong>

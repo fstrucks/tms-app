@@ -81,8 +81,9 @@ export async function POST(req, { params, deps } = {}) {
   else if (body.action === 'undo') await clearOpenPrompts(svc, stop.id);
   if (body.action === 'deliver' && status !== 'delivered') return out({ error: 'Couldn’t mark the load delivered. Please try again.' }, 500, 'deliver_not_updated');
   // Location share auto-stop (best effort; never fails the check-off, including when the SQL isn't applied yet).
+  let shareStopped = false;
   if (status === 'delivered' && load.status !== 'delivered') {
-    try { await stopSharesForDeliveredLoad(svc, load.id, deps?.now ? deps.now() : Date.now()); } catch (e) { console.warn('[stops] location share auto-stop', e?.code || ''); }
+    try { shareStopped = ((await stopSharesForDeliveredLoad(svc, load.id, deps?.now ? deps.now() : Date.now()))?.n || 0) > 0; } catch (e) { console.warn('[stops] location share auto-stop', e?.code || ''); }
   }
-  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}), ...(ratingPrompt ? { ratingPrompt } : {}) }, 200, `saved_${body.action}`);
+  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}), ...(ratingPrompt ? { ratingPrompt } : {}), ...(shareStopped ? { shareStopped: true } : {}) }, 200, `saved_${body.action}`);
 }

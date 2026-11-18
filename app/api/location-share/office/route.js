@@ -9,5 +9,5 @@ export async function GET(req, { deps } = {}) {
   const r = await officeShares(x.db, { userId: x.user.id, role: x.role, companyId: x.companyId, ownerId: x.ownerId }, x.now());
   if (r.setupNeeded || r.error === SETUP.error) return json(SETUP, 409);
   if (r.error) return json({ error: r.error }, r.status || 400);
-  return json({ shares: r.shares });
+  return json({ shares: r.shares, server_now: new Date(x.now()).toISOString() });
 }

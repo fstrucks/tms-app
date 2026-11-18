@@ -8,7 +8,7 @@ import SignInLink from '../components/SignInLink';
 import {
   DURATION_HOURS, DEFAULT_DURATION_HOURS, DURATION_LABELS,
   CONSENT_WHO, CONSENT_FOREGROUND, CONSENT_STOP, SETUP_MSG, untilLabel, defaultAutoStopOnDelivered,
-  alreadySharingText, officeStopText,
+  alreadySharingText, officeStopText, shouldShowStopNotice, readStopSeen, markStopSeen,
 } from '../lib/locationShare';
 
 const s = {
@@ -47,13 +47,17 @@ export default function LocationSharePage() {
     let body = null; try { body = await res.json(); } catch { body = null; }
     if (res.status === 409 && body?.setupNeeded) { setState({ setup: true }); return; }
     if (!res.ok) { setState({ error: body?.error || 'Couldn’t load location sharing.' }); return; }
-    // One-time notice after an office stop: remembered per share id in this browser, so it shows once.
-    let notice = body.stopped_notice || null;
-    try { if (notice && window.localStorage.getItem('ph_loc_stop_seen') === notice.id) notice = null; else if (notice) window.localStorage.setItem('ph_loc_stop_seen', notice.id); } catch { /* storage off: show it */ }
-    setState({ share: body.share, loads: body.loads || [], remind: !!body.remind, notice });
+    // One-time notice after an office stop. Fetching never marks it seen; the effect below does, after it rendered.
+    const seenId = readStopSeen(window.localStorage);
+    setState((st) => ({ share: body.share, loads: body.loads || [], remind: !!body.remind,
+      notice: shouldShowStopNotice(body.stopped_notice, seenId, st.notice?.id) ? body.stopped_notice : null }));
   }
 
   useEffect(() => { if (user && supabase) load(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The notice counts as shown only once it is on screen on this page.
+  const noticeId = state.notice?.id || null;
+  useEffect(() => { if (noticeId) markStopSeen(window.localStorage, noticeId); }, [noticeId]);
 
   function pickLoad(id) {
     setLoadId(id);
@@ -105,6 +109,7 @@ export default function LocationSharePage() {
           {state.notice && (
             <p role="status" data-testid="location-office-stop-notice" style={{ background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 10, padding: '0.7rem 0.85rem', margin: '0 0 1rem' }}>
               {officeStopText(state.notice)}
+              {' '}<button type="button" onClick={() => setState((st) => ({ ...st, notice: null }))} style={{ minHeight: 44, background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 600, cursor: 'pointer', padding: '0 6px' }}>Dismiss</button>
             </p>
           )}
           <form onSubmit={start} style={s.card}>
