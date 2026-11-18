@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { fmtMoney } from '../lib/money';
-import { statusLabel, localDate, isOrphanDraft } from '../lib/invoice';
+import { statusLabel, localDate, isOrphanDraft, orphanDeleteOutcome } from '../lib/invoice';
 import { LIST_TABS, inTab, balanceDue } from '../lib/invoiceBundle';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
@@ -23,7 +23,10 @@ export default function InvoicesPage() {
     setBusy(i.id); setMsg(null);
     const j = await api(`/api/invoices/${i.id}`, { method: 'DELETE' });
     setBusy(null);
-    if (j.error) return setMsg(j.error);
+    const o = orphanDeleteOutcome(j);
+    if (!o.remove) return setMsg(o.error);
+    // Drop the row now (a 404 means it was already deleted), then refetch to settle counts and totals.
+    setSt((s) => ({ ...s, invoices: (s.invoices || []).filter((x) => x.id !== i.id) }));
     api('/api/invoices').then((r) => setSt(r.error ? { error: r.error, setupNeeded: r.setupNeeded } : r));
   }
   const rows = (st.invoices || []).filter((i) => inTab(i, tab));

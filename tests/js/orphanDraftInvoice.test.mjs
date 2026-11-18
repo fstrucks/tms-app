@@ -84,3 +84,17 @@ test('Invoices page: orphan drafts get a Delete draft button; rows with a load s
   assert.match(p, /method: 'DELETE'/);
   assert.match(p, /\/loads\/\$\{i\.load_id\}\?tab=invoice/);
 });
+
+import { orphanDeleteOutcome } from '../../app/lib/invoice.js';
+test('orphan delete outcome: success and 404 remove the row with no alert; other errors keep it and show the message', () => {
+  assert.deepEqual(orphanDeleteOutcome({ ok: true }), { remove: true, error: null });
+  assert.deepEqual(orphanDeleteOutcome({ error: 'Invoice not found.', status: 404 }), { remove: true, error: null });
+  assert.deepEqual(orphanDeleteOutcome({ error: 'Couldn’t delete the draft.', status: 500 }), { remove: false, error: 'Couldn’t delete the draft.' });
+  assert.equal(orphanDeleteOutcome({ error: 'x', status: 409 }).remove, false);
+});
+test('Invoices page removes the row immediately, then refetches', () => {
+  const p = read('app/invoices/page.js');
+  assert.match(p, /orphanDeleteOutcome\(j\)/);
+  assert.match(p, /filter\(\(x\) => x\.id !== i\.id\)/);
+  assert.ok(p.indexOf('filter((x) => x.id !== i.id)') < p.indexOf("api('/api/invoices').then((r) => setSt(r.error"));
+});
