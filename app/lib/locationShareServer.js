@@ -7,7 +7,7 @@ import {
   validateStart, canStartShare, canStopShare, canReadShare, isShareLive, expiryPatch, viewShare,
   shouldRemind, pingAllowed, defaultAutoStopOnDelivered, isOfficeRole, publicShareView,
   PING_MAX_AGE_DAYS, PING_AFTER_END_DAYS, SETUP_MSG, intervalSql, cronAuthorized,
-  normalizeShareInsert, guardShareUpdate, fillPingFromShare, isMoving, pickOfficeStopNotice,
+  normalizeShareInsert, guardShareUpdate, fillPingFromShare, isMoving, pickOfficeStopNotice, loadIsDone, LOAD_DONE_STATUSES,
 } from './locationShare.js';
 
 const HEARTBEAT_MIN_GAP_MS = 60_000; // a heartbeat touches one timestamp at most once a minute
@@ -83,12 +83,54 @@ export async function purgeOldPings(db, now = Date.now(), { maxAgeDays = PING_MA
   return { n, maxAgeDays, afterEndDays, interval: { max: intervalSql(maxAgeDays), after: intervalSql(afterEndDays) } };
 }
 
+// Catch-all for "stop when this load is marked delivered": ends live shares whose tied load is already delivered, whichever
+// screen, RPC or bulk action moved it (the load page, Home, the dispatch editor, the stop check-off, invoicing). Runs on read
+// (the driver's bar, the office list, every ping) and in the cron, so it never depends on one code path calling us.
+// Service client only; reason 'delivered'. Filters narrow it to one user / company / load.
+export async function sweepDeliveredShares(db, now = Date.now(), { userId = null, companyId = null, loadId = null } = {}) {
+  let q = db.from('location_shares').select('*').is('stopped_at', null).eq('auto_stop_on_delivered', true).not('load_id', 'is', null);
+  if (userId) q = q.eq('user_id', userId);
+  if (companyId) q = q.eq('company_id', companyId);
+  if (loadId) q = q.eq('load_id', loadId);
+  const { data, error } = await q;
+  if (error) return { n: 0, error: missing(error) ? null : error };
+  const live = (data || []).filter((s) => isShareLive(s, now));
+  if (!live.length) return { n: 0 };
+  const ids = [...new Set(live.map((s) => s.load_id))];
+  const ld = await db.from('loads').select('id, status').in('id', ids);
+  if (ld.error) return { n: 0, error: ld.error };
+  const done = new Set((ld.data || []).filter((l) => loadIsDone(l.status)).map((l) => l.id));
+  let n = 0;
+  const iso = new Date(now).toISOString();
+  for (const s of live) {
+    if (!done.has(s.load_id)) continue;
+    const upd = await db.from('location_shares').update({ stopped_at: iso, stopped_reason: 'delivered', stopped_by: null }).eq('id', s.id).is('stopped_at', null).select('id');
+    if (!upd.error && upd.data?.length) n += 1;
+  }
+  return { n };
+}
+
+// POST /api/location-share/load-delivered { load_id }: called right after any browser-side write that moves a load to
+// delivered. The caller must belong to the load's company (office, or the load's assigned driver), and the load must really
+// be delivered in the database, so this can only end a share that should end.
+export async function notifyLoadDelivered(db, ctx, loadId, now = Date.now()) {
+  if (!loadId || !UUID.test(loadId)) return { error: 'Which load?', status: 422 };
+  const { data: load, error } = await db.from('loads').select('id, user_id, status, assigned_driver_user_id').eq('id', loadId).maybeSingle();
+  if (error) return missing(error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t check that load.', status: 500 };
+  const office = isOfficeRole(ctx.role);
+  if (!load || load.user_id !== ctx.ownerId || (!office && load.assigned_driver_user_id !== ctx.userId)) return { error: 'Load not found.', status: 404 };
+  if (!loadIsDone(load.status)) return { ok: true, stopped: 0 };
+  const r = await sweepDeliveredShares(db, now, { loadId: load.id });
+  return { ok: true, stopped: r.n };
+}
+
 export async function runLocationShareCron(db, now = Date.now(), opts = {}) {
   const exp = await expireDueShares(db, now);
   if (exp.error) return exp;
+  const del = await sweepDeliveredShares(db, now);
   const purge = await purgeOldPings(db, now, opts);
   if (purge.error) return purge;
-  return { ok: true, expired: exp.n, purged: purge.n, retention: { maxAgeDays: opts.maxAgeDays ?? PING_MAX_AGE_DAYS, afterEndDays: opts.afterEndDays ?? PING_AFTER_END_DAYS } };
+  return { ok: true, expired: exp.n, delivered: del.n || 0, purged: purge.n, retention: { maxAgeDays: opts.maxAgeDays ?? PING_MAX_AGE_DAYS, afterEndDays: opts.afterEndDays ?? PING_AFTER_END_DAYS } };
 }
 
 export async function cronLocationShares(req, deps = {}) {
@@ -127,6 +169,7 @@ function loadLabel(l) {
 
 export async function myShareState(db, { userId, ownerId, companyId, role }, now = Date.now()) {
   await expireDueShares(db, now);
+  await sweepDeliveredShares(db, now, { userId }); // tied load already delivered: end it now, whatever moved the load
   const { data, error } = await db.from('location_shares').select('*')
     .eq('user_id', userId).eq('company_id', companyId).is('stopped_at', null).maybeSingle();
   if (error) return { error };
@@ -235,7 +278,11 @@ export async function recordPing(db, ctx, body, now = Date.now()) {
   const got = await loadShare(db, shareId);
   if (got.error) return missing(got.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t save the location.', status: 500 };
   if (!got.share || got.share.user_id !== ctx.userId) return { error: 'Not allowed.', status: 403 };
-  const share = await stampExpired(db, got.share, now);
+  let share = await stampExpired(db, got.share, now);
+  if (isShareLive(share, now) && share.auto_stop_on_delivered && share.load_id) {
+    await sweepDeliveredShares(db, now, { loadId: share.load_id, userId: ctx.userId });
+    share = (await loadShare(db, shareId)).share || share;
+  }
   if (!isShareLive(share, now)) return { error: 'Sharing has ended.', status: 409, code: 'ended' };
 
   // Heartbeat ('still open'): a parked device re-sends its position every ~2.5 min. When it hasn't moved from the latest
@@ -308,6 +355,7 @@ export async function markReminded(db, ctx, shareId, now = Date.now()) {
 export async function officeShares(db, ctx, now = Date.now()) {
   if (!isOfficeRole(ctx.role)) return { error: 'Not allowed.', status: 403 };
   await expireDueShares(db, now);
+  await sweepDeliveredShares(db, now, { companyId: ctx.companyId });
   const { data, error } = await db.from('location_shares').select('*').eq('company_id', ctx.companyId).is('stopped_at', null);
   if (error) return missing(error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t load shared locations.', status: 500 };
   const rows = [];

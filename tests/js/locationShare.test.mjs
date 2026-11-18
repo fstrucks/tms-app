@@ -609,3 +609,106 @@ test('delivered auto-stop: the stops response says shareStopped and the stop act
   assert.match(sa, /j\.shareStopped \|\| j\.status === 'delivered'[\s\S]*dispatchEvent\(new Event\('ph-location-share'\)\)/);
   assert.match(read('app/components/LocationShareBar.js'), /addEventListener\('ph-location-share', go\)/);
 });
+
+// ---- 3b: every path that can mark a load delivered ends the tied share ----
+import * as LD from '../../app/api/location-share/load-delivered/route.js';
+import { writeOwnerLoadStatus } from '../../app/lib/autoDispatch.js';
+import { markDelivered } from '../../app/lib/homeCurrentLoad.js';
+import { saveLoad } from '../../app/lib/dispatch.js';
+import { notifyLoadDeliveredClient } from '../../app/lib/locationShareClient.js';
+import { sweepDeliveredShares, notifyLoadDelivered } from '../../app/lib/locationShareServer.js';
+
+const tied = () => liveRow({ load_id: LOAD, auto_stop_on_delivered: true });
+const setLoad = (db, status) => { db.db.loads[0].status = status; };
+const calls = [];
+const withFetch = async (fn) => {
+  const real = globalThis.fetch; calls.length = 0;
+  globalThis.fetch = async (url, init) => { calls.push({ url, body: JSON.parse(init.body) }); return { ok: true, json: async () => ({ ok: true }) }; };
+  try { return await fn(); } finally { globalThis.fetch = real; }
+};
+const browserSb = (rowsAfter = { status: 'delivered' }) => ({
+  auth: { getSession: async () => ({ data: { session: { access_token: 'tok' } } }) },
+  from: () => { const q = { update: () => q, eq: () => q, select: () => q, maybeSingle: async () => ({ data: rowsAfter, error: null }) }; return q; },
+  rpc: async () => ({ data: rowsAfter, error: null }),
+});
+
+test('read-time sweep (covers every path, incl. direct DB / RPC / bulk): load delivered or invoiced → the driver’s share ends on the next fetch', async () => {
+  for (const status of ['delivered', 'invoiced', 'paid']) {
+    const db = world({ tables: { location_shares: [tied()] } });
+    setLoad(db, status);
+    const st = await myShareState(db, { userId: DRV, ownerId: OWNER, companyId: COMPANY, role: 'driver' }, NOW);
+    assert.equal(st.share, null, status);
+    assert.equal(db.db.location_shares[0].stopped_reason, 'delivered', status);
+  }
+  const keep = world({ tables: { location_shares: [tied(), liveRow({ id: '00000000-0000-4000-8000-0000000000a8', user_id: DRV2, load_id: LOAD, auto_stop_on_delivered: false })] } });
+  setLoad(keep, 'in_transit');
+  await sweepDeliveredShares(keep, NOW);
+  assert.equal(keep.db.location_shares.every((r) => !r.stopped_at), true); // not delivered: nothing ends
+  setLoad(keep, 'delivered');
+  const r = await sweepDeliveredShares(keep, NOW);
+  assert.equal(r.n, 1); // the one without auto-stop stays
+  assert.equal(keep.db.location_shares.find((x) => x.user_id === DRV2).stopped_at, null);
+});
+
+test('office list, pings and the cron also sweep; a ping to a delivered load’s share answers ended', async () => {
+  const a = world({ tables: { location_shares: [tied()] } }); setLoad(a, 'delivered');
+  assert.equal((await officeShares(a, ctx(OWNER, 'owner'), NOW)).shares.length, 0);
+  const b = world({ tables: { location_shares: [tied()] } }); setLoad(b, 'delivered');
+  const ping = await recordPing(b, ctx(DRV, 'driver'), { share_id: SID, lat: 41.8, lng: -87.6 }, NOW);
+  assert.equal(ping.code, 'ended');
+  const c = world({ tables: { location_shares: [tied()] } }); setLoad(c, 'delivered');
+  const cron = await runLocationShareCron(c, NOW);
+  assert.equal(cron.delivered, 1);
+});
+
+test('load page status menu (owner direct update) tells the server: writeOwnerLoadStatus → /api/location-share/load-delivered', async () => {
+  await withFetch(async () => {
+    const r = await writeOwnerLoadStatus(browserSb(), { id: LOAD, status: 'delivered' });
+    assert.equal(r.ok, true);
+  });
+  assert.deepEqual(calls.map((c) => [c.url, c.body.load_id]), [['/api/location-share/load-delivered', LOAD]]);
+  await withFetch(async () => { await writeOwnerLoadStatus(browserSb({ status: 'in_transit' }), { id: LOAD, status: 'in_transit' }); });
+  assert.equal(calls.length, 0); // other statuses don't call
+  assert.match(read('app/loads/[id]/page.js'), /writeOwnerLoadStatus\(supabase, \{ id, status \}\)/);
+});
+
+test('Home “Mark as delivered” (markDelivered) and the dispatch editor save (saveLoad status delivered) tell the server too', async () => {
+  await withFetch(async () => { assert.equal((await markDelivered(browserSb(), LOAD)).ok, true); });
+  assert.equal(calls.length, 1);
+  await withFetch(async () => { assert.equal((await saveLoad(browserSb(), LOAD, { status: 'delivered' })).ok, true); });
+  assert.equal(calls.length, 1);
+  await withFetch(async () => { await saveLoad(browserSb({ status: 'in_transit' }), LOAD, { status: 'in_transit', notes: 'x' }); });
+  assert.equal(calls.length, 0);
+});
+
+test('client notifier never throws without a session or a fetch', async () => {
+  assert.equal(await notifyLoadDeliveredClient({ auth: { getSession: async () => ({ data: {} }) } }, LOAD), false);
+  assert.equal(await notifyLoadDeliveredClient(browserSb(), LOAD, { fetchImpl: async () => { throw new Error('offline'); } }), false);
+});
+
+test('load-delivered endpoint: only ends shares when the load is really delivered, and only for the load’s company', async () => {
+  const mk = () => world({ tables: { location_shares: [tied()] } });
+  const post = (db, uid, role, loadId = LOAD) => LD.POST(new Request('http://x/api', { method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: JSON.stringify({ load_id: loadId }) }), { deps: apiDeps(db, uid, role) });
+  const a = mk();
+  assert.equal((await (await post(a, OWNER, 'owner')).json()).stopped, 0); // not delivered yet: abused call does nothing
+  assert.equal(a.db.location_shares[0].stopped_at, null);
+  setLoad(a, 'delivered');
+  const ok = await (await post(a, OWNER, 'owner')).json();
+  assert.equal(ok.stopped, 1);
+  assert.equal(a.db.location_shares[0].stopped_reason, 'delivered');
+  const b = mk(); setLoad(b, 'delivered');
+  assert.ok([403, 404].includes((await post(b, DRV2, 'driver')).status)); // a driver not on that load / not in the company
+  assert.equal(b.db.location_shares[0].stopped_at, null);
+  const c = mk(); setLoad(c, 'delivered'); c.db.loads[0].user_id = '00000000-0000-4000-8000-0000000000ee'; // another company's load
+  assert.equal((await post(c, OWNER, 'owner')).status, 404);
+  const d = mk(); setLoad(d, 'delivered');
+  assert.equal((await post(d, DRV, 'driver')).status, 200); // the assigned driver may
+  assert.equal((await notifyLoadDelivered(mk(), ctx(OWNER, 'owner'), 'nope', NOW)).status, 422);
+});
+
+test('stop check-off route still ends the share (existing path) and the bar refetches on its poll', () => {
+  assert.match(read('app/api/loads/[id]/stops/[stopId]/route.js'), /stopSharesForDeliveredLoad/);
+  const bar = read('app/components/LocationShareBar.js');
+  assert.match(bar, /const pollMs = 30_000;/);
+  assert.match(bar, /setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) go\(\); \}, pollMs\)/);
+});

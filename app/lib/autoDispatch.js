@@ -7,6 +7,7 @@
 // Office roles only. Drivers have no assign or dispatch control; the writes stay on the existing
 // owner update and the role-checked dispatch RPC.
 
+import { notifyLoadDeliveredClient } from './locationShareClient';
 export const DISPATCH_STATUS = 'dispatched';
 // The only status before dispatch. in_transit is already picked up. delivered / invoiced / paid / cancelled are terminal.
 export const PRE_DISPATCH_STATUS = 'booked';
@@ -99,6 +100,7 @@ export async function writeOwnerLoadStatus(supabase, { id, status, onlyFrom = nu
   const { data, error } = await q.select('status').maybeSingle();
   if (error) return { ok: false, error };
   if (!data?.status) return { ok: false, error: { message: 'not_updated' } };
+  if (data.status === 'delivered') await notifyLoadDeliveredClient(supabase, id); // ends a tied location share now
   return { ok: true, status: data.status };
 }
 

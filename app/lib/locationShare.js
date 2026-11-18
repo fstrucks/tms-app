@@ -388,3 +388,8 @@ export function officeRowView(x, { offset = 0, clientNow = Date.now() } = {}) {
     stale: isStale(Number.isFinite(seen) ? seen : ts(x?.started_at), now),
   };
 }
+
+// Statuses that mean the load is done being delivered. A share tied to the load (auto_stop_on_delivered) ends once the load
+// is in one of them, no matter which screen or API moved it there (delivered can go straight to invoiced).
+export const LOAD_DONE_STATUSES = ['delivered', 'invoiced', 'paid'];
+export const loadIsDone = (status) => LOAD_DONE_STATUSES.includes(status);
