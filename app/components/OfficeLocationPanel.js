@@ -15,10 +15,11 @@ const s = {
   btn: { minHeight: 44, padding: '0 14px', borderRadius: 8, border: '1px solid var(--primary)', background: 'var(--surface)', color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' },
 };
 
-export default function OfficeLocationPanel() {
+export default function OfficeLocationPanel({ hideWhenEmpty = false }) {
   const [shares, setShares] = useState(null); // null = loading/hidden
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [forbidden, setForbidden] = useState(false); // not office: stop asking
 
   const load = useCallback(async () => {
     const sb = getSupabase();
@@ -27,7 +28,7 @@ export default function OfficeLocationPanel() {
     let body = null;
     try { body = await res.json(); } catch { body = null; }
     if (res.status === 409 && body?.setupNeeded) { setShares(null); return; }
-    if (res.status === 403) { setShares(null); return; }
+    if (res.status === 403) { setShares(null); setForbidden(true); return; }
     if (!res.ok) { setError(body?.error || 'Couldn’t load shared locations.'); return; }
     setError(null);
     setShares(body.shares || []);
@@ -35,6 +36,7 @@ export default function OfficeLocationPanel() {
 
   useEffect(() => {
     let t = null, live = true;
+    if (forbidden) return undefined;
     const go = () => { if (live && document.visibilityState === 'visible') load(); };
     go();
     t = setInterval(go, 15_000);
@@ -42,7 +44,7 @@ export default function OfficeLocationPanel() {
     document.addEventListener('visibilitychange', vis);
     window.addEventListener('ph-location-share', go);
     return () => { live = false; clearInterval(t); document.removeEventListener('visibilitychange', vis); window.removeEventListener('ph-location-share', go); };
-  }, [load]);
+  }, [load, forbidden]);
 
   async function stop(id) {
     if (busy) return;
@@ -60,6 +62,7 @@ export default function OfficeLocationPanel() {
   }
 
   if (shares == null && !error) return null;
+  if (hideWhenEmpty && !error && shares && shares.length === 0) return null; // Loads page: only shown while someone is sharing
 
   const points = (shares || []).filter((x) => x.lat != null && x.lng != null);
 
@@ -78,6 +81,7 @@ export default function OfficeLocationPanel() {
             <strong>{x.label}</strong>
             {x.load_ref && x.load_id ? <> · <Link href={`/dispatch/${x.load_id}`} style={{ color: 'var(--primary)' }}>{x.load_ref}</Link></> : x.load_ref ? <> · {x.load_ref}</> : null}
             <div style={s.muted}>{x.age}{x.until ? ` · ${x.until}` : ''}</div>
+            {x.stale && <div data-testid="office-location-stale" style={{ color: 'var(--warning)', fontSize: '0.85rem', fontWeight: 600 }}>{x.stale_text || 'Not updating, app may be closed'}</div>}
           </div>
           <button type="button" data-testid="office-location-stop" disabled={busy === x.id} onClick={() => stop(x.id)} style={s.btn}>
             {busy === x.id ? 'Stopping…' : 'Stop'}

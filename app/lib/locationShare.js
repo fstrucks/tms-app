@@ -16,6 +16,10 @@ export const REMIND_AFTER_MS = 24 * 60 * 60 * 1000;
 export const OFFICE_ROLES = ['owner', 'management', 'dispatcher'];
 export const STOP_REASONS = ['user', 'office', 'expired', 'delivered', 'deleted'];
 export const DAY_MS = 24 * 60 * 60 * 1000;
+export const HEARTBEAT_MS = 150_000;               // 'still open' touch while parked (updates one timestamp, stores no point)
+export const STALE_MS = 5 * 60_000;                // no update/heartbeat for this long: office sees 'Not updating'
+export const STALE_TEXT = 'Not updating, app may be closed';
+export const OFFICE_STOP_WINDOW_MS = DAY_MS;       // the driver is told about an office stop for up to a day
 
 export const DURATION_LABELS = {
   1: '1 hour',
@@ -205,6 +209,37 @@ export function ageLabel(at, now = Date.now()) {
   return h === 1 ? 'Updated 1 hour ago' : `Updated ${h} hours ago`;
 }
 
+// Last sign of life from the device: a heartbeat (latest.updated_at) or a stored point (recorded_at), else when it started.
+export function lastSeenAt(share, latest) {
+  const times = [latest?.updated_at, latest?.recorded_at].map(ts).filter(Number.isFinite);
+  if (times.length) return Math.max(...times);
+  const st = ts(share?.started_at);
+  return Number.isFinite(st) ? st : NaN;
+}
+export function isStale(seenAt, now = Date.now(), staleMs = STALE_MS) {
+  const t = typeof seenAt === 'number' ? seenAt : ts(seenAt);
+  return Number.isFinite(t) && now - t > staleMs;
+}
+
+// Driver side: the share an office user stopped (stopped_reason 'office') in the last day, newest first; null when none
+// or when this one was already shown (seenId). rows: location_shares rows for the signed-in driver.
+export function pickOfficeStopNotice(rows, { now = Date.now(), seenId = null, windowMs = OFFICE_STOP_WINDOW_MS } = {}) {
+  const hit = (rows || [])
+    .filter((r) => r && r.stopped_reason === 'office' && r.stopped_at && now - ts(r.stopped_at) <= windowMs && now >= ts(r.stopped_at) - 60_000)
+    .sort((a, b) => ts(b.stopped_at) - ts(a.stopped_at))[0];
+  return hit && hit.id !== seenId ? { id: hit.id, stopped_at: hit.stopped_at } : null;
+}
+export function officeStopText(notice, { locale, timeZone, now = Date.now() } = {}) {
+  if (!notice?.stopped_at) return '';
+  const at = new Date(notice.stopped_at);
+  try {
+    const t = at.toLocaleTimeString(locale || 'en-US', { hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) });
+    const same = at.toLocaleDateString(locale || 'en-US', { ...(timeZone ? { timeZone } : {}) }) === new Date(now).toLocaleDateString(locale || 'en-US', { ...(timeZone ? { timeZone } : {}) });
+    return `Your dispatcher stopped location sharing at ${same ? t : `${at.toLocaleDateString(locale || 'en-US', { month: 'short', day: 'numeric', ...(timeZone ? { timeZone } : {}) })}, ${t}`}.`;
+  } catch { return 'Your dispatcher stopped location sharing.'; }
+}
+export const alreadySharingText = (share, now = Date.now(), opts) => `You’re already sharing ${untilLabel(share, now, opts)}.`;
+
 export function publicShareView(share, latest, now = Date.now(), { label } = {}) {
   const v = viewShare(share, now);
   if (!v || !v.live) return null;
@@ -226,7 +261,10 @@ export function publicShareView(share, latest, now = Date.now(), { label } = {})
     speed_mps: latest?.speed_mps ?? null,
     heading: latest?.heading ?? null,
     recorded_at: latest?.recorded_at ?? null,
-    age: ageLabel(latest?.recorded_at, now),
+    last_seen_at: Number.isFinite(lastSeenAt(v, latest)) ? new Date(lastSeenAt(v, latest)).toISOString() : null,
+    stale: isStale(lastSeenAt(v, latest), now),
+    stale_text: STALE_TEXT,
+    age: Number.isFinite(lastSeenAt(v, latest)) && latest ? ageLabel(lastSeenAt(v, latest), now) : 'No location yet',
   };
 }
 

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { authedFetch } from '../lib/authedFetch';
-import { nextPingWaitMs, REMIND_TEXT, untilLabel } from '../lib/locationShare';
+import { nextPingWaitMs, REMIND_TEXT, untilLabel, HEARTBEAT_MS } from '../lib/locationShare';
 
 const pollMs = 30_000;
 
@@ -64,12 +64,12 @@ export default function LocationShareBar() {
   useEffect(() => {
     if (!share?.id) return undefined;
     let timer = null, stopped = false;
-    const last = { at: null, fix: null };
-    const send = (fix) => {
+    const last = { at: null, fix: null, hbAt: null };
+    const send = (fix, heartbeat = false) => {
       if (stopped || document.visibilityState !== 'visible') return;
       call('/api/location-share/ping', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ share_id: share.id, lat: fix.lat, lng: fix.lng, accuracy_m: fix.accuracy_m, speed_mps: fix.speed_mps, heading: fix.heading }),
+        body: JSON.stringify({ share_id: share.id, lat: fix.lat, lng: fix.lng, accuracy_m: fix.accuracy_m, speed_mps: fix.speed_mps, heading: fix.heading, ...(heartbeat ? { heartbeat: true } : {}) }),
       }).then((r) => {
         if (r.body?.code === 'ended' || r.status === 409) refresh();
       }).catch(() => {});
@@ -82,7 +82,9 @@ export default function LocationShareBar() {
           setDenied(false);
           const fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy_m: p.coords.accuracy, speed_mps: p.coords.speed, heading: p.coords.heading };
           const wait = nextPingWaitMs({ lastAt: last.at, prev: last.fix, next: fix, now: Date.now() });
-          if (wait === 0) { last.at = Date.now(); last.fix = fix; send(fix); }
+          if (wait === 0) { last.at = Date.now(); last.hbAt = last.at; last.fix = fix; send(fix); }
+          // Parked: the next stored point is far off, but say "still open" every ~2.5 min (server only touches a timestamp).
+          else if (Date.now() - (last.hbAt || 0) >= HEARTBEAT_MS) { last.hbAt = Date.now(); send(fix, true); }
         },
         (e) => { if (e?.code === 1) setDenied(true); },
         { enableHighAccuracy: false, maximumAge: 30_000, timeout: 15_000 },

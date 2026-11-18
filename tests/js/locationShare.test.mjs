@@ -9,10 +9,11 @@ import {
   canStartForOthers, defaultAutoStopOnDelivered, shouldRemind, pingAllowed, shouldPurgePing,
   shouldPurgeLatest, untilLabel, cronAuthorized, intervalSql, REMIND_AFTER_MS, CONSENT_FOREGROUND,
   normalizeShareInsert, guardShareUpdate, fillPingFromShare, SHARE_LOCK_COLS,
+  STALE_MS, HEARTBEAT_MS, isStale, lastSeenAt, pickOfficeStopNotice, officeStopText, alreadySharingText,
 } from '../../app/lib/locationShare.js';
 import {
   startShare, stopShare, recordPing, officeShares, stopSharesForDeliveredLoad,
-  expireDueShares, purgeOldPings, runLocationShareCron, markReminded, cronLocationShares,
+  expireDueShares, purgeOldPings, runLocationShareCron, markReminded, cronLocationShares, myShareState,
 } from '../../app/lib/locationShareServer.js';
 
 const read = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
@@ -428,4 +429,102 @@ test('fillPingFromShare overwrites a spoofed company_id from the share', () => {
   const share = { id: 's', company_id: COMPANY, user_id: DRV };
   const ping = fillPingFromShare({ share_id: 's', company_id: '00000000-0000-4000-8000-0000000000c9', lat: 1, lng: 2 }, share);
   assert.equal(ping.company_id, COMPANY);
+});
+
+// ---- Taylor QA (#179): owner as office, notices, stale, heartbeat ----
+const SID = '00000000-0000-4000-8000-0000000000a7';
+const liveRow = (over = {}) => ({ id: SID, company_id: COMPANY, user_id: DRV, mode: 'timed', duration_hours: 8, started_at: iso(NOW - 3600e3), expires_at: iso(NOW + 3600e3), stopped_at: null, ...over });
+
+test('owner counts as office: sees the live shares list and can remotely stop (reason office, stopped_by owner)', async () => {
+  const db = world({ tables: { location_shares: [liveRow()], location_share_latest: [{ share_id: SID, company_id: COMPANY, user_id: DRV, lat: 41.8, lng: -87.6, recorded_at: iso(NOW - 30e3), updated_at: iso(NOW - 30e3) }] } });
+  const list = await officeShares(db, ctx(OWNER, 'owner'), NOW);
+  assert.equal(list.shares.length, 1);
+  const r = await stopShare(db, ctx(OWNER, 'owner'), { shareId: SID, reason: 'office' }, NOW);
+  assert.equal(r.share.stopped_reason, 'office');
+  assert.equal(r.share.stopped_by, OWNER);
+  assert.equal(db.db.location_shares[0].stopped_at != null, true);
+  assert.equal((await officeShares(db, ctx(OWNER, 'owner'), NOW)).shares.length, 0);
+});
+
+test('owner panel wiring: /dispatch renders the shares panel for the owner above the owner copy; Loads page shows it only when someone shares', () => {
+  const d = read('app/dispatch/page.js');
+  assert.match(d, /state\.owner && <OfficeLocationPanel \/>/);
+  assert.match(d, /owner: \(acc\.roles \|\| \[\]\)\.includes\('owner'\)/);
+  assert.match(d, /copy: notMemberCopy\(\['owner'\]\), owner: true/);
+  assert.match(read('app/loads/page.js'), /<OfficeLocationPanel hideWhenEmpty \/>/);
+  assert.match(read('app/components/OfficeLocationPanel.js'), /hideWhenEmpty/);
+});
+
+test('stale: no update or heartbeat for more than 5 minutes shows Not updating; a heartbeat keeps a parked truck fresh', async () => {
+  assert.equal(STALE_MS, 5 * 60_000);
+  assert.ok(HEARTBEAT_MS < STALE_MS && HEARTBEAT_MS >= 120_000 && HEARTBEAT_MS <= 180_000);
+  assert.equal(isStale(NOW - 4 * 60_000, NOW), false);
+  assert.equal(isStale(NOW - 5 * 60_000 - 1, NOW), true);
+  const old = { share_id: SID, lat: 1, lng: 1, recorded_at: iso(NOW - 12 * 60_000), updated_at: iso(NOW - 12 * 60_000) };
+  assert.equal(isStale(lastSeenAt(liveRow(), old), NOW), true);
+  const fresh = { ...old, updated_at: iso(NOW - 60_000) }; // stored point is old (parked) but a heartbeat came in
+  assert.equal(isStale(lastSeenAt(liveRow(), fresh), NOW), false);
+  const db = world({ tables: { location_shares: [liveRow()], location_share_latest: [{ ...old, company_id: COMPANY, user_id: DRV }] } });
+  const a = (await officeShares(db, ctx(DISP, 'dispatcher'), NOW)).shares[0];
+  assert.equal(a.stale, true);
+  assert.equal(a.stale_text, 'Not updating, app may be closed');
+  db.db.location_share_latest[0].updated_at = iso(NOW - 60_000);
+  assert.equal((await officeShares(db, ctx(DISP, 'dispatcher'), NOW)).shares[0].stale, false);
+});
+
+test('heartbeat ping while parked touches only updated_at: no new ping row, and at most once a minute', async () => {
+  const db = world({ tables: { location_shares: [liveRow()], location_share_latest: [{ share_id: SID, company_id: COMPANY, user_id: DRV, lat: 41.8, lng: -87.6, recorded_at: iso(NOW - 10 * 60_000), updated_at: iso(NOW - 150_000) }] } });
+  const r = await recordPing(db, ctx(DRV, 'driver'), { share_id: SID, lat: 41.8001, lng: -87.6001, heartbeat: true }, NOW);
+  assert.equal(r.heartbeat, true);
+  assert.equal(db.db.location_pings.length, 0);
+  assert.equal(db.db.location_share_latest[0].updated_at, iso(NOW));
+  assert.equal(db.db.location_share_latest[0].recorded_at, iso(NOW - 10 * 60_000)); // stored point time unchanged
+  const again = await recordPing(db, ctx(DRV, 'driver'), { share_id: SID, lat: 41.8001, lng: -87.6001, heartbeat: true }, NOW + 20_000);
+  assert.equal(again.skipped, 'rate');
+  // Moved far from the latest point: stored as a normal ping instead.
+  const moved = await recordPing(db, ctx(DRV, 'driver'), { share_id: SID, lat: 42.5, lng: -87.6, heartbeat: true }, NOW + 5 * 60_000);
+  assert.equal(moved.ok, true);
+  assert.equal(db.db.location_pings.length, 1);
+  assert.match(read('app/components/LocationShareBar.js'), /HEARTBEAT_MS/);
+});
+
+test('office stop notice: shown for a recent office stop, once; not for other reasons, old stops, or while sharing', async () => {
+  const stoppedAt = NOW - 20 * 60_000;
+  const rows = [
+    { id: 'a1', stopped_reason: 'user', stopped_at: iso(NOW - 60_000) },
+    { id: 'a2', stopped_reason: 'office', stopped_at: iso(stoppedAt) },
+    { id: 'a3', stopped_reason: 'office', stopped_at: iso(NOW - 3 * 86400e3) },
+  ];
+  assert.deepEqual(pickOfficeStopNotice(rows, { now: NOW }), { id: 'a2', stopped_at: iso(stoppedAt) });
+  assert.equal(pickOfficeStopNotice(rows, { now: NOW, seenId: 'a2' }), null); // already shown
+  assert.equal(pickOfficeStopNotice([rows[0], rows[2]], { now: NOW }), null);
+  const text = officeStopText({ stopped_at: iso(Date.parse('2026-11-17T14:00:00Z') - 20 * 60_000) }, { timeZone: 'America/Chicago', now: NOW });
+  assert.equal(text, 'Your dispatcher stopped location sharing at 7:40 AM.');
+  const db = world({ tables: { location_shares: [liveRow({ user_id: DRV, stopped_at: iso(stoppedAt), stopped_reason: 'office', stopped_by: DISP })] } });
+  const st = await myShareState(db, { userId: DRV, ownerId: OWNER, companyId: COMPANY, role: 'driver' }, NOW);
+  assert.equal(st.share, null);
+  assert.equal(st.stopped_notice.id, SID);
+  const sharing = await startShare(db, ctx(DRV, 'driver'), { duration_hours: 1 }, NOW);
+  assert.ok(sharing.share);
+  const st2 = await myShareState(db, { userId: DRV, ownerId: OWNER, companyId: COMPANY, role: 'driver' }, NOW);
+  assert.equal(st2.stopped_notice, null); // live share: no notice
+  assert.match(read('app/location/page.js'), /location-office-stop-notice/);
+});
+
+test('already sharing: second start returns 409 already_sharing with a plain message; the page states it with the end time', async () => {
+  const db = world({ tables: { location_shares: [liveRow()] } });
+  const r = await startShare(db, ctx(DRV, 'driver'), { duration_hours: 4 }, NOW);
+  assert.equal(r.status, 409);
+  assert.equal(r.code, 'already_sharing');
+  assert.match(r.error, /already sharing/i);
+  assert.equal(alreadySharingText({ mode: 'until_off' }, NOW), 'You’re already sharing until you turn it off.');
+  assert.match(alreadySharingText({ mode: 'timed', expires_at: iso(NOW + 3600e3) }, NOW, { timeZone: 'America/Chicago' }), /^You’re already sharing until 9:00 AM\.$/);
+  assert.match(read('app/location/page.js'), /location-already-sharing/);
+});
+
+test('office map uses the same tile URL and referrer policy as the route map', () => {
+  const m = read('app/components/OfficeLocationMap.js'), r = read('app/components/RouteMap.js');
+  assert.match(m, /TILE_URL = 'https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png'/);
+  assert.match(m, /referrerPolicy: 'strict-origin-when-cross-origin'/);
+  assert.match(r, /referrerPolicy: 'strict-origin-when-cross-origin'/);
 });

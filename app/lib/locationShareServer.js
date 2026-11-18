@@ -7,8 +7,10 @@ import {
   validateStart, canStartShare, canStopShare, canReadShare, isShareLive, expiryPatch, viewShare,
   shouldRemind, pingAllowed, defaultAutoStopOnDelivered, isOfficeRole, publicShareView,
   PING_MAX_AGE_DAYS, PING_AFTER_END_DAYS, SETUP_MSG, intervalSql, cronAuthorized,
-  normalizeShareInsert, guardShareUpdate, fillPingFromShare,
+  normalizeShareInsert, guardShareUpdate, fillPingFromShare, isMoving, pickOfficeStopNotice,
 } from './locationShare.js';
+
+const HEARTBEAT_MIN_GAP_MS = 60_000; // a heartbeat touches one timestamp at most once a minute
 
 export { json };
 export const SETUP = { error: SETUP_MSG, setupNeeded: true };
@@ -133,8 +135,15 @@ export async function myShareState(db, { userId, ownerId, companyId, role }, now
   const live = share && isShareLive(share, now) ? viewShare(share, now) : null;
   const loads = await assignedLoads(db, ownerId, userId);
   if (loads.error && !missing(loads.error)) return { error: loads.error };
+  let stopped_notice = null;
+  if (!live) {
+    const prior = await db.from('location_shares').select('id, stopped_at, stopped_reason').eq('user_id', userId).eq('stopped_reason', 'office')
+      .order('stopped_at', { ascending: false }).limit(3);
+    if (!prior.error) stopped_notice = pickOfficeStopNotice(prior.data || [], { now });
+  }
   return {
     share: live,
+    stopped_notice,
     remind: shouldRemind(live, now),
     loads: (loads.loads || []).map((l) => ({ id: l.id, label: loadLabel(l), status: l.status })),
     canStart: true,
@@ -228,6 +237,19 @@ export async function recordPing(db, ctx, body, now = Date.now()) {
   if (!got.share || got.share.user_id !== ctx.userId) return { error: 'Not allowed.', status: 403 };
   const share = await stampExpired(db, got.share, now);
   if (!isShareLive(share, now)) return { error: 'Sharing has ended.', status: 409, code: 'ended' };
+
+  // Heartbeat ('still open'): a parked device re-sends its position every ~2.5 min. When it hasn't moved from the latest
+  // point, only location_share_latest.updated_at is touched (no new ping row), so the office can tell a parked truck from
+  // a closed app without growing the table. Moved, or no latest point yet: stored as a normal ping below.
+  if (body?.heartbeat === true) {
+    const cur = await db.from('location_share_latest').select('lat, lng, updated_at').eq('share_id', shareId).maybeSingle();
+    if (!cur.error && cur.data && !isMoving({ lat: cur.data.lat, lng: cur.data.lng }, { lat, lng, speed_mps: body.speed_mps == null ? null : Number(body.speed_mps) })) {
+      if (!pingAllowed(cur.data.updated_at, now, HEARTBEAT_MIN_GAP_MS)) return { ok: true, skipped: 'rate' };
+      const up = await db.from('location_share_latest').update({ updated_at: new Date(now).toISOString() }).eq('share_id', shareId);
+      if (up.error) return { error: 'Couldn’t save the location.', status: 500 };
+      return { ok: true, heartbeat: true };
+    }
+  }
 
   const last = await db.from('location_pings').select('recorded_at, received_at').eq('share_id', shareId).order('recorded_at', { ascending: false }).limit(1);
   if (last.error && !missing(last.error)) return { error: 'Couldn’t save the location.', status: 500 };

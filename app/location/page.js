@@ -8,6 +8,7 @@ import SignInLink from '../components/SignInLink';
 import {
   DURATION_HOURS, DEFAULT_DURATION_HOURS, DURATION_LABELS,
   CONSENT_WHO, CONSENT_FOREGROUND, CONSENT_STOP, SETUP_MSG, untilLabel, defaultAutoStopOnDelivered,
+  alreadySharingText, officeStopText,
 } from '../lib/locationShare';
 
 const s = {
@@ -46,7 +47,10 @@ export default function LocationSharePage() {
     let body = null; try { body = await res.json(); } catch { body = null; }
     if (res.status === 409 && body?.setupNeeded) { setState({ setup: true }); return; }
     if (!res.ok) { setState({ error: body?.error || 'Couldn’t load location sharing.' }); return; }
-    setState({ share: body.share, loads: body.loads || [], remind: !!body.remind });
+    // One-time notice after an office stop: remembered per share id in this browser, so it shows once.
+    let notice = body.stopped_notice || null;
+    try { if (notice && window.localStorage.getItem('ph_loc_stop_seen') === notice.id) notice = null; else if (notice) window.localStorage.setItem('ph_loc_stop_seen', notice.id); } catch { /* storage off: show it */ }
+    setState({ share: body.share, loads: body.loads || [], remind: !!body.remind, notice });
   }
 
   useEffect(() => { if (user && supabase) load(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -65,8 +69,8 @@ export default function LocationSharePage() {
     const res = await authedFetch(supabase.auth, '/api/location-share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let j = null; try { j = await res.json(); } catch { j = null; }
     setBusy(false);
-    if (!res.ok) { setMsg(j?.error || 'Couldn’t start sharing.'); return; }
-    setState((st) => ({ ...st, share: j.share }));
+    if (!res.ok) { setMsg(j?.error || 'Couldn’t start sharing.'); if (j?.code === 'already_sharing') load(); return; }
+    setState((st) => ({ ...st, share: j.share, notice: null }));
     window.dispatchEvent(new Event('ph-location-share'));
   }
 
@@ -92,11 +96,17 @@ export default function LocationSharePage() {
         : state.loading && !state.loads && !state.share && !state.error && !state.setup ? <p style={s.muted}>Loading…</p>
         : state.share ? (
           <div style={s.card}>
-            <p style={{ marginTop: 0 }}><strong>You’re sharing your location</strong> {untilLabel(state.share)}.</p>
+            <p style={{ marginTop: 0 }} data-testid="location-already-sharing"><strong>{alreadySharingText(state.share)}</strong></p>
             <p style={s.muted}>{CONSENT_FOREGROUND}</p>
             <button type="button" data-testid="location-page-stop" disabled={busy} onClick={stop} style={s.btnOff}>{busy ? 'Stopping…' : 'Stop sharing'}</button>
           </div>
         ) : (
+          <>
+          {state.notice && (
+            <p role="status" data-testid="location-office-stop-notice" style={{ background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 10, padding: '0.7rem 0.85rem', margin: '0 0 1rem' }}>
+              {officeStopText(state.notice)}
+            </p>
+          )}
           <form onSubmit={start} style={s.card}>
             <p style={{ ...s.muted, marginTop: 0 }}>{CONSENT_WHO}</p>
             <p style={s.muted}>{CONSENT_FOREGROUND}</p>
@@ -137,6 +147,7 @@ export default function LocationSharePage() {
               <button type="submit" data-testid="location-start" disabled={busy} style={s.btn}>{busy ? 'Starting…' : 'Start sharing'}</button>
             </div>
           </form>
+          </>
         )}
       <p style={{ marginTop: '1rem' }}><Link href="/" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>← Home</Link></p>
     </main>

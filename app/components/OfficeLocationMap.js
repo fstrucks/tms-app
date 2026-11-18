@@ -21,7 +21,7 @@ export default function OfficeLocationMap({ points = [] }) {
   useEffect(() => {
     if (!ref.current || mapRef.current) return undefined;
     const m = L.map(ref.current, { scrollWheelZoom: false, attributionControl: true });
-    L.tileLayer(TILE_URL, { attribution: ATTRIBUTION, maxZoom: 19 }).addTo(m);
+    L.tileLayer(TILE_URL, { attribution: ATTRIBUTION, maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(m);
     layerRef.current = L.layerGroup().addTo(m);
     mapRef.current = m;
     m.setView([39.5, -98.35], 4);
@@ -40,7 +40,7 @@ export default function OfficeLocationMap({ points = [] }) {
       const ll = [p.lat, p.lng];
       latlngs.push(ll);
       const mk = L.marker(ll, { icon: truckIcon(), keyboard: true, title: p.label || 'Driver' });
-      mk.bindPopup(`<strong>${escapeHtml(p.label || 'Driver')}</strong><br>${escapeHtml(p.load_ref || 'No load')}<br>${escapeHtml(p.age || '')}`);
+      mk.bindPopup(`<strong>${escapeHtml(p.label || 'Driver')}</strong><br>${escapeHtml(p.load_ref || 'No load')}<br>${escapeHtml(p.age || '')}${p.stale ? `<br>${escapeHtml(p.stale_text || '')}` : ''}`);
       layer.addLayer(mk);
     }
     m.invalidateSize({ animate: false });
