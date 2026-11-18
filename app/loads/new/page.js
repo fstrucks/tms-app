@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import SignInLink from '../../components/SignInLink';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { useLoads } from '../LoadsData';
-import { EMPTY_NEW_LOAD, buildNewLoad, createManualLoad } from '../../lib/loadNew';
+import { EMPTY_NEW_LOAD, buildNewLoad, createManualLoad, createCompanyLoad, companyLoadTarget } from '../../lib/loadNew';
+import { fetchActiveCompany } from '../../lib/activeCompanyClient';
 import { seedLoad } from '../../lib/loadSeed';
-import { fetchDriverChoices, driverLabel, driverRateHelp } from '../../lib/loadDriver';
+import { fetchDriverChoices, driverLabel, driverRateHelp, withOwnerDriver } from '../../lib/loadDriver';
 
 // /loads/new: create a load by hand (no rate con). A static segment, so Next.js serves it before /loads/[id].
 const s = {
@@ -44,6 +45,7 @@ export default function NewLoadPage() {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [target, setTarget] = useState(null); // { ownerId } when a member adds a load for the company
   const [drivers, setDrivers] = useState({ available: false, choices: [] }); // available once 20261018000600 is applied
 
   useEffect(() => {
@@ -58,7 +60,17 @@ export default function NewLoadPage() {
   useEffect(() => {
     if (!supabase || !user) return;
     let live = true;
-    fetchDriverChoices(supabase).then((r) => { if (live) { if (r.error) console.error('[loads/new] drivers', r.error); setDrivers(r); } });
+    (async () => {
+      // Office member of someone else's company: the load goes on that company, and the driver list is theirs.
+      let t = null;
+      try { const ac = await fetchActiveCompany(); t = companyLoadTarget(ac?.active, user.id); } catch { t = null; }
+      if (!live) return;
+      setTarget(t);
+      const r = await fetchDriverChoices(supabase, t?.ownerId || null);
+      if (!live) return;
+      if (r.error) console.error('[loads/new] drivers', r.error);
+      setDrivers(t ? { ...r, choices: withOwnerDriver(r.choices, t.ownerId) } : r);
+    })();
     return () => { live = false; };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -73,9 +85,9 @@ export default function NewLoadPage() {
     setSaving(true);
     try {
       if (!(await hasSession(supabase))) return setSaveError('Your session has expired. Please sign in again.');
-      const r = await createManualLoad(supabase, built);
+      const r = target ? await createCompanyLoad(supabase, target.ownerId, built) : await createManualLoad(supabase, built);
       if (!r.ok) { console.error('[loads/new] create', r.cause); return setSaveError(r.error); }
-      seedLoad(r.load); // the load page shows it at once, no loading skeleton
+      if (r.load) seedLoad(r.load); // the load page shows it at once, no loading skeleton
       list?.reload();
       router.replace(`/loads/${r.id}`);
     } finally { setSaving(false); }

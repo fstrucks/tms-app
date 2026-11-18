@@ -27,10 +27,10 @@ test('upload label still follows the type', () => {
 });
 
 test('load page Scan offers BOL, POD, Lumper receipt and Other', () => {
-  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod', 'lumper_receipt', 'scale_ticket', 'other']);
+  assert.deepEqual(LOAD_SCAN_TYPE_IDS, ['bol', 'pod', 'lumper_receipt', 'scale_ticket', 'rate_confirmation', 'other']);
   assert.equal(LOAD_SCAN_TYPE_IDS.at(-1), 'other');
   assert.match(load, /<Scanner[\s\S]*?initialLoadId=\{load\.id\}\s*typeIds=\{LOAD_SCAN_TYPE_IDS\}/);
-  assert.match(sc, /const baseTypes = typeIds \? SCAN_DOC_TYPES\.filter\(\(t\) => typeIds\.includes\(t\.id\)\) : SCAN_DOC_TYPES;/);
+  assert.match(sc, /const baseTypes = typeIds \? SCAN_DOC_TYPES\.filter\(\(t\) => typeIds\.includes\(t\.id\)\) : SCAN_DOC_TYPES\.filter\(\(t\) => !t\.loadOnly\);/);
   assert.match(sc, /const typeOptions = allowRateCon \? \[RATECON_TYPE, \.\.\.baseTypes\] : baseTypes;/);
   // Other custom name + Upload Document label work via shared Scanner (same as Documents).
   assert.equal(uploadButtonLabel('other'), 'Upload Document');

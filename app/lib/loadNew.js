@@ -1,5 +1,6 @@
 import { DRIVER_GONE_TEXT, isDriverGone } from './loadDriver.js';
 import { statusForNewAssignedLoad } from './autoDispatch.js';
+import { createLoad as createDispatchLoad } from './dispatch.js';
 // Manual "New load" (/loads/new). Before this, /loads/new fell through to /loads/[id] with id = "new":
 // the page queried loads.id = 'new' (not a UUID) and never showed a load, so testers were stuck on "Loading load…".
 // Now /loads/new is its own static route (Next.js matches it before [id]) and [id] rejects non-UUID ids up front.
@@ -110,4 +111,30 @@ export async function createManualLoad(supabase, built) {
   // load: the saved row + stops, handed to the load page so it can show at once (see loadSeed.js).
   const sorted = [...(stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
   return { ok: true, id: row.id, load: { ...row, stops: sorted } };
+}
+
+// A Management / Dispatcher member who adds a load must put it on the COMPANY, not on themselves. /loads/new used to
+// insert loads.user_id = the signed-in user for everyone, so a member's load was personal: the owner never saw it, the
+// driver list was the member's own (empty) company, and every company-scoped endpoint (documents, ratings, scale
+// tickets) said "Load not found." (Avery / Trinity 9987128, Nov 18 2026.)
+// active = { owner_id, role } from /api/account/active-company. → { ownerId } for a member of someone else's company
+// in an office role, else null (owners and everyone else keep the personal path = their own company).
+export const OFFICE_MEMBER_ROLES = ['management', 'dispatcher'];
+export function companyLoadTarget(active, userId) {
+  if (!active || !userId || !active.owner_id || active.owner_id === userId) return null;
+  return OFFICE_MEMBER_ROLES.includes(active.role) ? { ownerId: active.owner_id } : null;
+}
+
+// Same form as createManualLoad, saved through dispatch_create_load (20261019000100 / 20261020000100): the load and
+// its stops go on the owner's account in one transaction; the database checks the caller's role.
+// → { ok: true, id } | { ok: false, error, cause }
+export async function createCompanyLoad(supabase, ownerId, built) {
+  const l = built.load || {};
+  const load = { status: l.status || 'booked' };
+  for (const k of ['broker_name', 'broker_load_number', 'rate', 'total_miles', 'weight', 'commodity', 'equipment_type', 'assigned_driver_user_id', 'show_rate_to_driver']) {
+    if (l[k] !== undefined && l[k] !== null && l[k] !== '') load[k] = l[k];
+  }
+  const stops = (built.stops || []).map(({ sequence, ...rest }) => rest); // eslint-disable-line no-unused-vars
+  const r = await createDispatchLoad(supabase, ownerId, load, stops);
+  return r.ok ? { ok: true, id: r.id } : { ok: false, error: r.error, cause: r.cause };
 }
