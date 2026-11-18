@@ -5,6 +5,7 @@
 // Drivers are read-only (canEditTruck), and the server enforces it.
 import { userClient, serviceClient, bearer, isAuthRejection, checkUser, jwtClaims } from './packetServer.js';
 import { isRole } from './companyRoles.js';
+import { pickProfile, readActiveCookie } from './activeCompany.js';
 import { canEditTruck, weightChecks, latestWeight } from './truckFields.js';
 
 export const json = (b, s = 200) => Response.json(b, { status: s, headers: { 'Cache-Control': 'no-store' } });
@@ -38,10 +39,15 @@ export async function truckCtx(req, { mkUserClient = userClient, sb: svc, mkServ
     console.error('[truck] auth check unavailable, verifying via database', e?.status ?? '', e?.code ?? '', String(e?.message || e || '').slice(0, 160));
     user = { id: c.sub, email: c.email || null, verified: 'database' };
   }
-  const { data: profiles, error } = await uc.from('company_profiles').select('*').limit(1);
+  // A user in more than one company (owner here, member there) gets the ACTIVE one (cookie re-checked against the
+  // caller's own memberships), like /api/company-profile. Before, the first row RLS returned won, so the owner of one
+  // company working in another got "Load not found." from every company-scoped endpoint.
+  const { data: profiles, error } = await uc.from('company_profiles').select('*').order('created_at', { ascending: true }).limit(50);
   if (isJwtError(error)) return { res: json({ error: EXPIRED, auth: true }, 401) };
   if (error && !isMissing(error)) return { res: json({ error: 'Could not load your company.' }, 500) };
-  const ownerId = profiles?.[0]?.owner_id || user.id;
+  let members = [];
+  if ((profiles || []).length > 1) members = (await uc.from('company_members').select('profile_id,user_id,role,created_at').eq('user_id', user.id)).data || [];
+  const ownerId = ((profiles || []).length > 1 ? pickProfile(profiles, members, user.id, readActiveCookie(req, user.id)) : profiles?.[0])?.owner_id || profiles?.[0]?.owner_id || user.id;
   const { data: role, error: rErr } = await uc.rpc('packet_role', { p_owner: ownerId });
   if (isJwtError(rErr)) return { res: json({ error: EXPIRED, auth: true }, 401) };
   if (rErr && who.unavailable) return { res: json({ error: UNAVAILABLE, retry: true }, 503) }; // database couldn't vouch either
