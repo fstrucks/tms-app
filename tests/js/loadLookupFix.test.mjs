@@ -108,3 +108,13 @@ test('Scan document: Rate confirmation is offered on the load page only, stored 
   assert.equal(DOCUMENTS_SCAN_TYPE_IDS.includes('rate_confirmation'), false); // Documents page has its own Rate Confirmation entry
   assert.equal(uploadButtonLabel('rate_confirmation'), 'Upload Rate Confirmation');
 });
+
+test('rate_confirmation appears exactly once in each type list (Documents upload / change type, load-page Scan)', async () => {
+  const { UPLOAD_TYPES, CHANGE_TYPES } = await import('../../app/lib/docTypes.js');
+  const count = (list) => list.filter((t) => (t.id ?? t) === 'rate_confirmation').length;
+  assert.equal(count(UPLOAD_TYPES), 1);
+  assert.equal(count(CHANGE_TYPES), 1);
+  assert.equal(count(LOAD_SCAN_TYPE_IDS), 1);
+  assert.equal(UPLOAD_TYPES.find((t) => t.id === 'rate_confirmation').label, 'Rate confirmation (reads load details)');
+  assert.equal(UPLOAD_TYPES[0].id, 'rate_confirmation');
+});
