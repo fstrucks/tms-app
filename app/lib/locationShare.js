@@ -316,9 +316,15 @@ export function stoppedAtIsNow(at, now = Date.now(), slack = STOP_TIME_SLACK_MS)
 // → { ok: true } | { ok: false, error, status, column? }
 // isServiceRole: the SQL trigger skips the update guard for service_role (cron expiry, delivered auto-stop
 // from the stops route, expire-on-read). Authenticated office/sharer paths are still checked.
-export function guardShareUpdate(prev, next, { actorId, isOffice = false, isServiceRole = false, now = Date.now() } = {}) {
+export function guardShareUpdate(prev, next, { actorId, isOffice = false, isServiceRole = false, now = Date.now(), loadExists = true } = {}) {
   if (isServiceRole) return { ok: true };
   if (!prev) return { ok: false, error: 'location_share_missing', status: 404 };
+  // Load delete (FK on delete set null): load_id → NULL, the load is gone, nothing else changes. Mirrors the SQL guard
+  // (20261118000200); allowed for stopped and live shares alike so a load delete is never blocked by its shares.
+  if (prev.load_id && next.load_id == null && !loadExists) {
+    const rest = [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((c) => c !== 'load_id' && !sameVal(prev[c], next[c]));
+    if (!rest.length) return { ok: true };
+  }
   for (const c of SHARE_LOCK_COLS) {
     if (!sameVal(prev[c], next[c])) return { ok: false, error: 'location_share_locked', status: 403, column: c };
   }

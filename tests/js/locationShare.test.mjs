@@ -712,3 +712,38 @@ test('stop check-off route still ends the share (existing path) and the bar refe
   assert.match(bar, /const pollMs = 30_000;/);
   assert.match(bar, /setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) go\(\); \}, pollMs\)/);
 });
+
+// ---- Load delete must never be blocked by its shares (TEST-QA179J) ----
+test('guard: load delete (load_id → NULL, load gone, nothing else changed) is allowed for stopped AND live shares', () => {
+  const stopped = liveRow({ load_id: LOAD, stopped_at: iso(NOW - 3600e3), stopped_reason: 'user', stopped_by: DRV });
+  const live = liveRow({ load_id: LOAD });
+  for (const row of [stopped, live]) {
+    for (const who of [{ actorId: OWNER, isOffice: true }, { actorId: DRV }]) {
+      assert.equal(guardShareUpdate(row, { ...row, load_id: null }, { ...who, now: NOW, loadExists: false }).ok, true);
+    }
+  }
+  // History intact: any other change alongside load_id is still refused.
+  assert.equal(guardShareUpdate(stopped, { ...stopped, load_id: null, stopped_reason: 'office' }, { actorId: OWNER, isOffice: true, now: NOW, loadExists: false }).ok, false);
+  assert.equal(guardShareUpdate(live, { ...live, load_id: null, expires_at: iso(NOW + 99e6) }, { actorId: DRV, now: NOW, loadExists: false }).ok, false);
+  // The load still exists: a client cannot detach a share from it (still refused, as before).
+  assert.equal(guardShareUpdate(stopped, { ...stopped, load_id: null }, { actorId: OWNER, isOffice: true, now: NOW, loadExists: true }).ok, false);
+  assert.equal(guardShareUpdate(live, { ...live, load_id: null }, { actorId: DRV, now: NOW, loadExists: true }).ok, false);
+});
+
+test('delete-fix migration: new additive file, one function replaced, load-gone + only-load_id condition, copied for review', () => {
+  const m = read('supabase/migrations/20261118000200_location_shares_load_delete_fix.sql');
+  assert.match(m, /create or replace function public\.location_shares_guard_update\(\)/);
+  assert.match(m, /not exists \(select 1 from public\.loads l where l\.id = old\.load_id\)/);
+  assert.match(m, /\(to_jsonb\(new\) - 'load_id'\) = \(to_jsonb\(old\) - 'load_id'\)/);
+  assert.match(m, /old\.load_id is not null and new\.load_id is null/);
+  assert.doesNotMatch(m.replace(/^--.*$/gm, ''), /\b(drop table|alter table|drop policy|create policy|grant |delete from|insert into|update public)/i);
+  // The exception sits right after the service-role exit and before every rejecting check.
+  assert.ok(m.indexOf('load row no longer exists') < m.indexOf("raise exception 'location_share_locked'"));
+  assert.ok(m.indexOf('load row no longer exists') < m.indexOf("raise exception 'location_share_already_stopped'"));
+});
+
+test('several stopped shares on one load (the J case): every one is allowed to detach; the guard rule does not depend on how many', () => {
+  const rows = [1, 2, 3].map((n) => liveRow({ id: `00000000-0000-4000-8000-00000000f00${n}`, load_id: LOAD, stopped_at: iso(NOW - n * 3600e3), stopped_reason: n === 2 ? 'delivered' : 'user' }));
+  for (const r of rows) assert.equal(guardShareUpdate(r, { ...r, load_id: null }, { actorId: OWNER, isOffice: true, now: NOW, loadExists: false }).ok, true);
+  assert.match(read('app/lib/loadDelete.js'), /from\('loads'\)\.delete\(\)/); // the delete is a direct owner delete: nothing to detach app-side
+});
