@@ -54,3 +54,18 @@ export async function POST(req, { params, deps } = {}) {
   }
   return json({ ok: true, invoice: saved, loadStatusBefore, loadStatus });
 }
+
+// DELETE: an unfinalized draft (status draft, no invoice number). Used to clear drafts left behind by a deleted load.
+// Finalized / sent / paid / void invoices are never deleted here. Office roles that can edit invoices.
+export async function DELETE(req, { params, deps } = {}) {
+  const x = await billingCtx(req, deps, { edit: true }); if (x.res) return x.res;
+  if (!UUID.test(params?.id || '')) return json({ error: 'Invoice not found.' }, 404);
+  const { data: inv, error } = await x.svc.from('invoices').select('id,status,invoice_number,load_id').eq('id', params.id).eq('owner_id', x.c.ownerId).maybeSingle();
+  if (error) return isMissing(error) ? json(SETUP, 409) : json({ error: 'Couldn’t load the invoice.' }, 500);
+  if (!inv) return json({ error: 'Invoice not found.' }, 404);
+  if (inv.status !== 'draft' || inv.invoice_number) return json({ error: 'Only an unfinalized draft can be deleted. Void a finalized invoice instead.' }, 409);
+  const { data: gone, error: dErr } = await x.svc.from('invoices').delete().eq('id', inv.id).eq('owner_id', x.c.ownerId).eq('status', 'draft').is('invoice_number', null).select('id');
+  if (dErr) return json({ error: 'Couldn’t delete the draft.' }, 500);
+  if (!gone?.length) return json({ error: 'That didn’t delete. Please try again.' }, 500);
+  return json({ ok: true, deleted: inv.id });
+}

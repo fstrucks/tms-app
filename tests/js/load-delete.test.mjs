@@ -83,6 +83,9 @@ test('void and draft invoices do not block the delete', async () => {
   const { sb, calls } = fake({ invoices: [{ id: 'i1', status: 'void', invoice_number: 'INV-1001' }, { id: 'i2', status: 'draft', invoice_number: null }] });
   assert.equal((await deleteLoad(sb, 'L1', { docs })).ok, true);
   assert.ok(calls.some((c) => c[0] === 'delete' && c[1] === 'loads'));
+  const inv = calls.filter((c) => c[0] === 'delete' && c[1] === 'invoices');
+  assert.deepEqual(inv.map((c) => c[2]), ['i2']); // only the unnumbered draft, never the void one
+  assert.ok(calls.findIndex((c) => c[1] === 'invoices') < calls.findIndex((c) => c[1] === 'loads'));
 });
 test('migration lets only a void invoice be unlinked from its load', async () => {
   const { readFileSync } = await import('node:fs');
