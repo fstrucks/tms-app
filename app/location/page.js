@@ -7,7 +7,7 @@ import { authedFetch } from '../lib/authedFetch';
 import SignInLink from '../components/SignInLink';
 import {
   DURATION_HOURS, DEFAULT_DURATION_HOURS, DURATION_LABELS,
-  CONSENT_WHO, CONSENT_FOREGROUND, CONSENT_STOP, SETUP_MSG, untilLabel, defaultAutoStopOnDelivered,
+  CONSENT_WHO, CONSENT_LINE, CONSENT_FOREGROUND, CONSENT_STOP, SETUP_MSG, untilLabel, defaultAutoStopOnDelivered,
   alreadySharingText, officeStopText, shouldShowStopNotice, readStopSeen, markStopSeen,
 } from '../lib/locationShare';
 
@@ -148,7 +148,8 @@ export default function LocationSharePage() {
             ) : null}
 
             {msg && <p role="alert" style={{ color: 'var(--danger)' }}>{msg}</p>}
-            <div style={{ marginTop: '1rem' }}>
+            <p data-testid="location-consent-line" style={{ fontWeight: 700, margin: '1rem 0 0' }}>{CONSENT_LINE}</p>
+            <div style={{ marginTop: '0.75rem' }}>
               <button type="submit" data-testid="location-start" disabled={busy} style={s.btn}>{busy ? 'Starting…' : 'Start sharing'}</button>
             </div>
           </form>

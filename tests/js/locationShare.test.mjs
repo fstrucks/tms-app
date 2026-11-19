@@ -7,7 +7,7 @@ import {
   DURATION_HOURS, DEFAULT_DURATION_HOURS, PING_MIN_GAP_MS, PING_MAX_AGE_DAYS, PING_AFTER_END_DAYS,
   validateStart, isShareLive, expiryPatch, viewShare, canStartShare, canStopShare, canReadShare,
   canStartForOthers, defaultAutoStopOnDelivered, shouldRemind, pingAllowed, shouldPurgePing,
-  shouldPurgeLatest, untilLabel, cronAuthorized, intervalSql, REMIND_AFTER_MS, CONSENT_FOREGROUND,
+  shouldPurgeLatest, untilLabel, cronAuthorized, intervalSql, REMIND_AFTER_MS, CONSENT_FOREGROUND, CONSENT_WHO, CONSENT_LINE,
   normalizeShareInsert, guardShareUpdate, fillPingFromShare, SHARE_LOCK_COLS,
   STALE_MS, HEARTBEAT_MS, isStale, shouldShowStopNotice, readStopSeen, markStopSeen, clockOffset, officeRowView, STOP_SEEN_KEY, lastSeenAt, pickOfficeStopNotice, officeStopText, alreadySharingText,
 } from '../../app/lib/locationShare.js';
@@ -348,8 +348,8 @@ test('migration is Phase 1 only, additive, and keeps retention parameterized', (
   assert.match(read('app/lib/companyExport.js'), /location_shares/);
   assert.match(read('app/api/loads/[id]/stops/[stopId]/route.js'), /stopSharesForDeliveredLoad/);
   assert.match(read('app/components/AppNav.js'), /LocationShareBar/);
-  // Existing "Use my location" copy is unchanged.
-  assert.match(read('app/account/settings/page.js'), /Your position is used only while that screen is open and is never saved/);
+  // Settings copy: approved wording (Nov 19), says sharing is separate.
+  assert.match(read('app/account/settings/page.js'), /Your position is used only while that screen is open and isn’t saved\. This setting is for this device only\. Sharing your location with your company is separate/);
   assert.equal(/location_share_links/.test(read('app/lib/companyExport.js')), false);
 });
 
@@ -746,4 +746,19 @@ test('several stopped shares on one load (the J case): every one is allowed to d
   const rows = [1, 2, 3].map((n) => liveRow({ id: `00000000-0000-4000-8000-00000000f00${n}`, load_id: LOAD, stopped_at: iso(NOW - n * 3600e3), stopped_reason: n === 2 ? 'delivered' : 'user' }));
   for (const r of rows) assert.equal(guardShareUpdate(r, { ...r, load_id: null }, { actorId: OWNER, isOffice: true, now: NOW, loadExists: false }).ok, true);
   assert.match(read('app/lib/loadDelete.js'), /from\('loads'\)\.delete\(\)/); // the delete is a direct owner delete: nothing to detach app-side
+});
+
+test('approved wording (Nov 19): consent says history, retention constants stay 30/7, Home map copy says not saved', () => {
+  assert.equal(PING_MAX_AGE_DAYS, 30); assert.equal(PING_AFTER_END_DAYS, 7);
+  assert.match(CONSENT_WHO, /look back at the points we save while we keep them\. Other drivers cannot\.$/);
+  assert.match(CONSENT_LINE, /can look back at the points we save\. PowerHaul sends location only while it is open on your screen\. You can stop any time\.$/);
+  // The optional retention sentence is held until the production cron is confirmed (not shipped).
+  assert.equal(/CONSENT_RETENTION/.test(read('app/location/page.js')), false);
+  const page = read('app/location/page.js');
+  assert.ok(page.indexOf('{CONSENT_LINE}') < page.indexOf('data-testid="location-start"'));
+  const map = read('app/components/LoadMapPanel.js');
+  assert.match(map, /It’s used only while this screen is open and isn’t saved\. \(Sharing your location with your company is separate and only happens if you start it\.\)/);
+  assert.match(map, /location used only while this screen is open, not saved</);
+  assert.equal(/never saved/.test(map), false);
+  assert.match(read('ios/App/App/Info.plist'), /show miles left and ETA on the load map\. If you choose to share your location with your company, it is sent only while the app is open\./);
 });

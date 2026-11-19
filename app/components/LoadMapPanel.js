@@ -242,7 +242,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   else if (perm === 'unsupported') locLine = 'This browser can’t share location, so live miles aren’t available.';
   else if (perm === 'denied') locLine = deniedHelp(platform);
   else if (locating && !fresh) locLine = null; // "Finding your location…" below
-  else if (perm === 'prompt' || perm === 'unknown' || (perm === 'granted' && !auto && !fix)) locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and is never saved.';
+  else if (perm === 'prompt' || perm === 'unknown' || (perm === 'granted' && !auto && !fix)) locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and isn’t saved. (Sharing your location with your company is separate and only happens if you start it.)';
 
   return (
     <section data-testid="home-load-map" aria-label="Current load map and miles left" style={s.card}>
@@ -285,7 +285,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       {errText && !near && <p role="status" data-testid="eta-error" style={{ color: c.warning, fontSize: '0.85rem', margin: '0.3rem 0' }}>{errText}</p>}
       {fresh && !near && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', margin: '0.2rem 0 0.4rem' }}>
-          <span data-testid="eta-age" style={{ ...s.muted, fontSize: '0.8rem' }}>{ageText(fresh.at, now)} · location used only while this screen is open, never saved</span>
+          <span data-testid="eta-age" style={{ ...s.muted, fontSize: '0.8rem' }}>{ageText(fresh.at, now)} · location used only while this screen is open, not saved</span>
           <button type="button" data-compact data-testid="eta-refresh" onClick={() => route(true)} disabled={busy} style={{ ...s.btn, flex: '0 0 auto', minHeight: 36, fontSize: '0.85rem' }}>↻ Refresh</button>
         </div>
       )}

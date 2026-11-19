@@ -71,6 +71,6 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PowerHaul lets you choose photos of rate confirmations, PODs, BOLs, receipts and truck paperwork to attach to your loads and records.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>PowerHaul uses your location while the app is open to show where you are on the load map.</string>
+	<string>PowerHaul uses your location while the app is open to show miles left and ETA on the load map. If you choose to share your location with your company, it is sent only while the app is open.</string>
 </dict>
 </plist>

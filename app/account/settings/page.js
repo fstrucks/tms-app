@@ -30,7 +30,7 @@ export default function SettingsPage() {
         )}
         <p style={s.muted}>
           When on, the Home map starts your location by itself once you’ve allowed it (no “Use my location” tap).
-          Your position is used only while that screen is open and is never saved. This setting is for this device only.
+          Your position is used only while that screen is open and isn’t saved. This setting is for this device only. Sharing your location with your company is separate: it only happens if you start it, and the points are saved for a limited time.
         </p>
         {prefs && !prefs.optedIn && prefs.enabled && <p style={s.muted} data-testid="auto-location-hint">Tap “Use my location” on the Home map once to turn it on.</p>}
         <p style={s.muted}>Your phone may still ask for permission now and then; that’s controlled by the phone, not the app.</p>

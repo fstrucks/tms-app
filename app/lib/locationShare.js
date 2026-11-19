@@ -29,7 +29,8 @@ export const DURATION_LABELS = {
   until_off: 'Until I turn it off',
 };
 
-export const CONSENT_WHO = 'The owner, dispatchers, and management at your company can see your position. Other drivers cannot.';
+export const CONSENT_WHO = 'The owner, dispatchers, and management at your company can see your position, and can look back at the points we save while we keep them. Other drivers cannot.';
+export const CONSENT_LINE = 'Your company’s owner, dispatchers and management can see your location while you share, and can look back at the points we save. PowerHaul sends location only while it is open on your screen. You can stop any time.';
 export const CONSENT_FOREGROUND = 'Location is sent while PowerHaul is open on your screen. If you switch apps or lock the phone, sharing pauses until you come back. The share itself stays on until you stop it or it expires, but the map will not move in between.';
 export const CONSENT_STOP = 'You can stop at any time with the Stop button, which appears on every screen while you’re sharing. A timed share also ends automatically at the time you chose, even if your phone is off.';
 export const REMIND_TEXT = 'You’ve been sharing since yesterday. Stop, or keep sharing.';

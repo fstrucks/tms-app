@@ -17,7 +17,7 @@ Plan: `/workspace/powerhaul-docs/2026-10-18_current-load-eta_plan.md` (Marc appr
 - **Refresh** (`app/lib/loadEta.js`): location read every 60 s only while Panel 2 is showing and the page is visible;
   route on first view, after ≥ 10 mi + ≥ 10 min, every 20 min while moving, Refresh (2-min floor); never parked or
   within 1 mi of the stop. Between calls the numbers are scaled by straight-line progress.
-- **Privacy**: driver location is never stored (no SQL, no writes) or logged; memory only in the browser.
+- **Privacy**: driver location is never stored (no SQL, no writes) or logged; memory only in the browser. Separate from location sharing (`/location`), which does store points.
 - **Fallbacks**: not asked → "Use my location"; denied/unsupported → total route miles + how to turn it on;
   timeout/busy/quota → last good answer up to 60 min, retry after 10 min; no_route → retry after moving 2 mi;
   no key → total miles only; stop without a map pin → "check its address".
