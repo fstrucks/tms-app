@@ -39,7 +39,7 @@ export function PublicReviewCard({ review, aside = null, testId = 'review-list-i
         </div>
         {aside}
       </div>
-      {review?.better_note ? <p style={{ margin: '6px 0 0' }}><strong>Could be better:</strong> {review.better_note}</p> : null}
+      {review?.better_note ? <p style={{ margin: '6px 0 0' }}><strong>Experience:</strong> {review.better_note}</p> : null}
       {review?.need_to_know ? <p style={{ margin: '6px 0 0' }}><strong>Need to know:</strong> {review.need_to_know}</p> : null}
     </article>
   );

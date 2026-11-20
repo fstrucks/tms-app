@@ -203,7 +203,7 @@ export function FacilityReviewPrompt({ loadId, stop, onClose, mode }) {
   return (
     <PromptFrame sheet={sheet} place={place} onEscape={skip}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <strong style={{ flex: 1 }}>{st.existing ? 'Your review of' : 'How was'} {place}?</strong>
+        <strong style={{ flex: 1 }}>{st.existing ? 'Your review of' : 'How was'} {place}{st.existing ? '' : '?'}</strong>
         <button type="button" aria-label={asked ? 'Skip' : 'Not now'} data-testid="facility-review-dismiss" onClick={skip} style={{ ...btn, minHeight: 44, minWidth: 44, padding: '0 12px' }}>{asked ? 'Skip' : 'Not now'}</button>
       </div>
       <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Optional. Shared with other drivers without your name or company.</p>
