@@ -210,3 +210,11 @@ test('review card: experience label and neutral placeholder; old label gone; sto
   assert.match(f, /Need to know \(optional\)/);
   assert.match(f, /better_note: e\.target\.value/);
 });
+
+test('summary heading is Experience (same better_note field); reopened card title has no question mark, new one keeps it', () => {
+  const sum = readFileSync(new URL('../../app/components/ReviewSummary.js', import.meta.url), 'utf8');
+  assert.match(sum, /<strong>Experience:<\/strong> \{review\.better_note\}/);
+  assert.equal(/Could be better/.test(sum), false);
+  const f = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.match(f, /\{st\.existing \? 'Your review of' : 'How was'\} \{place\}\{st\.existing \? '' : '\?'\}<\/strong>/);
+});
