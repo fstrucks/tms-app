@@ -208,8 +208,8 @@ export function FacilityReviewPrompt({ loadId, stop, onClose, mode }) {
       </div>
       <p style={{ margin: '2px 0 6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Optional. Shared with other drivers without your name or company.</p>
       <StarRating value={form.stars} name="Stars" testIdPrefix="facility-star" onChange={(n) => setForm({ ...form, stars: n })} />
-      <label style={{ display: 'block', marginTop: 8, fontSize: '0.85rem' }}>What could be better (optional)
-        <textarea maxLength={NOTE_MAX} value={form.better_note} onChange={(e) => setForm({ ...form, better_note: e.target.value })} style={area} /></label>
+      <label style={{ display: 'block', marginTop: 8, fontSize: '0.85rem' }}>Tell us about your experience (optional)
+        <textarea maxLength={NOTE_MAX} placeholder="How was check-in, loading, wait time, staff..." value={form.better_note} onChange={(e) => setForm({ ...form, better_note: e.target.value })} style={area} /></label>
       <label style={{ display: 'block', marginTop: 8, fontSize: '0.85rem' }}>Need to know (optional)
         <textarea maxLength={NOTE_MAX} placeholder={NEED_TO_KNOW_HINT} value={form.need_to_know} onChange={(e) => setForm({ ...form, need_to_know: e.target.value })} style={area} /></label>
       <p style={{ margin: '4px 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No phone numbers, emails or names, please.</p>
