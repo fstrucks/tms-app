@@ -8,6 +8,7 @@ import Link from 'next/link';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
 import DispatchHeaderLinks from './DispatchHeaderLinks';
+import OfficeLocationPanel from '../components/OfficeLocationPanel';
 import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
 import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
@@ -40,10 +41,10 @@ export default function DispatchPage() {
     const acc = await resolveDispatchAccess(supabase);
     if (acc.status === 'setup') { setState({ status: 'setup' }); return false; }
     if (acc.status === 'unknown') { console.error('[dispatch] access', acc.error?.code || '', acc.error?.message || ''); return fail(DISPATCH_LOAD_ERROR); }
-    if (acc.status === 'not-member') { setState({ status: 'not-member', copy: notMemberCopy(acc.roles) }); return false; }
+    if (acc.status === 'not-member') { setState({ status: 'not-member', copy: notMemberCopy(acc.roles), owner: (acc.roles || []).includes('owner') }); return false; }
     // Several companies: follow the account menu's active company (lib/activeCompany). Its own company → owner copy.
     const ac = await fetchActiveCompany();
-    if (ac.multi && ac.active?.role === 'owner') { setState({ status: 'not-member', copy: notMemberCopy(['owner']) }); return false; }
+    if (ac.multi && ac.active?.role === 'owner') { setState({ status: 'not-member', copy: notMemberCopy(['owner']), owner: true }); return false; }
     const company = (ac.multi && acc.companies.find((x) => x.owner_id === ac.active?.owner_id)) || acc.companies[0];
     const [res, drv] = await Promise.all([fetchDispatchLoads(supabase), fetchDriverChoices(supabase, company.owner_id)]);
     if (res.setup) { setState({ status: 'setup' }); return false; }
@@ -78,9 +79,14 @@ export default function DispatchPage() {
         : state.status === 'error' ? <LoadError message={state.text} onRetry={load} />
         : state.status === 'setup' ? <p style={s.muted}>{SETUP_MSG}</p>
         : state.status === 'not-member' ? (
-          <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
+          <>
+            {/* The owner is office too: same live shares + remote Stop. The panel hides itself for anyone the API won't serve. */}
+            {state.owner && <OfficeLocationPanel />}
+            <p style={s.muted} data-testid="dispatch-not-member">{state.copy.text} <Link href={state.copy.href} style={s.link}>{state.copy.linkText}</Link>.</p>
+          </>
         ) : (
           <>
+            <OfficeLocationPanel />
             <div style={{ ...s.row, margin: '0 0 0.9rem' }}>
               <p style={{ ...s.muted, margin: 0 }}>{state.company.company_name} · {state.company.role === 'management' ? 'Management' : 'Dispatcher'}</p>
               <Link href="/dispatch/new" data-testid="dispatch-new-load" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 14px', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', fontWeight: 600, textDecoration: 'none' }}>+ New load</Link>

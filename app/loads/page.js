@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { LoadsList } from './LoadsData';
 import EmailDraftsBanner from '../components/EmailDraftsBanner';
+import OfficeLocationPanel from '../components/OfficeLocationPanel';
 
 const main = { padding: '1rem', fontFamily: 'system-ui', maxWidth: 1120, margin: '0 auto' };
 
@@ -23,6 +24,7 @@ export default function LoadsPage() {
       </div>
       {notice && <p role="status" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', borderRadius: 8, padding: '0.6rem 0.8rem' }}>{notice}</p>}
       <EmailDraftsBanner />
+      <OfficeLocationPanel hideWhenEmpty />
       <LoadsList />
     </main>
   );

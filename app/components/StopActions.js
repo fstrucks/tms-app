@@ -16,7 +16,11 @@ async function post(supabase, loadId, stopId, action, extra = {}) {
     const res = await fetch(`/api/loads/${loadId}/stops/${stopId}`, { method: 'POST', cache: 'no-store',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.session?.access_token || ''}` }, body: JSON.stringify({ action, ...extra }) });
     const j = await res.json().catch(() => ({}));
-    if (res.ok && j.ok && j.stop?.id) return { ok: true, ...j };
+    if (res.ok && j.ok && j.stop?.id) {
+      // Delivered auto-stop ended a location share: the Sharing bar refetches now instead of waiting for its poll.
+      if (j.shareStopped || j.status === 'delivered') { try { window.dispatchEvent(new Event('ph-location-share')); } catch { /* no window */ } }
+      return { ok: true, ...j };
+    }
     return { ok: false, status: res.status, ...j, error: j.error || 'That didn’t save. Please try again.' };
   } catch { return { ok: false, error: 'Couldn’t reach the server. Check your connection and try again.' }; }
 }

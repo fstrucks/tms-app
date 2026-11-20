@@ -11,6 +11,7 @@ import { loadDocsCtx, json, UUID } from '../../../../../lib/loadDocsServer';
 import { isMissing } from '../../../../../lib/truckServer';
 import { createPrompt, clearOpenPrompts } from '../../../../../lib/facilityRatingPromptsServer';
 import { canCompleteStops, planStopAction, supportsStopCompletion, supportsArrival, patchApplied } from '../../../../../lib/stopProgress';
+import { stopSharesForDeliveredLoad } from '../../../../../lib/locationShareServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,5 +80,10 @@ export async function POST(req, { params, deps } = {}) {
   if (body.action === 'done' && stop.completed_at) ratingPrompt = await createPrompt(svc, { load, stop, userId: c.user.id, now: deps?.now ? new Date(deps.now()) : new Date() });
   else if (body.action === 'undo') await clearOpenPrompts(svc, stop.id);
   if (body.action === 'deliver' && status !== 'delivered') return out({ error: 'Couldn’t mark the load delivered. Please try again.' }, 500, 'deliver_not_updated');
-  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}), ...(ratingPrompt ? { ratingPrompt } : {}) }, 200, `saved_${body.action}`);
+  // Location share auto-stop (best effort; never fails the check-off, including when the SQL isn't applied yet).
+  let shareStopped = false;
+  if (status === 'delivered' && load.status !== 'delivered') {
+    try { shareStopped = ((await stopSharesForDeliveredLoad(svc, load.id, deps?.now ? deps.now() : Date.now()))?.n || 0) > 0; } catch (e) { console.warn('[stops] location share auto-stop', e?.code || ''); }
+  }
+  return out({ ok: true, stop: clean(stop), status, ...(invoiceDraftDeleted ? { invoiceDraftDeleted } : {}), ...(ratingPrompt ? { ratingPrompt } : {}), ...(shareStopped ? { shareStopped: true } : {}) }, 200, `saved_${body.action}`);
 }
