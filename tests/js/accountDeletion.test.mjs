@@ -12,7 +12,8 @@ import {
 } from '../../app/lib/accountDeletion.js';
 import { formatUpdated, renderLegalMarkdown, safeHref } from '../../app/lib/legalMarkdown.js';
 import { PUBLIC_LEGAL_PATHS, isPublicLegalPath } from '../../app/lib/legalRoutes.js';
-import { applyStoragePlan, baselineSignInAt, listStoragePrefix } from '../../app/lib/accountDeletionServer.js';
+import { applyStoragePlan, baselineSignInAt, listStoragePrefix, runDueDeletions, wantsReviewsDeleted } from '../../app/lib/accountDeletionServer.js';
+import { DELETE_ACCOUNT_PAGE_UPDATED, DELETE_REVIEWS_CHOICE, DELETE_REVIEWS_PAGE_STEP, memberWarnings } from '../../app/lib/accountDeletion.js';
 import { GET, POST } from '../../app/api/account/deletion/route.js';
 import { GET as CRON } from '../../app/api/cron/account-deletion/route.js';
 import { isBugButtonHidden } from '../../app/lib/bugReport.js';
@@ -462,4 +463,149 @@ test('storage cleanup moves company files before it deletes a personal folder', 
   assert.deepEqual(ops[0], ['copy', `${MEMBER}/bol.pdf`, `${OWNER}/retained/${MEMBER}/bol.pdf`]);
   assert.equal(ops[1][0], 'remove');
   assert.ok(ops[1].includes(`${MEMBER}/bug-reports/1.png`));
+});
+
+// ---- Optional "delete my reviews too" (20261125000100) ----
+const REVIEWS_SQL = read('supabase/migrations/20261125000100_account_deletion_delete_reviews.sql');
+const REVIEWS_ONLY_SQL = read('supabase/migrations/20261125000300_account_deletion_reviews_only.sql');
+
+test('delete-reviews migration is additive, service-role only, and leaves account_deletion_apply alone', () => {
+  const code = codeOnly(REVIEWS_SQL);
+  assert.match(code, /add column if not exists delete_reviews boolean not null default false/);
+  assert.match(code, /create or replace function public\.account_deletion_apply_with_reviews\(p_user uuid\)/);
+  assert.match(code, /security definer/);
+  assert.match(code, /v_result := public\.account_deletion_apply\(p_user\)/);
+  assert.doesNotMatch(code, /create or replace function public\.account_deletion_apply\(/);
+  assert.doesNotMatch(code, /\bdrop\b|truncate|delete from public\.facilities\b|alter table public\.facility_/i);
+  assert.match(code, /delete from public\.facility_reviews where id = any\(v_review_ids\)/);
+  assert.match(code, /delete from public\.facility_notes where id = any\(v_note_ids\)/);
+  assert.match(REVIEWS_SQL, /'cancelled'/);
+  assert.match(REVIEWS_SQL, /'already_applied'/);
+  assert.match(code, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from public/);
+  assert.match(REVIEWS_SQL, /grant execute on function public\.account_deletion_apply_with_reviews\(uuid\) to service_role/);
+  assert.doesNotMatch(REVIEWS_SQL, /grant [^;']* to (anon|authenticated)/);
+  assert.doesNotMatch(code, /to (anon|authenticated)\b/);
+  const doc = '/workspace/powerhaul-docs/2026-11-25_delete-reviews_DRAFT.sql';
+  if (existsSync(doc)) assert.equal(readFileSync(doc, 'utf8'), REVIEWS_SQL);
+});
+
+test('follow-up migration deletes reviews only, keeps the function signature, security and grants', () => {
+  const code = codeOnly(REVIEWS_ONLY_SQL);
+  assert.match(code, /create or replace function public\.account_deletion_apply_with_reviews\(p_user uuid\)\s+returns jsonb/);
+  assert.match(code, /security definer\s+set search_path = public, pg_temp/);
+  assert.match(code, /v_result := public\.account_deletion_apply\(p_user\)/);
+  assert.match(code, /delete from public\.facility_reviews where id = any\(v_review_ids\)/);
+  assert.doesNotMatch(code, /facility_notes/);
+  assert.doesNotMatch(code, /\bdrop\b|truncate|alter table|create or replace function public\.account_deletion_apply\(/i);
+  assert.match(code, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from public/);
+  assert.match(REVIEWS_ONLY_SQL, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from anon/);
+  assert.match(REVIEWS_ONLY_SQL, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from authenticated/);
+  assert.match(REVIEWS_ONLY_SQL, /grant execute on function public\.account_deletion_apply_with_reviews\(uuid\) to service_role/);
+  assert.ok(REVIEWS_ONLY_SQL.lastIndexOf('grant execute') > REVIEWS_ONLY_SQL.indexOf('$fn$;'), 'grants come after the function');
+  const doc = '/workspace/powerhaul-docs/2026-11-25_delete-reviews-only_DRAFT.sql';
+  if (existsSync(doc)) assert.equal(readFileSync(doc, 'utf8'), REVIEWS_ONLY_SQL);
+});
+
+test('only an explicit true asks to delete reviews', () => {
+  assert.equal(wantsReviewsDeleted({ delete_reviews: true }), true);
+  for (const v of [false, 'true', 1, null, undefined]) assert.equal(wantsReviewsDeleted({ delete_reviews: v }), false);
+  assert.equal(wantsReviewsDeleted(null), false);
+});
+
+test('member, unchecked: today\'s function runs and nothing new is stored', async () => {
+  const w = world({ user: { id: MEMBER, email: 'driver@example.test', last_sign_in_at: '2026-10-01T00:00:00.000Z' }, profiles: [] });
+  const res = await post({ confirm: 'DELETE' }, w.deps);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.delete_reviews, false);
+  assert.deepEqual(w.calls.rpc.map((c) => c.fn), ['account_deletion_apply']);
+  assert.equal('delete_reviews' in w.deps.admin.db.account_deletion_requests[0], false);
+});
+
+test('member, checked: the reviews function runs for the session user only', async () => {
+  const w = world({ user: { id: MEMBER, email: 'driver@example.test', last_sign_in_at: '2026-10-01T00:00:00.000Z' }, profiles: [] });
+  const res = await post({ confirm: 'DELETE', delete_reviews: true, user_id: OTHER }, w.deps);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.deleted, true);
+  assert.equal(body.delete_reviews, true);
+  assert.deepEqual(w.calls.rpc, [{ fn: 'account_deletion_apply_with_reviews', args: { p_user: MEMBER } }]);
+  assert.equal(w.deps.admin.db.account_deletion_requests[0].delete_reviews, true);
+  assert.deepEqual(w.calls.deleted, [MEMBER]);
+});
+
+test('member, checked: a string "true" or a missing new function never deletes quietly', async () => {
+  const s = world({ user: { id: MEMBER, email: 'driver@example.test' }, profiles: [] });
+  await post({ confirm: 'DELETE', delete_reviews: 'true' }, s.deps);
+  assert.equal(s.calls.rpc[0].fn, 'account_deletion_apply');
+  const m = world({ user: { id: MEMBER, email: 'driver@example.test' }, profiles: [], rpcResult: { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.account_deletion_apply_with_reviews' } } });
+  const res = await post({ confirm: 'DELETE', delete_reviews: true }, m.deps);
+  assert.equal(res.status, 503);
+  assert.equal(m.calls.rpc[0].fn, 'account_deletion_apply_with_reviews');
+  assert.equal(m.calls.deleted.length, 0);
+});
+
+test('company owner, checked: the choice is stored and the cron runs the reviews function', async () => {
+  const ownerUser = { id: OWNER, email: 'owner@example.test', last_sign_in_at: '2026-10-20T00:00:00.000Z' };
+  const w = world({ user: ownerUser, profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'Fake Hauling', is_demo: false, deletion_locked: false }] });
+  const res = await post({ confirm: 'DELETE', delete_reviews: true }, w.deps);
+  const body = await res.json();
+  assert.equal(body.scheduled, true);
+  assert.equal(body.delete_reviews, true);
+  assert.equal(w.calls.rpc.length, 0);
+  const row = w.deps.admin.db.account_deletion_requests[0];
+  assert.equal(row.delete_reviews, true);
+  row.purge_after = '2020-01-01T00:00:00.000Z';
+  const ran = await runDueDeletions(w.deps.admin, { exportHold: async () => ({ hold: false }) });
+  assert.equal(ran.results[0].ok, true);
+  assert.deepEqual(w.calls.rpc, [{ fn: 'account_deletion_apply_with_reviews', args: { p_user: OWNER } }]);
+});
+
+test('company owner, unchecked: scheduled as before and the cron runs today\'s function', async () => {
+  const ownerUser = { id: OWNER, email: 'owner@example.test', last_sign_in_at: '2026-10-20T00:00:00.000Z' };
+  const w = world({ user: ownerUser, profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'Fake Hauling', is_demo: false, deletion_locked: false }] });
+  const body = await (await post({ confirm: 'DELETE' }, w.deps)).json();
+  assert.equal(body.delete_reviews, false);
+  const row = w.deps.admin.db.account_deletion_requests[0];
+  assert.equal('delete_reviews' in row, false);
+  row.purge_after = '2020-01-01T00:00:00.000Z';
+  await runDueDeletions(w.deps.admin, { exportHold: async () => ({ hold: false }) });
+  assert.deepEqual(w.calls.rpc.map((c) => c.fn), ['account_deletion_apply']);
+});
+
+test('company owner can change the choice on a scheduled deletion; demo deletes now with it', async () => {
+  const ownerUser = { id: OWNER, email: 'owner@example.test', last_sign_in_at: '2026-10-20T00:00:00.000Z' };
+  const open = { id: 'r1', user_id: OWNER, company_profile_id: 'p1', kind: 'company', purge_after: '2099-01-01T00:00:00.000Z', baseline_sign_in_at: '2026-10-20T00:00:00.000Z', cancelled_at: null, completed_at: null, delete_reviews: false };
+  const w = world({ user: ownerUser, profiles: [{ id: 'p1', owner_id: OWNER, legal_name: 'Fake Hauling', is_demo: false, deletion_locked: false }], requests: [open] });
+  const on = await (await post({ confirm: 'DELETE', delete_reviews: true }, w.deps)).json();
+  assert.equal(on.already, true);
+  assert.equal(w.deps.admin.db.account_deletion_requests[0].delete_reviews, true);
+  await post({ confirm: 'DELETE' }, w.deps);
+  assert.equal(w.deps.admin.db.account_deletion_requests[0].delete_reviews, false);
+  const demo = world({ user: ownerUser, profiles: [{ id: 'p3', owner_id: OWNER, legal_name: 'Fake Demo', is_demo: true, deletion_locked: false }] });
+  await post({ confirm: 'DELETE', delete_reviews: true }, demo.deps);
+  assert.equal(demo.calls.rpc[0].fn, 'account_deletion_apply_with_reviews');
+});
+
+test('the box is off by default, sends delete_reviews, and its copy says reviews go and notes stay', () => {
+  const zone = read('app/components/DangerZone.js');
+  assert.match(zone, /useState\(false\);\n/);
+  assert.match(zone, /const \[deleteReviews, setDeleteReviews\] = useState\(false\)/);
+  assert.match(zone, /type="checkbox" data-testid="delete-reviews-checkbox"/);
+  assert.match(zone, /post\(\{ confirm: typed, delete_reviews: deleteReviews \}\)/);
+  assert.doesNotMatch(zone, /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+  for (const c of [DELETE_REVIEWS_CHOICE.member, DELETE_REVIEWS_CHOICE.owner]) {
+    assert.match(c.label, /facility reviews/);
+    assert.doesNotMatch(c.label + c.confirm, /notes/);
+    assert.match(c.hint, /Leave this off/);
+    assert.match(c.hint, /Facility notes (you wrote )?stay either way/);
+  }
+  assert.equal(DELETE_REVIEWS_CHOICE.member.label, 'Also delete the facility reviews I wrote');
+  assert.equal(DELETE_REVIEWS_CHOICE.owner.label, 'Also delete facility reviews from this company');
+  assert.match(DELETE_REVIEWS_PAGE_STEP, /Facility notes stay either way/);
+  assert.equal(DELETE_ACCOUNT_PAGE_UPDATED, '2026-11-25');
+  assert.match(read('app/delete-account/page.js'), /DELETE_REVIEWS_PAGE_STEP/);
+  assert.match(DELETE_REVIEWS_PAGE_STEP, /^Optional:/);
+  assert.ok(memberWarnings().some((l) => /unless you tick the box below/.test(l)));
+  assert.ok(ownerWarnings({ companyName: 'Fake Hauling' }).some((l) => /unless you tick the box below/.test(l)));
 });

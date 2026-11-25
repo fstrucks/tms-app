@@ -1,7 +1,7 @@
 import LegalDocument from '../components/LegalDocument';
 import { formatUpdated } from '../lib/legalMarkdown';
 import {
-  COMPANY_ANONYMIZED, COMPANY_KEPT, COMPANY_REMOVED, DELETE_ACCOUNT_PAGE_UPDATED,
+  COMPANY_ANONYMIZED, COMPANY_KEPT, COMPANY_REMOVED, DELETE_ACCOUNT_PAGE_UPDATED, DELETE_REVIEWS_PAGE_STEP,
   FORMER_MEMBER_LABEL, GRACE_DAYS, MEMBER_ANONYMIZED, MEMBER_KEPT, MEMBER_REMOVED,
   SUPPORT_EMAIL,
 } from '../lib/accountDeletion';
@@ -35,6 +35,7 @@ export default function DeleteAccountPage() {
         <li style={{ margin: '0.35rem 0' }}>Open Settings. Company owners can also open the company profile.</li>
         <li style={{ margin: '0.35rem 0' }}>Go to Danger zone.</li>
         <li style={{ margin: '0.35rem 0' }}>Type DELETE, or type your email address. The button stays off until that matches.</li>
+        <li style={{ margin: '0.35rem 0' }}>{DELETE_REVIEWS_PAGE_STEP}</li>
         <li style={{ margin: '0.35rem 0' }}>Confirm. You are signed out when it is accepted.</li>
       </ol>
 

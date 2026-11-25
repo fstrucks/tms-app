@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
-import { confirmationMatches } from '../lib/accountDeletion';
+import { DELETE_REVIEWS_CHOICE, confirmationMatches } from '../lib/accountDeletion';
 
 const card = {
   border: '1px solid var(--danger-border)',
@@ -45,6 +45,7 @@ export default function DangerZone() {
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [deleteReviews, setDeleteReviews] = useState(false);
 
   async function load() {
     const { access } = await token();
@@ -98,6 +99,7 @@ export default function DangerZone() {
       ? "Delete this company? It will be deleted right away. This can't be undone."
       : `Delete this company? It is scheduled for deletion ${status.grace_days || 14} days after you confirm. This can't be undone.`)
     : "Delete my account? This can't be undone.";
+  const reviewsCopy = status?.role === 'owner' ? DELETE_REVIEWS_CHOICE.owner : DELETE_REVIEWS_CHOICE.member;
 
   return (
     <section style={card} data-testid="danger-zone">
@@ -119,6 +121,14 @@ export default function DangerZone() {
           <ul style={{ paddingLeft: '1.1rem', margin: '0.25rem 0 0.75rem' }}>
             {(status.warnings || []).map((line) => <li key={line} style={{ margin: '0.35rem 0' }}>{line}</li>)}
           </ul>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', margin: '0 0 0.9rem' }}>
+            <input id="delete-reviews" type="checkbox" data-testid="delete-reviews-checkbox" checked={deleteReviews} onChange={(e) => setDeleteReviews(e.target.checked)}
+              aria-describedby="delete-reviews-hint" style={{ width: 22, height: 22, marginTop: 2, flex: '0 0 auto', accentColor: 'var(--danger-solid)' }} />
+            <div>
+              <label htmlFor="delete-reviews" style={{ fontWeight: 600 }}>{reviewsCopy.label}</label>
+              <p id="delete-reviews-hint" style={{ margin: '0.2rem 0 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>{reviewsCopy.hint}</p>
+            </div>
+          </div>
           <label htmlFor="delete-confirm" style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem' }}>
             Type DELETE or your email to confirm
           </label>
@@ -135,9 +145,10 @@ export default function DangerZone() {
           <div role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title" data-testid="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}
             style={{ background: 'var(--surface)', color: 'var(--text)', borderRadius: 12, padding: '1rem', maxWidth: 420, width: '100%' }}>
             <p id="delete-confirm-title" style={{ marginTop: 0 }}>{confirmText}</p>
+            {deleteReviews && <p data-testid="delete-reviews-confirm" style={{ marginTop: 0 }}>{reviewsCopy.confirm}</p>}
             {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
             <button type="button" disabled={busy} onClick={() => setConfirming(false)} style={{ ...btn, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}>Cancel</button>
-            <button type="button" data-testid="delete-final-confirm" disabled={busy} onClick={() => post({ confirm: typed })}
+            <button type="button" data-testid="delete-final-confirm" disabled={busy} onClick={() => post({ confirm: typed, delete_reviews: deleteReviews })}
               style={{ ...btn, background: 'var(--danger-solid)', color: 'var(--on-danger)', opacity: busy ? 0.55 : 1 }}>
               {busy ? 'Working…' : 'Delete'}
             </button>
