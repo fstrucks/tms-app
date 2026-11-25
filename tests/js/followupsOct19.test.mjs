@@ -206,8 +206,8 @@ test('role confirm scrolls clear of the tab bar and the Report a bug button; but
   assert.match(page, /paddingBottom: 'calc\(1rem \+ var\(--fab-space\)\)'/);
   assert.match(page, /display: 'flex', gap: 8, flexWrap: 'wrap' \}\}>\s*<button type="button" data-testid="role-confirm-yes"/);
   assert.match(css, /:root \{ --fab-space: 64px; \}/);
-  assert.match(css, /\[data-above-fab\] \{ scroll-margin-bottom: calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--fab-space\) \+ 8px\);/);
-  assert.match(read('app/components/ReportBugButton.js'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ 12px\)'/, 'button height 40 + 12 gap < 64');
+  assert.match(css, /\[data-above-fab\] \{ scroll-margin-bottom: calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--share-bar-h, 0px\) \+ var\(--fab-space\) \+ 8px\);/);
+  assert.match(read('app/components/ReportBugButton.js'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--share-bar-h, 0px\) \+ 12px\)'/, 'button height 40 + 12 gap < 64');
 });
 
 // ---------- 2. Disabled "Save driver settings" readable in dark mode ----------
