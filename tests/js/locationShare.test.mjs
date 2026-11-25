@@ -760,5 +760,7 @@ test('approved wording (Nov 19): consent says history, retention constants stay 
   assert.match(map, /It’s used only while this screen is open and isn’t saved\. \(Sharing your location with your company is separate and only happens if you start it\.\)/);
   assert.match(map, /location used only while this screen is open, not saved</);
   assert.equal(/never saved/.test(map), false);
-  assert.match(read('ios/App/App/Info.plist'), /show miles left and ETA on the load map\. If you choose to share your location with your company, it is sent only while the app is open\./);
+  // Phone app background sharing (Nov 25): the Nov 19 iOS text promised "sent only while the app is open", which is no
+  // longer true in the app. Replaced with a DRAFT pending Marc's approval (powerhaul-docs/2026-11-25_native-app-wording_DRAFT.md).
+  assert.match(read('ios/App/App/Info.plist'), /show miles left and ETA on the load map\. If you turn on location sharing, your location is sent to your company's owner, dispatchers and management until you stop sharing, including while the app is in the background\./);
 });

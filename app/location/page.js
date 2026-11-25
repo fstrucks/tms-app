@@ -10,6 +10,8 @@ import {
   CONSENT_WHO, CONSENT_LINE, CONSENT_FOREGROUND, CONSENT_STOP, SETUP_MSG, untilLabel, defaultAutoStopOnDelivered,
   alreadySharingText, officeStopText, shouldShowStopNotice, readStopSeen, markStopSeen,
 } from '../lib/locationShare';
+import { isNative } from '../lib/native';
+import { CONSENT_NATIVE_DRAFT } from '../lib/nativeBackgroundLocation';
 
 const s = {
   main: { padding: '1rem var(--gutter)', fontFamily: 'system-ui', maxWidth: 520, margin: '0 auto' },
@@ -28,6 +30,10 @@ export default function LocationSharePage() {
   const [state, setState] = useState({ loading: true });
   const [mode, setMode] = useState('timed');
   const [hours, setHours] = useState(DEFAULT_DURATION_HOURS);
+  // Phone app only (set after mount so the server render matches): background wording instead of the web's foreground line.
+  const [inApp, setInApp] = useState(false);
+  useEffect(() => { setInApp(isNative()); }, []);
+  const consentWhen = inApp ? CONSENT_NATIVE_DRAFT : CONSENT_FOREGROUND;
   const [loadId, setLoadId] = useState('');
   const [autoStop, setAutoStop] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,7 +107,7 @@ export default function LocationSharePage() {
         : state.share ? (
           <div style={s.card}>
             <p style={{ marginTop: 0 }} data-testid="location-already-sharing"><strong>{alreadySharingText(state.share)}</strong></p>
-            <p style={s.muted}>{CONSENT_FOREGROUND}</p>
+            <p style={s.muted}>{consentWhen}</p>
             <button type="button" data-testid="location-page-stop" disabled={busy} onClick={stop} style={s.btnOff}>{busy ? 'Stopping…' : 'Stop sharing'}</button>
           </div>
         ) : (
@@ -114,7 +120,7 @@ export default function LocationSharePage() {
           )}
           <form onSubmit={start} style={s.card}>
             <p style={{ ...s.muted, marginTop: 0 }}>{CONSENT_WHO}</p>
-            <p style={s.muted}>{CONSENT_FOREGROUND}</p>
+            <p style={s.muted}>{consentWhen}</p>
             <p style={s.muted}>{CONSENT_STOP}</p>
 
             <fieldset style={{ border: 0, padding: 0, margin: '0.75rem 0 0' }}>

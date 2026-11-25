@@ -7,6 +7,8 @@ import { getSupabase } from '../lib/supabase';
 import { authedFetch } from '../lib/authedFetch';
 import { nextPingWaitMs, REMIND_TEXT, untilLabel, HEARTBEAT_MS } from '../lib/locationShare';
 import { shareBarOffsetPx, applyShareBarOffset } from '../lib/shareBarOffset';
+import { isNative } from '../lib/native';
+import { createBackgroundSharer, BAR_NATIVE_DRAFT } from '../lib/nativeBackgroundLocation';
 
 const pollMs = 30_000;
 
@@ -24,6 +26,9 @@ export default function LocationShareBar() {
   const [remind, setRemind] = useState(false);
   const [busy, setBusy] = useState(false);
   const [denied, setDenied] = useState(false);
+  // Phone app only: 'pending' until the background watcher has tried to start, 'on' while it sends points (the
+  // foreground loop below stays off unless this is 'off'). Always 'off' in a browser, so the website behaves as before.
+  const [nativeMode, setNativeMode] = useState(() => (isNative() ? 'pending' : 'off'));
   const shareRef = useRef(null);
   const barRef = useRef(null);
   shareRef.current = share;
@@ -76,9 +81,31 @@ export default function LocationShareBar() {
     if (remind && share?.id) call('/api/location-share/reminded', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_id: share.id }) });
   }, [remind, share?.id]);
 
+  // Phone app: background sharing through the native plugin. Falls back to the foreground loop if it can't start
+  // (no key yet because the database update isn't applied, permission refused, plugin missing).
+  useEffect(() => {
+    if (!share?.id || !isNative()) return undefined;
+    let live = true;
+    const sharer = createBackgroundSharer({
+      issueKey: async (shareId) => {
+        const r = await call('/api/location-share/device-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_id: shareId }) });
+        if (r.body?.key) return { key: r.body.key };
+        if (r.body?.code === 'ended') return { ended: true };
+        return { error: true, setupNeeded: !!r.body?.setupNeeded };
+      },
+      canReissue: () => document.visibilityState === 'visible',
+      onEnded: () => { if (live) refresh(); },
+      onDenied: () => { if (live) setDenied(true); },
+    });
+    sharer.start(share.id).then((ok) => { if (live) setNativeMode(ok ? 'on' : 'off'); });
+    const vis = () => { if (document.visibilityState === 'visible') sharer.resume(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { live = false; document.removeEventListener('visibilitychange', vis); sharer.stop(); setNativeMode('pending'); };
+  }, [share?.id, refresh]);
+
   // Foreground pings only while this page is visible.
   useEffect(() => {
-    if (!share?.id) return undefined;
+    if (!share?.id || nativeMode !== 'off') return undefined;
     let timer = null, stopped = false;
     const last = { at: null, fix: null, hbAt: null };
     const send = (fix, heartbeat = false) => {
@@ -111,7 +138,7 @@ export default function LocationShareBar() {
     const vis = () => { if (document.visibilityState === 'visible') read(); };
     document.addEventListener('visibilitychange', vis);
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', vis); };
-  }, [share?.id, refresh]);
+  }, [share?.id, refresh, nativeMode]);
 
   async function stop() {
     if (!share || busy) return;
@@ -134,7 +161,7 @@ export default function LocationShareBar() {
         <p style={{ margin: 0, flex: '1 1 200px', fontSize: '0.92rem' }}>
           <strong>Sharing location</strong>
           <span style={{ color: 'var(--text-muted)' }}> · {untilLabel(share)}.</span>
-          {' '}Updates pause if you close the app or lock the phone.
+          {' '}{nativeMode === 'on' ? BAR_NATIVE_DRAFT : 'Updates pause if you close the app or lock the phone.'}
           {denied && <span> Location is off on this device — Stop still works, but the map won’t move.</span>}
           {remind && <span> {REMIND_TEXT}</span>}
         </p>
