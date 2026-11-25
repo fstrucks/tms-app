@@ -13,7 +13,7 @@ import {
 import { formatUpdated, renderLegalMarkdown, safeHref } from '../../app/lib/legalMarkdown.js';
 import { PUBLIC_LEGAL_PATHS, isPublicLegalPath } from '../../app/lib/legalRoutes.js';
 import { applyStoragePlan, baselineSignInAt, listStoragePrefix, runDueDeletions, wantsReviewsDeleted } from '../../app/lib/accountDeletionServer.js';
-import { DELETE_REVIEWS_CHOICE, DELETE_REVIEWS_PAGE_STEP, memberWarnings } from '../../app/lib/accountDeletion.js';
+import { DELETE_ACCOUNT_PAGE_UPDATED, DELETE_REVIEWS_CHOICE, DELETE_REVIEWS_PAGE_STEP, memberWarnings } from '../../app/lib/accountDeletion.js';
 import { GET, POST } from '../../app/api/account/deletion/route.js';
 import { GET as CRON } from '../../app/api/cron/account-deletion/route.js';
 import { isBugButtonHidden } from '../../app/lib/bugReport.js';
@@ -467,6 +467,7 @@ test('storage cleanup moves company files before it deletes a personal folder', 
 
 // ---- Optional "delete my reviews too" (20261125000100) ----
 const REVIEWS_SQL = read('supabase/migrations/20261125000100_account_deletion_delete_reviews.sql');
+const REVIEWS_ONLY_SQL = read('supabase/migrations/20261125000300_account_deletion_reviews_only.sql');
 
 test('delete-reviews migration is additive, service-role only, and leaves account_deletion_apply alone', () => {
   const code = codeOnly(REVIEWS_SQL);
@@ -486,6 +487,23 @@ test('delete-reviews migration is additive, service-role only, and leaves accoun
   assert.doesNotMatch(code, /to (anon|authenticated)\b/);
   const doc = '/workspace/powerhaul-docs/2026-11-25_delete-reviews_DRAFT.sql';
   if (existsSync(doc)) assert.equal(readFileSync(doc, 'utf8'), REVIEWS_SQL);
+});
+
+test('follow-up migration deletes reviews only, keeps the function signature, security and grants', () => {
+  const code = codeOnly(REVIEWS_ONLY_SQL);
+  assert.match(code, /create or replace function public\.account_deletion_apply_with_reviews\(p_user uuid\)\s+returns jsonb/);
+  assert.match(code, /security definer\s+set search_path = public, pg_temp/);
+  assert.match(code, /v_result := public\.account_deletion_apply\(p_user\)/);
+  assert.match(code, /delete from public\.facility_reviews where id = any\(v_review_ids\)/);
+  assert.doesNotMatch(code, /facility_notes/);
+  assert.doesNotMatch(code, /\bdrop\b|truncate|alter table|create or replace function public\.account_deletion_apply\(/i);
+  assert.match(code, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from public/);
+  assert.match(REVIEWS_ONLY_SQL, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from anon/);
+  assert.match(REVIEWS_ONLY_SQL, /revoke all on function public\.account_deletion_apply_with_reviews\(uuid\) from authenticated/);
+  assert.match(REVIEWS_ONLY_SQL, /grant execute on function public\.account_deletion_apply_with_reviews\(uuid\) to service_role/);
+  assert.ok(REVIEWS_ONLY_SQL.lastIndexOf('grant execute') > REVIEWS_ONLY_SQL.indexOf('$fn$;'), 'grants come after the function');
+  const doc = '/workspace/powerhaul-docs/2026-11-25_delete-reviews-only_DRAFT.sql';
+  if (existsSync(doc)) assert.equal(readFileSync(doc, 'utf8'), REVIEWS_ONLY_SQL);
 });
 
 test('only an explicit true asks to delete reviews', () => {
@@ -569,7 +587,7 @@ test('company owner can change the choice on a scheduled deletion; demo deletes 
   assert.equal(demo.calls.rpc[0].fn, 'account_deletion_apply_with_reviews');
 });
 
-test('the box is off by default, sends delete_reviews, and its copy names reviews and notes', () => {
+test('the box is off by default, sends delete_reviews, and its copy says reviews go and notes stay', () => {
   const zone = read('app/components/DangerZone.js');
   assert.match(zone, /useState\(false\);\n/);
   assert.match(zone, /const \[deleteReviews, setDeleteReviews\] = useState\(false\)/);
@@ -577,9 +595,15 @@ test('the box is off by default, sends delete_reviews, and its copy names review
   assert.match(zone, /post\(\{ confirm: typed, delete_reviews: deleteReviews \}\)/);
   assert.doesNotMatch(zone, /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
   for (const c of [DELETE_REVIEWS_CHOICE.member, DELETE_REVIEWS_CHOICE.owner]) {
-    assert.match(c.label, /reviews and notes/);
+    assert.match(c.label, /facility reviews/);
+    assert.doesNotMatch(c.label + c.confirm, /notes/);
     assert.match(c.hint, /Leave this off/);
+    assert.match(c.hint, /Facility notes (you wrote )?stay either way/);
   }
+  assert.equal(DELETE_REVIEWS_CHOICE.member.label, 'Also delete the facility reviews I wrote');
+  assert.equal(DELETE_REVIEWS_CHOICE.owner.label, 'Also delete facility reviews from this company');
+  assert.match(DELETE_REVIEWS_PAGE_STEP, /Facility notes stay either way/);
+  assert.equal(DELETE_ACCOUNT_PAGE_UPDATED, '2026-11-25');
   assert.match(read('app/delete-account/page.js'), /DELETE_REVIEWS_PAGE_STEP/);
   assert.match(DELETE_REVIEWS_PAGE_STEP, /^Optional:/);
   assert.ok(memberWarnings().some((l) => /unless you tick the box below/.test(l)));

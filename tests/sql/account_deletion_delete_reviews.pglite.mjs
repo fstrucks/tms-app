@@ -1,4 +1,5 @@
-// Optional "delete my reviews too" (20261125000100). In-memory Postgres only. Fake rows only.
+// Optional "delete my reviews too": 20261125000100, then 20261125000300 (reviews only; notes stay, no name).
+// In-memory Postgres only. Fake rows only.
 // Run: npm i --no-save @electric-sql/pglite && node tests/sql/account_deletion_delete_reviews.pglite.mjs
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
@@ -24,8 +25,9 @@ create table public.facility_notes (
   body text not null, hidden boolean not null default false, created_at timestamptz not null default now());
 `);
 for (const f of ['20261015001200_company_profiles.sql', '20261022190000_facility_reviews.sql', '20261024000200_facility_review_stars_summary.sql',
-  '20261028000100_account_deletion.sql', '20261125000100_account_deletion_delete_reviews.sql', '20261125000100_account_deletion_delete_reviews.sql']) {
-  await db.exec(readFileSync(R + f, 'utf8')); // the new migration twice: idempotent
+  '20261028000100_account_deletion.sql', '20261125000100_account_deletion_delete_reviews.sql',
+  '20261125000300_account_deletion_reviews_only.sql', '20261125000300_account_deletion_reviews_only.sql']) {
+  await db.exec(readFileSync(R + f, 'utf8')); // in order; the follow-up twice: idempotent
 }
 
 const FAC = id(500);
@@ -42,7 +44,12 @@ insert into public.facility_reviews (id, facility_id, stop_id, author_id, compan
 insert into public.facility_notes (id, facility_id, author_id, company_id, body) values ('${nId}', '${FAC}', '${author}', ${companyId ? `'${companyId}'` : 'null'}, 'note ${text}');`);
   return { r, nId };
 }
-const reviewGone = async (x) => (await n(`select count(*)::int n from public.facility_reviews where id = '${x.r}'`)) === 0 && (await n(`select count(*)::int n from public.facility_notes where id = '${x.nId}'`)) === 0;
+// Ticked: the review is deleted; the note stays with no author and no company.
+const reviewGone = async (x) => {
+  const t = await one(`select author_id, company_id, body from public.facility_notes where id = '${x.nId}'`);
+  return (await n(`select count(*)::int n from public.facility_reviews where id = '${x.r}'`)) === 0
+    && !!t && t.author_id == null && t.company_id == null && t.body.startsWith('note ');
+};
 const reviewKeptAnon = async (x) => {
   const r = await one(`select author_id, company_id from public.facility_reviews where id = '${x.r}'`);
   const t = await one(`select author_id, company_id from public.facility_notes where id = '${x.nId}'`);
@@ -88,8 +95,8 @@ await db.exec(`insert into public.facility_review_reports (review_id, reporter_i
 ok((await n(`select count(*)::int n from public.facility_review_reports where review_id = '${checkedR.r}'`)) === 1, 'member checked: a report exists before');
 await request(A_CHECKED, null, 'member', true);
 const j2 = await run(A_CHECKED);
-ok(j2.reviews_deleted === 2 && j2.notes_deleted === 2, 'member checked: both reviews and both notes deleted');
-ok(await reviewGone(checkedR) && await reviewGone(checkedR2), 'member checked: rows gone, including one with no company');
+ok(j2.reviews_deleted === 2 && j2.notes_deleted === 0, 'member checked: both reviews deleted, no notes deleted');
+ok(await reviewGone(checkedR) && await reviewGone(checkedR2), 'member checked: reviews gone (including one with no company); notes stay with no name');
 ok((await n(`select count(*)::int n from public.facility_review_reports where review_id in ('${checkedR.r}', '${checkedR2.r}')`)) === 0, 'member checked: report rows cascade');
 ok(await reviewUntouched(bystanderReview, BYSTANDER) && await reviewUntouched(otherOwnerReview, OTHER_OWNER), 'member checked: other users untouched');
 const after = await summary();
@@ -116,8 +123,8 @@ await db.exec(`update public.account_deletion_requests set purge_after = now() -
 
 // --- Company, checked: owner + teammates who lose their sign-in + anything written for this company.
 const j4 = await run(A_OWNER);
-ok(j4.mode === 'company' && j4.reviews_deleted === 4 && j4.notes_deleted === 4, `company checked: 4 reviews + 4 notes deleted (got ${j4.reviews_deleted}/${j4.notes_deleted})`);
-ok(await reviewGone(ownerR) && await reviewGone(onlyR) && await reviewGone(onlyNoCo) && await reviewGone(sharedInA), 'company checked: owner, sole-company driver (all theirs), and reviews written for this company are gone');
+ok(j4.mode === 'company' && j4.reviews_deleted === 4 && j4.notes_deleted === 0, `company checked: 4 reviews deleted, 0 notes (got ${j4.reviews_deleted}/${j4.notes_deleted})`);
+ok(await reviewGone(ownerR) && await reviewGone(onlyR) && await reviewGone(onlyNoCo) && await reviewGone(sharedInA), 'company checked: reviews by the owner, the sole-company driver, and for this company are gone; their notes stay with no name');
 ok(await reviewUntouched(sharedInOther, A_SHARED), 'company checked: a teammate who keeps their sign-in keeps reviews written for their other company');
 ok(await reviewUntouched(bystanderReview, BYSTANDER) && await reviewUntouched(otherOwnerReview, OTHER_OWNER), 'company checked: other companies untouched');
 ok((await n(`select count(*)::int n from public.company_profiles where id = '${A_CO}'`)) === 0, 'company checked: company removed as before');
@@ -134,5 +141,13 @@ await request(B_OWNER, B_CO, 'company', false);
 const j6 = await run(B_OWNER);
 ok(j6.reviews_deleted === 0 && await reviewKeptAnon(bOwner) && await reviewKeptAnon(bDriver), 'company unchecked: reviews and notes stay with no name');
 ok(await reviewUntouched(bystanderReview, BYSTANDER), 'company unchecked: other users untouched');
+
+ok((await n(`select count(*)::int n from public.facility_notes`)) === (await n(`select count(*)::int n from public.facility_reviews`)) + 6, 'no note was ever deleted (6 reviews deleted in total)');
+const fn = await one(`select prosecdef d, proconfig c from pg_proc where proname = 'account_deletion_apply_with_reviews'`);
+ok(fn.d === true && String(fn.c).includes('search_path=public, pg_temp'), 'still security definer with a pinned search_path');
+const priv = await one(`select has_function_privilege('anon', 'public.account_deletion_apply_with_reviews(uuid)', 'execute') a,
+  has_function_privilege('authenticated', 'public.account_deletion_apply_with_reviews(uuid)', 'execute') u,
+  has_function_privilege('service_role', 'public.account_deletion_apply_with_reviews(uuid)', 'execute') s`);
+ok(priv.a === false && priv.u === false && priv.s === true, 'only service_role may run it');
 
 if (!process.exitCode) console.log('all passed');

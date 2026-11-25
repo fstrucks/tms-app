@@ -2,7 +2,7 @@
 // A user id in the request body is ignored. Database changes run as the service role through
 // public.account_deletion_apply, which only the service role may execute.
 // Optional "delete my reviews too": the request row stores delete_reviews, and then
-// public.account_deletion_apply_with_reviews runs instead (same steps, then removes the reviews and notes).
+// public.account_deletion_apply_with_reviews runs instead (same steps, then removes the reviews; notes stay, with no name).
 
 import { bearer, userClient, serviceClient, isAuthRejection, isAuthUnavailable } from './packetServer.js';
 import {
