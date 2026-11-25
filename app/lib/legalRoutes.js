@@ -4,6 +4,14 @@
 
 export const PUBLIC_LEGAL_PATHS = ['/privacy', '/terms', '/delete-account'];
 
+// The public marketing page (pwrstrong.net "/" is rewritten to it). Same signed-out treatment as the legal pages.
+export const PUBLIC_SITE_PATH = '/site';
+export const PUBLIC_PATHS = [...PUBLIC_LEGAL_PATHS, PUBLIC_SITE_PATH];
+export function isPublicPath(pathname = '') {
+  const p = String(pathname || '');
+  return PUBLIC_PATHS.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
 export function isPublicLegalPath(pathname = '') {
   const p = String(pathname || '');
   return PUBLIC_LEGAL_PATHS.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));

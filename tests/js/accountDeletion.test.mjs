@@ -167,7 +167,12 @@ test('legal files are placeholders and the public pages do not require a sign-in
   assert.doesNotMatch(del, /marked as a demo is deleted right away|from now/);
   assert.doesNotMatch(del, /word demo or test|name that happens/i);
   assert.doesNotMatch(del, /getSupabase|redirect\(/);
-  assert.equal(existsSync(new URL('middleware.js', root)), false);
+  // The only middleware is the pwrstrong.net site rewrite (#159): "/" only, no auth, no redirects.
+  if (existsSync(new URL('middleware.js', root))) {
+    const mw = read('middleware.js');
+    assert.match(mw, /export const config = \{ matcher: '\/' \};/);
+    assert.doesNotMatch(mw, /getSupabase|supabase|redirect\(/i);
+  }
   assert.equal(existsSync(new URL('src/middleware.js', root)), false);
   assert.doesNotMatch(read('app/layout.js'), /redirect\(/);
   for (const p of PUBLIC_LEGAL_PATHS) {

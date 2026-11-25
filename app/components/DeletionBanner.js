@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSupabase } from '../lib/supabase';
 import { formatWhen } from '../lib/accountDeletion';
-import { isPublicLegalPath } from '../lib/legalRoutes';
+import { isPublicPath } from '../lib/legalRoutes';
 
 // Shown while a company deletion is waiting, and once when signing in cancels it.
 export default function DeletionBanner() {
@@ -32,7 +32,7 @@ export default function DeletionBanner() {
     return () => { live = false; sub.subscription.unsubscribe(); };
   }, [pathname]);
 
-  if (!note || isPublicLegalPath(pathname)) return null;
+  if (!note || isPublicPath(pathname)) return null;
   const pending = note.tone === 'pending';
   return (
     <div role="status" data-testid="deletion-banner" style={{
