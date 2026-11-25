@@ -1,6 +1,8 @@
 // Session-checked account deletion. The signed-in user comes from auth.getUser(token).
 // A user id in the request body is ignored. Database changes run as the service role through
 // public.account_deletion_apply, which only the service role may execute.
+// Optional "delete my reviews too": the request row stores delete_reviews, and then
+// public.account_deletion_apply_with_reviews runs instead (same steps, then removes the reviews and notes).
 
 import { bearer, userClient, serviceClient, isAuthRejection, isAuthUnavailable } from './packetServer.js';
 import {
@@ -74,7 +76,7 @@ function shapeStatus({ user, profile, pending, cancelled, memberships = 0 }) {
     former_label: FORMER_MEMBER_LABEL,
     support_email: SUPPORT_EMAIL,
     warnings: blocked ? [] : (owns ? ownerWarnings({ companyName: profile?.legal_name || profile?.dba_name, graceDays: GRACE_DAYS, demo }) : memberWarnings()),
-    pending: pending ? { kind: pending.kind, purge_after: pending.purge_after, company_profile_id: pending.company_profile_id || null } : null,
+    pending: pending ? { kind: pending.kind, purge_after: pending.purge_after, company_profile_id: pending.company_profile_id || null, delete_reviews: pending.delete_reviews === true } : null,
     cancelled: !!cancelled,
     blocked,
     message: cancelled ? cancelledMessage() : blockedMessage,
@@ -116,6 +118,22 @@ async function insertRequest(admin, row) {
   return admin.from('account_deletion_requests').insert(row).select('*').maybeSingle();
 }
 
+// Only true when the person ticked the box. Anything else keeps today's behavior.
+export function wantsReviewsDeleted(body) {
+  return body?.delete_reviews === true;
+}
+
+// The column is only written when ticked, so unticked deletions keep working before the migration is applied.
+function reviewsField(deleteReviews) {
+  return deleteReviews ? { delete_reviews: true } : {};
+}
+
+async function syncReviewsChoice(admin, open, deleteReviews) {
+  if (!open || (open.delete_reviews === true) === deleteReviews) return { ok: true };
+  if (!deleteReviews && open.delete_reviews === undefined) return { ok: true };
+  return admin.from('account_deletion_requests').update({ delete_reviews: deleteReviews }).eq('id', open.id);
+}
+
 export async function postAccountDeletion(req, deps = {}) {
   const who = await caller(req, deps);
   if (who.error) return who.error;
@@ -151,6 +169,12 @@ export async function postAccountDeletion(req, deps = {}) {
   }
   const demo = !!(profile && isDemoCompany(profile));
   const plan = deletionKind({ ownsCompany: !!profile, demo });
+  const deleteReviews = wantsReviewsDeleted(body);
+  if (open.data) {
+    const sync = await syncReviewsChoice(admin, open.data, deleteReviews);
+    if (sync?.error && missing(sync.error)) return json({ error: SETUP, setupNeeded: true }, 503);
+    if (sync?.error) return json({ error: 'Couldn’t save your choice about reviews. Try again.' }, 500);
+  }
   if (!plan.immediate) {
     if (open.data) {
       return json({
@@ -166,12 +190,13 @@ export async function postAccountDeletion(req, deps = {}) {
       kind: 'company',
       purge_after: at.toISOString(),
       baseline_sign_in_at: baselineSignInAt(who.user),
+      ...reviewsField(deleteReviews),
     });
     if (ins.error && missing(ins.error)) return json({ error: SETUP, setupNeeded: true }, 503);
     if (ins.error) return json({ error: 'Couldn’t schedule the deletion. Try again.' }, 500);
     return json({
       ok: true, scheduled: true, immediate: false, grace_days: GRACE_DAYS,
-      purge_after: at.toISOString(), sign_out: true,
+      purge_after: at.toISOString(), sign_out: true, delete_reviews: deleteReviews,
       message: scheduledMessage({ purgeAt: at.toISOString(), companyName: profile?.legal_name || profile?.dba_name }),
     });
   }
@@ -183,26 +208,30 @@ export async function postAccountDeletion(req, deps = {}) {
       kind: plan.kind,
       purge_after: new Date(Date.now() - 1000).toISOString(),
       baseline_sign_in_at: baselineSignInAt(who.user),
+      ...reviewsField(deleteReviews),
     });
     if (ins.error && missing(ins.error)) return json({ error: SETUP, setupNeeded: true }, 503);
     if (ins.error && ins.error.code !== '23505') return json({ error: 'Couldn’t start the deletion. Try again.' }, 500);
   }
-  const ran = await executeAccountDeletion(admin, who.user.id, deps);
+  const ran = await executeAccountDeletion(admin, who.user.id, deps, { deleteReviews });
   if (ran.cancelled) return json({ ok: true, cancelled: true, message: cancelledMessage(), sign_out: false });
   if (ran.status) return json(ran.body, ran.status);
   await admin.from('account_deletion_requests').update({ completed_at: new Date().toISOString() }).eq('user_id', who.user.id).is('completed_at', null).is('cancelled_at', null);
   return json({
     ok: true, deleted: true, immediate: true, sign_out: true,
-    mode: plan.kind, demo,
+    mode: plan.kind, demo, delete_reviews: deleteReviews,
     message: plan.kind === 'company'
       ? 'The company and your sign-in have been deleted.'
       : 'Your sign-in has been deleted. Company records you worked on were kept.',
   });
 }
 
-export async function executeAccountDeletion(admin, userId, deps = {}) {
+// deleteReviews only picks the database function. If the new function isn't there yet, the call fails
+// (setup message) instead of quietly keeping reviews the person asked to delete.
+export async function executeAccountDeletion(admin, userId, deps = {}, { deleteReviews = false } = {}) {
+  const fn = deleteReviews === true ? 'account_deletion_apply_with_reviews' : 'account_deletion_apply';
   let rpc;
-  try { rpc = await admin.rpc('account_deletion_apply', { p_user: userId }); }
+  try { rpc = await admin.rpc(fn, { p_user: userId }); }
   catch (e) { return { status: 500, body: { error: 'Couldn’t delete the account. Try again.' } }; }
   if (rpc?.error) {
     if (missing(rpc.error)) return { status: 503, body: { error: SETUP, setupNeeded: true } };
@@ -329,7 +358,7 @@ export async function runDueDeletions(admin, deps = {}, now = new Date()) {
     // An open company export holds the purge (at most 48 h after it started; see companyExportServer).
     const held = await (deps.exportHold || (await import('./companyExportServer.js')).exportHold)(admin, row.company_profile_id, now);
     if (held.hold) { results.push({ user_id: row.user_id, ok: false, held_for_export: held.jobId }); continue; }
-    const ran = await executeAccountDeletion(admin, row.user_id, deps);
+    const ran = await executeAccountDeletion(admin, row.user_id, deps, { deleteReviews: row.delete_reviews === true });
     if (ran.cancelled) {
       results.push({ user_id: row.user_id, ok: true, cancelled: true });
       continue;

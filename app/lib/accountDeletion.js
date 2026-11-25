@@ -106,7 +106,7 @@ export const MEMBER_REMOVED = [
 
 export const MEMBER_ANONYMIZED = [
   `Your name is taken off company records. Where a name is still shown for someone who left, it says “${FORMER_MEMBER_LABEL}”`,
-  'Facility reviews and facility notes you wrote stay in the shared directory. They are no longer tied to your sign-in or to this company',
+  'Facility reviews and facility notes you wrote stay in the shared directory. They are no longer tied to your sign-in or to this company. If you tick the box to delete them too, they are deleted instead',
 ];
 
 export const MEMBER_KEPT = [
@@ -126,12 +126,12 @@ export const COMPANY_REMOVED = [
 
 export const COMPANY_ANONYMIZED = [
   'Rows that count toward the monthly email limit (load packets, carrier packets, and insurance certificate requests). The count stays. Addresses and message details are removed',
-  'Facility reviews and notes from this company stay in the shared directory. They are detached from the company and from the people, with no name attached',
+  'Facility reviews and notes from this company stay in the shared directory. They are detached from the company and from the people, with no name attached. If the owner ticks the box to delete them too, they are deleted instead',
 ];
 
 export const COMPANY_KEPT = [
   'The shared list of facilities (names and addresses)',
-  'Facility reviews and notes (the stars and the text), no longer tied to this company',
+  'Facility reviews and notes (the stars and the text), no longer tied to this company, unless the owner chose to delete them',
   'A person who also belongs to another company, or who owns one, keeps their sign-in. They lose access to this company only',
 ];
 
@@ -143,7 +143,7 @@ export function ownerWarnings({ companyName, graceDays = GRACE_DAYS, demo = fals
   return [
     wait,
     'This removes the company and its loads, documents, expenses, mileage, trucks, invoices, and packets.',
-    'Facilities and facility reviews stay in the shared directory. They are no longer tied to this company or to you.',
+    'Facilities stay in the shared directory. Facility reviews and notes stay too, no longer tied to this company or to you, unless you tick the box below to delete them.',
     'Monthly email counts are kept so the limit does not reset. Addresses on those sends are removed.',
     'Other people on this company lose their sign-in when the company is deleted, unless they also belong to another company or own one. They are not emailed.',
     'Transfer ownership first if others should keep the company. Transferring ownership is not available in the app yet.',
@@ -156,10 +156,25 @@ export function memberWarnings() {
     'Loads, expenses, mileage, and documents you added for the company stay with the company.',
     `Your name is removed. Where a name is still shown, it says “${FORMER_MEMBER_LABEL}”.`,
     'If you are assigned to a dispatched load, that load goes back to Booked when the driver is cleared.',
-    'Facility reviews you wrote stay, without your name.',
+    'Facility reviews and notes you wrote stay, without your name, unless you tick the box below to delete them.',
     'Bug-report screenshots and other files that are only yours are deleted.',
   ];
 }
+
+// DRAFT wording for Marc: the optional "delete my reviews too" box (unticked by default).
+export const DELETE_REVIEWS_CHOICE = {
+  member: {
+    label: 'Also delete the facility reviews and notes I wrote',
+    hint: 'Leave this off to keep them in the shared facility directory without your name. If you tick it, they are deleted for good and facility ratings update.',
+    confirm: 'Your facility reviews and notes will be deleted too.',
+  },
+  owner: {
+    label: 'Also delete facility reviews and notes from this company',
+    hint: 'This covers reviews and notes written for this company by anyone on it, and everything written by you or by teammates who lose their sign-in. Leave this off to keep them in the shared directory with no name attached.',
+    confirm: 'Facility reviews and notes from this company will be deleted too.',
+  },
+};
+export const DELETE_REVIEWS_PAGE_STEP = 'Optional: tick the box to also delete your facility reviews and notes (for a company owner, the ones from the company). Leave it off to keep them without a name.';
 
 export function scheduledMessage({ purgeAt, companyName } = {}) {
   const when = formatWhen(purgeAt);
