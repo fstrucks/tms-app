@@ -9,6 +9,10 @@ import {
   PING_MAX_AGE_DAYS, PING_AFTER_END_DAYS, SETUP_MSG, intervalSql, cronAuthorized,
   normalizeShareInsert, guardShareUpdate, fillPingFromShare, isMoving, pickOfficeStopNotice, loadIsDone, LOAD_DONE_STATUSES,
 } from './locationShare.js';
+import {
+  newDeviceKey, hashDeviceKey, deviceKeyExpiry, checkDeviceKeyRow, requestTooSoon, parseDeviceBody, thinPoints,
+  DEVICE_KEY_MAX_AGE_MS,
+} from './locationShareDevice.js';
 
 const HEARTBEAT_MIN_GAP_MS = 60_000; // a heartbeat touches one timestamp at most once a minute
 
@@ -130,6 +134,7 @@ export async function runLocationShareCron(db, now = Date.now(), opts = {}) {
   const del = await sweepDeliveredShares(db, now);
   const purge = await purgeOldPings(db, now, opts);
   if (purge.error) return purge;
+  await purgeDeviceKeys(db, now);
   return { ok: true, expired: exp.n, delivered: del.n || 0, purged: purge.n, retention: { maxAgeDays: opts.maxAgeDays ?? PING_MAX_AGE_DAYS, afterEndDays: opts.afterEndDays ?? PING_AFTER_END_DAYS } };
 }
 
@@ -265,6 +270,7 @@ export async function stopShare(db, ctx, { shareId, reason } = {}, now = Date.no
   const { data, error } = await db.from('location_shares').update(patch).eq('id', shareId).is('stopped_at', null).select('*');
   if (error) return { error: 'Couldn’t stop sharing.', status: 500 };
   const row = (data && data[0]) || { ...got.share, ...patch };
+  await revokeDeviceKeys(db, shareId, now);
   return { share: viewShare(row, now) };
 }
 
@@ -419,4 +425,129 @@ export async function stopSharesForDeliveredLoad(db, loadId, now = Date.now()) {
     if (!upd.error && upd.data?.length) n += 1;
   }
   return { n };
+}
+
+// ---- Phone app: share-only sending key (background location) ----
+// Keys live in location_share_device_keys (service role only; RLS on with no policies). Only the SHA-256 hash is stored.
+// Missing table (migration not applied yet) → SETUP for issue/ping, ignored for revoke/purge so nothing else breaks.
+
+export async function revokeDeviceKeys(db, shareId, now = Date.now()) {
+  if (!db || !shareId) return { n: 0 };
+  const { data, error } = await db.from('location_share_device_keys').update({ revoked_at: new Date(now).toISOString() })
+    .eq('share_id', shareId).is('revoked_at', null).select('id');
+  if (error) return { n: 0 };
+  return { n: (data || []).length };
+}
+
+// Daily cron: drop keys that were revoked or ran out more than 7 days ago.
+export async function purgeDeviceKeys(db, now = Date.now()) {
+  const cut = new Date(now - DEVICE_KEY_MAX_AGE_MS).toISOString();
+  const a = await db.from('location_share_device_keys').delete().not('revoked_at', 'is', null).lt('revoked_at', cut).select('id');
+  if (a.error) return { n: 0 };
+  const b = await db.from('location_share_device_keys').delete().lt('expires_at', cut).select('id');
+  return { n: (a.data || []).length + (b.error ? 0 : (b.data || []).length) };
+}
+
+// POST /api/location-share/device-key { share_id }: signed-in sharer only, live share only. Replaces any earlier key.
+// The plain key is returned once and never stored or logged.
+export async function issueDeviceKey(db, ctx, body, now = Date.now()) {
+  const shareId = body?.share_id;
+  if (!shareId || !UUID.test(shareId)) return { error: 'Which share?', status: 422 };
+  const got = await loadShare(db, shareId);
+  if (got.error) return missing(got.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t set up sharing on this phone.', status: 500 };
+  if (!got.share || got.share.user_id !== ctx.userId || got.share.company_id !== ctx.companyId) return { error: 'Not allowed.', status: 403 };
+  const share = await stampExpired(db, got.share, now);
+  if (!isShareLive(share, now)) return { error: 'Sharing has ended.', status: 409, code: 'ended' };
+  const old = await db.from('location_share_device_keys').update({ revoked_at: new Date(now).toISOString() })
+    .eq('share_id', shareId).is('revoked_at', null).select('id');
+  if (old.error) return missing(old.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t set up sharing on this phone.', status: 500 };
+  const key = newDeviceKey();
+  const expires_at = deviceKeyExpiry(share, now);
+  const ins = await db.from('location_share_device_keys').insert({
+    share_id: share.id, user_id: share.user_id, company_id: share.company_id,
+    key_hash: hashDeviceKey(key), created_at: new Date(now).toISOString(), expires_at,
+  }).select('id').maybeSingle();
+  if (ins.error) return missing(ins.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t set up sharing on this phone.', status: 500 };
+  return { key, share_id: share.id, expires_at };
+}
+
+const stillInCompany = async (db, userId, companyId) => {
+  const r = await loadMyCompanies(db, userId);
+  if (r.error) return { error: r.error };
+  return { ok: (r.companies || []).some((c) => c.profile_id === companyId) };
+};
+
+// POST /api/location-share/device-ping (X-Share-Key header). Body: { points: [{ lat, lng, accuracy_m?, speed_mps?, heading?,
+// recorded_at? }] } or one point at the top level, optional heartbeat: true. Writes only to the key's own share, with the
+// share's company_id. Same 20 s point floor as the browser, plus one upload per key every 10 s. Never logs coordinates or keys.
+export async function recordDevicePings(db, key, body, now = Date.now()) {
+  if (!key) return { error: 'Sign in again on this phone.', status: 401, code: 'bad_key' };
+  const kr = await db.from('location_share_device_keys').select('*').eq('key_hash', hashDeviceKey(key)).maybeSingle();
+  if (kr.error) return missing(kr.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t save the location.', status: 500 };
+  const ok = checkDeviceKeyRow(kr.data, now);
+  if (!ok.ok) return { error: 'Sign in again on this phone.', status: ok.status, code: ok.code };
+  const keyRow = kr.data;
+  if (body?.share_id && body.share_id !== keyRow.share_id) return { error: 'Not allowed.', status: 403, code: 'wrong_share' };
+
+  const got = await loadShare(db, keyRow.share_id);
+  if (got.error) return { error: 'Couldn’t save the location.', status: 500 };
+  if (!got.share) { await revokeDeviceKeys(db, keyRow.share_id, now); return { error: 'Sharing has ended.', status: 409, code: 'ended' }; }
+  if (got.share.user_id !== keyRow.user_id || got.share.company_id !== keyRow.company_id) {
+    await revokeDeviceKeys(db, keyRow.share_id, now);
+    return { error: 'Not allowed.', status: 403 };
+  }
+  let share = await stampExpired(db, got.share, now);
+  if (isShareLive(share, now) && share.auto_stop_on_delivered && share.load_id) {
+    await sweepDeliveredShares(db, now, { loadId: share.load_id, userId: share.user_id });
+    share = (await loadShare(db, share.id)).share || share;
+  }
+  if (!isShareLive(share, now)) { await revokeDeviceKeys(db, share.id, now); return { error: 'Sharing has ended.', status: 409, code: 'ended' }; }
+
+  // Removed from the company mid-share: the key stops working and the share is not written to.
+  const mem = await stillInCompany(db, share.user_id, share.company_id);
+  if (mem.error) return { error: 'Couldn’t save the location.', status: 500 };
+  if (!mem.ok) { await revokeDeviceKeys(db, share.id, now); return { error: 'Not allowed.', status: 403, code: 'not_member' }; }
+
+  const wait = requestTooSoon(keyRow.last_used_at, now);
+  if (wait) return { error: 'Too many uploads. Try again shortly.', status: 429, code: 'slow_down', retry_after_s: Math.ceil(wait / 1000) };
+
+  const parsed = parseDeviceBody(body, share, now);
+  if (parsed.error) return parsed;
+  await db.from('location_share_device_keys').update({ last_used_at: new Date(now).toISOString() }).eq('id', keyRow.id);
+  if (!parsed.points.length) return { ok: true, saved: 0, skipped: 0, rejected: parsed.rejected };
+
+  // Heartbeat from a parked phone: one point that hasn't moved from the latest → touch updated_at only (as the browser does).
+  if (body?.heartbeat === true && parsed.points.length === 1) {
+    const p = parsed.points[0];
+    const cur = await db.from('location_share_latest').select('lat, lng, updated_at').eq('share_id', share.id).maybeSingle();
+    if (!cur.error && cur.data && !isMoving({ lat: cur.data.lat, lng: cur.data.lng }, p)) {
+      if (!pingAllowed(cur.data.updated_at, now, HEARTBEAT_MIN_GAP_MS)) return { ok: true, saved: 0, skipped: 1, rejected: parsed.rejected };
+      const up = await db.from('location_share_latest').update({ updated_at: new Date(now).toISOString() }).eq('share_id', share.id);
+      if (up.error) return { error: 'Couldn’t save the location.', status: 500 };
+      return { ok: true, heartbeat: true, saved: 0, skipped: 0, rejected: parsed.rejected };
+    }
+  }
+
+  const last = await db.from('location_pings').select('recorded_at').eq('share_id', share.id).order('recorded_at', { ascending: false }).limit(1);
+  if (last.error && !missing(last.error)) return { error: 'Couldn’t save the location.', status: 500 };
+  const { keep, skipped } = thinPoints(parsed.points, last.data?.[0]?.recorded_at);
+  if (!keep.length) return { ok: true, saved: 0, skipped, rejected: parsed.rejected };
+
+  const rows = keep.map((p) => fillPingFromShare({
+    share_id: share.id, company_id: null, lat: p.lat, lng: p.lng,
+    accuracy_m: p.accuracy_m, speed_mps: p.speed_mps, heading: p.heading, recorded_at: new Date(p.t).toISOString(),
+  }, share));
+  const ins = await db.from('location_pings').insert(rows).select('id');
+  if (ins.error) return missing(ins.error) ? { error: SETUP_MSG, status: 409, setupNeeded: true } : { error: 'Couldn’t save the location.', status: 500 };
+
+  const newest = rows[rows.length - 1];
+  const cur = await db.from('location_share_latest').select('recorded_at').eq('share_id', share.id).maybeSingle();
+  if (!cur.data || !(Date.parse(cur.data.recorded_at) > Date.parse(newest.recorded_at))) {
+    await db.from('location_share_latest').upsert({
+      share_id: share.id, company_id: share.company_id, user_id: share.user_id,
+      lat: newest.lat, lng: newest.lng, accuracy_m: newest.accuracy_m, speed_mps: newest.speed_mps, heading: newest.heading,
+      recorded_at: newest.recorded_at, updated_at: new Date(now).toISOString(),
+    }, { onConflict: 'share_id' });
+  }
+  return { ok: true, saved: rows.length, skipped, rejected: parsed.rejected, recorded_at: newest.recorded_at };
 }

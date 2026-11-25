@@ -77,6 +77,7 @@ export const EXCLUDED_TABLES = {
   account_deletion_storage_jobs: 'internal',
   export_jobs: 'internal',
   export_link_events: 'internal',
+  location_share_device_keys: 'phone sending-key hashes; a security secret, not a business record',
 };
 
 // Column-limited tables are metadata only. Unknown columns are left out by E2, never added.
