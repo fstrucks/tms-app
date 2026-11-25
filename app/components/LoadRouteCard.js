@@ -5,7 +5,10 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtMiles } from '../lib/mileage';
+import { fmtDriveTime } from '../lib/loadEta';
 import { callMap, cardPhase } from '../lib/mapClient';
+import RouteOptions from './RouteOptions';
+import { mapOptions } from '../lib/routeOptions';
 
 const RouteMap = dynamic(() => import('./RouteMap'), { ssr: false, loading: () => <div style={{ height: 'clamp(180px, 42vw, 280px)', borderRadius: 10, background: 'var(--divider)' }} /> });
 
@@ -15,6 +18,14 @@ const muted = { color: 'var(--text-muted)', fontSize: '0.85rem' };
 
 export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0, onLoadChange, onRouteFilled }) {
   const [st, setSt] = useState({ state: 'loading' });
+  // Route options P1 (display only): the picked option changes only this card's line and miles/time.
+  const [opts, setOpts] = useState(null);
+  const [pick, setPick] = useState(null);
+  useEffect(() => { setOpts(null); setPick(null); }, [loadId, stopsKey]);
+  const token = async (fresh) => {
+    if (fresh) { try { await supabase.auth.refreshSession(); } catch {} }
+    return (await supabase.auth.getSession())?.data?.session?.access_token || '';
+  };
   useEffect(() => {
     let live = true;
     (async () => {
@@ -59,15 +70,21 @@ export default function LoadRouteCard({ supabase, loadId, stopsKey, recheck = 0,
   const cityOnly = pinned.some((s) => s.precision === 'city');
   return (
     <div style={card} data-testid="load-route-card">
-      {pinned.length > 0 ? <RouteMap stops={st.stops} geometry={st.geometry} />
+      {pinned.length > 0 ? <RouteMap stops={st.stops} geometry={st.geometry} options={mapOptions(opts, pick)} onPick={(id) => setPick(id === 'fastest' ? null : (opts || []).find((o) => o.id === id) || null)} />
         : <div style={{ height: 120, borderRadius: 10, background: 'var(--divider)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...muted }}>{st.computing ? 'Finding the route…' : 'No map yet'}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '0.4rem 0.25rem 0' }}>
         <span style={{ fontSize: '0.9rem' }}>
           {st.computing ? <span style={muted}>Finding the truck route…</span>
+            : pick ? <>{pick.label} <strong data-testid="route-option-miles">{fmtMiles(pick.miles)}</strong>{fmtDriveTime(pick.seconds) ? <span style={muted}> · {fmtDriveTime(pick.seconds)}</span> : null}</>
             : st.calculated_miles ? <>Truck route <strong data-testid="route-miles">{fmtMiles(st.calculated_miles)}</strong></> : null}
         </span>
         {cityOnly && <span style={muted} data-testid="route-approx">Some pins are approximate (street not found; city or ZIP used)</span>}
       </div>
+      {!st.computing && !st.stale && st.geometry && st.calculated_miles > 0 && (
+        <div style={{ padding: '0 0.25rem' }}>
+          <RouteOptions loadId={loadId} getToken={token} selected={pick?.id || 'fastest'} onSelect={setPick} onOptions={setOpts} testid="route-options" />
+        </div>
+      )}
       {!st.computing && st.message && <p role="status" data-testid="route-message" style={{ color: 'var(--warning)', fontSize: '0.85rem', margin: '0.25rem 0.25rem 0' }}>{st.message}</p>}
     </div>
   );

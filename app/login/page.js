@@ -7,6 +7,7 @@ import { safeNext, nextAfterSignIn, magicLinkRedirect } from '../lib/safeNext';
 import { signInWithRetry, isNetworkAuthError, NETWORK_SIGNIN_MSG } from '../lib/signInRetry';
 import { useHydrated, fallbackAction, NOJS_MSG } from '../lib/authForms';
 import { readCredentials, validateCredentials, submitDisabled } from '../lib/loginForm';
+import LegalFooter from '../components/LegalFooter';
 
 const nextParam = () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('next'));
 
@@ -124,6 +125,7 @@ export default function LoginPage() {
           </form>
         )}
       </div>
+      <LegalFooter includeDelete />
     </main>
   );
 }

@@ -6,6 +6,7 @@
 import { loadDocsCtx, json, UUID } from '../../../../../../lib/loadDocsServer.js';
 import { loadForStopTimes } from '../../../../../../lib/stopTimesServer.js';
 import { cleanReview, starUpdate, reviewState, NO_FACILITY_MSG } from '../../../../../../lib/facilityReviews.js';
+import { markRated } from '../../../../../../lib/facilityRatingPromptsServer.js';
 import { OWN_COLS, isMissing } from '../../../../../../lib/facilityServer.js';
 
 export const runtime = 'nodejs';
@@ -70,5 +71,6 @@ export async function PUT(req, { params, deps } = {}) {
     }
   }
   if (res.error || !res.data) return isMissing(res.error) ? json(SETUP, 409) : json({ error: 'Couldn’t save your review.' }, 500);
+  if (res.data.stars != null) await markRated(x.svc, x.c.user.id, x.stop.id);
   return json({ review: own(res.data) });
 }

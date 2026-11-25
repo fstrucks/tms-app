@@ -165,7 +165,7 @@ export function MileageForm({ onSubmit, pickLoad = false }) {
         </p>
       )}
       {err && <p style={{ color: 'var(--danger)', margin: '0.5rem 0 0' }}>{err}</p>}
-      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem' }}>
+      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem' }}>
         <button type="submit" disabled={saving} style={{ ...st.btn, width: '100%', minHeight: 48, marginTop: 0, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add miles'}</button>
       </div>
     </form>

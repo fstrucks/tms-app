@@ -76,7 +76,7 @@ export default function ReportBugButton() {
   return (
     <>
       <button type="button" className="no-print" data-testid="report-bug-button" onClick={() => { setOpen(true); setMsg(null); }}
-        style={{ position: 'fixed', right: 12, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px)', zIndex: 60, minHeight: 40, padding: '0 0.85rem',
+        style={{ position: 'fixed', right: 12, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px) + 12px)', zIndex: 60, minHeight: 40, padding: '0 0.85rem',
           border: '1px solid var(--divider)', borderRadius: 999, background: 'var(--surface)', color: 'var(--text)', fontSize: 14, fontWeight: 600, fontFamily: 'system-ui',
           boxShadow: '0 4px 14px var(--shadow)', cursor: 'pointer', display: open || covered ? 'none' : 'inline-flex', alignItems: 'center', gap: 6 }}>
         <span aria-hidden="true">🐞</span>Report a bug

@@ -13,11 +13,11 @@ const tables = () => ({
   company_profiles: [{ id: P1, owner_id: OWNER }, { id: P2, owner_id: OTHER }],
   company_members: [{ profile_id: P1, user_id: OWNER, role: 'owner' }, { profile_id: P1, user_id: T1, role: 'driver' }, { profile_id: P1, user_id: T2, role: 'dispatcher' }, { profile_id: P2, user_id: OTHER, role: 'owner' }],
   bug_reports: [
-    rep('old', T1, '2026-10-17T10:00:00Z', { screenshot_path: `${T1}/bug-reports/1-a.png` }),
-    rep('mine', OWNER, '2026-10-17T12:00:00Z'),
-    rep('new', T2, '2026-10-18T01:00:00Z', { status: 'seen' }),
-    rep('forged', T2, '2026-10-17T11:00:00Z', { screenshot_path: `${T1}/bug-reports/1-a.png` }),
-    rep('other', OTHER, '2026-10-18T02:00:00Z', { screenshot_path: `${OTHER}/bug-reports/x.png` }),
+    rep('old', T1, '2026-10-17T10:00:00Z', { profile_id: P1, screenshot_path: `${T1}/bug-reports/1-a.png` }),
+    rep('mine', OWNER, '2026-10-17T12:00:00Z', { profile_id: P1 }),
+    rep('new', T2, '2026-10-18T01:00:00Z', { profile_id: P1, status: 'seen' }),
+    rep('forged', T2, '2026-10-17T11:00:00Z', { profile_id: P1, screenshot_path: `${T1}/bug-reports/1-a.png` }),
+    rep('other', OTHER, '2026-10-18T02:00:00Z', { profile_id: P2, screenshot_path: `${OTHER}/bug-reports/x.png` }),
     rep('stranger', STRANGER, '2026-10-18T03:00:00Z')],
 });
 // One shared DB. The user client only sees the caller's own company_profiles row (like RLS); the service client sees all.

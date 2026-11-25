@@ -1,11 +1,14 @@
 // Report a bug: shared limits, context capture and validation (client + /api/bug-reports).
 // Table: supabase/migrations/20261018000100_bug_reports.sql (unapplied until Marc OKs it).
+import { PUBLIC_PATHS } from './legalRoutes.js';
+
 export const BUG_MIGRATION = '20261018000100_bug_reports.sql';
 export const BUG_LIMITS = { what_happened: 4000, expected: 4000, page_url: 2000, user_agent: 1000, viewport: 40 };
 export const SCREENSHOT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']; // = documents bucket
 export const SCREENSHOT_MAX_BYTES = 10 * 1024 * 1024; // = documents bucket file_size_limit
 export const SETUP_MSG = 'Bug reports aren’t switched on yet. Please text Sam what happened for now. Your words are still here.';
-export const BUG_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password'];
+
+export const BUG_HIDDEN_PREFIXES = ['/login', '/auth', '/forgot-password', ...PUBLIC_PATHS];
 export const isBugButtonHidden = (pathname = '') => BUG_HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export function captureContext(win = typeof window === 'undefined' ? null : window) {
@@ -47,11 +50,15 @@ export function buildBugRow(body, user) {
 // Hide the floating button while another sheet (e.g. the welcome screen) marks <body data-welcome-open>.
 // No polling: a MutationObserver on that one attribute. Returns an unsubscribe fn.
 export const COVER_ATTR = 'data-welcome-open';
+// Also hidden while a facility rating card sits in the strip where the button floats (QA: at ~765px / 250% zoom the
+// button took taps meant for the card's Skip). Set by FacilityReview.js only while the card overlaps that strip.
+export const RATING_COVER_ATTR = 'data-rating-card-low';
+const COVER_ATTRS = [COVER_ATTR, RATING_COVER_ATTR];
 export function watchCovered(body, cb, MO = typeof MutationObserver === 'undefined' ? null : MutationObserver) {
   if (!body) return () => {};
-  const check = () => cb(body.hasAttribute(COVER_ATTR));
+  const check = () => cb(COVER_ATTRS.some((a) => body.hasAttribute(a)));
   check();
   if (!MO) return () => {};
-  const mo = new MO(check); mo.observe(body, { attributes: true, attributeFilter: [COVER_ATTR] });
+  const mo = new MO(check); mo.observe(body, { attributes: true, attributeFilter: COVER_ATTRS });
   return () => mo.disconnect();
 }

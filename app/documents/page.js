@@ -518,7 +518,7 @@ export default function DocumentsPage() {
                 )}
               </div>
             </fieldset>
-            <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
+            <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' }}>
             <button type="submit" disabled={!file || uploading || converting} style={{ ...s.btn, marginTop: 0, opacity: !file || uploading || converting ? 0.6 : 1 }}>
               {converting ? 'Converting photo…' : uploading ? 'Uploading…' : 'Upload'}
             </button>

@@ -57,7 +57,7 @@ button { touch-action: manipulation; }
    controls sit at the very bottom add it below them, and [data-above-fab] marks controls that scroll into view
    clear of the button and the tab bar when they appear (QA #97: Change-role Yes / Back were covered at 390px). */
 :root { --fab-space: 64px; }
-[data-above-fab] { scroll-margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--fab-space) + 8px); scroll-margin-top: 64px; }
+[data-above-fab] { scroll-margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px) + var(--fab-space) + 8px); scroll-margin-top: 64px; }
 /* While typing on a phone, hide the tab bar so the keyboard + sticky Save have the room. */
 @media (max-width: 767.98px) {
   body.kbd-open { --nav-h: 0px; }
@@ -75,6 +75,11 @@ input[type=date] {
 input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Two-column form rows stay side by side on phones; stack only on very narrow screens. */
 @media (max-width: 339px) { .form-grid-2 { grid-template-columns: minmax(0, 1fr) !important; } }
+
+/* Public legal pages: links inside the rendered policy text. */
+.legal-copy a { color: var(--primary); }
+.legal-copy p, .legal-copy li { line-height: 1.45; }
+.legal-copy ul, .legal-copy ol { padding-left: 1.15rem; }
 
 /* Account email next to the avatar only on wide screens. */
 .account-email { display: inline-flex; flex-direction: column; }
@@ -209,3 +214,34 @@ html.native-app, html.native-app body { overscroll-behavior: none; }
 html.native-app body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); -webkit-tap-highlight-color: transparent; }
 html.native-app body:not(.has-appnav) { padding-top: env(safe-area-inset-top); }
 html.native-app .appnav-top, html.native-app .appnav-mtop { padding-top: env(safe-area-inset-top); }
+
+/* Route options (load map): colors from theme variables; Leaflet sets a default stroke attribute, these override it. */
+.leaflet-container path.ph-route-sel { stroke: var(--primary); }
+.leaflet-container path.ph-route-alt { stroke: var(--text-muted); cursor: pointer; }
+
+/* Location share bar: under the top nav on desktop; above the bottom tabs on phones. */
+@media (max-width: 767px) {
+  .location-share-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    z-index: 45;
+    border-bottom: none !important;
+    border-top: 1px solid var(--warning-border);
+  }
+  body.has-appnav.has-location-share { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 64px)); }
+}
+@media (min-width: 768px) {
+  .location-share-bar { position: sticky; top: 56px; z-index: 35; }
+}
+
+.ph-office-truck-dot {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 5px var(--primary-soft);
+}

@@ -6,6 +6,7 @@ import { getSupabase, supabaseConfigError } from '../../lib/supabase';
 import { safeNext, loginHref, DEFAULT_NEXT } from '../../lib/safeNext';
 import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { validatePassword, MIN_PASSWORD, PASSWORD_PATH, pageMode } from '../../lib/passwordSetup';
+import LegalFooter from '../../components/LegalFooter';
 
 const s = {
   main: { padding: '1rem', fontFamily: 'system-ui', maxWidth: 480, margin: '0 auto' },
@@ -107,6 +108,7 @@ export default function SetPasswordPage() {
             </form>
           )}
       </div>
+      <LegalFooter includeDelete />
     </main>
   );
 }

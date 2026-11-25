@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AccountMenu from './ui/AccountMenu';
+import LocationShareBar from './LocationShareBar';
 import { getSupabase } from '../lib/supabase';
 import { navTabs } from '../lib/dispatchNav';
 import { DOCS_ATTENTION_EVENT, fetchNeedsAttention } from '../lib/docsInbox';
 import { syncAuthCookie } from '../lib/authCookie';
 import { dispatcherStatus, shouldRecheck, checkUntilDefinite, rememberRole, recallRole, forgetRole } from '../lib/roleRefresh';
+import { isPublicPath } from '../lib/legalRoutes';
 
 const TABS = [
   { href: '/', label: 'Home', icon: '🏠', match: (p) => p === '/' },
@@ -19,7 +21,7 @@ const TABS = [
   { href: '/expenses', label: 'Expenses', icon: '🧾', match: (p) => p.startsWith('/expenses') },
   { href: '/truck', label: 'Truck', icon: '🚛', match: (p) => p.startsWith('/truck') }, // took Mileage's spot (Marc, Oct 17)
 ];
-const HIDDEN = (p) => p.startsWith('/login') || p === '/site'; // /site: public marketing page
+const HIDDEN = (p) => p.startsWith('/login') || isPublicPath(p); // legal pages + /site (public marketing page)
 
 const blue = 'var(--primary)';
 
@@ -178,6 +180,7 @@ export default function AppNav() {
           );
         })}
       </nav>
+      <LocationShareBar />
     </>
   );
 }

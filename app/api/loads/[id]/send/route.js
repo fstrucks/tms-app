@@ -58,7 +58,7 @@ async function names(x, ids) {
   }
   return out;
 }
-const shape = (r, who = {}) => ({ id: r.id, sent_at: r.sent_at, sent_by: r.sent_by, by: who[r.sent_by] || (r.sent_by ? 'Team member' : 'Removed user'), to: r.to_emails || [],
+const shape = (r, who = {}) => ({ id: r.id, sent_at: r.sent_at, sent_by: r.sent_by, by: who[r.sent_by] || (r.sent_by ? 'Team member' : 'Former team member'), to: r.to_emails || [],
   with_invoice: !!r.with_invoice, size_bytes: r.size_bytes ?? null, confirmed: !!r.postmark_message_id });
 async function history(x, loadId) {
   const { data, error } = await x.svc.from(T).select('*').eq('load_id', loadId).order('sent_at', { ascending: false });

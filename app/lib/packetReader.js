@@ -25,7 +25,7 @@ export function createPacketReader({ apiKey = process.env.OPENAI_API_KEY, transp
       if (!enabled) return { skipped: true, reason: 'OPENAI_API_KEY not set', fields: fields.map((f) => ({ ...f, profile_key: null, confidence: 0, needs_confirm: false })) };
       const clean = fields.map(({ id, page, label, kind, box }) => ({ id, page, label: String(label || '').slice(0, 200), kind, box }));
       const body = {
-        model, temperature: 0,
+        model, temperature: 0, store: false, // don't keep the request/response on OpenAI's side
         response_format: { type: 'json_schema', json_schema: { name: 'fields', strict: true, schema: {
           type: 'object', additionalProperties: false, required: ['fields'],
           properties: { fields: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'profile_key', 'confidence'],

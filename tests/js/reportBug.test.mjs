@@ -79,7 +79,7 @@ test('bug button: hides while <body data-welcome-open> is set, via MutationObser
   const body = { hasAttribute: (a) => attrs.has(a) };
   class MO { constructor(cb) { this.cb = cb; observer = this; } observe(t, o) { this.opts = o; } disconnect() { this.off = true; } }
   const seen = []; const stop = watchCovered(body, (v) => seen.push(v), MO);
-  assert.deepEqual(observer.opts, { attributes: true, attributeFilter: [COVER_ATTR] });
+  assert.deepEqual(observer.opts, { attributes: true, attributeFilter: [COVER_ATTR, 'data-rating-card-low'] });
   attrs.add(COVER_ATTR); observer.cb(); attrs.delete(COVER_ATTR); observer.cb();
   assert.deepEqual(seen, [false, true, false]);
   stop(); assert.equal(observer.off, true);

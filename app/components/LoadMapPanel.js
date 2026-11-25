@@ -38,6 +38,8 @@ const s = {
   btnPri: { background: c.primary, color: c.onPrimary },
 };
 
+import RouteOptions from './RouteOptions';
+import { mapOptions } from '../lib/routeOptions';
 const tokenOf = (supabase) => async (fresh) => {
   if (fresh) { try { await supabase.auth.refreshSession(); } catch {} }
   return (await supabase.auth.getSession())?.data?.session?.access_token || '';
@@ -63,6 +65,11 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState('');
   const [copied, setCopied] = useState(false);
+  // Route options P1 (display only): changes only the drawn line and the "total route" miles here. Miles left,
+  // drive time and ETA keep using the fastest route.
+  const [opts, setOpts] = useState(null);
+  const [pick, setPick] = useState(null);
+  useEffect(() => { setOpts(null); setPick(null); }, [load.id]);
   const [locating, setLocating] = useState(false); // waiting for a GPS fix (after Use my location / a poll with no fix yet)
   const locTimer = useRef(null);
   const block = useRef(null);                      // { until, noRouteAt }
@@ -225,7 +232,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   } else {
     headline = (
       <div data-testid="eta-total">
-        <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{total ? `${Number(total).toLocaleString('en-US')} mi` : '—'} <span style={{ fontSize: '0.95rem', fontWeight: 600, color: c.muted }}>total route</span></div>
+        <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{pick ? <span data-testid="eta-option-miles">{Number(pick.miles).toLocaleString('en-US')} mi</span> : total ? `${Number(total).toLocaleString('en-US')} mi` : '—'} <span style={{ fontSize: '0.95rem', fontWeight: 600, color: c.muted }}>{pick ? `total route · ${pick.label}` : 'total route'}</span></div>
       </div>
     );
   }
@@ -235,7 +242,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
   else if (perm === 'unsupported') locLine = 'This browser can’t share location, so live miles aren’t available.';
   else if (perm === 'denied') locLine = deniedHelp(platform);
   else if (locating && !fresh) locLine = null; // "Finding your location…" below
-  else if (perm === 'prompt' || perm === 'unknown' || (perm === 'granted' && !auto && !fix)) locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and is never saved.';
+  else if (perm === 'prompt' || perm === 'unknown' || (perm === 'granted' && !auto && !fix)) locLine = 'Turn on location to see miles and drive time left. It’s used only while this screen is open and isn’t saved. (Sharing your location with your company is separate and only happens if you start it.)';
 
   return (
     <section data-testid="home-load-map" aria-label="Current load map and miles left" style={s.card}>
@@ -246,6 +253,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       <div style={{ margin: '0.6rem 0' }}>
         {view?.state === 'ready' && (view.stops || []).some((x) => x.lat != null)
           ? <RouteMap stops={view.stops} geometry={view.geometry} doneIds={supportsStopCompletion(load) ? stops.filter((x, i) => x.completed_at || i < ni).map((x) => x.id) : []} truck={usableFix ? { lat: usableFix.lat, lng: usableFix.lng } : null} live={fresh?.geometry || null}
+              options={mapOptions(opts, pick)} onPick={(id) => setPick(id === 'fastest' ? null : (opts || []).find((o) => o.id === id) || null)}
               label={`Map: truck route ${target}${est ? `, ${fmtMilesLeft(est.miles)} left` : ''}`} />
           : <div style={{ height: 140, borderRadius: 10, background: c.soft, display: 'flex', alignItems: 'center', justifyContent: 'center', ...s.muted }}>
               {view ? (view.state === 'failed' ? view.message : 'No map yet') : 'Loading the map…'}</div>}
@@ -264,6 +272,9 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
         {total && est && <span style={s.chip}>Route {Number(total).toLocaleString('en-US')} mi total</span>}
         <span style={s.chip}>Truck route (HGV)</span>
       </div>
+      {view?.state === 'ready' && view.live && view.geometry && (
+        <RouteOptions loadId={load.id} getToken={tokenOf(supabase)} selected={pick?.id || 'fastest'} onSelect={setPick} onOptions={setOpts} homeNote testid="home-route-options" />
+      )}
       {locLine && <p data-testid="eta-location-note" style={{ ...s.muted, margin: '0.4rem 0' }}>{locLine}</p>}
       {view?.live && hasStopPin && locating && !fresh && (
         <p role="status" data-testid="eta-locating" style={{ ...s.muted, margin: '0.4rem 0' }}>Finding your location…</p>
@@ -274,7 +285,7 @@ export default function LoadMapPanel({ load, supabase: sbProp = null, audience, 
       {errText && !near && <p role="status" data-testid="eta-error" style={{ color: c.warning, fontSize: '0.85rem', margin: '0.3rem 0' }}>{errText}</p>}
       {fresh && !near && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', margin: '0.2rem 0 0.4rem' }}>
-          <span data-testid="eta-age" style={{ ...s.muted, fontSize: '0.8rem' }}>{ageText(fresh.at, now)} · location used only while this screen is open, never saved</span>
+          <span data-testid="eta-age" style={{ ...s.muted, fontSize: '0.8rem' }}>{ageText(fresh.at, now)} · location used only while this screen is open, not saved</span>
           <button type="button" data-compact data-testid="eta-refresh" onClick={() => route(true)} disabled={busy} style={{ ...s.btn, flex: '0 0 auto', minHeight: 36, fontSize: '0.85rem' }}>↻ Refresh</button>
         </div>
       )}

@@ -30,9 +30,10 @@ import LoadDocThumb from '../../components/LoadDocThumb';
 import { parseWeightLb } from '../../lib/loadWeight';
 import { isLoadId } from '../../lib/loadNew';
 import { takeSeededLoad, isFreshLoad, SETTLE_RETRY_MS } from '../../lib/loadSeed';
-import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtApptWindow, fullAddress } from '../../lib/loads';
+import { STATUSES, StatusBadge, fmtMoney, fmtNumber, fmtStopAppt, fullAddress } from '../../lib/loads';
 import { formatLocalDate } from '../../lib/localDate';
 import StopActions from '../../components/StopActions';
+import FacilityRatingReminders from '../../components/FacilityRatingReminders';
 import { StopRating, useLoadFacilities } from '../../components/FacilityReview';
 import LoadReviews from '../../components/LoadReviews';
 import StarRating from '../../components/StarRating';
@@ -40,6 +41,7 @@ import StopTimesDownload from '../../components/StopTimesDownload';
 import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
 import LoadExport from '../../components/LoadExport';
+import RateConRescan from '../../components/RateConRescan';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -316,9 +318,11 @@ export default function LoadDetailPage() {
                   onSaved={(patch) => { setLoad((l) => ({ ...l, ...patch })); list?.patchLoad(id, patch); }} />
 
                 <LoadExport supabase={supabase} load={load} cardStyle={s.card} />
+                <RateConRescan supabase={supabase} load={load} docs={docs} owner={owner} cardStyle={s.card} onSaved={() => fetchAll()} />
 
                 <div style={s.card}>
                   <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>Stops</h2>
+                  <FacilityRatingReminders loadId={load.id} />
                   <StopActions supabase={supabase} load={load} userId={user.id} onChange={(next) => { setLoad((l) => ({ ...l, status: next.status, stops: next.stops })); list?.patchLoad?.(id, { status: next.status }); }} onRefresh={() => fetchRef.current?.()} />
                   <StopTimesDownload supabase={supabase} load={load} />
                   {load.stops.length === 0 ? <p style={s.muted}>No stops.</p> : load.stops.map((st, i) => (
@@ -343,7 +347,7 @@ export default function LoadDetailPage() {
                         {st.notes && <div style={{ ...s.muted, whiteSpace: 'pre-line' }}>{st.notes}</div>}
                       </div>
                       <div style={{ ...s.muted, textAlign: 'right', maxWidth: '45%' }}>
-                        {fmtApptWindow(st.appointment_start, st.appointment_end, st.timezone)}
+                        {fmtStopAppt(st)}
                       </div>
                     </div>
                   ))}

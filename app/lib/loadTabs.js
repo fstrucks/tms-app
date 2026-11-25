@@ -1,9 +1,15 @@
-// Loads page tabs (option A). Pure helpers: no React/DOM. Unit-tested in tests/js/loadTabs.test.mjs.
+// Loads page tabs. Pure helpers: no React/DOM. Unit-tested in tests/js/loadTabs.test.mjs.
+//
+// History: PR #44 (option A) put delivered + invoiced under Pending (= post-delivery, awaiting payment)
+// and paid + cancelled under Past. Marc (Nov 9 2026): delivered loads with a green Delivered badge
+// belong under Past, not Pending. Pending is now invoiced only (bill sent, awaiting payment). The
+// Delivered / Invoiced / Paid status badge on each row still shows payment progress; delivered loads
+// are never hidden from Past. No SQL or data changes — status values are unchanged.
 export const TABS = [
   { id: 'active', label: 'Active', statuses: ['dispatched', 'in_transit'], dateBy: 'pickup', newestFirst: false },
-  { id: 'pending', label: 'Pending', statuses: ['delivered', 'invoiced'], dateBy: 'delivery', newestFirst: true },
+  { id: 'pending', label: 'Pending', statuses: ['invoiced'], dateBy: 'delivery', newestFirst: true },
   { id: 'booked', label: 'Booked', statuses: ['booked'], dateBy: 'pickup', newestFirst: false },
-  { id: 'past', label: 'Past', statuses: ['paid', 'cancelled'], dateBy: 'delivery', newestFirst: true },
+  { id: 'past', label: 'Past', statuses: ['delivered', 'paid', 'cancelled'], dateBy: 'delivery', newestFirst: true },
 ];
 export const DEFAULT_TAB = 'active';
 

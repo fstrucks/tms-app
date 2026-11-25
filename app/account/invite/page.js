@@ -8,6 +8,7 @@ import { useHydrated, fallbackAction } from '../../lib/authForms';
 import { formatSentAt } from '../../lib/packetDate';
 import { existingHint } from '../../lib/testerInvites';
 import { EDITABLE_ROLES, ROLE_HELP, roleEditable, confirmText, successText, unassignsLoads, unassignWarning, applyRoleResult, alsoDrivesEditable, ALSO_DRIVES_ROLES, ALSO_DRIVES_HELP, alsoDrivesText, applyAlsoDrives } from '../../lib/memberRoles';
+import LegalFooter from '../../components/LegalFooter';
 
 const api = makeApi(() => getSupabase()?.auth).call;
 const s = {
@@ -116,8 +117,8 @@ export default function InviteTesterPage() {
     load({ expectRole: { id: x.id, role: r.role } });
   }
 
-  if (st.loading) return <main style={s.main}><p>Loading…</p></main>;
-  if (st.error) return <main style={s.main}><h1>Invite a tester</h1><p role="alert" style={{ color: 'var(--danger)' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/account/invite">Sign in</a>}</main>;
+  if (st.loading) return <main style={s.main}><p>Loading…</p><LegalFooter /></main>;
+  if (st.error) return <main style={s.main}><h1>Invite a tester</h1><p role="alert" style={{ color: 'var(--danger)' }}>{st.error}</p>{st.signedOut && <a href="/login?next=/account/invite">Sign in</a>}<LegalFooter /></main>;
   const list = st.invites || [];
   const hint = existingHint(list, f.email);
   return (
@@ -205,6 +206,7 @@ export default function InviteTesterPage() {
           </ul>
         )}
       </section>
+      <LegalFooter />
     </main>
   );
 }

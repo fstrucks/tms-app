@@ -8,7 +8,7 @@ import { MARK_LOAD_EMAIL_RATECONS_RPC } from './handledRatecons.js';
 //      This is before any unlink, so a missing function does not change expenses or documents.
 //   2) unlink expenses and mileage (load_id = null). They are NEVER deleted, whatever the FK says.
 //   3) linked documents: unlink (default) or, if opted in, delete row + storage file.
-//   4) delete stops, 5) delete the load (0 rows = RLS/not found, reported as failure).
+//   4) delete the load's unfinalized draft invoice(s), 5) delete stops, 6) delete the load (0 rows = RLS/not found, reported as failure).
 // The stamp runs before the load row is deleted. Clearing load_id first would miss the rows.
 // Returns { ok, error, warnings }.
 export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = false } = {}) {
@@ -39,6 +39,13 @@ export async function deleteLoad(supabase, loadId, { docs = [], deleteDocs = fal
   } else {
     const { error } = await supabase.from('documents').update({ load_id: null }).eq('load_id', loadId);
     if (error) return { ok: false, error: `Couldn't unlink documents: ${error.message}` };
+  }
+  // The auto-draft made when the load was delivered goes with it (before this it was unlinked and stayed in Invoices as an
+  // orphan that could not be opened). Only unfinalized drafts: the check at the top already refused any ready / sent / paid
+  // invoice, and void invoices are only unlinked (they are the record). RLS allows deleting an unnumbered draft only.
+  for (const d of (invs || []).filter((i) => i.status === 'draft' && !i.invoice_number)) {
+    const { error: dErr } = await supabase.from('invoices').delete().eq('id', d.id);
+    if (dErr) return { ok: false, error: `Couldn't remove the draft invoice: ${dErr.message}` };
   }
   const { error: sErr } = await supabase.from('stops').delete().eq('load_id', loadId);
   if (sErr) return { ok: false, error: `Couldn't delete stops: ${sErr.message}` };

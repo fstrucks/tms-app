@@ -282,7 +282,7 @@ export default function DispatchLoadPage() {
             <StopsEditor stops={stops} setStops={setStops} stopErrors={stopErrors} browserTz={browserTz} onEdit={() => setMsg(null)} />
 
             {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)' }}>{msg.text}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--fab-space))', zIndex: 61, background: 'var(--surface)', padding: '0.5rem 0' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px) + var(--fab-space))', zIndex: 61, background: 'var(--surface)', padding: '0.5rem 0' }}>
               <button type="button" onClick={() => apply(load)} disabled={saving} style={{ ...s.small, minHeight: 44 }}>Discard changes</button>
               <button type="submit" disabled={saving} style={s.pri}>{saving ? 'Saving…' : 'Save changes'}</button>
             </div>

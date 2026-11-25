@@ -45,7 +45,7 @@ test('bottom space only reserved while the Fill & download bar is rendered (iPho
   assert.equal(bottomReservePx(true, 180), 196);
   assert.equal(bottomReservePx(false, 180), COLLAPSED_RESERVE);
   assert.ok(COLLAPSED_RESERVE < 40);
-  assert.equal(bottomPadding(16), 'calc(16px + var(--nav-h, 0px) + env(safe-area-inset-bottom))');
+  assert.equal(bottomPadding(16), 'calc(16px + var(--nav-h, 0px) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))');
   const mapper = readFileSync(new URL('../../app/packets/PacketMapper.js', import.meta.url), 'utf8');
   assert.match(mapper, /paddingBottom: barShown \? bottomPadding\(bottomReservePx\(true, barH\)\) : COLLAPSED_RESERVE/);
   assert.match(mapper, /\{barShown && <div ref=\{bar\}/);

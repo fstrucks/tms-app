@@ -36,12 +36,19 @@ const truckIcon = () => L.divIcon({
   iconSize: [18, 18], iconAnchor: [9, 9],
 });
 
-export default function RouteMap({ stops, geometry, truck = null, live = null, label = null, doneIds = [] }) {
+// Route options P1: `options` ([{ id, geometry, selected }]) draws every option in its own layer: the selected one
+// solid in the theme's primary color, the others thinner and muted (tap one to pick it via onPick). Colors come from
+// CSS variables through the ph-route-* classes in globals.css. Without options the stored route draws as before.
+export default function RouteMap({ stops, geometry, truck = null, live = null, label = null, doneIds = [], options = null, onPick = null }) {
   const el = useRef(null);
   const map = useRef(null);
   const overlay = useRef(null);
   const extra = useRef([]);      // truck dot + live leg, included in the fit (QA #118)
   const truckFitted = useRef(null);
+  const baseLine = useRef(null);
+  const optLayer = useRef(null);
+  const optExtra = useRef([]);   // option lines, included in the fit
+  const pickRef = useRef(onPick); pickRef.current = onPick;
   useEffect(() => {
     if (!el.current) return;
     const touch = L.Browser.mobile || L.Browser.touch;
@@ -60,10 +67,11 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
       bounds.push([s.lat, s.lng]);
     });
     const line = decodePolyline(geometry || '');
-    if (line.length > 1) { L.polyline(line, { color: '#2563eb', weight: 4, opacity: live ? 0.35 : 0.85 }).addTo(m); bounds.push(...line); }
+    baseLine.current = null;
+    if (line.length > 1) { baseLine.current = L.polyline(line, { color: '#2563eb', weight: 4, opacity: live ? 0.35 : 0.85 }).addTo(m); bounds.push(...line); }
     // QA #83 r3: fit the route line + all pins with padding only once the container has a real size, and again
     // when its width/height changes (phone rotation, desktop pane). Fitting at 0×0 zoomed in so far pins were off-screen.
-    const fit = () => fitView(m, el.current, [...bounds, ...extra.current]);
+    const fit = () => fitView(m, el.current, [...bounds, ...extra.current, ...optExtra.current]);
     m._phFit = fit; truckFitted.current = null;
     let raf = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(fit) : null;
     if (raf == null) fit();
@@ -94,6 +102,30 @@ export default function RouteMap({ stops, geometry, truck = null, live = null, l
     extra.current = boundsWithTruck([], hasTruck ? truck : null, leg);
     if (hasTruck && truckFitted.current !== m) { truckFitted.current = m; m._phFit?.(); }
   }, [truck?.lat, truck?.lng, live, JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Route options: redrawn in place; the base line hides while options show. Re-frames once per new set of lines.
+  const optKey = (options || []).map((o) => `${o.id}:${o.selected ? 1 : 0}:${(o.geometry || '').length}`).join('|');
+  const optFitted = useRef('');
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    if (!optLayer.current || optLayer.current._phMap !== m) { optLayer.current = L.layerGroup().addTo(m); optLayer.current._phMap = m; optFitted.current = ''; }
+    const g = optLayer.current;
+    g.clearLayers();
+    const list = (options || []).filter((o) => o.geometry);
+    baseLine.current?.setStyle({ opacity: list.length ? 0 : (live ? 0.35 : 0.85) });
+    const pts = [];
+    [...list.filter((o) => !o.selected), ...list.filter((o) => o.selected)].forEach((o) => {
+      const ln = decodePolyline(o.geometry); if (ln.length < 2) return;
+      pts.push(...ln);
+      const pl = L.polyline(ln, o.selected
+        ? { className: 'ph-route-sel', weight: 5, opacity: live ? 0.5 : 0.9 }
+        : { className: 'ph-route-alt', weight: 3, opacity: 0.6 }).addTo(g);
+      if (!o.selected) pl.on('click', () => pickRef.current?.(o.id));
+    });
+    optExtra.current = pts;
+    const shape = list.map((o) => `${o.id}:${(o.geometry || '').length}`).join('|');
+    if (list.length && optFitted.current !== shape) { optFitted.current = shape; m._phFit?.(); }
+  }, [optKey, live, JSON.stringify(stops), geometry]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (label && el.current) el.current.setAttribute('aria-label', label); }, [label]);
 
   return <div ref={el} data-testid="route-map" role="img" aria-label="Map of pickup and delivery with the truck route"

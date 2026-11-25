@@ -42,7 +42,7 @@ test('dispatch pages (ownerId given): no self option; the owner is labeled, not 
 
 test('wiring: load page + /loads/new use the owner list; dispatch edit + board add the owner; /dispatch/new too (20261020000100)', () => {
   assert.match(src('app/components/LoadDriverSettings.js'), /fetchDriverChoices\(supabase\)/);
-  assert.match(src('app/loads/new/page.js'), /fetchDriverChoices\(supabase\)/);
+  assert.match(src('app/loads/new/page.js'), /fetchDriverChoices\(supabase, t\?\.ownerId \|\| null\)/);
   assert.match(src('app/dispatch/[id]/page.js'), /withOwnerDriver\(drv\.choices, load\.owner_id\)/);
   assert.match(src('app/dispatch/page.js'), /withOwnerDriver\(drv\.choices, company\.owner_id\)/);
   assert.match(src('app/dispatch/new/page.js'), /withOwnerDriver\(drv\.choices, company\.owner_id\)/); // allowed since 20261020000100

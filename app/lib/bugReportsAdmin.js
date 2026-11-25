@@ -1,9 +1,10 @@
 // Owner-only Bug reports list (server). Who is an "owner": the caller owns a company_profiles row
-// (owner_id = caller), checked with the caller's OWN token (RLS). Same rule as roleFor() / packet_role and
-// Alex's tester invites. Testers invited by that owner are company_members of that company, so the owner sees
-// reports filed by: themselves + every member of their company. Nobody else's.
-// bug_reports RLS is own-rows only, so the read uses the service client, filtered by exactly those user_ids
-// (the /truck pattern). Screenshot links: short-lived signed URLs, created here only after the owner check.
+// (owner_id = caller), checked with the caller's OWN token (RLS). Same rule as roleFor() / packet_role.
+// The owner sees reports FILED UNDER their company (bug_reports.profile_id = their company, set by the server
+// on insert). Not "every report by anyone who is a member now": a two-company user's reports for the other
+// company and a later joiner's older reports stay hidden. Rows with no profile_id show to no owner.
+// bug_reports RLS is own-rows only, so the read uses the service client, filtered by profile_id.
+// Screenshot links: short-lived signed URLs, created here only after the owner check, only for listed rows.
 export const SIGNED_URL_TTL = 600; // seconds
 export const LIST_LIMIT = 200;
 export const isMissingTable = (e) => !!e && (e.code === '42P01' || e.code === 'PGRST205' || e.code === 'PGRST204' || /does not exist|Could not find the/i.test(e.message || ''));
@@ -19,12 +20,10 @@ export async function ownerProfile(uc, userId) {
 
 // → { reports } | { setupNeeded: true } | { error }
 export async function listBugReports(svc, profile, { ttl = SIGNED_URL_TTL } = {}) {
-  const m = await svc.from('company_members').select('user_id').eq('profile_id', profile.id);
-  if (m.error && !isMissingTable(m.error)) return { error: 'Could not load your team.' };
-  const ids = [...new Set([profile.owner_id, ...(m.data || []).map((x) => x.user_id).filter(Boolean)])];
-  const r = await svc.from('bug_reports').select('*').in('user_id', ids).order('created_at', { ascending: false }).limit(LIST_LIMIT);
+  if (!profile?.id) return { reports: [] };
+  const r = await svc.from('bug_reports').select('*').eq('profile_id', profile.id).order('created_at', { ascending: false }).limit(LIST_LIMIT);
   if (r.error) return isMissingTable(r.error) ? { setupNeeded: true } : { error: 'Could not load bug reports.' };
-  const rows = (r.data || []).filter((x) => ids.includes(x.user_id))
+  const rows = (r.data || []).filter((x) => x.profile_id === profile.id)
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const bucket = svc.storage?.from('documents');
   const reports = await Promise.all(rows.map(async (x) => {

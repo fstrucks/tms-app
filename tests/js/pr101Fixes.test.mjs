@@ -25,5 +25,5 @@ test('Home: miles-source note ("typed") is owner-only, so it never runs into the
 });
 
 test('/dispatch/new: sticky Create bar clears the floating Report a bug button', () => {
-  assert.match(read('app/dispatch/new/page.js'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ 60px\)'/);
+  assert.match(read('app/dispatch/new/page.js'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--share-bar-h, 0px\) \+ 60px\)'/);
 });

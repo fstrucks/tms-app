@@ -122,10 +122,10 @@ test('migration: shared directory, trigger link, no client access to reviews/rep
 
 test('UI wiring: prompt after picked up / delivered, dismissible; facility info on the stop card; facility page with Report', () => {
   const a = read('../../app/components/StopActions.js');
-  assert.match(a, /if \(action === 'done' && !r\.already && \['pickup', 'delivery'\]\.includes\(stop\.stop_type\)\) setReviewStop/);
+  assert.match(a, /if \(action === 'done' && !r\.already && r\.ratingPrompt && \['pickup', 'delivery'\]\.includes\(stop\.stop_type\)\) \{ setReviewStop/); // server decides who is asked
   assert.match(a, /<FacilityInfo info=\{facilities\[target\.id\]\} \/>/);
   const f = read('../../app/components/FacilityReview.js');
-  assert.match(f, /facility-review-dismiss/); assert.match(f, /What could be better \(optional\)/); assert.match(f, /Need to know \(optional\)/); assert.match(f, /without your name or company/);
+  assert.match(f, /facility-review-dismiss/); assert.match(f, /Tell us about your experience \(optional\)/); assert.match(f, /Need to know \(optional\)/); assert.match(f, /without your name or company/);
   const p = read('../../app/facilities/[id]/page.js');
   assert.match(p, /facility-report/); assert.ok(!/author|company_id/.test(p));
 });
@@ -201,4 +201,20 @@ test('stop list rating is the caller’s own stars, not another driver’s', asy
   assert.equal(r.j.facilities[S2].my_stars, null);
   const text = JSON.stringify(r.j);
   assert.ok(!text.includes(OTHER)); assert.ok(!text.includes('author_id'));
+});
+
+test('review card: experience label and neutral placeholder; old label gone; stored field unchanged', () => {
+  const f = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.match(f, /Tell us about your experience \(optional\)\n\s*<textarea[^>]*placeholder="How was check-in, loading, wait time, staff\.\.\."[^>]*value=\{form\.better_note\}/);
+  assert.equal(/What could be better/.test(f), false);
+  assert.match(f, /Need to know \(optional\)/);
+  assert.match(f, /better_note: e\.target\.value/);
+});
+
+test('summary heading is Experience (same better_note field); reopened card title has no question mark, new one keeps it', () => {
+  const sum = readFileSync(new URL('../../app/components/ReviewSummary.js', import.meta.url), 'utf8');
+  assert.match(sum, /<strong>Experience:<\/strong> \{review\.better_note\}/);
+  assert.equal(/Could be better/.test(sum), false);
+  const f = readFileSync(new URL('../../app/components/FacilityReview.js', import.meta.url), 'utf8');
+  assert.match(f, /\{st\.existing \? 'Your review of' : 'How was'\} \{place\}\{st\.existing \? '' : '\?'\}<\/strong>/);
 });

@@ -4,6 +4,7 @@
 // users can't touch the tables directly. The database checks the role on every call; the checks here only shape
 // the UI. Pure helpers + thin RPC wrappers, unit-tested in tests/js/dispatch.test.mjs.
 import { isMissingFunction } from './homeCurrentLoad';
+import { notifyLoadDeliveredClient } from './locationShareClient';
 import { statusAfterDriverChange, statusForNewAssignedLoad } from './autoDispatch';
 // Same list as lib/loads STATUSES (that module re-exports a JSX component, so it can't load in node tests).
 export const STATUSES = ['booked', 'dispatched', 'in_transit', 'delivered', 'invoiced', 'paid', 'cancelled'];
@@ -216,6 +217,7 @@ export function formToStops(list, { browserTz = null } = {}) {
 
 export async function saveLoad(supabase, loadId, patch) {
   const { data, error } = await supabase.rpc('dispatch_update_load', { p_load: loadId, p_patch: patch });
+  if (!error && (patch?.status === 'delivered' || data?.status === 'delivered')) await notifyLoadDeliveredClient(supabase, loadId); // ends a tied location share now
   return error ? { ok: false, error: errorText(error), cause: error } : { ok: true, load: data };
 }
 export async function saveStops(supabase, loadId, payload) {

@@ -168,7 +168,7 @@ export default function DispatchNewLoadPage() {
             <StopsEditor stops={stops} setStops={setStops} stopErrors={stopErrors} browserTz={browserTz} onEdit={() => setMsg(null)} testId="dispatch-new-stops" />
 
             {msg && <p role={msg.err ? 'alert' : 'status'} style={{ color: msg.err ? 'var(--danger)' : 'var(--success)' }}>{msg.text}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + 60px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px) + 60px)', background: 'var(--surface)', padding: '0.5rem 0' }}>
               <Link href="/dispatch" style={{ ...s.small, minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'var(--text)' }}>Cancel</Link>
               <button type="submit" disabled={saving} style={s.pri} data-testid="dispatch-new-save">{saving ? 'Saving…' : 'Create load'}</button>
             </div>

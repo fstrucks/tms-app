@@ -149,7 +149,7 @@ const s = {
   input: { display: 'block', width: '100%', boxSizing: 'border-box', fontSize: '1rem', padding: '0.55rem', borderRadius: 8, border: '1px solid var(--border)', marginTop: '0.2rem', background: 'var(--surface)' },
   btn: { width: '100%', padding: '0.85rem', fontSize: '1rem', borderRadius: 8, border: 'none', background: 'var(--primary)', color: 'var(--on-primary)' },
   auto: { background: 'var(--warning-bg)', borderColor: 'var(--warning)', boxShadow: '0 0 0 1px var(--warning)' },
-  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
+  sticky: { position: 'sticky', bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 10, background: 'var(--surface)', padding: '0.6rem 0 0.4rem', marginTop: '0.25rem' },
   small: { minHeight: 44, padding: '0.4rem 0.85rem', fontSize: '0.85rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' },
   muted: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   error: { color: 'var(--danger)' },

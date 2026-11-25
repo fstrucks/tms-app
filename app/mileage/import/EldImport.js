@@ -157,7 +157,7 @@ export default function EldImport({ supabase, userId, onImported }) {
             </div>
           ))}
           {rows.length > preview.length && <button type="button" onClick={() => setShowAll(true)} style={{ ...st.btn2, marginTop: '0.5rem' }}>Show all {rows.length} rows</button>}
-          <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', background: 'var(--surface)', padding: '0.6rem 0 0.2rem' }}>
+          <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', background: 'var(--surface)', padding: '0.6rem 0 0.2rem' }}>
             <button type="button" disabled={busy || !good.length || !supabase || !userId} onClick={doImport}
               style={{ ...st.btn, opacity: busy || !good.length || !supabase || !userId ? 0.6 : 1 }}>
               {busy ? 'Importing…' : `Import ${good.length} row${good.length === 1 ? '' : 's'}`}</button>

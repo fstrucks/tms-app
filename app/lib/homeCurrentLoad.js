@@ -14,6 +14,7 @@ import { completedNextIndex } from './stopProgress.js';
 import { groupLoads, sortedStops, pickupStop, deliveryStop } from './loadTabs';
 import { fmtMoney } from './money';
 
+import { notifyLoadDeliveredClient } from './locationShareClient';
 export const CARD_STATUSES = ['in_transit', 'dispatched', 'booked'];
 export const STALE_BOOKED_MS = 24 * 3600 * 1000; // booked load whose pickup is > 24 h in the past: skipped
 export const AMBER_MS = 2 * 3600 * 1000; // countdown turns amber under 2 h
@@ -95,6 +96,7 @@ export async function markDelivered(supabase, id) {
   const { data, error } = await supabase.from('loads').update({ status: 'delivered' }).eq('id', id).eq('status', 'in_transit').select('status').maybeSingle();
   if (error) return { ok: false, error };
   if (!data) return { ok: false, error: { message: 'not_updated' } };
+  await notifyLoadDeliveredClient(supabase, id); // ends a tied location share now
   return { ok: true };
 }
 
