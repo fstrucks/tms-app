@@ -412,7 +412,7 @@ export default function PacketMapper({ packet, fields: initial, canEdit, pageCou
 
       {/* Hidden while the Send-to-broker write/review step is open (it covered Edit / Send now on iPhone), unless
           there are unsaved field edits that still need the Save button. */}
-      {barShown && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom))', zIndex: 45, background: 'var(--surface)', borderTop: '1px solid var(--divider)', padding: '0.6rem 0.75rem' }}>
+      {barShown && <div ref={bar} data-testid="packet-action-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h, 0px) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 45, background: 'var(--surface)', borderTop: '1px solid var(--divider)', padding: '0.6rem 0.75rem' }}>
         <div style={{ maxWidth: 536, margin: '0 auto' }}>
           {msg ? <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14 }}>{msg}</p>
             : blockers.length > 0 && <p role="status" style={{ margin: '0 0 0.4rem', fontSize: 14, color: 'var(--danger)' }}>{blockers.length === 1 ? '1 bank number needs' : `${blockers.length} bank numbers need`} your confirmation before saving.</p>}

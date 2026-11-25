@@ -11,10 +11,11 @@ import StarRating from './StarRating';
 import { ratingText } from '../lib/facilityPage';
 import { RATING_COVER_ATTR } from '../lib/bugReport';
 
-// Height of the bottom strip where the Report a bug button floats: tab bar (phone) + safe area + button + gap.
+// Height of the bottom strip where the Report a bug button floats: tab bar (phone) + Sharing location bar (phone, when on)
+// + button + gap.
 const fabStrip = () => {
   const cs = getComputedStyle(document.documentElement);
-  return (parseFloat(cs.getPropertyValue('--nav-h')) || 0) + (parseFloat(cs.getPropertyValue('--fab-space')) || 64) + 16;
+  return (parseFloat(cs.getPropertyValue('--nav-h')) || 0) + (parseFloat(cs.getPropertyValue('--share-bar-h')) || 0) + (parseFloat(cs.getPropertyValue('--fab-space')) || 64) + 16;
 };
 // Rating cards currently overlapping that strip; the button hides while any does (all widths, any zoom).
 const lowCards = new Set();
@@ -140,9 +141,9 @@ function PromptFrame({ sheet, place, onEscape, children }) {
   );
   return (
     <>
-      <div aria-hidden="true" data-testid="facility-review-backdrop" style={{ position: 'fixed', inset: 0, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 70, background: 'var(--overlay)' }} />
+      <div aria-hidden="true" data-testid="facility-review-backdrop" style={{ position: 'fixed', inset: 0, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 70, background: 'var(--overlay)' }} />
       <div ref={ref} role="dialog" aria-modal="true" aria-label={`Review ${place}`} tabIndex={-1} data-testid="facility-review-prompt" data-sheet="true"
-        style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom))', zIndex: 71, outline: 'none',
+        style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--share-bar-h, 0px))', zIndex: 71, outline: 'none',
           maxHeight: '75dvh', overflowY: 'auto', overscrollBehavior: 'contain', boxSizing: 'border-box',
           background: 'var(--surface)', borderTop: '1px solid var(--divider)', borderRadius: '14px 14px 0 0', padding: '12px 14px 14px', boxShadow: '0 -8px 32px var(--shadow)' }}>
         {children}

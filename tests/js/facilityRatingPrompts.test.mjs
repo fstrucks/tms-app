@@ -261,7 +261,7 @@ test('prompt UI: 44px tap targets, phone bottom sheet above the tab bar, focus t
   assert.match(fr, /useState\(\(\) => typeof window !== 'undefined' && !!window\.matchMedia\?\.\(PHONE\)\.matches\)/, 'no inline→sheet jump');
   assert.match(fr, /const sheet = mode === 'auto' && narrow;/);
   assert.match(fr, /role="dialog" aria-modal="true"/);
-  assert.equal((fr.match(/bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\)\)'/g) || []).length, 2, 'sheet + backdrop stop at the tab bar');
+  assert.equal((fr.match(/bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--share-bar-h, 0px\)\)'/g) || []).length, 2, 'sheet + backdrop stop at the tab bar');
   assert.match(fr, /e\.key === 'Escape'/); assert.match(fr, /e\.key !== 'Tab'/); assert.match(fr, /focusReturnTarget\(prev, fallback\)/);
   assert.match(fr, /zIndex: 71/, 'sheet above the Report a bug button (z 60)');
   assert.match(fr, /data-above-fab aria-label=\{`Review \$\{place\}`\}\s+style=\{\{ marginTop: 10, marginBottom: 'var\(--fab-space\)'/);

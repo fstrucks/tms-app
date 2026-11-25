@@ -290,7 +290,7 @@ test('wiring: Documents dismiss + not-rate-con label + FAB padding; banner exclu
   const docs = readFileSync('app/documents/page.js', 'utf8');
   assert.match(docs, /email-skipped-dismiss/); assert.match(docs, /not-ratecon-label/); assert.match(docs, /var\(--fab-space\)/);
   assert.match(readFileSync('app/components/EmailDraftsBanner.js', 'utf8'), /extraction_error\.neq\.not_ratecon/);
-  assert.match(readFileSync('app/dispatch/[id]/page.js', 'utf8'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--fab-space\)\)'/);
+  assert.match(readFileSync('app/dispatch/[id]/page.js', 'utf8'), /bottom: 'calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--share-bar-h, 0px\) \+ var\(--fab-space\)\)'/);
   assert.match(readFileSync('app/components/RateconEmailCard.js', 'utf8'), /copyText\(addr/);
 });
 

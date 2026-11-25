@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { getSupabase } from '../lib/supabase';
 import { authedFetch } from '../lib/authedFetch';
 import { nextPingWaitMs, REMIND_TEXT, untilLabel, HEARTBEAT_MS } from '../lib/locationShare';
+import { shareBarOffsetPx, applyShareBarOffset } from '../lib/shareBarOffset';
 
 const pollMs = 30_000;
 
@@ -24,6 +25,7 @@ export default function LocationShareBar() {
   const [busy, setBusy] = useState(false);
   const [denied, setDenied] = useState(false);
   const shareRef = useRef(null);
+  const barRef = useRef(null);
   shareRef.current = share;
 
   const refresh = useCallback(async () => {
@@ -55,6 +57,20 @@ export default function LocationShareBar() {
     document.body.classList.toggle('has-location-share', !!share);
     return () => document.body.classList.remove('has-location-share');
   }, [share]);
+
+  // Phones: the bar is fixed above the tab bar, so publish its real height (it wraps to 2–3 lines at 375px) for the
+  // Report a bug button and bottom-anchored controls. Cleared when the bar goes away, so they return to their usual spot.
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = barRef.current;
+    if (!share || !el) { applyShareBarOffset(root.style, 0); return undefined; }
+    const measure = () => applyShareBarOffset(root.style, shareBarOffsetPx(getComputedStyle(el).position, el.getBoundingClientRect().height));
+    measure();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); applyShareBarOffset(root.style, 0); };
+  }, [share, remind, denied]);
 
   useEffect(() => {
     if (remind && share?.id) call('/api/location-share/reminded', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_id: share.id }) });
@@ -112,7 +128,7 @@ export default function LocationShareBar() {
   if (!share) return null;
 
   return (
-    <div className="location-share-bar" role="status" data-testid="location-share-bar"
+    <div ref={barRef} className="location-share-bar" role="status" data-testid="location-share-bar"
       style={{ background: 'var(--warning-bg)', borderBottom: '1px solid var(--warning-border)', color: 'var(--text)', fontFamily: 'system-ui' }}>
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0.45rem var(--gutter)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 48 }}>
         <p style={{ margin: 0, flex: '1 1 200px', fontSize: '0.92rem' }}>
