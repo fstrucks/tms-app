@@ -351,7 +351,7 @@ test('migration not applied yet: issue and ping answer the setup message; stop a
 });
 
 test('migration: additive only, new table with RLS and no grants to signed-in users; copy saved for review', () => {
-  const sql = read('supabase/migrations/20261125000100_location_share_device_keys.sql');
+  const sql = read('supabase/migrations/20261125000200_location_share_device_keys.sql');
   assert.match(sql, /ADDITIVE ONLY/);
   assert.match(sql, /NOT APPLIED/);
   assert.match(sql, /create table if not exists public\.location_share_device_keys/);
