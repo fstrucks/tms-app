@@ -150,8 +150,12 @@ const card = readFileSync(new URL('../../app/components/HomeCurrentLoad.js', imp
 const mig = readFileSync(new URL('../../supabase/migrations/20261018000600_load_driver_rate_members.sql', import.meta.url), 'utf8');
 
 test('card source: links only where the viewer can open the load; rate only through canShowRate; no card for members before the migration', () => {
-  assert.match(card, /\{base && \(\s*<div[^>]*>\s*<Link href=\{`\$\{base\}\/\$\{load\.id\}`\}/);
-  assert.match(card, /\{owner && base === '\/loads' && docPath && <button/);
+  assert.match(card, /\{\(base \|\| rateCon\) && \(/);
+  assert.match(card, /base && <Link href=\{`\$\{base\}\/\$\{load\.id\}`\}/);
+  assert.match(card, /rateCon && <button type="button" data-testid="home-rate-con"/);
+  assert.match(card, /flexWrap: 'nowrap'/);
+  assert.match(card, />Rate con<\/button>/);
+  assert.doesNotMatch(card, /owner && base === '\/loads' && docPath/);
   assert.match(card, /canShowRate\(load, audience\) &&/);
   assert.match(card, /who === 'member' && !res\.viaRpc \? 'hidden'/);
   assert.match(card, /if \(audience === 'hidden'\) return null;/);
@@ -190,4 +194,13 @@ test('Up next keeps an undated booked load when another booked load is dated (QA
   const p = pickCurrentLoad(loads, NOW);
   assert.equal(p.load.id, 'dated');
   assert.deepEqual(upNext(loads, p.load, NOW).map((l) => l.id), ['qa101d']);
+});
+
+test('card source: rate con comes from the load-page documents API; newest wins; signed URL first', () => {
+  assert.match(card, /fetchLoadDocs\(supabase, curId\)/);
+  assert.match(card, /setRateCon\(latestRateCon\(data\) \|\| null\)/);
+  assert.match(card, /const curId = pick\?\.load\?\.id \|\| null;/);
+  assert.doesNotMatch(card, /audience === 'owner' \? \(pick\?\.load\?\.id/);
+  assert.match(card, /openLoadDoc\(supabase, rateCon\)/);
+  assert.doesNotMatch(card, /createSignedUrl\(docPath/);
 });

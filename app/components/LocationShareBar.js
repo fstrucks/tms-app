@@ -34,11 +34,21 @@ export default function LocationShareBar() {
   shareRef.current = share;
 
   const refresh = useCallback(async () => {
+    const had = shareRef.current;
     const r = await call('/api/location-share');
-    if (r.body?.setupNeeded || r.status === 401 || r.status === 409) { setShare(null); setRemind(false); return; }
+    if (r.body?.setupNeeded || r.status === 401 || r.status === 409) {
+      shareRef.current = null;
+      setShare(null); setRemind(false);
+      if (had) window.dispatchEvent(new Event('ph-location-share'));
+      return;
+    }
     const s = r.body?.share && r.body.share.live ? r.body.share : null;
+    shareRef.current = s;
     setShare(s);
     setRemind(!!(s && r.body?.remind));
+    // Office stop or expiry: the bar already clears, but /location keeps stale "already sharing" state
+    // unless it hears this event (or polls). shareRef is updated first so a re-entrant refresh is a no-op.
+    if (had && !s) window.dispatchEvent(new Event('ph-location-share'));
   }, []);
 
   useEffect(() => {

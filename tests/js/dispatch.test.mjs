@@ -268,5 +268,6 @@ test('home card: no member ever gets a /loads/<id> link (per-load viewer_role de
   for (const h of hrefs) assert.ok(!/\/loads\//.test(h) || h === 'href="/loads/new"', `unexpected link ${h}`);
   assert.match(card, /const rowBase = linkBaseFor\(audience, l\);/, 'Up next rows decide per load');
   assert.match(card, /\{owner && \(\s*<div[^]*?href="\/loads\/new"/, '+ New load is owner-only');
-  assert.match(card, /owner && base === '\/loads' && docPath/, 'owner Rate con only on the owner’s own load');
+  assert.match(card, /rateCon && <button type="button" data-testid="home-rate-con"/, 'Rate con uses the load-page visibility rules, not an owner-only gate');
+  assert.doesNotMatch(card, /owner && base === '\/loads' && docPath/);
 });
