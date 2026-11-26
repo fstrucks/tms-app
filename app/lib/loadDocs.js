@@ -21,6 +21,18 @@ export function visibleDocsFor(role, load, userId, docs) {
   return (docs || []).filter((d) => !(driverOnly && d.doc_type === 'rate_confirmation' && !load.show_rate_to_driver));
 }
 
+// The load page lists documents newest-first. If several rate cons are linked, use the most recent.
+export function latestRateCon(docs) {
+  const list = (docs || []).filter((d) => d?.doc_type === 'rate_confirmation');
+  if (!list.length) return null;
+  return list.slice().sort((a, b) => {
+    const tb = Date.parse(b.created_at) || 0;
+    const ta = Date.parse(a.created_at) || 0;
+    if (tb !== ta) return tb - ta;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  })[0];
+}
+
 // Who may link a document to (or unlink it from) a load:
 //   owner / management / dispatcher: any document of the company, to any company load;
 //   driver: only documents they uploaded, and only to a load assigned to them.

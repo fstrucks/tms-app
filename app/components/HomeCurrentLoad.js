@@ -16,6 +16,8 @@ import { Loading, LoadError } from './DataState';
 import CurrentLoadPanels from './CurrentLoadPanels';
 import StopActions from './StopActions';
 import { StopRating, useLoadFacilities } from './FacilityReview';
+import { latestRateCon } from '../lib/loadDocs';
+import { fetchLoadDocs, openLoadDoc } from '../lib/loadDocsClient';
 import {
   fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
   nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
@@ -118,7 +120,7 @@ function DeliveredPrompt({ load, audience, onMarkDelivered, busy, err }) {
   );
 }
 
-function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivered, markBusy, markErr, supabase, userId, onLoadChange, onRefresh }) {
+function FrontCard({ pick, rateCon, onOpenRateCon, now, audience, onMarkDelivered, markBusy, markErr, supabase, userId, onLoadChange, onRefresh }) {
   const owner = audience === 'owner';
   const base = linkBaseFor(audience, pick.load);
   const { load, kind } = pick;
@@ -145,11 +147,13 @@ function FrontCard({ pick, docPath, onOpenRateCon, now, audience, onMarkDelivere
         {miles && <span style={s.chip}>{miles}{src && <span style={{ color: 'var(--text-muted)' }}> · {src}</span>}</span>}
         {canShowRate(load, audience) && <span data-testid="home-rate" style={{ ...s.chip, fontWeight: 600, color: 'var(--success)' }}>{rateText(load)}</span>}
       </div>
-      {/* Owner: /loads + Rate con. Management / dispatchers: the dispatch center (Rate con lives there). Drivers: none. */}
-      {base && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-          <Link href={`${base}/${load.id}`} style={{ ...s.btn, ...s.btnPri }}>Open load</Link>
-          {owner && base === '/loads' && docPath && <button type="button" onClick={onOpenRateCon} style={s.btn}>📄 Rate con</button>}
+      {/* Open load where the viewer can open the load. Rate con: same visibility as the load page Documents
+          section (hidden when there isn't one, or when a driver isn't allowed to see it). Side by side,
+          no wrap, at phone widths; Open load stays primary; Rate con alone is full width for a driver. */}
+      {(base || rateCon) && (
+        <div data-testid="home-load-actions" style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', marginTop: 4, minWidth: 0 }}>
+          {base && <Link href={`${base}/${load.id}`} style={{ ...s.btn, ...s.btnPri, flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap' }}>Open load</Link>}
+          {rateCon && <button type="button" data-testid="home-rate-con" onClick={onOpenRateCon} style={{ ...s.btn, flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap' }}>Rate con</button>}
         </div>
       )}
       {more && (base ? <p style={{ margin: '0.6rem 0 0', fontSize: '0.9rem' }}><Link href={`${base}?tab=active`} style={s.link}>{more} →</Link></p>
@@ -181,7 +185,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
   const [audience, setAudience] = useState(null); // 'owner' | 'member' | 'hidden' (member before the migration) | null = not known yet
   const [loads, setLoads] = useState(null);
   const [error, setError] = useState(null);
-  const [docPath, setDocPath] = useState(null);
+  const [rateCon, setRateCon] = useState(null);
   const [openErr, setOpenErr] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const [waiting, setWaiting] = useState(0); // emailed rate cons waiting for review (owner only)
@@ -223,24 +227,23 @@ export default function HomeCurrentLoad({ supabase, user }) {
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
 
   const pick = loads ? pickCurrentLoad(loads, now) : null;
-  const curId = audience === 'owner' ? (pick?.load?.id || null) : null; // rate con files: owner's Storage only
+  const curId = pick?.load?.id || null;
 
-  // Newest rate con linked to the card's load; the button is hidden when there is none.
+  // Newest rate con the viewer may see on the load page (/api/loads/:id/documents, same rules as Documents).
+  // The button is hidden when there isn't one, or when a driver isn't allowed to see the rate con.
   useEffect(() => {
-    setDocPath(null);
+    setRateCon(null);
     if (!curId) return;
     let live = true;
-    supabase.from('documents').select('file_path, created_at').eq('load_id', curId).eq('doc_type', 'rate_confirmation')
-      .order('created_at', { ascending: false }).limit(1)
-      .then(({ data, error }) => { if (!live) return; if (error) console.error('[home] rate con', error); setDocPath(data?.[0]?.file_path || null); });
+    fetchLoadDocs(supabase, curId)
+      .then(({ data, error }) => { if (!live) return; if (error) console.error('[home] rate con', error); setRateCon(latestRateCon(data) || null); });
     return () => { live = false; };
   }, [curId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openRateCon() {
     setOpenErr(null);
-    const { data, error } = await supabase.storage.from('documents').createSignedUrl(docPath, 300);
-    if (error || !data?.signedUrl) { console.error('[home] open rate con', error); return setOpenErr("Couldn't open the rate con. Please try again."); }
-    window.open(data.signedUrl, '_blank', 'noopener');
+    const r = await openLoadDoc(supabase, rateCon);
+    if (!r.ok) { console.error('[home] open rate con', r.error); return setOpenErr("Couldn't open the rate con. Please try again."); }
   }
 
   if (audience === 'hidden') return null;
@@ -273,7 +276,7 @@ export default function HomeCurrentLoad({ supabase, user }) {
   return (<>{waitingLine}
     <div className="home-grid" style={{ marginTop: '1rem' }}>
       <div style={{ minWidth: 0 }}>
-        <LoadCard pick={pick} docPath={docPath} onOpenRateCon={openRateCon} now={now} audience={audience}
+        <LoadCard pick={pick} rateCon={rateCon} onOpenRateCon={openRateCon} now={now} audience={audience}
           onMarkDelivered={onMarkDelivered} markBusy={markBusy} markErr={markErr} supabase={supabase} userId={user.id} onLoadChange={onLoadChange} onRefresh={load} />
         {openErr && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{openErr}</p>}
       </div>

@@ -24,3 +24,16 @@ export async function fetchTeamDocs(supabase, { fetchImpl = (...a) => fetch(...a
 // Documents panel (load page + LoadDocsCard): 'loading' until the first fetch for this load resolves (docs === null)
 // or while a re-fetch runs with nothing to show; 'empty' only after a completed fetch returned no rows.
 export const docsPanelState = (docs, busy) => (docs == null || (busy && docs.length === 0) ? 'loading' : docs.length === 0 ? 'empty' : 'list');
+
+// Same open path as the load page Documents section: use the signed URL from /api/loads/:id/documents
+// when present (works for team uploads the viewer doesn't own); otherwise sign the viewer's own file.
+export async function openLoadDoc(supabase, doc, { open } = {}) {
+  const go = open || ((url) => window.open(url, '_blank', 'noopener'));
+  if (doc?.url) { go(doc.url); return { ok: true }; }
+  if (doc?.file_path && supabase?.storage) {
+    const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.file_path, 300);
+    if (data?.signedUrl) { go(data.signedUrl); return { ok: true }; }
+    return { ok: false, error };
+  }
+  return { ok: false };
+}

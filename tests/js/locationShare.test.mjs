@@ -764,3 +764,18 @@ test('approved wording (Nov 19): consent says history, retention constants stay 
   // longer true in the app. Replaced with a DRAFT pending Marc's approval (powerhaul-docs/2026-11-25_native-app-wording_DRAFT.md).
   assert.match(read('ios/App/App/Info.plist'), /show miles left and ETA on the load map\. If you turn on location sharing, your location is sent to your company's owner, dispatchers and management until you stop sharing, including while the app is in the background\./);
 });
+
+test('/location refetches on ph-location-share, visibility, and a poll so Stop clears “already sharing” without a reload', () => {
+  const page = read('app/location/page.js');
+  const bar = read('app/components/LocationShareBar.js');
+  assert.match(page, /addEventListener\('ph-location-share', go\)/);
+  assert.match(page, /addEventListener\('visibilitychange', vis\)/);
+  assert.match(page, /setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) go\(\); \}, 30_000\)/);
+  assert.match(page, /removeEventListener\('ph-location-share', go\)/);
+  // The bar already dispatched this event from its own Stop. It also dispatches when a refresh
+  // finds the share has ended (office stop or expiry), after updating shareRef so it cannot loop.
+  assert.match(bar, /if \(had\) window\.dispatchEvent\(new Event\('ph-location-share'\)\)/);
+  assert.match(bar, /if \(had && !s\) window\.dispatchEvent\(new Event\('ph-location-share'\)\)/);
+  assert.match(bar, /shareRef\.current = s;/);
+  assert.match(bar, /shareRef\.current = null;/);
+});

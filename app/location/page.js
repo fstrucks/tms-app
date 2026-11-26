@@ -59,7 +59,25 @@ export default function LocationSharePage() {
       notice: shouldShowStopNotice(body.stopped_notice, seenId, st.notice?.id) ? body.stopped_notice : null }));
   }
 
-  useEffect(() => { if (user && supabase) load(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Refetch when this page starts, when Stop fires (the bar or this page dispatch ph-location-share),
+  // when the tab becomes visible again, and on a short poll so an office stop or expiry swaps the
+  // "You're already sharing" card for the Start form without a reload.
+  useEffect(() => {
+    if (!user || !supabase) return undefined;
+    let live = true;
+    const go = () => { if (live) load(); };
+    go();
+    const vis = () => { if (document.visibilityState === 'visible') go(); };
+    window.addEventListener('ph-location-share', go);
+    document.addEventListener('visibilitychange', vis);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') go(); }, 30_000);
+    return () => {
+      live = false;
+      window.removeEventListener('ph-location-share', go);
+      document.removeEventListener('visibilitychange', vis);
+      clearInterval(t);
+    };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The notice counts as shown only once it is on screen on this page.
   const noticeId = state.notice?.id || null;
