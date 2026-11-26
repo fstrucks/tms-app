@@ -169,6 +169,33 @@ test('migration: additive, own-row RLS untouched, every function role-checked an
   assert.match(mig, /where k = any \(allowed\) or k = 'id'/, 'stops: only allowed keys are written');
 });
 
+const hasMig = read('supabase/migrations/20261126000100_dispatch_loads_has_rate_con.sql');
+const hasFn = (sql) => {
+  const m = sql.match(/create or replace function public\.dispatch_loads\([\s\S]*?\$\$;/);
+  return m ? m[0] : '';
+};
+
+test('has_rate_con follow-up: additive REPLACE of dispatch_loads, same signature and grants, only the flag changes', () => {
+  assert.match(hasMig, /ADDITIVE ONLY/);
+  assert.match(hasMig, /NOT APPLIED|Not applied/);
+  assert.doesNotMatch(hasMig, /drop policy|drop table|drop column|alter table|delete from|truncate/i);
+  assert.match(hasMig, /create or replace function public\.dispatch_loads\(p_load uuid default null\)/);
+  assert.match(hasMig, /returns setof jsonb/);
+  assert.match(hasMig, /language sql stable security definer set search_path = public/);
+  assert.match(hasMig, /revoke execute on function public\.dispatch_loads\(uuid\) from public, anon;/);
+  assert.match(hasMig, /grant execute on function public\.dispatch_loads\(uuid\) to authenticated;/);
+  assert.match(hasMig, /load_viewer_role\(l\.user_id\) in \('management', 'dispatcher'\)/);
+  assert.match(hasMig, /starts_with\(d\.file_path, d\.user_id::text \|\| '\/'\)/);
+  assert.match(hasMig, /company_members/);
+  assert.match(hasMig, /p\.owner_id = l\.user_id/);
+  assert.doesNotMatch(hasMig, /d\.user_id = l\.user_id and d\.doc_type/);
+  // Everything around has_rate_con is unchanged from 0700.
+  const strip = (fn) => fn.replace(/'has_rate_con',[\s\S]*?,\n              'stops'/, "'has_rate_con', <flag>,\n              'stops'");
+  const orig = strip(hasFn(mig)), next = strip(hasFn(hasMig));
+  assert.ok(orig && next, 'both migrations define dispatch_loads');
+  assert.equal(next, orig);
+});
+
 // ---------- #94 QA: Driver card fixes ----------
 import { driverRateHelp, driverOptions, RATE_ON_TEXT, RATE_OFF_TEXT, FORMER_DRIVER_LABEL } from '../../app/lib/loadDriver.js';
 
