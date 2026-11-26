@@ -1,5 +1,11 @@
 // Client-safe helpers for rate cons that came in by email (no Node imports).
-export const RATECON_DOMAIN = 'in.fstrucks.com';
+// Inbound mail is accepted on both domains, so ratecon+<token>@ addresses keep working on either one.
+// in.pwrstrong.net needs its MX record and Postmark inbound domain first, so the app keeps showing
+// in.fstrucks.com until NEXT_PUBLIC_INBOUND_DOMAIN=in.pwrstrong.net is set.
+export const INBOUND_DOMAINS = ['in.fstrucks.com', 'in.pwrstrong.net'];
+export const shownInboundDomain = (v) => { const d = String(v || '').trim().toLowerCase(); return INBOUND_DOMAINS.includes(d) ? d : INBOUND_DOMAINS[0]; };
+export const RATECON_DOMAIN = shownInboundDomain(process.env.NEXT_PUBLIC_INBOUND_DOMAIN);
+export const INBOUND_ADDRESS = `packets@${RATECON_DOMAIN}`;
 export const RATECON_LOCAL = 'ratecon';
 export const rateconAddress = (token) => (token ? `${RATECON_LOCAL}+${token}@${RATECON_DOMAIN}` : null);
 
