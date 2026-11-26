@@ -153,3 +153,9 @@ test('export emails are outside the monthly cap; bucket constant matches the mig
   const sql = readFileSync(MIG + '20261028000400_company_exports.sql', 'utf8');
   assert.ok(sql.includes(`'${X.EXPORT_BUCKET}'`) && sql.includes(String(X.BUCKET_FILE_SIZE_LIMIT)));
 });
+
+test('company_profiles omits ein_ciphertext and keeps ein_last4', () => {
+  const spec = X.EXPORT_TABLES.find((t) => t.table === 'company_profiles');
+  assert.deepEqual(X.pickColumns(spec, { id: 'c1', ein_last4: '4321', ein_ciphertext: 'FAKE' }), { id: 'c1', ein_last4: '4321' });
+  assert.deepEqual(X.OWNER_TIED_FILES, ['company.csv', 'packets.csv', 'packet_layouts.csv']);
+});
