@@ -76,10 +76,28 @@ Delete any `icons/` folder or `public/manifest.webmanifest` it creates: the webs
 
 ## Permissions
 
-Only camera, photo library and foreground location (while the app is open). No background location
-or background modes. Strings are in `ios/App/App/Info.plist`; Android permissions are in
+Camera, photo library and location. Strings are in `ios/App/App/Info.plist`; Android permissions are in
 `android/app/src/main/AndroidManifest.xml`. Android uses the system photo picker, so no
-`READ_MEDIA_*` permission is requested.
+`READ_MEDIA_*` permission is requested. The permission texts are drafts until approved
+(`powerhaul-docs/2026-11-25_native-app-wording_DRAFT.md`).
+
+## Background location sharing
+
+While a driver has location sharing on, the app keeps sending location with the screen locked or another
+app open (`@capacitor-community/background-geolocation`, wired in `app/lib/nativeBackgroundLocation.js`).
+
+- **iOS:** `UIBackgroundModes` = `location`, plus `NSLocationAlwaysAndWhenInUseUsageDescription`. The plugin asks
+  for "Always"; iOS shows "While Using" first. With either answer, updates continue in the background while the
+  app is running, and iOS shows the blue location indicator. If iOS closes the app, updates stop until it's opened.
+- **Android:** a foreground service of type `location` with a notification while sharing (from the plugin's
+  manifest: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`). No
+  `ACCESS_BACKGROUND_LOCATION`. `android.useLegacyBridge` is on, or updates halt after ~5 minutes.
+- **Uploads:** the signed-in page gets a share-only key from `/api/location-share/device-key` (kept in memory) and
+  the native HTTP layer posts to `/api/location-share/device-ping` with `X-Share-Key`. The web view's own requests
+  are throttled in the background on Android, and its sign-in token stops renewing there.
+- In a browser none of this runs: `isNative()` is false and the site keeps foreground-only sharing.
+- If the key can't be issued (database update not applied, share ended) or the plugin is missing, the app falls
+  back to the foreground loop the website uses.
 
 ## Signing (never commit keys)
 
@@ -102,4 +120,7 @@ on pull requests that touch the native project. It uses no secrets. To turn it o
 ## Checks only possible on a real device
 
 Camera and photo picker, permission prompts, safe areas on notched phones, the Android back button,
-status bar colours in light and dark mode, the splash hiding, and the offline screen (airplane mode, then Retry).
+status bar colours in light and dark mode, the splash hiding, and the offline screen (airplane mode, then Retry). Background
+sharing: start a share, lock the phone for 15+ minutes while moving, and check the office map keeps moving;
+the Android notification shows while sharing and goes away on Stop; an office Stop ends tracking on the phone;
+battery use over an hour.

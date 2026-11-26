@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -36,5 +37,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- The background location plugin declares GPS as required; keep it optional so phones without GPS can still install. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" tools:replace="android:required" />
+    <!-- Background sharing (from the plugin's manifest, merged at build): FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION,
+         POST_NOTIFICATIONS, and a foreground service of type "location" with a visible notification while a share is on.
+         No ACCESS_BACKGROUND_LOCATION: updates run only inside that foreground service, started by the driver. -->
 </manifest>

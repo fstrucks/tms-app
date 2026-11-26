@@ -27,7 +27,9 @@ const config = {
     errorPath: 'offline.html',
   },
   ios: { contentInset: 'never', scrollEnabled: true },
-  android: { allowMixedContent: false },
+  // useLegacyBridge: the background location plugin needs it, or Android halts location updates after ~5 minutes in the
+  // background (capacitor-community/background-geolocation README, issue #89).
+  android: { allowMixedContent: false, useLegacyBridge: true },
   plugins: {
     SplashScreen: { launchAutoHide: false, backgroundColor: '#2563eb', showSpinner: false },
     StatusBar: { overlaysWebView: true, style: 'DEFAULT' },
