@@ -371,7 +371,13 @@ test('migration: additive only, new table with RLS and no grants to signed-in us
 test('web app unchanged: the browser sharing bar still uses the signed-in ping route and never asks for a device key', () => {
   const bar = read('app/components/LocationShareBar.js');
   assert.match(bar, /\/api\/location-share\/ping/);
-  assert.equal(/device-key|device-ping/.test(bar), false);
+  // The device-key call lives only in the native-gated effect (phone app); the browser path never reaches it.
+  const keyCalls = bar.split('/api/location-share/device-key').length - 1;
+  assert.equal(keyCalls, 1);
+  const before = bar.slice(0, bar.indexOf('/api/location-share/device-key'));
+  const effectStart = before.lastIndexOf('useEffect(');
+  assert.match(before.slice(effectStart), /if \(!share\?\.id \|\| !isNative\(\)\) return/);
+  assert.equal(/device-ping/.test(bar), false);
   const route = read('app/api/location-share/device-ping/route.js');
   assert.equal(/console\.(log|info|error)/.test(route), false, 'no logging on the device route');
 });
