@@ -100,13 +100,31 @@ test('nav: dispatchers get Dispatch in the Loads slot; others unchanged', () => 
 
 // ---------- Rate con route ----------
 const OWNER = '00000000-0000-4000-8000-00000000000a';
+const MATE = '00000000-0000-4000-8000-00000000000b';
+const OTHER = '00000000-0000-4000-8000-00000000000f';
 const LID = 'aaaaaaaa-0000-4000-8000-000000000001';
-function svc({ load = { id: LID, user_id: OWNER }, docs = [{ file_path: `${OWNER}/rc.pdf` }], calls = [] } = {}) {
+const ownerRc = (extra = {}) => ({ id: 'rc-owner', user_id: OWNER, file_path: `${OWNER}/qa180a.pdf`, created_at: '2026-11-01T00:00:00Z', doc_type: 'rate_confirmation', ...extra });
+function svc({ load = { id: LID, user_id: OWNER }, docs = [ownerRc()], members = [], calls = [] } = {}) {
+  const resolve = (table, filters) => {
+    calls.push([table, filters]);
+    if (table === 'company_members') {
+      const uid = filters.find((f) => f[0] === 'user_id')?.[1];
+      const owner = filters.find((f) => f[0] === 'company_profiles.owner_id')?.[1];
+      const ok = members.includes(uid) && owner === (load?.user_id || OWNER);
+      return Promise.resolve({ data: ok ? [{ user_id: uid }] : [], error: null });
+    }
+    return Promise.resolve({ data: docs, error: null });
+  };
   const q = (table) => {
     const filters = [];
-    const api = { select() { return api; }, eq(k, v) { filters.push([k, v]); return api; }, order() { return api; },
-      limit() { calls.push([table, filters]); return Promise.resolve({ data: docs, error: null }); },
-      maybeSingle() { calls.push([table, filters]); return Promise.resolve({ data: load, error: null }); } };
+    const api = {
+      select() { return api; },
+      eq(k, v) { filters.push([k, v]); return api; },
+      order() { return api; },
+      limit() { return resolve(table, filters); },
+      maybeSingle() { calls.push([table, filters]); return Promise.resolve({ data: load, error: null }); },
+      then(onF, onR) { return resolve(table, filters).then(onF, onR); },
+    };
     return api;
   };
   return { from: q, storage: { from: () => ({ createSignedUrl: async (p, ttl) => { calls.push(['sign', p, ttl]); return { data: { signedUrl: `https://signed.example/${p}` }, error: null }; } }) } };
@@ -114,15 +132,16 @@ function svc({ load = { id: LID, user_id: OWNER }, docs = [{ file_path: `${OWNER
 const req = (token = 'tok') => new Request(`http://x/api/dispatch/loads/${LID}/ratecon`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 const uc = (role, error = null) => () => ({ rpc: async (n, a) => { assert.equal(n, 'packet_role'); assert.deepEqual(a, { p_owner: OWNER }); return { data: role, error }; } });
 
-test('rate con route: dispatcher / management / owner get a 5-minute signed link from the owner folder', async () => {
+test('rate con route: dispatcher / management / owner get a 5-minute signed link', async () => {
   for (const role of ['dispatcher', 'management', 'owner']) {
     const calls = [];
     const r = await GET(req(), { params: { id: LID }, deps: { sb: svc({ calls }), mkUserClient: uc(role) } });
     assert.equal(r.status, 200, role);
-    assert.deepEqual(await r.json(), { url: `https://signed.example/${OWNER}/rc.pdf` });
+    assert.deepEqual(await r.json(), { url: `https://signed.example/${OWNER}/qa180a.pdf` });
     const docQ = calls.find((c) => c[0] === 'documents');
-    assert.deepEqual(docQ[1], [['load_id', LID], ['user_id', OWNER], ['doc_type', 'rate_confirmation']]);
-    assert.deepEqual(calls.find((c) => c[0] === 'sign'), ['sign', `${OWNER}/rc.pdf`, 300]);
+    assert.deepEqual(docQ[1], [['load_id', LID], ['doc_type', 'rate_confirmation']]);
+    assert.equal(docQ[1].some((f) => f[0] === 'user_id'), false, 'must not filter to the load owner only');
+    assert.deepEqual(calls.find((c) => c[0] === 'sign'), ['sign', `${OWNER}/qa180a.pdf`, 300]);
   }
 });
 
@@ -135,7 +154,35 @@ test('rate con route: driver 403, outsider 404, no token 401, bad id 404, expire
   assert.equal((await run({ uc: uc(null, { code: 'PGRST301', message: 'JWT expired' }) })).status, 401);
   assert.equal((await run({ svc: { load: null } })).status, 404);
   assert.equal((await run({ svc: { docs: [] } })).status, 404);
-  assert.equal((await run({ svc: { docs: [{ file_path: 'someone-else/rc.pdf' }] } })).status, 404);
+  assert.equal((await run({ svc: { docs: [{ user_id: OWNER, file_path: 'someone-else/rc.pdf', created_at: '2026-11-01T00:00:00Z', doc_type: 'rate_confirmation' }] } })).status, 404);
+});
+
+test('rate con route: a teammate’s newer file wins over the owner’s older one', async () => {
+  const calls = [];
+  const docs = [
+    ownerRc(),
+    { id: 'rc-mate', user_id: MATE, file_path: `${MATE}/qa180b.pdf`, created_at: '2026-11-20T00:00:00Z', doc_type: 'rate_confirmation' },
+  ];
+  const r = await GET(req(), { params: { id: LID }, deps: { sb: svc({ docs, members: [MATE], calls }), mkUserClient: uc('dispatcher') } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { url: `https://signed.example/${MATE}/qa180b.pdf` });
+  assert.deepEqual(calls.find((c) => c[0] === 'sign'), ['sign', `${MATE}/qa180b.pdf`, 300]);
+});
+
+test('rate con route: an unrelated company’s newer file is never picked', async () => {
+  const outsider = { id: 'rc-other', user_id: OTHER, file_path: `${OTHER}/other.pdf`, created_at: '2026-11-25T00:00:00Z', doc_type: 'rate_confirmation' };
+  // Owner + outsider: still the owner’s file.
+  const withOwner = [];
+  const ok = await GET(req(), { params: { id: LID }, deps: { sb: svc({ docs: [ownerRc(), outsider], members: [MATE], calls: withOwner }), mkUserClient: uc('owner') } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { url: `https://signed.example/${OWNER}/qa180a.pdf` });
+  assert.deepEqual(withOwner.find((c) => c[0] === 'sign'), ['sign', `${OWNER}/qa180a.pdf`, 300]);
+  // Outsider only: 404, nothing signed.
+  const onlyOut = [];
+  const miss = await GET(req(), { params: { id: LID }, deps: { sb: svc({ docs: [outsider], members: [MATE], calls: onlyOut }), mkUserClient: uc('dispatcher') } });
+  assert.equal(miss.status, 404);
+  assert.equal((await miss.json()).error, 'This load has no rate con.');
+  assert.equal(onlyOut.some((c) => c[0] === 'sign'), false);
 });
 
 // ---------- Source guards ----------
