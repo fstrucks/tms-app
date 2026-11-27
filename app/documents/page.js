@@ -27,7 +27,8 @@ import { Loading, LoadError } from '../components/DataState';
 import ConfirmButton from '../components/ui/ConfirmButton';
 import { deleteDocument, deletePrompt } from '../lib/documents';
 import RateconEmailCard from '../components/RateconEmailCard';
-import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor } from '../lib/rateconDrafts';
+import { emailDraftState, emailReadProblem, isEmailDraft, isNotRatecon, skippedLine, readDismissed, addDismissed, visibleSkipped, fetchSkipped, createLoadFromDoc, teammateEmailDoc, uploadProfileFor, multiStopReady } from '../lib/rateconDrafts';
+import { rateConStops, rateConStopCount, stopsFoundLabel, stopTypeLabel, stopWhenLine, stopsNote } from '../lib/rateconStops';
 import { linkDocumentToExistingLoad, linkExistingLoadLabel, reviewLoadMatch } from '../lib/rateconMatch';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
 import { attentionLabel, fetchNeedsAttention, needsAttention, publishAttentionCount, readInboxOpen, writeInboxOpen } from '../lib/docsInbox';
@@ -231,6 +232,9 @@ export default function DocumentsPage() {
     }
   }
 
+  // Multi-stop rate cons: once a draft with 3+ stops is on screen, check (once) whether the database adds them all yet.
+  const [multiStopSql, setMultiStopSql] = useState(null);
+  const multiStopChecked = useRef(false);
   const [status, setStatus] = useState(null);
   const [view_, setView] = useState('mine'); // 'mine' (default) | 'team'
   const [inboxOpen, setInboxOpen] = useState(true);
@@ -239,6 +243,11 @@ export default function DocumentsPage() {
   const [vaultTick, setVaultTick] = useState(0);
   const [docs, setDocs] = useState([]);
   const [listState, setListState] = useState('loading'); // 'loading' | 'ready' | 'error'
+  useEffect(() => {
+    if (multiStopChecked.current || !supabase || !docs.some((d) => !d.load_id && rateConStopCount(d.ai_extracted_data) >= 3)) return;
+    multiStopChecked.current = true;
+    multiStopReady(supabase).then(setMultiStopSql);
+  }, [docs, supabase]);
   const docsReqRef = useRef(0);
   const viewRef = useRef(view_);
   const docsRef = useRef(docs);
@@ -606,7 +615,7 @@ export default function DocumentsPage() {
                   <p style={s.muted} data-testid="email-reading">Reading the rate con from your email…</p>
                 ) : (
                   <>
-                    {d.ai_extracted_data && <Summary x={d.ai_extracted_data} />}
+                    {d.ai_extracted_data && <Summary x={d.ai_extracted_data} sqlReady={multiStopSql} />}
                     {emailDraftState(d) === 'ready' && !reviewLoadMatch(d, accountLoads) && <p data-testid="email-review" style={{ ...s.muted, margin: '0.25rem 0' }}>Draft from email. Check these details against the PDF (View), then tap Create load.</p>}
                     {emailDraftState(d) === 'ready' && reviewLoadMatch(d, accountLoads) && <p data-testid="email-review-match" style={{ ...s.muted, margin: '0.25rem 0' }}>This broker load number is already on a load in this account. Link the file to that load. The load itself stays as it is.</p>}
                     {emailDraftState(d) === 'manual' && (
@@ -661,7 +670,39 @@ function fmtParty(p) {
   return [p.name, p.address].filter(Boolean).join(', ') || null;
 }
 
-function Summary({ x }) {
+// Every stop the rate con lists, in order (Nov 27). Compact: one line for the type and name, one for the address and
+// one for the date / time / ref, wrapping at phone width.
+function StopsList({ x, sqlReady }) {
+  const stops = rateConStops(x);
+  const note = stopsNote(x, sqlReady);
+  return (
+    <div data-testid="ratecon-stops">
+      <div data-testid="ratecon-stops-found" style={{ fontWeight: 600 }}>{stopsFoundLabel(rateConStopCount(x))}</div>
+      <ol style={{ listStyle: 'none', margin: '0.25rem 0 0', padding: 0, display: 'grid', gap: '0.35rem' }}>
+        {stops.map((st, i) => (
+          <li key={i} data-testid="ratecon-stop" style={{ minWidth: 0 }}>
+            <div><span style={{ color: 'var(--text-muted)' }}>{i + 1}. {stopTypeLabel(st.type)}</span>{st.name ? ` · ${st.name}` : ''}</div>
+            {st.address && <div style={{ color: 'var(--text-muted)' }}>{st.address}</div>}
+            {stopWhenLine(st) && <div style={{ color: 'var(--text-muted)' }}>{stopWhenLine(st)}</div>}
+          </li>
+        ))}
+      </ol>
+      {note && <p data-testid="ratecon-stops-note" style={{ margin: '0.35rem 0 0', color: 'var(--warning)' }}>{note}</p>}
+    </div>
+  );
+}
+
+function Summary({ x, sqlReady = null }) {
+  // 3+ stops: one ordered list instead of the Shipper / Pickup / Receiver / Delivery rows (those are only the first
+  // pickup and the last delivery). 1–2 stops: the same rows as before, plus the count.
+  const many = rateConStopCount(x) >= 3;
+  const stopRows = many ? [['Stops', <StopsList x={x} sqlReady={sqlReady} />]] : [
+    ['Stops', rateConStopCount(x) ? stopsFoundLabel(rateConStopCount(x)) : null],
+    ['Shipper', fmtParty(x.shipper)],
+    ['Pickup', fmtStop(x.pickup)],
+    ['Receiver', fmtParty(x.receiver)],
+    ['Delivery', fmtStop(x.delivery)],
+  ];
   const rows = [
     ['Broker', x.broker_name],
     ['Load #', x.load_number],
@@ -670,19 +711,16 @@ function Summary({ x }) {
     ['Equipment', x.equipment_type],
     ['Weight', extractedWeightLb(x) ? `${extractedWeightLb(x).toLocaleString('en-US')} lb` : null],
     ['Miles', extractedMiles(x) ? `${extractedMiles(x).toLocaleString('en-US')} mi` : null],
-    ['Shipper', fmtParty(x.shipper)],
-    ['Pickup', fmtStop(x.pickup)],
-    ['Receiver', fmtParty(x.receiver)],
-    ['Delivery', fmtStop(x.delivery)],
+    ...stopRows,
     ['Notes', x.notes],
   ].filter(([, v]) => v);
   if (!rows.length) return <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No fields extracted.</p>;
   return (
-    <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.75rem', margin: '0.5rem 0 0', fontSize: '0.85rem', background: 'var(--surface-2)', borderRadius: 8, padding: '0.6rem' }}>
+    <dl style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '0.25rem 0.75rem', margin: '0.5rem 0 0', fontSize: '0.85rem', background: 'var(--surface-2)', borderRadius: 8, padding: '0.6rem' }}>
       {rows.map(([k, v]) => (
         <div key={k} style={{ display: 'contents' }}>
           <dt style={{ color: 'var(--text-muted)' }}>{k}</dt>
-          <dd style={{ margin: 0, wordBreak: 'break-word' }}>{v}</dd>
+          <dd style={{ margin: 0, wordBreak: 'break-word', minWidth: 0 }}>{v}</dd>
         </div>
       ))}
     </dl>
