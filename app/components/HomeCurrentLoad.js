@@ -1,7 +1,7 @@
 'use client';
 
 // Home page "Current load" card (Marc's hybrid, Oct 18 2026): Option A for one pickup + one drop, Option B
-// (next stop first + countdown, other stops folded but open) for multi-stop loads; "Up next" (next 2 booked)
+// (Nov 27 2026: every stop in order, next stop highlighted + countdown, completed stops muted) for multi-stop loads; "Up next" (next 2 booked)
 // beside it on desktop and below it on phones. Loads come from public.visible_loads() (owner + company members,
 // rate nulled server-side for drivers unless the load's show_rate_to_driver is on). Before migration
 // 20261018000600 it falls back to the owner's own select and members get no card.
@@ -12,6 +12,7 @@ import { hasSession } from '../lib/supabase';
 import { StatusBadge, fullAddress, fmtStopAppt, fmtApptDate, fmtNumber } from '../lib/loads';
 import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
+import { stopDoneLabel } from '../lib/stopProgress';
 import { Loading, LoadError } from './DataState';
 import CurrentLoadPanels from './CurrentLoadPanels';
 import StopActions from './StopActions';
@@ -19,8 +20,8 @@ import { StopRating, useLoadFacilities } from './FacilityReview';
 import { latestRateCon } from '../lib/loadDocs';
 import { fetchLoadDocs, openLoadDoc } from '../lib/loadDocsClient';
 import {
-  fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, canShowRate, rateText,
-  nextStopIndex, countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
+  fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, routeStops, stopRows, canShowRate, rateText,
+  countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
   deliveredPromptMode, markDelivered, fetchMyMemberRows, homeLoadsFor, isOverdueInTransit, countRateconsWaiting, rateconsWaitingText,
 } from '../lib/homeCurrentLoad';
 
@@ -69,30 +70,48 @@ function OptionA({ load }) {
   return (
     <div className="home-stops" data-layout="A">
       <StopBlock load={load} stop={st[0]} />
-      <StopBlock load={load} stop={st[st.length - 1]} />
+      {st.length > 1 && <StopBlock load={load} stop={st[st.length - 1]} />}
     </div>
   );
 }
 
+// Every stop in order, nothing folded (Marc, Nov 27 2026). The next stop keeps its highlight (label, larger text,
+// countdown); completed / passed stops are muted but stay visible.
 function OptionB({ load, now }) {
-  const st = sortedStops(load);
-  const ni = nextStopIndex(load, now);
-  const next = st[ni];
-  const others = st.map((x, i) => ({ x, i })).filter(({ i }) => i !== ni);
+  const rows = stopRows(load, now);
   return (
-    <div data-layout="B">
-      <div style={{ ...s.lbl, color: 'var(--primary)', marginBottom: 4 }}>Next stop · {ni + 1} of {st.length}</div>
-      <StopBlock load={load} stop={next} big />
-      <Countdown stop={next} now={now} />
-      <details open style={{ marginTop: 10, borderTop: '1px solid var(--divider)', paddingTop: 8 }}>
-        <summary style={{ ...s.muted, cursor: 'pointer' }}>Other stops ({others.length})</summary>
-        {others.map(({ x, i }) => (
-          <div key={x.id ?? i} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <span aria-hidden="true" style={{ ...s.muted, minWidth: 18 }}>{i + 1}.</span>
-            <StopBlock load={load} stop={x} />
-          </div>
-        ))}
-      </details>
+    <ol data-layout="B" data-testid="home-stop-list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+      {rows.map(({ stop, index, state, skipped }) => {
+        const next = state === 'next';
+        return (
+          <li key={stop.id ?? index} data-testid="home-stop-row" data-state={state}
+            style={{ display: 'flex', gap: 8, padding: next ? '0.55rem 0.6rem' : '0.5rem 0', marginTop: index ? 4 : 0, minWidth: 0,
+              borderTop: index && !next ? '1px solid var(--divider)' : 'none',
+              ...(next ? { background: 'var(--surface-2)', borderLeft: '3px solid var(--primary)', borderRadius: 8 } : {}),
+              ...(state === 'done' ? { opacity: 0.6 } : {}) }}>
+            <span aria-hidden="true" style={{ ...s.muted, minWidth: 18, fontWeight: next ? 700 : 400, color: next ? 'var(--primary)' : 'var(--text-muted)' }}>{index + 1}.</span>
+            <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+              {next && <div style={{ ...s.lbl, color: 'var(--primary)', marginBottom: 4 }}>Next stop · {index + 1} of {rows.length}</div>}
+              {state === 'done' && stop.completed_at && <div data-testid="home-stop-done" style={{ ...s.muted, fontSize: '0.8rem' }}>✓ {skipped ? 'Skipped' : stopDoneLabel(stop)}</div>}
+              <StopBlock load={load} stop={stop} big={next} />
+              {next && <Countdown stop={stop} now={now} />}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// Route line: every stop in order. Each "→ City, ST" is one unit, so at phone width the line breaks between
+// stops (the arrow stays with the stop after it), never mid-city; a single over-long name may still wrap inside.
+function RouteLine({ load }) {
+  const places = routeStops(load);
+  return (
+    <div data-testid="home-route" style={s.route}>
+      {places.map((p, i) => (
+        <span key={i}>{i > 0 && ' '}<span data-testid="home-route-stop" style={{ display: 'inline-block', maxWidth: '100%', overflowWrap: 'anywhere' }}>{i > 0 && '→\u00a0'}{p}</span></span>
+      ))}
     </div>
   );
 }
@@ -136,7 +155,7 @@ function FrontCard({ pick, rateCon, onOpenRateCon, now, audience, onMarkDelivere
         <StatusBadge status={load.status} />
       </div>
       {kind === 'next' && <p style={{ ...s.muted, margin: '0.4rem 0 0' }}>Nothing on the road right now. This is your next booked load.</p>}
-      <div style={s.route}>{routeLabel(load)}</div>
+      <RouteLine load={load} />
       <div style={{ ...s.muted, marginBottom: 12 }}>
         {load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}{load.broker_name ? ` · ${load.broker_name}` : ''}
       </div>
