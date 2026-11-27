@@ -118,7 +118,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 @media (min-width: 640px) { .home-stops { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 
 /* Dispatch stop editor: wider cells than the New load grid so date-time inputs show the full time. */
-.dispatch-stop-grid { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+.dispatch-stop-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
 @media (min-width: 640px) { .dispatch-stop-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); } }
 /* Theme tokens (dark mode). Use var(--token) in inline styles instead of hex colors.
    [data-theme] is set on <html> before paint by the inline script in app/layout.js (Light / Dark / Auto in the

@@ -133,7 +133,7 @@ test('addStop: pickup goes before the first delivery, delivery appends', () => {
   assert.equal(addStop(mixed, 'pickup', 'America/Chicago')[1].timezone, 'America/Chicago');
   assert.equal(base.length, 3); // no mutation
   const ed = _src('app/components/StopsEditor.js');
-  assert.match(ed, /addStop\(l, 'pickup'/); assert.match(ed, /addStop\(l, 'delivery'/);
+  assert.match(ed, /addStop\(l, type, browserTz/); assert.match(ed, /onClick=\{\(\) => add\('pickup'\)\}/); assert.match(ed, /onClick=\{\(\) => add\('delivery'\)\}/);
 });
 
 test('placeholders read as examples, and no-appointment rows say so', () => {
