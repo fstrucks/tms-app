@@ -100,6 +100,16 @@ export async function createLoadFromDoc(supabase, doc, tz, { profileId = null } 
   if (isMissingRpc(r.error)) r = await supabase.rpc('create_load_from_document', args);
   return r;
 }
+// Multi-stop rate cons (20261127000100): the load SQL adds every stop once ratecon_load_stops exists. true = applied,
+// false = not yet (the load gets 2 stops), null = couldn't tell (no note shown). The helper only reads its argument.
+export const MULTISTOP_RPC = 'ratecon_load_stops';
+export async function multiStopReady(supabase) {
+  try {
+    const { error } = await supabase.rpc(MULTISTOP_RPC, { p_x: {} });
+    if (!error) return true;
+    return isMissingRpc(error) ? false : null;
+  } catch { return null; }
+}
 // A company email draft that landed on a teammate's address: shown (read + Create load) but delete / change type stay
 // with the receiver (documents writes are own-rows).
 export const teammateEmailDoc = (d, userId) => !!d && d.source === 'email' && !!d.user_id && !!userId && d.user_id !== userId;
