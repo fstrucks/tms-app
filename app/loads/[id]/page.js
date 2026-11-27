@@ -42,6 +42,7 @@ import { stopDoneLabel } from '../../lib/stopProgress';
 import InvoiceTab from '../../components/InvoiceTab';
 import LoadExport from '../../components/LoadExport';
 import RateConRescan from '../../components/RateConRescan';
+import OwnerStopsEditor from '../../components/OwnerStopsEditor';
 
 // Loaded only when "Scan BOL/POD" is tapped.
 const Scanner = dynamic(() => import('../../components/scanner/Scanner'), { ssr: false, loading: () => null });
@@ -351,6 +352,10 @@ export default function LoadDetailPage() {
                       </div>
                     </div>
                   ))}
+                  {/* + Add stop (owner only; Nov 27): saves through dispatch_save_stops; the editor's notifyLoadChanged
+                      makes this page re-read the load, and the map / miles recompute because the stop addresses changed. */}
+                  {owner && <OwnerStopsEditor supabase={supabase} load={load}
+                    onSaved={(next) => { if (Array.isArray(next) && next.length) setLoad((l) => ({ ...l, stops: [...next].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)) })); list?.reload?.(); }} />}
                 </div>
 
                 <LoadScaleTickets supabase={supabase} loadId={load.id} loadWeight={load.weight} refreshKey={settleVer} cardStyle={s.card} />

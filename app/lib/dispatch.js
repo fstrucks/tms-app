@@ -162,16 +162,53 @@ export function stopsToForm(stops = []) {
     stop_type: x.stop_type === 'delivery' ? 'delivery' : 'pickup', company_name: s(x.company_name), address_line1: s(x.address_line1),
     city: s(x.city), state: s(x.state), zip: s(x.zip), timezone: s(x.timezone),
     appointment_start: isoToLocal(x.appointment_start, x.timezone), appointment_end: isoToLocal(x.appointment_end, x.timezone),
-    pickup_number: s(x.pickup_number), notes: s(x.notes),
+    pickup_number: s(x.pickup_number), ...notesToForm(x),
+    // Not edited here, but dispatch_save_stops rewrites every allowed column of a kept stop: carry them through so a
+    // save never blanks them.
+    ...keepExtras(x),
+    done: !!x.completed_at, // checked off (picked up / delivered / skipped): the owner editor won't remove it
   }));
 }
-export const blankStop = (stop_type = 'delivery', timezone = '') => ({ key: newKey(), id: null, stop_type, company_name: '', address_line1: '', city: '', state: '', zip: '', timezone, appointment_start: '', appointment_end: '', pickup_number: '', notes: '' });
+export const blankStop = (stop_type = 'delivery', timezone = '') => ({ key: newKey(), id: null, stop_type, company_name: '', address_line1: '', city: '', state: '', zip: '', timezone, appointment_start: '', appointment_end: '', pickup_number: '', delivery_number: '', notes: '' });
+
+// Per-stop numbers (Marc's rule): stops.pickup_number is for PICKUP stops only. There is no delivery-number column,
+// so a delivery's delivery / PO number is kept as the first line of that stop's notes ("Delivery # 4471"), which the
+// load page already shows under the stop. stopsToForm splits it into its own field; formToStops puts it back.
+export const DELIVERY_REF_PREFIX = 'Delivery # ';
+const DELIVERY_REF_RE = /^Delivery #\s*(.+?)\s*$/;
+export function splitDeliveryRef(notes) {
+  const text = s(notes);
+  const [first, ...rest] = text.split(/\r?\n/);
+  const m = DELIVERY_REF_RE.exec(first || '');
+  return m ? { ref: m[1], notes: rest.join('\n') } : { ref: '', notes: text };
+}
+export function joinDeliveryRef(ref, notes) {
+  const r = s(ref).trim(), n = s(notes).trim();
+  return [r ? `${DELIVERY_REF_PREFIX}${r}` : '', n].filter(Boolean).join('\n') || null;
+}
+function notesToForm(x) {
+  if (x.stop_type !== 'delivery') return { delivery_number: '', notes: s(x.notes) };
+  const { ref, notes } = splitDeliveryRef(x.notes);
+  return { delivery_number: ref, notes };
+}
+const EXTRA_STOP_FIELDS = ['address_line2', 'contact_name', 'contact_phone'];
+const keepExtras = (x) => Object.fromEntries(EXTRA_STOP_FIELDS.filter((k) => x[k] != null && x[k] !== '').map((k) => [k, String(x[k])]));
+
+export const MAX_STOPS = 20; // dispatch_save_stops accepts 2–20
 
 // + Add pickup goes before the first delivery (pickups first); + Add delivery appends. No delivery yet → append.
-export function addStop(list, stop_type, timezone = '') {
+// { beforeLastDelivery: true } (owner load page): a new delivery goes in just before the final delivery, so the
+// load still ends where it did. At MAX_STOPS the list is returned unchanged.
+export function addStop(list, stop_type, timezone = '', { beforeLastDelivery = false } = {}) {
   const row = blankStop(stop_type, timezone);
   const l = list || [];
-  if (stop_type !== 'pickup') return [...l, row];
+  if (l.length >= MAX_STOPS) return l;
+  if (stop_type !== 'pickup') {
+    if (!beforeLastDelivery) return [...l, row];
+    let j = -1;
+    l.forEach((x, k) => { if (x.stop_type === 'delivery') j = k; });
+    return j < 0 ? [...l, row] : [...l.slice(0, j), row, ...l.slice(j)];
+  }
   const i = l.findIndex((x) => x.stop_type === 'delivery');
   return i < 0 ? [...l, row] : [...l.slice(0, i), row, ...l.slice(i)];
 }
@@ -201,14 +238,17 @@ export function formToStops(list, { browserTz = null } = {}) {
     if (b === 'bad') e.appointment_end = 'Pick a valid date and time.';
     if (a && b && a !== 'bad' && b !== 'bad' && Date.parse(b) < Date.parse(a)) e.appointment_end = 'The window ends before it starts.';
     if (x.pickup_number.length > 80) e.pickup_number = 'Keep this under 80 characters.';
+    if (s(x.delivery_number).trim().length > 80) e.delivery_number = 'Keep this under 80 characters.';
     if (Object.keys(e).length) errors[x.key] = e;
     const item = {
       stop_type: x.stop_type, company_name: x.company_name.trim() || null, address_line1: x.address_line1.trim() || null,
       city: x.city.trim(), state: x.state.trim().toUpperCase() || null, zip: x.zip.trim() || null,
       appointment_start: a === 'bad' ? null : a, appointment_end: b === 'bad' ? null : b,
       timezone: (a || b) ? tz : (x.timezone || null),
-      pickup_number: x.stop_type === 'pickup' ? (x.pickup_number.trim() || null) : null, notes: x.notes.trim() || null,
+      pickup_number: x.stop_type === 'pickup' ? (x.pickup_number.trim() || null) : null,
+      notes: x.stop_type === 'delivery' ? joinDeliveryRef(x.delivery_number, x.notes) : (x.notes.trim() || null),
     };
+    for (const k of EXTRA_STOP_FIELDS) if (x[k] != null && x[k] !== '') item[k] = x[k];
     if (x.id != null) item.id = String(x.id);
     payload.push(item);
   }
