@@ -94,10 +94,11 @@ test('UI wiring: Home card and load page render StopActions; theme colors only',
   assert.ok(!/(?<![A-Za-z0-9 ])#[0-9a-f]{3,6}\b|rgba?\(/i.test(comp));
 });
 
-test('in_transit with no marks = pickup implied done; Undo path uses dispatched so the pickup comes back', () => {
+test('in_transit with no marks = pickup still next (only a check-off marks it done); Undo path uses dispatched', () => {
   const st = [stop(S1, 1, 'pickup'), stop(S2, 2, 'delivery')];
-  // Marc (prod): in_transit with nothing ever marked → pickup implicitly done, next = stop 2
-  assert.equal(nextStopIndex({ status: 'in_transit', stops: st }, NOW), 1);
+  // Nov 27 2026 (QA #194 nit (a)): in_transit with nothing marked no longer implies the pickup → next = stop 1
+  assert.equal(nextStopIndex({ status: 'in_transit', stops: st }, NOW), 0);
+  assert.equal(stopActionLabel(st[nextStopIndex({ status: 'in_transit', stops: st }, NOW)]), 'Mark as picked up');
   // after Undo of the pickup the server moves the load back to dispatched → pickup shows again
   assert.equal(nextStopIndex({ status: 'dispatched', stops: st }, NOW + 20 * H), 0);
   // columns absent → old appointment guess unchanged
