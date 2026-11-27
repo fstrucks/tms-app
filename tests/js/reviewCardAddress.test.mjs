@@ -57,11 +57,17 @@ test('GET /api/rating-prompts: each card carries facilityAddress (stop, else fac
     ['Fake Distributing', '1 Stop Rd, Stopton, OK 73000'], ['Fake DC 9', '9 Facility Ave, Factown, KS 66000'], ['Fake Nowhere', '']]);
 });
 
-test('reminder card source: address under the title, muted, 2-line clamp, Open in Maps, nothing when unknown', () => {
+test('reminder card source: address under the title, link colour + pin, 2-line clamp, Open in Maps, nothing when unknown', () => {
   const src = read('../../app/components/FacilityRatingReminders.js');
   assert.match(src, /<CardAddress name=\{c\.facilityName\} address=\{c\.facilityAddress\} \/>/);
   assert.match(src, /if \(!address\) return null;/, 'no empty line when unknown');
-  assert.match(src, /WebkitLineClamp: 2/); assert.match(src, /color: 'var\(--text-muted\)'/); assert.match(src, /fontSize: '0\.8rem'/);
+  assert.match(src, /WebkitLineClamp: 2/); assert.match(src, /fontSize: '0\.8rem'/);
+  // Reads as tappable (Taylor's QA nit): link colour with a real underline, a pin before it, the label kept.
+  const style = src.slice(src.indexOf('const addrStyle'), src.indexOf('export function CardAddress'));
+  assert.match(style, /color: 'var\(--primary\)'/); assert.match(style, /textDecoration: 'underline'/);
+  assert.doesNotMatch(style, /--text-muted|textDecorationColor/, 'not muted grey, no faint divider underline');
+  assert.match(src, /<span aria-hidden="true">📍 <\/span>\{address\}<\/a>/);
+  assert.match(src, /aria-label=\{`\$\{address\}, open in Maps`\}/);
   assert.match(src, /href=\{cardMapsUrl\(name, address\)\} target="_blank" rel="noopener noreferrer"/);
   assert.match(src, /data-testid="facility-reminder-address"/);
   const route = read('../../app/api/rating-prompts/route.js');

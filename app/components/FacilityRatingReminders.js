@@ -9,12 +9,14 @@ import { cardMapsUrl } from '../lib/facilityRatingPrompts';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
 // The facility's address under the card title, at most 2 lines (phone width), opens Maps. Nothing when unknown.
-const addrStyle = { display: '-webkit-box', width: 'fit-content', maxWidth: '100%', margin: '1px 0 2px', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere',
-  fontSize: '0.8rem', lineHeight: 1.35, color: 'var(--text-muted)', textDecoration: 'underline', textDecorationColor: 'var(--divider)', textUnderlineOffset: 2 };
+// Link colour + underline + pin, like the facility page's "📍 Open in Maps", so it reads as tappable.
+const addrStyle = { display: '-webkit-box', width: 'fit-content', maxWidth: '100%', margin: '1px 0 2px',
+  WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere',
+  fontSize: '0.8rem', lineHeight: 1.35, color: 'var(--primary)', textDecoration: 'underline', textUnderlineOffset: 2 };
 export function CardAddress({ name, address }) {
   if (!address) return null;
   return <a data-testid="facility-reminder-address" href={cardMapsUrl(name, address)} target="_blank" rel="noopener noreferrer"
-    aria-label={`${address}, open in Maps`} title="Open in Maps" style={addrStyle}>{address}</a>;
+    aria-label={`${address}, open in Maps`} title="Open in Maps" style={addrStyle}><span aria-hidden="true">📍 </span>{address}</a>;
 }
 
 export default function FacilityRatingReminders({ loadId = null }) {
