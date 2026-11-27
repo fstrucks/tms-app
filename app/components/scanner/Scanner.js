@@ -251,8 +251,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const uploadOff = !(n || pdf) || !!busy || !docType || (isOther && !otherDocType(otherName));
   // Hidden once a type is picked, and while the red "Pick a document type first" error is already showing.
   const showTypeHint = !docType && !typeErr && !busy;
+  // Sizing lives in globals.css (.scan-dialog): fits 100dvh (100vh fallback); on short screens (phone landscape) the whole dialog scrolls so Upload stays reachable.
   return (
-    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document" className="scan-dialog"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui', outline: 'none' }}>
       <header style={{ display: 'flex', flexWrap: 'nowrap', minWidth: 0, alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--divider)', background: 'var(--surface)', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
@@ -276,7 +277,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         </div>
       </header>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', maxWidth: 1120, width: '100%', margin: '0 auto' }}>
+      <div className="scan-body" style={{ padding: '0.75rem', maxWidth: 1120, width: '100%', margin: '0 auto' }}>
         <div aria-live="polite" style={{ minHeight: 24 }}>
           {busy ? <p style={{ margin: '0 0 0.5rem', color: 'var(--primary)' }}>{busy}</p>
             : msg ? <p role={msg.err ? 'alert' : undefined} style={{ margin: '0 0 0.5rem', color: msg.err ? 'var(--danger)' : 'var(--text)' }}>{msg.text}</p> : null}
@@ -311,7 +312,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         </ol>
       </div>
 
-      <footer style={{ borderTop: '1px solid var(--divider)', background: 'var(--surface)', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
+      <footer className="scan-footer" style={{ borderTop: '1px solid var(--divider)', background: 'var(--surface)', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {/* Document type first, full width and tall, so it can't be missed (Marc, 10/15). */}
           <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>

@@ -245,3 +245,15 @@ html.native-app .appnav-top, html.native-app .appnav-mtop { padding-top: env(saf
   border: 3px solid var(--surface);
   box-shadow: 0 0 0 5px var(--primary-soft);
 }
+
+/* Scan document dialog (components/scanner/Scanner.js). Fits the visible viewport (100dvh, 100vh fallback)
+   with the type picker + Upload footer pinned and the page list scrolling. On short screens (phone in
+   landscape) the footer can be taller than the screen, so the whole dialog scrolls instead. */
+.scan-dialog { height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh; box-sizing: border-box;
+  padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); overscroll-behavior: contain; }
+.scan-dialog > .scan-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.scan-dialog > .scan-footer { flex-shrink: 0; }
+@media (max-height: 520px) {
+  .scan-dialog { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .scan-dialog > .scan-body { flex: 0 0 auto; overflow-y: visible; }
+}

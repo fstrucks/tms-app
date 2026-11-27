@@ -35,3 +35,27 @@ test('still no default type, and Upload still needs a type', () => {
   assert.match(sc, /const uploadOff = [^\n]*!docType/);
   assert.match(sc, /if \(!docType\) \{ setTypeErr\(true\);/);
 });
+
+const css = readFileSync(new URL('../../app/globals.css', import.meta.url), 'utf8');
+
+test('scan dialog fits the viewport (100dvh with 100vh fallback) and its body scrolls', () => {
+  assert.match(sc, /role="dialog" aria-modal="true" aria-label="Scan document" className="scan-dialog"/);
+  assert.match(sc, /<div className="scan-body" style=\{\{ padding: '0\.75rem'/);
+  assert.match(sc, /<footer className="scan-footer"/);
+  assert.match(css, /\.scan-dialog \{ height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh;/);
+  assert.match(css, /\.scan-dialog > \.scan-body \{ flex: 1 1 auto; min-height: 0; overflow-y: auto;/);
+  assert.match(css, /padding-left: env\(safe-area-inset-left\); padding-right: env\(safe-area-inset-right\)/);
+});
+
+test('short screens (phone landscape): the whole scan dialog scrolls so Upload is reachable', () => {
+  const m = css.match(/@media \(max-height: 520px\) \{([\s\S]*?)\n\}/);
+  assert.ok(m, 'short-screen rule exists');
+  assert.match(m[1], /\.scan-dialog \{ overflow-y: auto;/);
+  assert.match(m[1], /\.scan-dialog > \.scan-body \{ flex: 0 0 auto; overflow-y: visible; \}/);
+});
+
+test('sizing is scoped to the scanner; the corner editor is untouched', () => {
+  assert.equal((sc.match(/className="scan-dialog"/g) || []).length, 1);
+  assert.match(sc, /aria-label=\{`Adjust corners, page \$\{index \+ 1\}`\}/);
+  assert.match(sc, /style=\{\{ position: 'fixed', inset: 0, zIndex: 2100,/);
+});
