@@ -48,7 +48,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [editing, setEditing] = useState(null);
   const [askDiscard, setAskDiscard] = useState(false);
   const uid = useId();
-  const ids = { pdf: `${uid}-pdf`, camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err` };
+  const ids = { pdf: `${uid}-pdf`, camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err`, typeHint: `${uid}-type-hint` };
   const cameraRef = useRef(null);
   const chooseRef = useRef(null);
   const pdfRef = useRef(null);
@@ -249,8 +249,11 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const n = pages.length;
   const full = n >= MAX_PAGES;
   const uploadOff = !(n || pdf) || !!busy || !docType || (isOther && !otherDocType(otherName));
+  // Hidden once a type is picked, and while the red "Pick a document type first" error is already showing.
+  const showTypeHint = !docType && !typeErr && !busy;
+  // Sizing lives in globals.css (.scan-dialog): fits 100dvh (100vh fallback); on short screens (phone landscape) the whole dialog scrolls so Upload stays reachable.
   return (
-    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document" className="scan-dialog"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui', outline: 'none' }}>
       <header style={{ display: 'flex', flexWrap: 'nowrap', minWidth: 0, alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--divider)', background: 'var(--surface)', paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
@@ -274,7 +277,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         </div>
       </header>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', maxWidth: 1120, width: '100%', margin: '0 auto' }}>
+      <div className="scan-body" style={{ padding: '0.75rem', maxWidth: 1120, width: '100%', margin: '0 auto' }}>
         <div aria-live="polite" style={{ minHeight: 24 }}>
           {busy ? <p style={{ margin: '0 0 0.5rem', color: 'var(--primary)' }}>{busy}</p>
             : msg ? <p role={msg.err ? 'alert' : undefined} style={{ margin: '0 0 0.5rem', color: msg.err ? 'var(--danger)' : 'var(--text)' }}>{msg.text}</p> : null}
@@ -309,7 +312,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
         </ol>
       </div>
 
-      <footer style={{ borderTop: '1px solid var(--divider)', background: 'var(--surface)', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
+      <footer className="scan-footer" style={{ borderTop: '1px solid var(--divider)', background: 'var(--surface)', padding: '0.6rem 0.75rem', paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {/* Document type first, full width and tall, so it can't be missed (Marc, 10/15). */}
           <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -345,7 +348,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
           <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
           <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
           {!n && !pdf && <label htmlFor={ids.pdf} role="button" tabIndex={0} onKeyDown={keyOpen} data-testid="scan-choose-pdf" aria-disabled={!!busy || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(!!busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📄 Choose PDF</label>}
-          <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
+          {/* Quiet hint while no type is picked, so a dimmed Upload doesn't look broken. No default type (misfiling risk). */}
+          {showTypeHint && <p id={ids.typeHint} data-testid="scan-type-hint" style={{ flex: '1 1 100%', minWidth: 0, margin: 0, fontSize: 14, fontWeight: 600, lineHeight: 1.35, color: 'var(--text-muted)', textAlign: 'center', overflowWrap: 'anywhere' }}>Pick a document type to upload.</p>}
+          <button type="button" aria-disabled={uploadOff || undefined} aria-describedby={showTypeHint ? ids.typeHint : undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 
