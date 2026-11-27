@@ -48,7 +48,7 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const [editing, setEditing] = useState(null);
   const [askDiscard, setAskDiscard] = useState(false);
   const uid = useId();
-  const ids = { pdf: `${uid}-pdf`, camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err` };
+  const ids = { pdf: `${uid}-pdf`, camera: `${uid}-camera`, choose: `${uid}-choose`, retake: `${uid}-retake`, type: `${uid}-type`, typeErr: `${uid}-type-err`, typeHint: `${uid}-type-hint` };
   const cameraRef = useRef(null);
   const chooseRef = useRef(null);
   const pdfRef = useRef(null);
@@ -249,6 +249,8 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
   const n = pages.length;
   const full = n >= MAX_PAGES;
   const uploadOff = !(n || pdf) || !!busy || !docType || (isOther && !otherDocType(otherName));
+  // Hidden once a type is picked, and while the red "Pick a document type first" error is already showing.
+  const showTypeHint = !docType && !typeErr && !busy;
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Scan document"
       onKeyDown={(e) => { if (e.key === 'Escape' && editing == null && !busy && !askDiscard) close(); }}
@@ -345,7 +347,9 @@ export default function Scanner({ initialFiles = [], loads = [], initialLoadId =
           <label htmlFor={ids.camera} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%', fontWeight: 600, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'var(--surface)' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '＋ Add page' : '📷 Take photo'}</label>
           <label htmlFor={ids.choose} role="button" tabIndex={0} onKeyDown={keyOpen} aria-disabled={(!!busy || full || !!pdf) || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(n ? { flex: '1 1 40%' } : null), ...((!!busy || full || pdf) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>{n ? '🖼️ Choose photo' : '🖼️ Choose photos'}</label>
           {!n && !pdf && <label htmlFor={ids.pdf} role="button" tabIndex={0} onKeyDown={keyOpen} data-testid="scan-choose-pdf" aria-disabled={!!busy || undefined} style={{ ...btn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', ...(!!busy ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>📄 Choose PDF</label>}
-          <button type="button" aria-disabled={uploadOff || undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
+          {/* Quiet hint while no type is picked, so a dimmed Upload doesn't look broken. No default type (misfiling risk). */}
+          {showTypeHint && <p id={ids.typeHint} data-testid="scan-type-hint" style={{ flex: '1 1 100%', minWidth: 0, margin: 0, fontSize: 14, fontWeight: 600, lineHeight: 1.35, color: 'var(--text-muted)', textAlign: 'center', overflowWrap: 'anywhere' }}>Pick a document type to upload.</p>}
+          <button type="button" aria-disabled={uploadOff || undefined} aria-describedby={showTypeHint ? ids.typeHint : undefined} style={{ ...primary, flex: '1 1 100%', minHeight: 48, opacity: uploadOff ? 0.5 : 1, background: uploadOff ? 'var(--primary-soft)' : primary.background, cursor: uploadOff ? 'not-allowed' : 'pointer' }} onClick={tryUpload}>{uploadButtonLabel(docType)}</button>
         </div>
       </footer>
 
