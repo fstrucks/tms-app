@@ -1,5 +1,5 @@
 // The caller's facility rating reminder cards.
-//   GET ?loadId= → { cards: [{ id, stopId, loadId, kind, facilityName, state }] }  due now ('first') or shown earlier today ('again')
+//   GET ?loadId= → { cards: [{ id, stopId, loadId, kind, facilityName, facilityAddress, state }] }  due now ('first') or shown earlier today ('again')
 //   POST { stopId, action } → { ok }
 //     skip             "Skip" on the immediate prompt: pending → skipped (the 9 AM next-day reminder still comes)
 //     shown            the reminder card was displayed: → reminded, reminded_at = now (only the first time)
@@ -8,7 +8,7 @@
 // Own rows only (filtered by user_id, service role). Before migration 20261102000100: { cards: [] } / { ok: false }.
 import { loadDocsCtx, json, UUID } from '../../lib/loadDocsServer';
 import { isMissing } from '../../lib/truckServer';
-import { cardState, OPEN_STATUSES, PROMPT_ACTIONS, sortPromptRows } from '../../lib/facilityRatingPrompts';
+import { cardState, OPEN_STATUSES, PROMPT_ACTIONS, sortPromptRows, pickCardAddress } from '../../lib/facilityRatingPrompts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,12 +27,20 @@ export async function GET(req, { deps } = {}) {
   if (error) { if (!isMissing(error)) console.error('[rating-prompts] list', error.code); return json({ cards: [] }); }
   const due = sortPromptRows(data).map((r) => ({ r, state: cardState(r, now) })).filter((c) => c.state);
   const ids = [...new Set(due.map((c) => c.r.facility_id))];
-  let names = {};
-  if (ids.length) {
-    const { data: f } = await x.svc.from('facilities').select('id,name').in('id', ids);
-    names = Object.fromEntries((f || []).map((r) => [r.id, r.name]));
+  const stopIds = [...new Set(due.map((c) => c.r.stop_id))];
+  // Address: the stop's own (from the load), else the facility record's. Stop ids come from the caller's own rows.
+  const ADDR = 'address_line1,city,state,zip';
+  let facs = {}, stops = {};
+  if (due.length) {
+    const [{ data: f }, { data: s }] = await Promise.all([
+      x.svc.from('facilities').select(`id,name,${ADDR}`).in('id', ids),
+      x.svc.from('stops').select(`id,${ADDR}`).in('id', stopIds),
+    ]);
+    facs = Object.fromEntries((f || []).map((r) => [r.id, r]));
+    stops = Object.fromEntries((s || []).map((r) => [r.id, r]));
   }
-  return json({ cards: due.map(({ r, state }) => ({ id: r.id, stopId: r.stop_id, loadId: r.load_id, kind: r.kind, facilityName: names[r.facility_id] || '', state })) });
+  return json({ cards: due.map(({ r, state }) => ({ id: r.id, stopId: r.stop_id, loadId: r.load_id, kind: r.kind, facilityName: facs[r.facility_id]?.name || '',
+    facilityAddress: pickCardAddress(stops[r.stop_id], facs[r.facility_id]), state })) });
 }
 
 export async function POST(req, { deps } = {}) {

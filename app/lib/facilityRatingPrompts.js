@@ -78,3 +78,23 @@ export function comparePromptRows(a, b) {
   return num(ms(a.remind_at), ms(b.remind_at)) || num(ms(a.created_at), ms(b.created_at)) || num(String(a.id ?? ''), String(b.id ?? ''));
 }
 export const sortPromptRows = (rows) => [...(rows || [])].sort(comparePromptRows);
+
+// Address on the reminder card ("which Eagle Distributing?"): "street, city, ST zip", any part may be missing,
+// '' when nothing is known (no stray commas or spaces).
+const part = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+export function cardAddress(a) {
+  if (!a) return '';
+  const stZip = [part(a.state), part(a.zip)].filter(Boolean).join(' ');
+  return [part(a.address_line1), part(a.city), stZip].filter(Boolean).join(', ');
+}
+// Best address for a card: the stop's own address (from the load) when it has a street; else the linked facility
+// record's when that has one; else whatever partial address exists (stop first, e.g. just "City, ST").
+export function pickCardAddress(stop, facility) {
+  const s = cardAddress(stop), f = cardAddress(facility);
+  if (s && part(stop?.address_line1)) return s;
+  if (f && part(facility?.address_line1)) return f;
+  return s || f;
+}
+// Google Maps search link (no API key), same shape as the facility page's Open in Maps. null without an address.
+export const cardMapsUrl = (name, address) => (address
+  ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([part(name), address].filter(Boolean).join(', '))}` : null);

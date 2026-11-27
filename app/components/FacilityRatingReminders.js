@@ -5,8 +5,17 @@ import { useEffect, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { makeApi } from '../lib/packetApi';
 import { FacilityReviewPrompt } from './FacilityReview';
+import { cardMapsUrl } from '../lib/facilityRatingPrompts';
 
 const { call: api } = makeApi(() => getSupabase()?.auth);
+// The facility's address under the card title, at most 2 lines (phone width), opens Maps. Nothing when unknown.
+const addrStyle = { display: '-webkit-box', width: 'fit-content', maxWidth: '100%', margin: '1px 0 2px', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere',
+  fontSize: '0.8rem', lineHeight: 1.35, color: 'var(--text-muted)', textDecoration: 'underline', textDecorationColor: 'var(--divider)', textUnderlineOffset: 2 };
+export function CardAddress({ name, address }) {
+  if (!address) return null;
+  return <a data-testid="facility-reminder-address" href={cardMapsUrl(name, address)} target="_blank" rel="noopener noreferrer"
+    aria-label={`${address}, open in Maps`} title="Open in Maps" style={addrStyle}>{address}</a>;
+}
 
 export default function FacilityRatingReminders({ loadId = null }) {
   const [cards, setCards] = useState([]);
@@ -25,6 +34,7 @@ export default function FacilityRatingReminders({ loadId = null }) {
       {cards.map((c) => (
         <div key={c.id} data-testid="facility-rating-reminder" style={{ marginBottom: 10 }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{c.kind === 'pickup' ? 'Yesterday’s pickup' : 'Yesterday’s delivery'}{c.facilityName ? ` · ${c.facilityName}` : ''}</div>
+          <CardAddress name={c.facilityName} address={c.facilityAddress} />
           <FacilityReviewPrompt loadId={c.loadId} stop={{ id: c.stopId, stop_type: c.kind, company_name: c.facilityName }} mode="reminder"
             onClose={() => setCards((cs) => cs.filter((x) => x.id !== c.id))} />
         </div>
