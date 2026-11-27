@@ -1,6 +1,5 @@
 // Per-stop completion (migration 20261020000400): stops.completed_at / completion ('done' | 'skipped') / completed_by.
 // Pure, JSX-free (Node tests import it).
-const IMPLIED_PICKED = ['in_transit'];
 const byseq = (load) => [...(load?.stops || [])].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
 
@@ -9,19 +8,15 @@ export const supportsStopCompletion = (load) => { const st = load?.stops || []; 
 export const isStopDone = (s) => !!s?.completed_at;
 export const hasCompletionData = (load) => (load?.stops || []).some(isStopDone);
 
-// When the stops carry the completion columns: first stop not completed (even with none marked yet, so Undo of the
-// pickup brings the pickup back); all completed → last stop. null only when the columns are absent (caller falls back
-// to the appointment guess).
+// When the stops carry the completion columns: the first stop not checked off, in sequence, whatever the load
+// status (even with none marked yet, so Undo of the pickup brings the pickup back); all completed → last stop. null
+// only when the columns are absent (caller falls back to the appointment guess).
+// Only a real check-off (completed_at) marks a stop done (Nov 27 2026, QA #194 nit (a)): an In transit load with
+// nothing marked used to count the first pickup as implicitly done, so the pickup was greyed with no check, stop 2
+// was "next", and after stop 2 was delivered the highlight jumped back to the pickup as Late.
 export function completedNextIndex(load) {
   const st = byseq(load);
   if (!st.length || !supportsStopCompletion(load)) return null;
-  // In transit with nothing marked (picked up before check-off existed, or status set by hand): the first pickup is
-  // implicitly done. Undo of that pickup moves the load back to dispatched (server), so the pickup shows again.
-  if (!st.some(isStopDone) && IMPLIED_PICKED.includes(load?.status)) {
-    const p = st.findIndex((s) => s.stop_type === 'pickup');
-    const after = (p === -1 ? 0 : p) + 1;
-    return after < st.length ? after : st.length - 1;
-  }
   const i = st.findIndex((s) => !isStopDone(s));
   return i === -1 ? st.length - 1 : i;
 }
@@ -115,8 +110,7 @@ export function planStopAction(load, stopId, action, { now = new Date().toISOStr
     if (!isStopDone(stop)) return { noop: true }; // already open (e.g. a second tap): success, no write
     // Only the most recent stop can be undone (a stale screen could otherwise reopen the pickup under a delivered stop).
     if (lastCompletedStop(load)?.id !== stop.id) return { error: 'Undo the most recent stop first.', code: 409 };
-    // Undo of the first pickup while nothing else is marked: back to dispatched, so the card shows the pickup again
-    // (an in_transit load with no marks counts the pickup as done).
+    // Undo of the first pickup while nothing else is marked: back to dispatched (the load is no longer picked up).
     const firstPickup = st.find((s) => s.stop_type === 'pickup') || st[0];
     const othersDone = st.some((s) => s.id !== stop.id && isStopDone(s));
     const onlyFirstPickup = firstPickup?.id === stop.id && !othersDone;

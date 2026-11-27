@@ -11,7 +11,7 @@
 //    the card shows whatever rate that function returns (can_see_rate), and never computes access itself.
 //  * Members (management / dispatcher / driver) read loads only through visible_loads(). Until that migration
 //    is applied the card falls back to the owner's own-row select, and members get no card (never a false empty).
-import { completedNextIndex, isStopDone } from './stopProgress.js';
+import { completedNextIndex, isStopDone, supportsStopCompletion } from './stopProgress.js';
 import { groupLoads, sortedStops, pickupStop, deliveryStop } from './loadTabs';
 import { fmtMoney } from './money';
 
@@ -136,13 +136,16 @@ export function routeStops(load) {
 }
 export const routeStopsText = (load) => routeStops(load).join(' → ');
 
-// Option B rows: every stop in order. 'next' = the highlighted stop (nextStopIndex); 'done' = before it, or
-// marked complete; 'upcoming' = still to come. → [{ stop, index, state, skipped }]
+// Option B rows: every stop in order. 'next' = the highlighted stop (nextStopIndex); 'done' = checked off
+// (stops.completed_at); 'upcoming' = everything else. Only a real check-off counts as done: an unchecked stop stays
+// pending whatever the load status (Nov 27 2026). Before the completion columns exist (no check-off at all) the
+// stops before the appointment-guess 'next' stop are shown as passed. → [{ stop, index, state, skipped }]
 export function stopRows(load, now = Date.now()) {
   const ni = nextStopIndex(load, now);
+  const checkOff = supportsStopCompletion(load);
   return sortedStops(load).map((stop, index) => ({
     stop, index,
-    state: index === ni ? 'next' : (index < ni || isStopDone(stop)) ? 'done' : 'upcoming',
+    state: index === ni ? 'next' : (checkOff ? isStopDone(stop) : index < ni) ? 'done' : 'upcoming',
     skipped: stop?.completion === 'skipped',
   }));
 }
@@ -150,8 +153,9 @@ export function stopRows(load, now = Date.now()) {
 // Option B: the stop to show first. Before in transit: the first stop. In transit: the first stop after stop 1
 // whose appointment (end, else start) has not passed by more than 2 h, or that has no appointment; else the last
 // stop. There is no per-stop "done" field today, so this is a best guess from the appointments and is shown as such.
-// PR #115: when any stop has completion data (stops.completed_at), the next stop is the first one not completed,
-// whatever the status. The appointment guess below is the fallback for loads with no completion data.
+// PR #115: when the stops carry the completion columns (stops.completed_at), the next stop is the first one not
+// checked off, whatever the status (an In transit load with nothing marked → stop 1). The appointment guess below is
+// only the fallback for stops without those columns (before migration 20261020000400).
 export function nextStopIndex(load, now = Date.now()) {
   const st = sortedStops(load);
   if (!st.length) return -1;
