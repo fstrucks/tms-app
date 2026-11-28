@@ -4,11 +4,11 @@ import { useRetryWhenOnline } from '../lib/onlineRetry';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
-import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
+import { StatusBadge, fmtMoney } from '../lib/loads';
 import { Loading, LoadError } from '../components/DataState';
 import SignInLink from '../components/SignInLink';
 import LoadsTabs from '../components/LoadsTabs';
-import { pickupStop, deliveryStop } from '../lib/loadTabs';
+import { ListRoute } from '../components/RouteLine';
 import { fetchActiveCompany } from '../lib/activeCompanyClient';
 import { fetchDispatchLoads } from '../lib/dispatch';
 import { viewingFor } from '../lib/activeCompanyView';
@@ -107,7 +107,6 @@ export function LoadsList({ selectedId = null }) {
         <p style={s.muted}>No loads yet. Upload a rate confirmation on <Link href="/documents" style={s.link}>Documents</Link> and tap "Create load".</p>
       )}
       {loaded && loads.length > 0 && <LoadsTabs loads={loads} renderLoad={(l) => {
-        const stops = [pickupStop(l), deliveryStop(l)];
         const sel = l.id === selectedId;
         return (
           <Link key={l.id} href={viewing ? `/dispatch/${l.id}` : `/loads/${l.id}`} aria-current={sel ? 'page' : undefined}
@@ -119,9 +118,7 @@ export function LoadsList({ selectedId = null }) {
               {/* TODO(pick 5, open): status colours. Current StatusBadge kept until Marc decides. */}
               <StatusBadge status={l.status} />
             </div>
-            <div style={{ margin: '0.4rem 0', fontSize: '0.9rem' }}>
-              {stopSummary(stops[0])} <span style={s.muted}>→</span> {stopSummary(stops[stops.length - 1])}
-            </div>
+            <ListRoute load={l} dated testId="load-route" stopTestId="load-route-stop" style={{ margin: '0.4rem 0', fontSize: '0.9rem' }} arrowStyle={s.muted} />
             <div style={s.row}>
               <span><strong>{fmtMoney(l.rate)}</strong>{l.total_miles > 0 && <span style={s.muted}> · {Number(l.total_miles).toLocaleString('en-US')} mi</span>}{l.rate_per_mile != null && <span style={{ ...s.muted, fontWeight: 600, color: 'var(--success)' }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
               <span style={s.muted}>{new Date(l.created_at).toLocaleDateString()}</span>
