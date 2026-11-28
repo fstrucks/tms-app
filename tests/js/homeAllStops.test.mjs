@@ -20,7 +20,7 @@ const three = { id: 'fake-3', status: 'in_transit', stops: [
 test('route line: every stop in sequence order, not just first → last', () => {
   assert.deepEqual(routeStops(three), ['Lathrop, CA', 'Warrenton, OR', 'Hillsboro, OR']);
   assert.equal(routeStopsText(three), 'Lathrop, CA → Warrenton, OR → Hillsboro, OR');
-  assert.equal(routeLabel(three), 'Lathrop, CA → Hillsboro, OR', 'Up next rows keep the short label');
+  assert.equal(routeLabel(three), 'Lathrop, CA → Hillsboro, OR', 'routeLabel stays the short first-pickup → last-delivery form');
 });
 
 test('route line: 2-stop loads unchanged, 1-stop shows one place, no stops shows a dash', () => {
@@ -73,13 +73,12 @@ test('card source: no collapsed "Other stops" toggle; all stops listed; route li
   assert.doesNotMatch(card, /<details|<summary/);
   assert.match(card, /const rows = stopRows\(load, now\);/);
   assert.match(card, /data-testid="home-stop-row" data-state=\{state\}/);
-  assert.match(card, /<RouteLine load=\{load\} \/>/);
-  assert.match(card, /const places = routeStops\(load\);/);
-  // each "→ City, ST" is one inline-block unit: the arrow is glued (nbsp) to the stop after it
-  assert.match(card, /display: 'inline-block', maxWidth: '100%', overflowWrap: 'anywhere'/);
-  assert.match(card, /'→\\u00a0'/);
-  // Up next rows keep the short pickup → delivery label
-  assert.match(card, /<StatusBadge status=\{l\.status\} \/> \{routeLabel\(l\)\}/);
+  assert.match(card, /<HomeRouteLine load=\{load\} \/>/);
+  assert.match(card, /testId="home-route"/);
+  assert.match(card, /stopTestId="home-route-stop"/);
+  // Up next rows list every stop, same wrapping route line as the Current load card
+  assert.match(card, /<StatusBadge status=\{l\.status\} \/> <RouteLine load=\{l\}/);
+  assert.match(card, /testId="up-next-route"/);
 });
 
 test('card source: 1-stop loads show the stop once; #189 Open load / Rate con buttons intact', () => {

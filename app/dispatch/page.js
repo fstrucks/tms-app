@@ -11,8 +11,8 @@ import DispatchHeaderLinks from './DispatchHeaderLinks';
 import OfficeLocationPanel from '../components/OfficeLocationPanel';
 import { Loading, LoadError } from '../components/DataState';
 import { getSupabase, supabaseConfigError, hasSession } from '../lib/supabase';
-import { StatusBadge, fmtMoney, stopSummary } from '../lib/loads';
-import { pickupStop, deliveryStop } from '../lib/loadTabs';
+import { StatusBadge, fmtMoney } from '../lib/loads';
+import { ListRoute } from '../components/RouteLine';
 import { resolveDispatchAccess, fetchDispatchLoads, SETUP_MSG, driverMap, notMemberCopy, DISPATCH_LOAD_ERROR } from '../lib/dispatch';
 import { useRetryWhenOnline, loadWithOneRetry, withTimeout } from '../lib/onlineRetry';
 import { fetchDriverChoices, withOwnerDriver } from '../lib/loadDriver';
@@ -102,7 +102,7 @@ export default function DispatchPage() {
                       </strong>
                       <StatusBadge status={l.status} />
                     </div>
-                    <div style={{ margin: '0.4rem 0', fontSize: '0.9rem' }}>{stopSummary(pickupStop(l))} <span style={s.muted}>→</span> {stopSummary(deliveryStop(l))}{l.stops?.length > 2 && <span style={s.muted}> · {l.stops.length} stops</span>}</div>
+                    <ListRoute load={l} dated testId="dispatch-load-route" stopTestId="dispatch-load-route-stop" style={{ margin: '0.4rem 0', fontSize: '0.9rem' }} arrowStyle={s.muted} />
                     <div style={s.row}>
                       <span><strong>{fmtMoney(l.rate)}</strong>{l.rate_per_mile != null && <span style={{ ...s.muted, color: 'var(--success)', fontWeight: 600 }}> · {fmtMoney(l.rate_per_mile)}/mi</span>}</span>
                       <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>

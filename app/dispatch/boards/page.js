@@ -12,7 +12,8 @@ import SignInLink from '../../components/SignInLink';
 import StopsEditor, { Field, STOP_STYLES } from '../../components/StopsEditor';
 import { getSupabase, supabaseConfigError, hasSession } from '../../lib/supabase';
 import { fmtMoney } from '../../lib/loads';
-import { pickupStop, deliveryStop } from '../../lib/loadTabs';
+import { pickupStop } from '../../lib/loadTabs';
+import { ListRoute } from '../../components/RouteLine';
 import { companyOwnerStatus } from '../../lib/accountOwner';
 import { fetchDispatchContext, fetchDispatchLoads, BOARDS_LOAD_ERROR, formToStops, blankStop, saveStops, createLoad } from '../../lib/dispatch';
 import { LOAD_BOARDS, OTHER_BOARD, EMPTY_BOARD_FORM, buildBoardLoad, createBoardLoad, boardLoads, showDispatchNav } from '../../lib/loadBoards';
@@ -33,7 +34,6 @@ const s = {
 const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } };
 const startStops = (tz) => [blankStop('pickup', tz), blankStop('delivery', tz)];
 const fmtDay = (iso) => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
-const place = (st) => (st ? [st.city, st.state].filter(Boolean).join(', ') : '—');
 
 export default function LoadBoardsPage() {
   const supabase = getSupabase();
@@ -177,11 +177,11 @@ export default function LoadBoardsPage() {
             <section style={s.card} aria-labelledby="boards-recent" data-testid="board-loads">
               <h2 id="boards-recent" style={{ fontSize: '1.05rem', margin: 0 }}>Saved from boards</h2>
               {state.loads.length === 0 ? <p style={{ ...s.muted, marginBottom: 0 }}>No loads saved from a board yet.</p> : state.loads.map((l) => {
-                const pu = pickupStop(l), del = deliveryStop(l);
+                const pu = pickupStop(l);
                 return (
                   <Link key={l.id} href={loadHref(l.id)} style={s.row} data-testid="board-load-row">
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontWeight: 600 }}>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place(pu)} → {place(del)}</span>
+                      <ListRoute load={l} testId="board-load-route" stopTestId="board-load-route-stop" style={{ flex: 1, fontWeight: 600 }} />
                       {state.role === 'owner' && l.rate != null && <span style={{ whiteSpace: 'nowrap' }}>{fmtMoney(l.rate)}</span>}
                     </div>
                     <div style={s.muted}>{l.board} · {l.broker_name || 'Broker'} · {pu?.appointment_start ? `Pickup ${fmtDay(pu.appointment_start)}` : 'Pickup date not set'}</div>

@@ -1,7 +1,8 @@
 'use client';
 
 // Home page "Current load" card (Marc's hybrid, Oct 18 2026): Option A for one pickup + one drop, Option B
-// (Nov 27 2026: every stop in order, next stop highlighted + countdown, completed stops muted) for multi-stop loads; "Up next" (next 2 booked)
+// (Nov 27 2026: every stop in order, next stop highlighted + countdown, completed stops muted) for multi-stop loads; "Up next" (next 2 booked,
+// Nov 28: every stop on the route line, same wrap as the Current load card)
 // beside it on desktop and below it on phones. Loads come from public.visible_loads() (owner + company members,
 // rate nulled server-side for drivers unless the load's show_rate_to_driver is on). Before migration
 // 20261018000600 it falls back to the owner's own select and members get no card.
@@ -14,13 +15,14 @@ import { sortedStops, pickupStop } from '../lib/loadTabs';
 import { milesSourceNote, isMissingMilesSource } from '../lib/loadMiles';
 import { stopDoneLabel } from '../lib/stopProgress';
 import { Loading, LoadError } from './DataState';
+import RouteLine from './RouteLine';
 import CurrentLoadPanels from './CurrentLoadPanels';
 import StopActions from './StopActions';
 import { StopRating, useLoadFacilities } from './FacilityReview';
 import { latestRateCon } from '../lib/loadDocs';
 import { fetchLoadDocs, openLoadDoc } from '../lib/loadDocsClient';
 import {
-  fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, routeLabel, routeStops, stopRows, canShowRate, rateText,
+  fetchHomeLoads, pickCurrentLoad, moreLine, upNext, layoutFor, stopRows, canShowRate, rateText,
   countdown, pickupNumberText, cardAudience, linkBaseFor, STOP_LABEL, TONE_COLORS, TONE_BG,
   deliveredPromptMode, markDelivered, fetchMyMemberRows, homeLoadsFor, isOverdueInTransit, countRateconsWaiting, rateconsWaitingText,
 } from '../lib/homeCurrentLoad';
@@ -103,17 +105,8 @@ function OptionB({ load, now }) {
   );
 }
 
-// Route line: every stop in order. Each "→ City, ST" is one unit, so at phone width the line breaks between
-// stops (the arrow stays with the stop after it), never mid-city; a single over-long name may still wrap inside.
-function RouteLine({ load }) {
-  const places = routeStops(load);
-  return (
-    <div data-testid="home-route" style={s.route}>
-      {places.map((p, i) => (
-        <span key={i}>{i > 0 && ' '}<span data-testid="home-route-stop" style={{ display: 'inline-block', maxWidth: '100%', overflowWrap: 'anywhere' }}>{i > 0 && '→\u00a0'}{p}</span></span>
-      ))}
-    </div>
-  );
+function HomeRouteLine({ load }) {
+  return <RouteLine load={load} testId="home-route" stopTestId="home-route-stop" style={s.route} />;
 }
 
 // The current load is swipeable (Panel 1 = FrontCard, unchanged; Panel 2 = map + miles left). "Next load" stays one card.
@@ -155,7 +148,7 @@ function FrontCard({ pick, rateCon, onOpenRateCon, now, audience, onMarkDelivere
         <StatusBadge status={load.status} />
       </div>
       {kind === 'next' && <p style={{ ...s.muted, margin: '0.4rem 0 0' }}>Nothing on the road right now. This is your next booked load.</p>}
-      <RouteLine load={load} />
+      <HomeRouteLine load={load} />
       <div style={{ ...s.muted, marginBottom: 12 }}>
         {load.broker_load_number ? `Load #${load.broker_load_number}` : 'Load'}{load.broker_name ? ` · ${load.broker_name}` : ''}
       </div>
@@ -191,7 +184,7 @@ function UpNext({ loads, base, audience, now }) {
         const od = isOverdueInTransit(l, now); // stale In transit: listed after booked loads, flagged
         const d = od ? 'Past delivery' : fmtApptDate(pu?.appointment_start, pu?.timezone);
         const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0.6rem 0', borderBottom: i < loads.length - 1 ? '1px solid var(--divider)' : 'none', color: 'inherit', textDecoration: 'none', fontSize: '0.9rem' };
-        const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> {routeLabel(l)}</span><span data-overdue={od ? 'true' : undefined} style={{ ...s.muted, whiteSpace: 'nowrap', ...(od ? { color: 'var(--warning)' } : {}) }}>{d || 'No date'}</span></>);
+        const inner = (<><span style={{ minWidth: 0 }}><StatusBadge status={l.status} /> <RouteLine load={l} as="span" testId="up-next-route" stopTestId="up-next-route-stop" style={{ display: 'inline' }} /></span><span data-overdue={od ? 'true' : undefined} style={{ ...s.muted, whiteSpace: 'nowrap', ...(od ? { color: 'var(--warning)' } : {}) }}>{d || 'No date'}</span></>);
         const rowBase = linkBaseFor(audience, l); // per load: never a /loads/<id> link for a member's load
         return rowBase ? <Link key={l.id} href={`${rowBase}/${l.id}`} style={rowStyle}>{inner}</Link> : <div key={l.id} style={rowStyle}>{inner}</div>;
       })}

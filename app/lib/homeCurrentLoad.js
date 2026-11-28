@@ -5,7 +5,7 @@
 //    booked (stale booked loads skipped); ties go to the earliest pickup (groupLoads in loadTabs.js).
 //  * Layout: 'A' (pickup and delivery side by side) for one pickup + one drop; 'B' (every stop listed in order,
 //    the next stop highlighted with its countdown, completed stops muted) when the load has more than two stops.
-//    The card's route line names every stop in order (routeStops); "Up next" rows keep the short routeLabel.
+//    The card's route line and "Up next" rows name every stop in order (routeStops in lib/routeLine.js).
 //  * Rate (Marc, 9:16 PM CT): the owner always sees it. A driver sees it only on loads assigned to him with
 //    show_rate_to_driver on. Enforced in the database by public.visible_loads() (migration 20261018000600):
 //    the card shows whatever rate that function returns (can_see_rate), and never computes access itself.
@@ -14,6 +14,8 @@
 import { completedNextIndex, isStopDone, supportsStopCompletion } from './stopProgress.js';
 import { groupLoads, sortedStops, pickupStop, deliveryStop } from './loadTabs';
 import { fmtMoney } from './money';
+import { stopPlace } from './routeLine';
+export { stopPlace, routeStops, routeStopsText } from './routeLine';
 
 import { notifyLoadDeliveredClient } from './locationShareClient';
 export const CARD_STATUSES = ['in_transit', 'dispatched', 'booked'];
@@ -35,7 +37,6 @@ export function isOverdueInTransit(load, now = Date.now()) {
 export const HOME_LOAD_COLS = 'id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, miles_source, notes, created_at, stops(*)';
 export const HOME_LOAD_COLS_NO_SOURCE = 'id, status, broker_name, broker_load_number, rate, rate_per_mile, total_miles, notes, created_at, stops(*)';
 
-const cityState = (stop) => [stop?.city, stop?.state].filter(Boolean).join(', '); // same as lib/loads (which pulls in JSX)
 const ts = (v) => { const t = v ? Date.parse(v) : NaN; return Number.isNaN(t) ? null : t; };
 const pickupAt = (l) => ts(pickupStop(l)?.appointment_start);
 
@@ -121,20 +122,8 @@ export const isMultiStop = (load) => sortedStops(load).length > 2;
 export const layoutFor = (load) => (isMultiStop(load) ? 'B' : 'A');
 
 export function routeLabel(load) {
-  const a = cityState(pickupStop(load)) || pickupStop(load)?.company_name || '—';
-  const b = cityState(deliveryStop(load)) || deliveryStop(load)?.company_name || '—';
-  return `${a} → ${b}`;
+  return `${stopPlace(pickupStop(load))} → ${stopPlace(deliveryStop(load))}`;
 }
-
-// Current load card route line (Marc, Nov 27 2026: "this should show all the stops"): one place per stop, in the
-// load page's order (sequence), e.g. ['Lathrop, CA', 'Warrenton, OR', 'Hillsboro, OR']. City, state; else the
-// facility name; else '—'. No stops → ['—'].
-export const stopPlace = (stop) => cityState(stop) || (stop?.company_name || '').trim() || '—';
-export function routeStops(load) {
-  const st = sortedStops(load);
-  return st.length ? st.map(stopPlace) : ['—'];
-}
-export const routeStopsText = (load) => routeStops(load).join(' → ');
 
 // Option B rows: every stop in order. 'next' = the highlighted stop (nextStopIndex); 'done' = checked off
 // (stops.completed_at); 'upcoming' = everything else. Only a real check-off counts as done: an unchecked stop stays

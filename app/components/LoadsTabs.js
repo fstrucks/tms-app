@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { TABS, DEFAULT_TAB, parseTab, countByTab, groupLoads, groupLabel, currentInTransit, pickupStop, deliveryStop } from '../lib/loadTabs';
-import { stopSummary } from '../lib/loads';
+import { TABS, DEFAULT_TAB, parseTab, countByTab, groupLoads, groupLabel, currentInTransit } from '../lib/loadTabs';
+import { ListRoute } from './RouteLine';
 
 // Segmented Active / Pending / Booked / Past control + date-grouped list.
 // The tab lives in ?tab= (replaceState, so Back leaves the page rather than stepping through tabs).
@@ -67,7 +67,7 @@ export default function LoadsTabs({ loads, renderLoad, hrefFor = (id) => `/loads
       <div role="tabpanel" id="loads-tabpanel" aria-labelledby={`loads-tab-${tab}`}>
         {onRoad && (
           <Link href={hrefFor(onRoad.id)} style={st.bar}>
-            <strong>On the road</strong> · {stopSummary(pickupStop(onRoad))} → {stopSummary(deliveryStop(onRoad))}
+            <strong>On the road</strong> · <ListRoute load={onRoad} dated as="span" testId="on-road-route" stopTestId="on-road-route-stop" style={{ display: 'inline' }} />
           </Link>
         )}
         {groups.length === 0 && <p style={st.muted}>No {TABS.find((t) => t.id === tab).label.toLowerCase()} loads.</p>}
